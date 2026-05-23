@@ -70,28 +70,41 @@ def _git_status_porcelain(repo: Path) -> str:
     ).stdout.strip()
 
 
+def _raise_if_unsafe_relative_path(raw: str, rel: Path) -> None:
+    if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
+        raise ValueError(f"unsafe relative path: {raw}")
+
+
+def _deploy_file_excluded(file_rel: Path, path: Path) -> bool:
+    if any(part in EXCLUDED_PARTS for part in file_rel.parts):
+        return True
+    return path.suffix in EXCLUDED_SUFFIXES
+
+
+def _relative_files_in_directory(root: Path, directory: Path) -> set[str]:
+    files: set[str] = set()
+    for path in directory.rglob("*"):
+        if not path.is_file():
+            continue
+        file_rel = path.relative_to(root)
+        if _deploy_file_excluded(file_rel, path):
+            continue
+        files.add(file_rel.as_posix())
+    return files
+
+
 def _iter_relative_files(root: Path, selected_paths: Sequence[str]) -> list[str]:
     files: set[str] = set()
     for raw in selected_paths:
         rel = Path(raw)
-        if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
-            raise ValueError(f"unsafe relative path: {raw}")
+        _raise_if_unsafe_relative_path(raw, rel)
         candidate = root / rel
         if candidate.is_file():
             files.add(rel.as_posix())
-            continue
-        if candidate.is_dir():
-            for path in candidate.rglob("*"):
-                if not path.is_file():
-                    continue
-                file_rel = path.relative_to(root)
-                if any(part in EXCLUDED_PARTS for part in file_rel.parts):
-                    continue
-                if path.suffix in EXCLUDED_SUFFIXES:
-                    continue
-                files.add(file_rel.as_posix())
-            continue
-        files.add(rel.as_posix())
+        elif candidate.is_dir():
+            files.update(_relative_files_in_directory(root, candidate))
+        else:
+            files.add(rel.as_posix())
     return sorted(files)
 
 
