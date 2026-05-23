@@ -1998,6 +1998,14 @@ def _ready_callback_for_retry(record: RunRecord) -> GateCallback | None:
     )
 
 
+def _dashboard_record_sort_priority(truth: dict[str, Any]) -> int:
+    if truth["is_live"]:
+        return 0
+    if truth["needs_attention"]:
+        return 1
+    return 2
+
+
 def _dashboard_truth(
     record: RunRecord,
     active_processes: list[ProcessInfo],
@@ -2641,13 +2649,7 @@ def dashboard_api(
         reverse=True,
     )
     records.sort(
-        key=lambda record: (
-            0
-            if truth_by_run[record.run_id]["is_live"]
-            else 1
-            if truth_by_run[record.run_id]["needs_attention"]
-            else 2
-        )
+        key=lambda record: _dashboard_record_sort_priority(truth_by_run[record.run_id])
     )
     visible_records = records[:limit]
     state_counts = Counter(record.gate_state.value for record in records)
