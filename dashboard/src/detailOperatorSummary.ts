@@ -354,6 +354,16 @@ function eventDefaultEntityType(payload: Record<string, unknown>): string {
   return 'entity'
 }
 
+function eventNextStepMessage(actionNeeded: string | null, entityLinks: EntityLink[]): string {
+  if (actionNeeded) {
+    return `Resolve the recorded blocker: ${actionNeeded}`
+  }
+  if (entityLinks.length) {
+    return 'Open the related project, run, or paper if this event requires action.'
+  }
+  return 'Use the payload only as supporting detail; do not treat it as a command.'
+}
+
 function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const eventType = text(payload.event_type)
   const headline = eventHumanSummary(payload)
@@ -368,7 +378,7 @@ function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   return {
     state: operatorStageLabel(stageSource, headline !== eventType ? headline : eventType),
     context: entityId !== '—' ? `${eventEntityLabel(entityType, entityId)} · logged ${createdAt}.` : `Logged ${createdAt}.`,
-    next: operatorNextStep(stageSource, actionNeeded ? `Resolve the recorded blocker: ${actionNeeded}` : entityLinks.length ? 'Open the related project, run, or paper if this event requires action.' : 'Use the payload only as supporting detail; do not treat it as a command.'),
+    next: operatorNextStep(stageSource, eventNextStepMessage(actionNeeded, entityLinks)),
     entityLinks,
     sections: [
       { title: 'What happened?', answers: [{ label: 'event type', value: eventType }, { label: 'summary', value: headline }, { label: 'event id', value: eventId }] },
