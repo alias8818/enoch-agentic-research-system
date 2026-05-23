@@ -199,7 +199,7 @@ def _number(value: Any) -> dict[str, Any]:
 
 
 def _checkbox(value: Any) -> dict[str, Any]:
-    if value in {True, 1, "1", "true", "True", "TRUE", "__YES__"}:
+    if value in (True, 1, "1", "true", "True", "TRUE", "__YES__"):
         return {"checkbox": True}
     return {"checkbox": False}
 
