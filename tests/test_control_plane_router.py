@@ -1,1 +1,1 @@
-[full test file with the generation validator appended]
+[full test file with the promotion validator appended]
