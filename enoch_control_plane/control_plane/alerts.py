@@ -310,6 +310,30 @@ def queue_alert_findings(
     return _dedupe_alert_findings(findings)
 
 
+def _is_recent_dispatch_transition_row(row: dict[str, Any], cutoff: datetime) -> bool:
+    event_type = str(row.get("event_type") or "")
+    if event_type not in DISPATCH_TRANSITION_EVENTS:
+        return False
+    created_at = _parse_ts(str(row.get("created_at") or ""))
+    if created_at is None:
+        return False
+    return created_at >= cutoff
+
+
+def _project_ids_from_dispatch_transition_row(row: dict[str, Any]) -> set[str]:
+    projects: set[str] = set()
+    entity_type = str(row.get("entity_type") or "")
+    entity_id = str(row.get("entity_id") or "")
+    if entity_type == "project" and entity_id:
+        projects.add(entity_id)
+    payload = row.get("payload")
+    if isinstance(payload, dict):
+        project_id = str(payload.get("project_id") or "")
+        if project_id:
+            projects.add(project_id)
+    return projects
+
+
 def _recent_dispatch_transition_projects(
     store: ControlPlaneStore, *, grace_sec: int = DISPATCH_RACE_GRACE_SEC
 ) -> set[str]:
@@ -320,21 +344,9 @@ def _recent_dispatch_transition_projects(
     except Exception:
         return projects
     for row in rows:
-        event_type = str(row.get("event_type") or "")
-        if event_type not in DISPATCH_TRANSITION_EVENTS:
+        if not _is_recent_dispatch_transition_row(row, cutoff):
             continue
-        created_at = _parse_ts(str(row.get("created_at") or ""))
-        if created_at is None or created_at < cutoff:
-            continue
-        entity_type = str(row.get("entity_type") or "")
-        entity_id = str(row.get("entity_id") or "")
-        if entity_type == "project" and entity_id:
-            projects.add(entity_id)
-        payload = row.get("payload")
-        if isinstance(payload, dict):
-            project_id = str(payload.get("project_id") or "")
-            if project_id:
-                projects.add(project_id)
+        projects.update(_project_ids_from_dispatch_transition_row(row))
     return projects
 
 
