@@ -509,21 +509,20 @@ def main() -> int:
     )
     if not args.push:
         print("preflight complete; rerun with --push to publish in this order")
-        return 0
+    else:
+        for repo in ordered_dependencies:
+            push_and_verify(repo, push=True, timeout=args.remote_timeout)
 
-    for repo in ordered_dependencies:
-        push_and_verify(repo, push=True, timeout=args.remote_timeout)
+        # The corpus public-release workflow reads the sibling repos from remote main;
+        # only push corpus after every sibling remote has been verified above.
+        push_and_verify(corpus, push=True, timeout=args.remote_timeout)
 
-    # The corpus public-release workflow reads the sibling repos from remote main;
-    # only push corpus after every sibling remote has been verified above.
-    push_and_verify(corpus, push=True, timeout=args.remote_timeout)
+        if args.watch:
+            watch_latest_workflow(
+                corpus, workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW, commit=head(corpus)
+            )
 
-    if args.watch:
-        watch_latest_workflow(
-            corpus, workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW, commit=head(corpus)
-        )
-
-    print("public release bundle push complete")
+        print("public release bundle push complete")
     return 0
 
 
