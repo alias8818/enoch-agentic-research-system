@@ -671,26 +671,19 @@ def _records_from_repo(repo_root: Path) -> list[dict[str, Any]]:
     ]
 
 
-def validate_export_repo(repo_root: Path) -> list[str]:
+def _signal_record_validation_issues(records: list[dict[str, Any]]) -> list[str]:
     issues: list[str] = []
-    records = _records_from_repo(repo_root)
-    manifest_path = repo_root / "data" / MANIFEST_JSON
-    if not manifest_path.exists():
-        return ["manifest:missing"]
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return ["manifest:invalid_json"]
-    expected = export_manifest(
-        records,
-        selection_summary=manifest.get("selection_summary")
-        if isinstance(manifest.get("selection_summary"), dict)
-        else None,
-    )
     for record in records:
         project_id = _text(record.get("project_id")) or "unknown_project"
         for issue in validate_signal(record):
             issues.append(f"signal.{project_id}.{issue}")
+    return issues
+
+
+def _manifest_validation_issues(
+    manifest: dict[str, Any], expected: dict[str, Any]
+) -> list[str]:
+    issues: list[str] = []
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         issues.append("manifest.schema_version:invalid")
     if manifest.get("record_count") != expected["record_count"]:
@@ -713,37 +706,62 @@ def validate_export_repo(repo_root: Path) -> list[str]:
         issues.append("manifest.ranking_summary:drift")
     if manifest.get("public_evidence_copied") is not False:
         issues.append("manifest.public_evidence_copied:must_be_false")
+    return issues
+
+
+def _ranking_item_compare_view(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project_id": item.get("project_id"),
+        "score": item.get("score"),
+        "bucket": item.get("bucket"),
+        "reasons": item.get("reasons"),
+    }
+
+
+def _ranking_validation_issues(
+    repo_root: Path, records: list[dict[str, Any]]
+) -> list[str]:
     ranking_path = repo_root / "data" / "ranking.json"
     if not ranking_path.exists():
-        issues.append("ranking:missing")
-    else:
-        ranking = json.loads(ranking_path.read_text(encoding="utf-8"))
-        expected_ranking = export_ranking(records)
-        if ranking.get("schema_version") != RANKING_SCHEMA_VERSION:
-            issues.append("ranking.schema_version:invalid")
-        if ranking.get("bucket_counts") != expected_ranking["bucket_counts"]:
-            issues.append("ranking.bucket_counts:drift")
-        actual_items = [
-            {
-                "project_id": item.get("project_id"),
-                "score": item.get("score"),
-                "bucket": item.get("bucket"),
-                "reasons": item.get("reasons"),
-            }
-            for item in ranking.get("items", [])
-            if isinstance(item, dict)
-        ]
-        expected_items = [
-            {
-                "project_id": item.get("project_id"),
-                "score": item.get("score"),
-                "bucket": item.get("bucket"),
-                "reasons": item.get("reasons"),
-            }
-            for item in expected_ranking["items"]
-        ]
-        if actual_items != expected_items:
-            issues.append("ranking.items:drift")
+        return ["ranking:missing"]
+    ranking = json.loads(ranking_path.read_text(encoding="utf-8"))
+    expected_ranking = export_ranking(records)
+    issues: list[str] = []
+    if ranking.get("schema_version") != RANKING_SCHEMA_VERSION:
+        issues.append("ranking.schema_version:invalid")
+    if ranking.get("bucket_counts") != expected_ranking["bucket_counts"]:
+        issues.append("ranking.bucket_counts:drift")
+    actual_items = [
+        _ranking_item_compare_view(item)
+        for item in ranking.get("items", [])
+        if isinstance(item, dict)
+    ]
+    expected_items = [
+        _ranking_item_compare_view(item) for item in expected_ranking["items"]
+    ]
+    if actual_items != expected_items:
+        issues.append("ranking.items:drift")
+    return issues
+
+
+def validate_export_repo(repo_root: Path) -> list[str]:
+    records = _records_from_repo(repo_root)
+    manifest_path = repo_root / "data" / MANIFEST_JSON
+    if not manifest_path.exists():
+        return ["manifest:missing"]
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return ["manifest:invalid_json"]
+    selection_summary = (
+        manifest.get("selection_summary")
+        if isinstance(manifest.get("selection_summary"), dict)
+        else None
+    )
+    expected = export_manifest(records, selection_summary=selection_summary)
+    issues = _signal_record_validation_issues(records)
+    issues.extend(_manifest_validation_issues(manifest, expected))
+    issues.extend(_ranking_validation_issues(repo_root, records))
     return sorted(issues)
 
 
