@@ -263,105 +263,69 @@ def _followup_depth(row: dict[str, Any]) -> int:
     return max(values or [0])
 
 
+def _followup_not_ready_reason(
+    row: dict[str, Any],
+    *,
+    bucket: str,
+    max_followup_depth: int,
+    explicit_project: bool,
+) -> str | None:
+    if not _truthy(row.get("followup_recommended")):
+        return "followup_not_recommended"
+    if _normal(row.get("status") or row.get("queue_status")) != "completed":
+        return "not_completed"
+    if _truthy(row.get("manual_review_required")):
+        return "manual_review_required"
+    if _truthy(row.get("followup_launched")):
+        return "followup_already_launched"
+    if _truthy(row.get("compute_scale_blocked")):
+        return "compute_scale_blocked"
+    if _followup_depth(row) >= max_followup_depth:
+        return "max_followup_depth"
+    if _normal(row.get("followup_type")) not in {"deepen", "branch", "retry"}:
+        return "unsupported_followup_type"
+    if not _text(row.get("followup_title")) or not _text(
+        row.get("followup_hypothesis")
+    ):
+        return "missing_followup_identity"
+    if len(_followup_evidence(row)) < MIN_FOLLOWUP_REQUIRED_EVIDENCE:
+        return "required_evidence_too_sparse"
+    if not _text(row.get("followup_success_threshold")) or not _text(
+        row.get("followup_stop_condition")
+    ):
+        return "missing_followup_bounds"
+    if _followup_exceeds_local_compute(row):
+        return "followup_exceeds_local_compute"
+    if bucket == LIKELY_STALE_LOW_VALUE_ARCHIVE and not explicit_project:
+        return LIKELY_STALE_LOW_VALUE_ARCHIVE
+    return None
+
+
 def ranked_followup_readiness(
     row: dict[str, Any], *, max_followup_depth: int = 4, explicit_project: bool = False
 ) -> dict[str, Any]:
     """Return deterministic readiness metadata for auto follow-up selection."""
 
     bucket = promising_signal_bucket(row)
-    if not _truthy(row.get("followup_recommended")):
+    score = promising_signal_score(row)
+    not_ready = _followup_not_ready_reason(
+        row,
+        bucket=bucket,
+        max_followup_depth=max_followup_depth,
+        explicit_project=explicit_project,
+    )
+    if not_ready:
         return {
             "ready": False,
-            "reason": "followup_not_recommended",
+            "reason": not_ready,
             "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if _normal(row.get("status") or row.get("queue_status")) != "completed":
-        return {
-            "ready": False,
-            "reason": "not_completed",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if _truthy(row.get("manual_review_required")):
-        return {
-            "ready": False,
-            "reason": "manual_review_required",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if _truthy(row.get("followup_launched")):
-        return {
-            "ready": False,
-            "reason": "followup_already_launched",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if _truthy(row.get("compute_scale_blocked")):
-        return {
-            "ready": False,
-            "reason": "compute_scale_blocked",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if _followup_depth(row) >= max_followup_depth:
-        return {
-            "ready": False,
-            "reason": "max_followup_depth",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if _normal(row.get("followup_type")) not in {"deepen", "branch", "retry"}:
-        return {
-            "ready": False,
-            "reason": "unsupported_followup_type",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if not _text(row.get("followup_title")) or not _text(
-        row.get("followup_hypothesis")
-    ):
-        return {
-            "ready": False,
-            "reason": "missing_followup_identity",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if len(_followup_evidence(row)) < MIN_FOLLOWUP_REQUIRED_EVIDENCE:
-        return {
-            "ready": False,
-            "reason": "required_evidence_too_sparse",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if not _text(row.get("followup_success_threshold")) or not _text(
-        row.get("followup_stop_condition")
-    ):
-        return {
-            "ready": False,
-            "reason": "missing_followup_bounds",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if _followup_exceeds_local_compute(row):
-        return {
-            "ready": False,
-            "reason": "followup_exceeds_local_compute",
-            "bucket": bucket,
-            "score": promising_signal_score(row),
-        }
-    if bucket == LIKELY_STALE_LOW_VALUE_ARCHIVE and not explicit_project:
-        return {
-            "ready": False,
-            "reason": LIKELY_STALE_LOW_VALUE_ARCHIVE,
-            "bucket": bucket,
-            "score": promising_signal_score(row),
+            "score": score,
         }
     return {
         "ready": True,
         "reason": "ranked_bounded_followup_ready",
         "bucket": bucket,
-        "score": promising_signal_score(row),
+        "score": score,
     }
 
 
