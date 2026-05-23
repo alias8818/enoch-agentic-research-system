@@ -182,11 +182,12 @@ def _resolve_artifact_absolute_path(
     path: Path, project_dir: Path | None
 ) -> Path | None:
     try:
-        candidate = (
-            path
-            if path.is_absolute()
-            else (project_dir / path if project_dir else path)
-        )
+        if path.is_absolute():
+            candidate = path
+        elif project_dir:
+            candidate = project_dir / path
+        else:
+            candidate = path
         return candidate.resolve()
     except (OSError, RuntimeError, ValueError):
         return None
