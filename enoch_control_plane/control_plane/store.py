@@ -2090,58 +2090,144 @@ class ControlPlaneStore:
             _json_dict(row.get("checklist_json")) if row else {}
         )
 
-    def backfill_paper_reviews(
+    def _papers_for_review_backfill(
         self, request: PaperReviewBackfillRequest
-    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
-        audit_by_paper = _audit_rows(request.source_audit_path)
+    ) -> list[dict[str, Any]]:
         requested_paper_ids = {
             _text(paper_id) for paper_id in request.paper_ids if _text(paper_id)
         }
-        papers = [
+        return [
             paper
             for paper in self.paper_rows()
             if not requested_paper_ids
             or _text(paper.get("paper_id")) in requested_paper_ids
         ]
+
+    def _paper_review_backfill_candidate(
+        self,
+        paper: dict[str, Any],
+        audit_by_paper: dict[str, dict[str, Any]],
+        source_audit_path: str,
+    ) -> tuple[PaperReviewRecord, dict[str, Any] | None]:
+        paper_id = _text(paper.get("paper_id"))
+        mandatory = [
+            "draft_markdown_path",
+            "draft_latex_path",
+            "evidence_bundle_path",
+            "claim_ledger_path",
+            "manifest_path",
+        ]
+        missing_paths = [name for name in mandatory if not _text(paper.get(name))]
+        error = (
+            {
+                "paper_id": paper_id,
+                "reason": "missing mandatory artifact path",
+                "missing_paths": missing_paths,
+            }
+            if missing_paths
+            else None
+        )
+        audit = audit_by_paper.get(paper_id, {})
+        initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
+        queue_item = self.queue_row(_text(paper.get("project_id")))
+        rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = _review_rank(
+            paper, queue_item, audit, initial_missing
+        )
+        status = ReviewStatus.QUEUED if not missing_paths else ReviewStatus.BLOCKED
+        record = PaperReviewRecord(
+            paper_id=paper_id,
+            review_status=status,
+            checklist_json=_default_review_checklist(),
+            rank_score=rank_score,
+            rank_reasons=rank_reasons,
+            missing_signals=missing_signals,
+            rank_tiebreaker=tiebreaker,
+            source_audit_path=source_audit_path,
+        )
+        return record, error
+
+    def _apply_paper_review_backfill_record(
+        self,
+        conn: sqlite3.Connection,
+        record: PaperReviewRecord,
+        now: str,
+    ) -> str:
+        existing = conn.execute(
+            "SELECT * FROM paper_review_items WHERE paper_id=?",
+            (record.paper_id,),
+        ).fetchone()
+        rank_reasons_json = _json(record.rank_reasons)
+        missing_signals_json = _json(record.missing_signals)
+        if not existing:
+            conn.execute(
+                """INSERT INTO paper_review_items(paper_id,review_status,reviewer,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    record.paper_id,
+                    record.review_status.value,
+                    record.reviewer,
+                    record.blocker,
+                    record.claimed_at,
+                    _json(_normalize_review_checklist(record.checklist_json)),
+                    record.rank_score,
+                    rank_reasons_json,
+                    missing_signals_json,
+                    record.rank_tiebreaker,
+                    record.source_audit_path,
+                    record.finalization_package_path,
+                    record.finalized_at,
+                    record.decision_summary,
+                    now,
+                    now,
+                ),
+            )
+            return "created"
+        existing_review_status = _normal(existing["review_status"])
+        next_review_status = (
+            record.review_status.value
+            if existing_review_status in SYSTEM_REVIEW_STATUSES
+            else existing_review_status
+        )
+        changes = {
+            "review_status": next_review_status,
+            "rank_score": record.rank_score,
+            "rank_reasons_json": rank_reasons_json,
+            "missing_signals_json": missing_signals_json,
+            "rank_tiebreaker": record.rank_tiebreaker,
+            "source_audit_path": record.source_audit_path,
+        }
+        if all(str(existing[key]) == str(value) for key, value in changes.items()):
+            return "skipped"
+        conn.execute(
+            """UPDATE paper_review_items
+            SET review_status=?, rank_score=?, rank_reasons_json=?, missing_signals_json=?, rank_tiebreaker=?, source_audit_path=?, updated_at=?
+            WHERE paper_id=?""",
+            (
+                next_review_status,
+                record.rank_score,
+                rank_reasons_json,
+                missing_signals_json,
+                record.rank_tiebreaker,
+                record.source_audit_path,
+                now,
+                record.paper_id,
+            ),
+        )
+        return "updated"
+
+    def backfill_paper_reviews(
+        self, request: PaperReviewBackfillRequest
+    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
+        audit_by_paper = _audit_rows(request.source_audit_path)
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
-        for paper in papers:
-            paper_id = _text(paper.get("paper_id"))
-            mandatory = [
-                "draft_markdown_path",
-                "draft_latex_path",
-                "evidence_bundle_path",
-                "claim_ledger_path",
-                "manifest_path",
-            ]
-            missing_paths = [name for name in mandatory if not _text(paper.get(name))]
-            if missing_paths:
-                errors.append(
-                    {
-                        "paper_id": paper_id,
-                        "reason": "missing mandatory artifact path",
-                        "missing_paths": missing_paths,
-                    }
-                )
-            audit = audit_by_paper.get(paper_id, {})
-            initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
-            queue_item = self.queue_row(_text(paper.get("project_id")))
-            rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = (
-                _review_rank(paper, queue_item, audit, initial_missing)
+        for paper in self._papers_for_review_backfill(request):
+            record, error = self._paper_review_backfill_candidate(
+                paper, audit_by_paper, request.source_audit_path
             )
-            status = ReviewStatus.QUEUED if not missing_paths else ReviewStatus.BLOCKED
-            candidates.append(
-                PaperReviewRecord(
-                    paper_id=paper_id,
-                    review_status=status,
-                    checklist_json=_default_review_checklist(),
-                    rank_score=rank_score,
-                    rank_reasons=rank_reasons,
-                    missing_signals=missing_signals,
-                    rank_tiebreaker=tiebreaker,
-                    source_audit_path=request.source_audit_path,
-                )
-            )
+            if error:
+                errors.append(error)
+            candidates.append(record)
         if request.dry_run:
             return False, len(candidates), 0, 0, errors
         event_payload = request.model_dump(mode="json")
@@ -2162,73 +2248,13 @@ class ControlPlaneStore:
             if not inserted:
                 return False, 0, 0, 0, errors
             for record in candidates:
-                existing = conn.execute(
-                    "SELECT * FROM paper_review_items WHERE paper_id=?",
-                    (record.paper_id,),
-                ).fetchone()
-                rank_reasons_json = _json(record.rank_reasons)
-                missing_signals_json = _json(record.missing_signals)
-                if existing:
-                    existing_review_status = _normal(existing["review_status"])
-                    next_review_status = (
-                        record.review_status.value
-                        if existing_review_status in SYSTEM_REVIEW_STATUSES
-                        else existing_review_status
-                    )
-                    changes = {
-                        "review_status": next_review_status,
-                        "rank_score": record.rank_score,
-                        "rank_reasons_json": rank_reasons_json,
-                        "missing_signals_json": missing_signals_json,
-                        "rank_tiebreaker": record.rank_tiebreaker,
-                        "source_audit_path": record.source_audit_path,
-                    }
-                    if all(
-                        str(existing[key]) == str(value)
-                        for key, value in changes.items()
-                    ):
-                        skipped += 1
-                        continue
-                    conn.execute(
-                        """UPDATE paper_review_items
-                        SET review_status=?, rank_score=?, rank_reasons_json=?, missing_signals_json=?, rank_tiebreaker=?, source_audit_path=?, updated_at=?
-                        WHERE paper_id=?""",
-                        (
-                            next_review_status,
-                            record.rank_score,
-                            rank_reasons_json,
-                            missing_signals_json,
-                            record.rank_tiebreaker,
-                            record.source_audit_path,
-                            now,
-                            record.paper_id,
-                        ),
-                    )
+                outcome = self._apply_paper_review_backfill_record(conn, record, now)
+                if outcome == "created":
+                    created += 1
+                elif outcome == "updated":
                     updated += 1
-                    continue
-                conn.execute(
-                    """INSERT INTO paper_review_items(paper_id,review_status,reviewer,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        record.paper_id,
-                        record.review_status.value,
-                        record.reviewer,
-                        record.blocker,
-                        record.claimed_at,
-                        _json(_normalize_review_checklist(record.checklist_json)),
-                        record.rank_score,
-                        rank_reasons_json,
-                        missing_signals_json,
-                        record.rank_tiebreaker,
-                        record.source_audit_path,
-                        record.finalization_package_path,
-                        record.finalized_at,
-                        record.decision_summary,
-                        now,
-                        now,
-                    ),
-                )
-                created += 1
+                else:
+                    skipped += 1
         return inserted, created, updated, skipped, errors
 
     def _raw_paper_review_row(self, paper_id: str) -> dict[str, Any] | None:
