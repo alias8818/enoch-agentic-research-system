@@ -7779,12 +7779,7 @@ def _mount_control_plane_http_routes(
             record=record,
             evidence_sync=evidence_sync,
         )
-        try:
-            artifact_snapshots = _snapshot_paper_rewrite_artifacts(
-                artifact_root, record
-            )
-        except PaperArtifactSnapshotReadError as exc:
-            raise exc
+        artifact_snapshots = _snapshot_paper_rewrite_artifacts(artifact_root, record)
         return _commit_paper_rewrite_draft(
             store,
             config,
