@@ -322,64 +322,65 @@ def fetch_rows(
     return [dict(r) for r in candidates], [dict(r) for r in priors]
 
 
-def audit(
-    candidates: Iterable[dict[str, Any]],
-    priors: Iterable[dict[str, Any]],
-    *,
-    threshold: float,
-) -> dict[str, Any]:
-    findings: list[AuditFinding] = []
-    prior_list = list(priors)
-    prior_index = []
-    for prior in prior_list:
-        prior_index.append(
-            (prior, tokens(prior_text(prior)), _text(prior.get("category")).lower())
-        )
-    for candidate in candidates:
-        # Already-promoted admitted candidates are represented in the queue; this audit is about lost/held variants.
-        if _text(candidate.get("admitted_idea_id")):
+PriorIndexEntry = tuple[dict[str, Any], set[str], str]
+
+
+def _build_prior_index(prior_list: list[dict[str, Any]]) -> list[PriorIndexEntry]:
+    return [
+        (prior, tokens(prior_text(prior)), _text(prior.get("category")).lower())
+        for prior in prior_list
+    ]
+
+
+def _find_best_prior_match(
+    candidate: dict[str, Any],
+    prior_index: list[PriorIndexEntry],
+) -> tuple[float, dict[str, Any]] | None:
+    c_tokens = tokens(candidate_text(candidate))
+    c_category = _text(candidate.get("category")).lower()
+    best: tuple[float, dict[str, Any]] | None = None
+    for prior, p_tokens, p_category in prior_index:
+        if c_category and p_category and c_category != p_category:
+            # Cross-category duplicates are rare; skipping them makes the audit fast and reduces noise.
             continue
-        best: tuple[float, dict[str, Any]] | None = None
-        c_tokens = tokens(candidate_text(candidate))
-        c_category = _text(candidate.get("category")).lower()
-        for prior, p_tokens, p_category in prior_index:
-            if c_category and p_category and c_category != p_category:
-                # Cross-category duplicates are rare; skipping them makes the audit fast and reduces noise.
-                continue
-            sim = token_similarity(c_tokens, p_tokens)
-            if best is None or sim > best[0]:
-                best = (sim, prior)
-        if not best or best[0] < threshold:
-            continue
-        similarity, prior = best
-        variant_type, could_branch, deltas, reason, action = classify(
-            candidate, prior, similarity
-        )
-        cluster_id = f"{_text(candidate.get('category')) or 'uncategorized'}:{_text(prior.get('project_id'))}"
-        findings.append(
-            AuditFinding(
-                cluster_id=cluster_id,
-                candidate_id=_text(candidate.get("candidate_id")),
-                candidate_title=_text(candidate.get("title")),
-                candidate_status=_text(candidate.get("status")),
-                admission_decision=_text(candidate.get("admission_decision")),
-                candidate_score=float(candidate.get("total_score") or 0),
-                canonical_project=_text(prior.get("project_id")),
-                canonical_title=_text(
-                    prior.get("project_name") or prior.get("idea_title")
-                ),
-                prior_decision=_text(
-                    prior.get("project_decision") or prior.get("decision_gate_state")
-                ),
-                prior_hypothesis_status=_text(prior.get("hypothesis_status")),
-                similarity=similarity,
-                variant_type=variant_type,
-                could_have_been_good_branch=could_branch,
-                material_deltas=deltas,
-                dedupe_reason=reason,
-                recommended_action=action,
-            )
-        )
+        sim = token_similarity(c_tokens, p_tokens)
+        if best is None or sim > best[0]:
+            best = (sim, prior)
+    return best
+
+
+def _audit_finding(
+    candidate: dict[str, Any],
+    prior: dict[str, Any],
+    similarity: float,
+) -> AuditFinding:
+    variant_type, could_branch, deltas, reason, action = classify(
+        candidate, prior, similarity
+    )
+    cluster_id = f"{_text(candidate.get('category')) or 'uncategorized'}:{_text(prior.get('project_id'))}"
+    return AuditFinding(
+        cluster_id=cluster_id,
+        candidate_id=_text(candidate.get("candidate_id")),
+        candidate_title=_text(candidate.get("title")),
+        candidate_status=_text(candidate.get("status")),
+        admission_decision=_text(candidate.get("admission_decision")),
+        candidate_score=float(candidate.get("total_score") or 0),
+        canonical_project=_text(prior.get("project_id")),
+        canonical_title=_text(prior.get("project_name") or prior.get("idea_title")),
+        prior_decision=_text(
+            prior.get("project_decision") or prior.get("decision_gate_state")
+        ),
+        prior_hypothesis_status=_text(prior.get("hypothesis_status")),
+        similarity=similarity,
+        variant_type=variant_type,
+        could_have_been_good_branch=could_branch,
+        material_deltas=deltas,
+        dedupe_reason=reason,
+        recommended_action=action,
+    )
+
+
+def _sort_findings(findings: list[AuditFinding]) -> None:
     order = {"branch_candidate": 0, "variant_hold": 1, "duplicate_suppress": 2}
     findings.sort(
         key=lambda f: (
@@ -389,18 +390,47 @@ def audit(
             f.candidate_id,
         )
     )
+
+
+def _variant_type_counts(findings: list[AuditFinding]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for finding in findings:
         counts[finding.variant_type] = counts.get(finding.variant_type, 0) + 1
+    return counts
+
+
+def _candidate_rows_checked(candidates: Iterable[dict[str, Any]]) -> int:
+    if isinstance(candidates, list):
+        return len(candidates)
+    return len(list(candidates))
+
+
+def audit(
+    candidates: Iterable[dict[str, Any]],
+    priors: Iterable[dict[str, Any]],
+    *,
+    threshold: float,
+) -> dict[str, Any]:
+    findings: list[AuditFinding] = []
+    prior_list = list(priors)
+    prior_index = _build_prior_index(prior_list)
+    for candidate in candidates:
+        # Already-promoted admitted candidates are represented in the queue; this audit is about lost/held variants.
+        if _text(candidate.get("admitted_idea_id")):
+            continue
+        best = _find_best_prior_match(candidate, prior_index)
+        if not best or best[0] < threshold:
+            continue
+        similarity, prior = best
+        findings.append(_audit_finding(candidate, prior, similarity))
+    _sort_findings(findings)
     return {
         "summary": {
-            "candidate_rows_checked": len(list(candidates))
-            if not isinstance(candidates, list)
-            else len(candidates),
+            "candidate_rows_checked": _candidate_rows_checked(candidates),
             "prior_decisions_checked": len(prior_list),
             "similarity_threshold": threshold,
             "finding_count": len(findings),
-            "variant_type_counts": counts,
+            "variant_type_counts": _variant_type_counts(findings),
             "limitation": "Rows absent from Research Facility ledgers cannot be recovered by this audit.",
         },
         "findings": [asdict(f) for f in findings],
