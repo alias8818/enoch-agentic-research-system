@@ -338,6 +338,10 @@ DEFAULT_RESEARCH_PROVIDER_BASE_URL = "https://synthetic.int.exe.xyz"
 # (worker preflight error paths and messages in router.py).
 WORKER_PREFLIGHT_FAILED_REASON = "worker preflight failed"
 
+# Centralized event type / status constant for the top remaining S1192 duplication
+# (paper_review draft rewrite events and comparisons in router.py).
+PAPER_REVIEW_DRAFT_REWRITTEN = "paper_review.draft_rewritten"
+
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -5089,7 +5093,7 @@ def create_control_plane_router(
             if existing_event:
                 if (
                     str(existing_event.get("event_type") or "")
-                    != "paper_review.draft_rewritten"
+                    != PAPER_REVIEW_DRAFT_REWRITTEN
                     or str(existing_event.get("entity_id") or "") != paper_id
                 ):
                     raise HTTPException(
@@ -5225,7 +5229,7 @@ def create_control_plane_router(
             }
             event_id, inserted = store.append_event(
                 idempotency_key=payload.idempotency_key,
-                event_type="paper_review.draft_rewritten",
+                event_type=PAPER_REVIEW_DRAFT_REWRITTEN,
                 entity_type="paper_review",
                 entity_id=paper_id,
                 payload=event_payload,
@@ -5364,7 +5368,7 @@ def create_control_plane_router(
                 if not store.event_rows(
                     limit=1,
                     entity_id=str(row.get("paper_id") or ""),
-                    event_type="paper_review.draft_rewritten",
+                    event_type=PAPER_REVIEW_DRAFT_REWRITTEN,
                 )
             ]
         rows = _sort_rows(_search_rows(rows, payload.search), "-rank_score")

@@ -864,3 +864,19 @@ def test_router_worker_preflight_failed_centralized_no_s1192_duplication() -> No
     assert count == 1, (
         f"{lit!r} still duplicated in router (count={count}); extract to const"
     )
+
+
+def test_router_paper_review_draft_rewritten_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top remaining S1192 in router.py (line 5092).
+
+    "paper_review.draft_rewritten" (flagged in latest Sonar top duplication, 3x in
+    comparisons and event_type strings) must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "paper_review.draft_rewritten"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
