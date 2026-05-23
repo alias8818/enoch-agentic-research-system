@@ -1233,6 +1233,67 @@ def _resolve_project_relative_path(project_dir: Path, relative_path: str) -> Pat
     return resolved
 
 
+def _read_project_paper_artifact_entry(
+    project_dir: Path,
+    relative_path: str,
+    *,
+    max_bytes: int,
+    too_large_detail: str | None = None,
+) -> dict[str, Any]:
+    path = _resolve_project_relative_path(project_dir, relative_path)
+    try:
+        artifact_exists = path.exists() and path.is_file()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"paper artifact is not readable: {relative_path}",
+        ) from exc
+    if not artifact_exists:
+        raise HTTPException(
+            status_code=404, detail=f"paper artifact not found: {relative_path}"
+        )
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"paper artifact is not readable: {relative_path}",
+        ) from exc
+    if size > max_bytes:
+        detail = too_large_detail or (
+            f"paper artifact too large to read: {relative_path}"
+        )
+        raise HTTPException(status_code=413, detail=detail)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"paper artifact is not readable: {relative_path}",
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=415,
+            detail=f"paper artifact is not UTF-8 text: {relative_path}",
+        ) from exc
+    return {
+        "path": path.relative_to(project_dir).as_posix(),
+        "bytes": size,
+        "content": content,
+    }
+
+
+def _validate_paper_artifact_read_request(request: PaperArtifactReadRequest) -> None:
+    if len(request.paths) > 20:
+        raise HTTPException(
+            status_code=400, detail="too many paper artifact paths; max 20"
+        )
+    if request.max_bytes_per_file < 1 or request.max_bytes_per_file > 2_000_000:
+        raise HTTPException(
+            status_code=400, detail="max_bytes_per_file must be between 1 and 2000000"
+        )
+
+
 def _find_run_record(project_id: str, run_id: str | None = None) -> RunRecord | None:
     if run_id:
         record = store.load_run(run_id)
@@ -2313,43 +2374,19 @@ def dashboard_api_paper_artifact(
         raise HTTPException(
             status_code=404, detail=f"{PROJECT_DIRECTORY_LABEL} not found: {project_id}"
         )
-    artifact_path = _resolve_project_relative_path(project_dir, path)
-    try:
-        artifact_exists = artifact_path.exists() and artifact_path.is_file()
-    except OSError as exc:
-        raise HTTPException(
-            status_code=403, detail=f"paper artifact is not readable: {path}"
-        ) from exc
-    if not artifact_exists:
-        raise HTTPException(status_code=404, detail=f"paper artifact not found: {path}")
-    try:
-        size = artifact_path.stat().st_size
-    except OSError as exc:
-        raise HTTPException(
-            status_code=403, detail=f"paper artifact is not readable: {path}"
-        ) from exc
-    if size > max_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=f"paper artifact too large for dashboard preview: {path}",
-        )
-    try:
-        content = artifact_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise HTTPException(
-            status_code=403, detail=f"paper artifact is not readable: {path}"
-        ) from exc
-    except UnicodeDecodeError as exc:
-        raise HTTPException(
-            status_code=415, detail=f"paper artifact is not UTF-8 text: {path}"
-        ) from exc
+    entry = _read_project_paper_artifact_entry(
+        project_dir,
+        path,
+        max_bytes=max_bytes,
+        too_large_detail=f"paper artifact too large for dashboard preview: {path}",
+    )
     return {
         "ok": True,
         "project_id": project_id,
         "project_dir": project_dir.as_posix(),
-        "path": artifact_path.relative_to(project_dir).as_posix(),
-        "bytes": size,
-        "content": content,
+        "path": entry["path"],
+        "bytes": entry["bytes"],
+        "content": entry["content"],
         "timestamp": utc_now(),
     }
 
@@ -2631,14 +2668,7 @@ async def read_project_paper(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
-    if len(request.paths) > 20:
-        raise HTTPException(
-            status_code=400, detail="too many paper artifact paths; max 20"
-        )
-    if request.max_bytes_per_file < 1 or request.max_bytes_per_file > 2_000_000:
-        raise HTTPException(
-            status_code=400, detail="max_bytes_per_file must be between 1 and 2000000"
-        )
+    _validate_paper_artifact_read_request(request)
 
     project_dir = _resolve_project_dir(project_id, None)
     if not _checked_exists(
@@ -2650,46 +2680,12 @@ async def read_project_paper(
             status_code=404, detail=f"{PROJECT_DIRECTORY_LABEL} not found: {project_id}"
         )
 
-    files: list[dict[str, Any]] = []
-    for relative in request.paths:
-        path = _resolve_project_relative_path(project_dir, relative)
-        try:
-            artifact_exists = path.exists() and path.is_file()
-        except OSError as exc:
-            raise HTTPException(
-                status_code=403, detail=f"paper artifact is not readable: {relative}"
-            ) from exc
-        if not artifact_exists:
-            raise HTTPException(
-                status_code=404, detail=f"paper artifact not found: {relative}"
-            )
-        try:
-            size = path.stat().st_size
-        except OSError as exc:
-            raise HTTPException(
-                status_code=403, detail=f"paper artifact is not readable: {relative}"
-            ) from exc
-        if size > request.max_bytes_per_file:
-            raise HTTPException(
-                status_code=413, detail=f"paper artifact too large to read: {relative}"
-            )
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise HTTPException(
-                status_code=403, detail=f"paper artifact is not readable: {relative}"
-            ) from exc
-        except UnicodeDecodeError as exc:
-            raise HTTPException(
-                status_code=415, detail=f"paper artifact is not UTF-8 text: {relative}"
-            ) from exc
-        files.append(
-            {
-                "path": path.relative_to(project_dir).as_posix(),
-                "bytes": size,
-                "content": content,
-            }
+    files = [
+        _read_project_paper_artifact_entry(
+            project_dir, relative, max_bytes=request.max_bytes_per_file
         )
+        for relative in request.paths
+    ]
 
     return {
         "ok": True,
