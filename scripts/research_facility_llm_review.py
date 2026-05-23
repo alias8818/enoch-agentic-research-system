@@ -45,6 +45,7 @@ ADMISSION_DECISION_BY_STATUS = {
 }
 DEFAULT_MODEL = "hf:zai-org/GLM-5.1"
 PROMPT_VERSION = "research_facility_llm_review_v1"
+SEARCH_PATH_ENOCH = "set search_path to enoch, public"
 
 
 def utc_now() -> str:
@@ -142,7 +143,7 @@ def latest_review_age_minutes(
 
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+            cur.execute(SEARCH_PATH_ENOCH)
             row = cur.execute(
                 "select created_at from control_events where event_type = any(%s) order by created_at desc limit 1",
                 (list(event_types),),
@@ -171,7 +172,7 @@ def record_review_cycle_event(
     key = f"research-janitor-llm-cycle:{payload['started_at']}:{provider_model}:{batch_count}"
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+            cur.execute(SEARCH_PATH_ENOCH)
             cur.execute(
                 """
                 insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
@@ -580,7 +581,7 @@ def record_review(
         return result
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+            cur.execute(SEARCH_PATH_ENOCH)
             for decision in decisions:
                 candidate_id = decision["candidate_id"]
                 source = by_id.get(candidate_id, {})
@@ -634,7 +635,7 @@ def apply_stored_llm_decisions(
     }
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+            cur.execute(SEARCH_PATH_ENOCH)
             rows = cur.execute(
                 """
                 select distinct on (e.entity_id)
