@@ -3092,6 +3092,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
     def dispatch_next_dry_run(
         self, *, requested_by: str
     ) -> tuple[str, dict[str, Any] | None, int | None, str]:
+        # requested_by matches ControlPlaneStore.dispatch_next_dry_run for graph callers.
         flags = self.flags()
         if flags.queue_paused:
             return "paused", None, None, flags.pause_reason or "queue paused"
