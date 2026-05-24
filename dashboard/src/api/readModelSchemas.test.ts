@@ -61,6 +61,37 @@ it('parses command-center overview, status, and readiness payloads', () => {
   expect(parseAutomationReadiness({ ok: true, label: 'Long-haul mode: READY' }).label).toBe('Long-haul mode: READY')
 })
 
+
+it('accepts explicit null lane on global primary operator blockers', () => {
+  const parsed = parseOverviewResponse({
+    ok: true,
+    primary_operator_action: {
+      kind: 'open_blocker',
+      tone: 'warn',
+      title: 'Maintenance mode is on',
+      summary: 'Automation is intentionally held until maintenance mode is cleared.',
+      action_label: 'Resume queue',
+      action_hash: '#overview',
+      blocker_kind: 'maintenance_mode',
+      lane: null,
+    },
+    movement_diagnosis: {
+      status: 'blocked',
+      primary_reason: 'maintenance_mode',
+      blockers: [{
+        kind: 'maintenance_mode',
+        lane: null,
+        tone: 'warn',
+        title: 'Maintenance mode is on',
+        summary: 'Automation is intentionally held until maintenance mode is cleared.',
+      }],
+    },
+  })
+
+  expect(parsed.primary_operator_action?.lane).toBeNull()
+  expect(parsed.movement_diagnosis?.blockers[0]?.lane).toBeNull()
+})
+
 it('parses automation detail payloads', () => {
   const parsed = parseAutomationDetail({
     item: { paper_id: 'paper-1', review_status: 'triage_ready' },
