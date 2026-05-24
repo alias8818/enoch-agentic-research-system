@@ -154,9 +154,7 @@ def test_rank_signal_bucket_priority_is_deterministic() -> None:
 
 def test_has_external_source_url_ignores_malformed_urls() -> None:
     assert (
-        exporter._has_external_source_url(
-            [{"source_id": "src-1", "url": "http://["}]
-        )
+        exporter._has_external_source_url([{"source_id": "src-1", "url": "http://["}])
         is False
     )
 
