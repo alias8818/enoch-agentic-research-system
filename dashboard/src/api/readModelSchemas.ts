@@ -195,6 +195,14 @@ const workerLaneSchema = z.object({
     project_name: z.string().optional(),
     current_run_id: z.string().optional(),
   }).nullable().optional(),
+  active_confirmation: z.object({
+    state: z.string().optional(),
+    matched: z.boolean().optional(),
+    reason: z.string().optional(),
+    matched_run_id: z.string().optional(),
+    matched_project_id: z.string().optional(),
+    active_process_count: z.number().nullable().optional(),
+  }).nullable().optional(),
   next_candidate: z.object({
     project_id: z.string().optional(),
     project_name: z.string().optional(),

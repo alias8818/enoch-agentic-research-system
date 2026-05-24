@@ -266,11 +266,23 @@ it('keeps non-command primary actions as V2 links', () => {
 })
 
 it('renders worker lane commands without deriving queue truth from aggregate counts', () => {
-  render(<WorkerLanes lanes={[{ lane_key: 'cpu', machine_target: 'cpu-proxmox-1', status: 'active', queued_count: 0, dispatch_available: false, active_item: { project_name: 'CPU job' } }, { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_name: 'GB10 job' } }]} onRefresh={() => undefined} />)
+  render(<WorkerLanes lanes={[
+    {
+      lane_key: 'cpu',
+      machine_target: 'cpu-proxmox-1',
+      status: 'active',
+      queued_count: 0,
+      dispatch_available: false,
+      active_item: { project_name: 'CPU job' },
+      active_confirmation: { state: 'stale_active' },
+    },
+    { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_name: 'GB10 job' } },
+  ]} onRefresh={() => undefined} />)
   expect(screen.getByText('CPU lane')).toBeInTheDocument()
   expect(screen.getByText('GB10 lane')).toBeInTheDocument()
   expect(screen.getByText('CPU job')).toBeInTheDocument()
   expect(screen.getByText('GB10 job')).toBeInTheDocument()
+  expect(screen.getByText('Stale active: worker reports no matching live run.')).toBeInTheDocument()
   expect(screen.getByText('Lane is active.')).toBeInTheDocument()
   expect(screen.getByText('Ready to dispatch queued work.')).toBeInTheDocument()
   expect(screen.getAllByText('Check dispatch')).toHaveLength(2)

@@ -26,6 +26,14 @@ export interface WorkerLane {
   dispatch_available?: boolean
   dispatch_blocker?: string
   active_item?: { project_id?: string; project_name?: string; current_run_id?: string } | null
+  active_confirmation?: {
+    state?: string
+    matched?: boolean
+    reason?: string
+    matched_run_id?: string
+    matched_project_id?: string
+    active_process_count?: number | null
+  } | null
   next_candidate?: { project_id?: string; project_name?: string } | null
   feed_pressure?: {
     next_autopilot_action?: string

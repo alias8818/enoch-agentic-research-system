@@ -88,6 +88,27 @@ function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boo
   return laneBlockedMessage(lane, canFeed)
 }
 
+function laneConfirmationMessage(lane: WorkerLane): string | null {
+  if (lane.status !== 'active') return null
+  const state = displayText(lane.active_confirmation?.state, 'unknown')
+  const messages: Record<string, string> = {
+    active_confirmed: 'Worker confirmed active run.',
+    active_unconfirmed: 'Active row is not confirmed by worker telemetry.',
+    active_unconfirmed_grace: 'Worker restart grace: active row is not confirmed yet.',
+    stale_active: 'Stale active: worker reports no matching live run.',
+    unknown: 'Worker confirmation unavailable.',
+  }
+  return messages[state] ?? null
+}
+
+function laneConfirmationClass(lane: WorkerLane): string {
+  const state = displayText(lane.active_confirmation?.state, 'unknown')
+  if (state === 'active_confirmed') return 'lane-confirmation lane-confirmation--good'
+  if (state === 'active_unconfirmed_grace') return 'lane-confirmation lane-confirmation--warn'
+  if (state === 'stale_active') return 'lane-confirmation lane-confirmation--bad'
+  return 'lane-confirmation'
+}
+
 function ResultCard({ result, stale }: Readonly<{ result: CommandResult | null; stale?: boolean }>) {
   if (!result) return null
   return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
@@ -329,6 +350,7 @@ function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchL
   const next = laneProjectLabel(lane.next_candidate)
   const feedReason = laneFeedReason(lane)
   const disabledReason = laneDisabledReason(lane, canFeed, canDispatch)
+  const confirmationMessage = laneConfirmationMessage(lane)
   const reasonClassName = canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'
   const label = laneLabel(lane)
 
@@ -359,6 +381,7 @@ function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchL
         </div>
       </dl>
       {feedReason ? <p className="lane-feed-reason">{feedReason}</p> : null}
+      {confirmationMessage ? <p className={laneConfirmationClass(lane)}>{confirmationMessage}</p> : null}
       <p className={reasonClassName}>{disabledReason}</p>
       <div className="lane-actions">
         <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={onFeedLane}>Feed idle lane</button>

@@ -519,6 +519,10 @@ button:disabled { cursor: not-allowed; }
 .lane-feed-reason { margin: 0 0 0.45rem; color: #d9c7a0; font-size: 0.86rem; line-height: 1.45; }
 .lane-reason { margin: 0; border-left: 2px solid rgba(226,177,91,0.5); padding-left: 0.7rem; color: #aaa39a; font-size: 0.86rem; line-height: 1.45; }
 .lane-reason--ready { color: #b8f2c7; border-color: rgba(89, 205, 135, 0.8); }
+.lane-confirmation { margin: 0; border-left: 2px solid rgba(226,177,91,0.5); padding-left: 0.7rem; color: #fcd34d; font-size: 0.86rem; line-height: 1.45; }
+.lane-confirmation--good { color: #b8f2c7; border-color: rgba(89, 205, 135, 0.8); }
+.lane-confirmation--warn { color: #fcd34d; border-color: rgba(252, 211, 77, 0.72); }
+.lane-confirmation--bad { color: #fca5a5; border-color: rgba(248, 113, 113, 0.78); }
 
 .primary-action { min-height: 9rem; align-items: center; }
 .primary-action--idle { border-color: rgba(89, 205, 135, 0.18); }
