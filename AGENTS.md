@@ -116,12 +116,12 @@ config.example.json           # Configuration template
 - Python 3.11+ with `from __future__ import annotations`
 - FastAPI with `Annotated` type hints for dependencies
 - Pydantic v2 models for all API schemas
-- JSONL structured logging via `observability/middleware.py`
+- JSONL structured logging via `enoch_control_plane/observability/middleware.py`
 - UTC-only datetimes (`utc_now()` from models)
 - Idempotent API design with `idempotency_key` fields
 - All API endpoints require bearer token authorization
 - ruff for linting (E9, F821, F822, F823) and formatting
-- pyright for type checking (basic mode)
+- pyright for type checking (strict mode with warning-level opt-outs)
 - Pre-commit hooks enforce: ruff, ruff-format, check-added-large-files, trailing-whitespace
 
 ## CI Workflows
