@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import re
+from urllib.parse import ParseResult, parse_qsl, urlencode, urlparse, urlunparse
 from typing import Any
 
 try:  # pragma: no cover - import availability is environment-specific.
@@ -108,6 +109,46 @@ def _sanitize_headers(headers: Any) -> Any:
     }
 
 
+def _sanitize_url(raw_url: Any) -> Any:
+    if not isinstance(raw_url, str):
+        return raw_url
+    try:
+        parsed = urlparse(raw_url)
+    except Exception:
+        return _FILTERED
+    if not parsed.query:
+        return raw_url
+    redacted_pairs = []
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        redacted_pairs.append((key, _FILTERED if _is_sensitive_key(key) else value))
+    redacted_query = urlencode(redacted_pairs, doseq=True)
+    return urlunparse(
+        ParseResult(
+            scheme=parsed.scheme,
+            netloc=parsed.netloc,
+            path=parsed.path,
+            params=parsed.params,
+            query=redacted_query,
+            fragment=parsed.fragment,
+        )
+    )
+
+
+def _sanitize_breadcrumbs(event: dict[str, Any]) -> None:
+    breadcrumbs = event.get("breadcrumbs")
+    if not isinstance(breadcrumbs, dict):
+        return
+    values = breadcrumbs.get("values")
+    if not isinstance(values, list):
+        return
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        data = item.get("data")
+        if isinstance(data, dict) and "url" in data:
+            data["url"] = _sanitize_url(data.get("url"))
+
+
 def before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
     """Sentry before_send hook that prevents private research/secrets leakage.
 
@@ -119,6 +160,8 @@ def before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] |
     del hint
     request = event.get("request")
     if isinstance(request, dict):
+        if "url" in request:
+            request["url"] = _sanitize_url(request.get("url"))
         request["headers"] = _sanitize_headers(request.get("headers"))
         if "data" in request:
             request["data"] = _FILTERED
@@ -142,6 +185,7 @@ def before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] |
     tags = event.setdefault("tags", {})
     if isinstance(tags, dict):
         tags.setdefault("component", _env("ENOCH_SENTRY_COMPONENT", "control_plane"))
+    _sanitize_breadcrumbs(event)
     return event
 
 
