@@ -38,6 +38,9 @@ def _weak_evidence_problem_severity(
     *,
     decision: str,
     hypothesis_status: str,
+    followup_recommended: bool = False,
+    bounded_followup: bool = False,
+    bounded_paper_ready: bool = False,
 ) -> str | None:
     weak_evidence_problems = {
         "weak_or_missing_evidence_strength",
@@ -50,7 +53,14 @@ def _weak_evidence_problem_severity(
         decision == "blocked"
         and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"}
     )
-    if demote_decision and problem in weak_evidence_problems:
+    needs_external_review = (
+        decision == "needs_review"
+        and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"}
+        and followup_recommended
+        and bounded_followup
+        and not bounded_paper_ready
+    )
+    if (demote_decision or needs_external_review) and problem in weak_evidence_problems:
         return "warning"
     return None
 
@@ -58,17 +68,22 @@ def _weak_evidence_problem_severity(
 def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     decision = str(item.get("decision") or "").strip()
     hypothesis_status = str(item.get("hypothesis_status") or "").strip()
-    demoted = _weak_evidence_problem_severity(
-        problem, decision=decision, hypothesis_status=hypothesis_status
-    )
-    if demoted is not None:
-        return demoted
     followup_recommended = as_bool(item.get("followup_recommended"))
     bounded_followup = (
         followup_recommended
         and bool(item.get("followup_success_threshold"))
         and bool(item.get("followup_stop_condition"))
     )
+    demoted = _weak_evidence_problem_severity(
+        problem,
+        decision=decision,
+        hypothesis_status=hypothesis_status,
+        followup_recommended=followup_recommended,
+        bounded_followup=bounded_followup,
+        bounded_paper_ready=as_bool(item.get("bounded_paper_ready")),
+    )
+    if demoted is not None:
+        return demoted
     if (
         problem == "supported_but_negative_requires_review"
         and is_supported_negative_nonblocking(
