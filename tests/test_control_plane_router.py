@@ -5974,6 +5974,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             preflight.assert_called_once()
             self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            scoped = store.latest_dashboard_observation(
+                source="worker_preflight", scope="lane:http://worker.example"
+            )
+            self.assertIsNotNone(scoped)
+            self.assertEqual(scoped.payload["target"], "http://worker.example")
 
     def test_dashboard_status_auto_refreshes_stale_worker_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -6999,6 +7005,145 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     and "without a matching worker run" in item["message"]
                     for item in status["warnings"]
                 )
+            )
+
+    def test_dashboard_status_uses_lane_scoped_preflight_for_active_confirmation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "lane-scoped-active-confirmation-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "active-cpu-scoped",
+                            "project_name": "Active CPU Scoped",
+                            "project_dir": "active-cpu-scoped",
+                            "status": "running",
+                            "machine_target": "cpu-proxmox-1",
+                            "current_run_id": "run-active-cpu-scoped",
+                        },
+                        {
+                            "project_id": "active-gb10-scoped",
+                            "project_name": "Active GB10 Scoped",
+                            "project_dir": "active-gb10-scoped",
+                            "status": "running",
+                            "machine_target": "gb10",
+                            "current_run_id": "run-active-gb10-scoped",
+                        },
+                    ],
+                },
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            # The latest global preflight is for the GB10 lane. This used to
+            # make the CPU lane report unknown/"worker confirmation unavailable"
+            # even though the store had a fresh CPU-lane preflight.
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "target": "http://gb10-worker:8787",
+                    "checks": [
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "runs": [
+                                        {
+                                            "run_id": "run-active-gb10-scoped",
+                                            "project_id": "active-gb10-scoped",
+                                            "is_live": True,
+                                            "active_process_count": 1,
+                                        }
+                                    ]
+                                }
+                            },
+                        },
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                scope="lane:http://cpu-proxmox-1:8787",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "target": "http://cpu-proxmox-1:8787",
+                    "checks": [
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "runs": [
+                                        {
+                                            "run_id": "run-active-cpu-scoped",
+                                            "project_id": "active-cpu-scoped",
+                                            "is_live": True,
+                                            "active_process_count": 1,
+                                        }
+                                    ]
+                                }
+                            },
+                        },
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api", status="ok", payload={"ok": True}
+            )
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            self.assertEqual(
+                lanes["cpu-proxmox-1"]["active_confirmation"]["state"],
+                "active_confirmed",
+            )
+            self.assertEqual(
+                lanes["cpu-proxmox-1"]["active_confirmation"]["matched_run_id"],
+                "run-active-cpu-scoped",
+            )
+            self.assertEqual(
+                lanes["gb10"]["active_confirmation"]["state"], "active_confirmed"
             )
 
     def test_dashboard_status_confirms_active_lane_from_matching_worker_run(

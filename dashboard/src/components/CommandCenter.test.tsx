@@ -289,6 +289,22 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
   expect(screen.getByText('Bulk lane commands').closest('details')).not.toHaveAttribute('open')
 })
 
+it('explains unavailable worker confirmation with the backend reason', () => {
+  render(<WorkerLanes lanes={[
+    {
+      lane_key: 'cpu',
+      machine_target: 'cpu-proxmox-1',
+      status: 'active',
+      queued_count: 0,
+      dispatch_available: false,
+      active_item: { project_id: 'project-cpu', current_run_id: 'run-cpu', project_name: 'CPU job' },
+      active_confirmation: { state: 'unknown', reason: 'preflight observation is for a different worker lane' },
+    },
+  ]} onRefresh={() => undefined} />)
+
+  expect(screen.getByText('Worker confirmation unavailable: preflight observation is for a different worker lane.')).toBeInTheDocument()
+})
+
 it('exposes stale active lane reconcile as an explicit confirmed action', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     new Response(JSON.stringify({ ok: true, auto_reconcile: [{ ok: true }] }), { status: 200 }),

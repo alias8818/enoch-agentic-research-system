@@ -91,6 +91,8 @@ function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boo
 function laneConfirmationMessage(lane: WorkerLane): string | null {
   if (lane.status !== 'active') return null
   const state = displayText(lane.active_confirmation?.state, 'unknown')
+  const reason = displayText(lane.active_confirmation?.reason, '')
+  if (state === 'unknown' && reason) return `Worker confirmation unavailable: ${reason}.`
   const messages: Record<string, string> = {
     active_confirmed: 'Worker confirmed active run.',
     active_unconfirmed: 'Active row is not confirmed by worker telemetry.',

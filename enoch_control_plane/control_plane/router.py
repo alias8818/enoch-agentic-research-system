@@ -5604,8 +5604,14 @@ def _cp_mount_worker_lane_capacity_entry(
     global_blockers: list[str],
     worker_preflight: DashboardObservationRecord | None = None,
     worker_preflight_lane_key: str = "",
+    lane_worker_preflight: DashboardObservationRecord | None = None,
+    lane_worker_preflight_key: str = "",
 ) -> dict[str, Any]:
     lane_key = str(lane["lane_key"])
+    confirmation_preflight = lane_worker_preflight or worker_preflight
+    confirmation_preflight_lane_key = (
+        lane_worker_preflight_key or worker_preflight_lane_key
+    )
     lane_active = sorted(
         active_by_lane.get(lane_key, []),
         key=lambda row: str(row.get("updated_at") or ""),
@@ -5627,8 +5633,8 @@ def _cp_mount_worker_lane_capacity_entry(
         "active_count": len(lane_active),
         "active_item": _worker_lane_summary_row(active_item),
         "active_confirmation": _active_lane_worker_confirmation(
-            preflight=worker_preflight,
-            preflight_lane_key=worker_preflight_lane_key,
+            preflight=confirmation_preflight,
+            preflight_lane_key=confirmation_preflight_lane_key,
             lane_key=lane_key,
             active_row=active_item,
         ),
@@ -5664,17 +5670,33 @@ def _cp_mount_worker_lane_capacity(
     worker_preflight_lane_key = _cp_mount_preflight_observation_lane_key(
         config, worker_preflight
     )
-    return [
-        _cp_mount_worker_lane_capacity_entry(
-            lane,
-            active_by_lane=active_by_lane,
-            queued_by_lane=queued_by_lane,
-            global_blockers=blockers,
-            worker_preflight=worker_preflight,
-            worker_preflight_lane_key=worker_preflight_lane_key,
+    capacity: list[dict[str, Any]] = []
+    latest_observation = getattr(store, "latest_dashboard_observation", None)
+    for lane in sorted(lanes_by_key.values(), key=_cp_mount_worker_lane_sort_key):
+        lane_key = str(lane.get("lane_key") or "")
+        lane_preflight = None
+        if callable(latest_observation) and lane_key:
+            lane_preflight = latest_observation(
+                source="worker_preflight", scope=f"lane:{lane_key}"
+            )
+        lane_preflight_key = (
+            _cp_mount_preflight_observation_lane_key(config, lane_preflight)
+            if lane_preflight is not None
+            else ""
         )
-        for lane in sorted(lanes_by_key.values(), key=_cp_mount_worker_lane_sort_key)
-    ]
+        capacity.append(
+            _cp_mount_worker_lane_capacity_entry(
+                lane,
+                active_by_lane=active_by_lane,
+                queued_by_lane=queued_by_lane,
+                global_blockers=blockers,
+                worker_preflight=worker_preflight,
+                worker_preflight_lane_key=worker_preflight_lane_key,
+                lane_worker_preflight=lane_preflight,
+                lane_worker_preflight_key=lane_preflight_key,
+            )
+        )
+    return capacity
 
 
 def _cp_mount_candidate_machine_target_conflict_set(
