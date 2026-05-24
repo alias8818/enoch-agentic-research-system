@@ -855,6 +855,19 @@ class PaperWriterTests(unittest.TestCase):
             self.assertTrue(meta["fallback_used"])
             self.assertTrue((project / "papers/run/paper.md").exists())
 
+    def test_sentence_claims_keeps_hash_prefixed_non_heading_lines(self) -> None:
+        md = """
+# Heading
+#1 The result improved 99% in throughput versus baseline with observed evidence support.
+#claim The result increased latency by 20ms in a tested run with baseline comparison.
+
+"""
+        claims = _sentence_claims(md)
+        joined = " ".join(claims).lower()
+        self.assertIn("99%", joined)
+        self.assertIn("20ms", joined)
+        self.assertNotIn("heading", joined)
+
     def test_sentence_claims_uses_safe_detection_and_extracts_signals(self) -> None:
         """_sentence_claims must extract claims using safe keyword matching (no ReDoS regex)."""
         md = """
