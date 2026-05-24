@@ -2158,6 +2158,29 @@ def _worker_run_is_live_marker(run: dict[str, Any]) -> bool:
     return gate_state in ACTIVE_STATUSES or lifecycle_state in ACTIVE_STATUSES
 
 
+def _active_confirmation_for_no_live_check(
+    *,
+    preflight: DashboardObservationRecord,
+    active_row: dict[str, Any],
+    no_live: dict[str, Any],
+) -> dict[str, Any]:
+    if _preflight_observed_recently(preflight) or _queue_row_recent_callback(
+        active_row
+    ):
+        return {
+            "state": "active_unconfirmed_grace",
+            "matched": False,
+            "reason": "worker reports no live run, but observation/callback is within reconcile grace",
+            "worker_check": no_live,
+        }
+    return {
+        "state": "stale_active",
+        "matched": False,
+        "reason": "worker reports no live run for active control-plane row",
+        "worker_check": no_live,
+    }
+
+
 def _active_lane_worker_confirmation(
     *,
     preflight: DashboardObservationRecord | None,
@@ -2194,21 +2217,9 @@ def _active_lane_worker_confirmation(
             }
     no_live = _preflight_check(preflight, "worker_no_live_runs")
     if no_live and no_live.get("ok") is True:
-        if _preflight_observed_recently(preflight) or _queue_row_recent_callback(
-            active_row
-        ):
-            return {
-                "state": "active_unconfirmed_grace",
-                "matched": False,
-                "reason": "worker reports no live run, but observation/callback is within reconcile grace",
-                "worker_check": no_live,
-            }
-        return {
-            "state": "stale_active",
-            "matched": False,
-            "reason": "worker reports no live run for active control-plane row",
-            "worker_check": no_live,
-        }
+        return _active_confirmation_for_no_live_check(
+            preflight=preflight, active_row=active_row, no_live=no_live
+        )
     return {
         "state": "active_unconfirmed",
         "matched": False,
