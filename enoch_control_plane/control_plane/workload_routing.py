@@ -152,14 +152,14 @@ def infer_workload_class_from_text(row: dict[str, Any]) -> str:
     if not text:
         return "unknown"
     text_without_negated_strong_gpu = _remove_terms(text, NEGATED_STRONG_GPU_TERMS)
-    text_without_negated_gpu = _remove_terms(text_without_negated_strong_gpu, NEGATED_GPU_TERMS)
+    text_without_negated_gpu = _remove_terms(
+        text_without_negated_strong_gpu, NEGATED_GPU_TERMS
+    )
     text_without_negated_training = _remove_terms(text, NEGATED_TRAINING_TERMS)
 
     has_negated_gpu = _contains_any(text, NEGATED_GPU_TERMS)
     has_negated_strong_gpu = _contains_any(text, NEGATED_STRONG_GPU_TERMS)
-    has_gpu_required = _contains_any(
-        text_without_negated_gpu, GPU_REQUIRED_TERMS
-    )
+    has_gpu_required = _contains_any(text_without_negated_gpu, GPU_REQUIRED_TERMS)
     has_strong_gpu_positive = _contains_any(
         text_without_negated_gpu, GPU_STRONG_POSITIVE_TERMS
     )
