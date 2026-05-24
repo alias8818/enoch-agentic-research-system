@@ -3073,10 +3073,14 @@ def _launch_followup_and_record(
 def _apply_followup_branch_skip_flags(
     response: dict[str, Any],
     followup_branch_taken: bool,
+    *,
+    skip_fresh_work: bool | None = None,
 ) -> None:
-    response["fresh_generation_skipped"] = followup_branch_taken
-    response["fresh_promotion_skipped"] = followup_branch_taken
-    if followup_branch_taken:
+    if skip_fresh_work is None:
+        skip_fresh_work = followup_branch_taken
+    response["fresh_generation_skipped"] = bool(skip_fresh_work)
+    response["fresh_promotion_skipped"] = bool(skip_fresh_work)
+    if followup_branch_taken and skip_fresh_work:
         response["reason"] = (
             "bounded follow-up branch took priority over fresh idea generation"
         )
@@ -3164,7 +3168,11 @@ def _handle_followup_candidate(
     else:
         _record_followup_dispatch_disabled(response, followup_candidate)
         followup_branch_taken = False
-    _apply_followup_branch_skip_flags(response, followup_branch_taken)
+    _apply_followup_branch_skip_flags(
+        response,
+        followup_branch_taken,
+        skip_fresh_work=followup_branch_taken and not bool(generation_target_lane),
+    )
 
 
 def _handle_followup_and_early_skips(

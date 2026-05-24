@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import (
+    _handle_followup_and_early_skips,
     _project_prompt,
     _write_deterministic_paper,
     create_control_plane_router,
@@ -197,6 +198,55 @@ def _write_publication_artifacts(
         target = project_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_followup_launch_does_not_skip_fresh_generation_for_empty_lane_queue() -> None:
+    class FakeStore:
+        def next_followup_candidate(
+            self, *, max_followup_depth: int = 4, project_id: str = ""
+        ):
+            return {
+                "project_id": "parent",
+                "machine_target": "cpu-proxmox-1",
+                "followup_title": "Bounded follow-up",
+            }
+
+        def launch_followup_candidate(self, **_kwargs):
+            return {
+                "action": "followup_queued",
+                "reason": "bounded follow-up queued",
+                "candidate": {"project_id": "parent"},
+                "followup": {"idea_id": "followup-child"},
+            }
+
+    response = {"stages": []}
+    dispatched: list[str] = []
+
+    result = _handle_followup_and_early_skips(
+        store=FakeStore(),
+        generation_target_lane={
+            "lane_key": "cpu-proxmox-1",
+            "machine_target": "cpu-proxmox-1",
+            "queue_deficit": 25,
+            "next_autopilot_action": "generate_candidate",
+        },
+        max_dispatches=1,
+        max_provider_requests=1,
+        fresh_generation_backlog_threshold=3,
+        initial_promotable=[],
+        response=response,
+        requested_by="pytest",
+        dispatch_queued_project=lambda project_id: (
+            dispatched.append(project_id) or True
+        ),
+        research_row_lane_key=lambda row: str(row.get("machine_target") or ""),
+    )
+
+    assert result["followup_launch"]["action"] == "followup_queued"
+    assert dispatched == ["followup-child"]
+    assert result["fresh_generation_skipped"] is False
+    assert result["fresh_promotion_skipped"] is False
+    assert "follow-up branch took priority" not in result.get("reason", "")
 
 
 class ControlPlaneRouterTests(unittest.TestCase):
