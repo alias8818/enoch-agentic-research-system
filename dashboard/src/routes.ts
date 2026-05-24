@@ -39,6 +39,71 @@ function detailId(hash: string, prefix: string): string {
   }
 }
 
+function hashPathSegment(hash: string, queryParamName: string): string {
+  if (hash.includes(':')) return hash.split(':', 2)[1].split('?', 1)[0]
+  return queryParam(hash, queryParamName)
+}
+
+function parseDetailRoute(
+  hash: string,
+  prefix: string,
+  kind: 'project' | 'run' | 'paper' | 'event',
+): DashboardRoute {
+  return { page: 'detail', kind, id: detailId(hash, prefix), hash }
+}
+
+function parseFilteredListRoute(
+  hash: string,
+  page: 'projects' | 'papers' | 'corpus',
+): DashboardRoute {
+  return { page, status: queryParam(hash, 'status'), search: queryParam(hash, 'search'), hash }
+}
+
+function parseAutomationRoute(hash: string, paperPrefix: string): DashboardRoute {
+  return {
+    page: 'automation',
+    paperId: paperPrefix ? detailId(hash, paperPrefix) : '',
+    search: queryParam(hash, 'search'),
+    reviewStatus: queryParam(hash, 'review_status'),
+    hash,
+  }
+}
+
+type RouteParser = (hash: string) => DashboardRoute | null
+
+const ROUTE_PARSERS: RouteParser[] = [
+  (hash) => (hash.startsWith('#project:') ? parseDetailRoute(hash, '#project:', 'project') : null),
+  (hash) => (hash.startsWith('#run:') ? parseDetailRoute(hash, '#run:', 'run') : null),
+  (hash) => (hash.startsWith('#paper:') ? parseDetailRoute(hash, '#paper:', 'paper') : null),
+  (hash) => (hash.startsWith('#event:') ? parseDetailRoute(hash, '#event:', 'event') : null),
+  (hash) => (hash.startsWith('#projects') ? parseFilteredListRoute(hash, 'projects') : null),
+  (hash) => (hash.startsWith('#queue')
+    ? { page: 'queue', status: hashPathSegment(hash, 'status'), search: queryParam(hash, 'search'), hash }
+    : null),
+  (hash) => (hash.startsWith('#runs')
+    ? { page: 'runs', state: hashPathSegment(hash, 'state'), search: queryParam(hash, 'search'), hash }
+    : null),
+  (hash) => (hash.startsWith('#papers') ? parseFilteredListRoute(hash, 'papers') : null),
+  (hash) => (hash.startsWith('#events')
+    ? { page: 'events', eventType: queryParam(hash, 'event_type'), search: queryParam(hash, 'search'), hash }
+    : null),
+  (hash) => (hash.startsWith('#observability') ? { page: 'observability', hash } : null),
+  (hash) => (hash.startsWith('#corpus') ? parseFilteredListRoute(hash, 'corpus') : null),
+  (hash) => (hash.startsWith('#candidate:')
+    ? { page: 'research', candidateId: detailId(hash, '#candidate:'), hash }
+    : null),
+  (hash) => (hash.startsWith('#research:')
+    ? { page: 'research', candidateId: detailId(hash, '#research:'), hash }
+    : null),
+  (hash) => (hash.startsWith('#research') ? { page: 'research', candidateId: '', hash } : null),
+  (hash) => (hash.startsWith('#idea:') ? { page: 'intake', ideaId: detailId(hash, '#idea:'), hash } : null),
+  (hash) => (hash.startsWith('#intake:') ? { page: 'intake', ideaId: detailId(hash, '#intake:'), hash } : null),
+  (hash) => (hash.startsWith('#intake') ? { page: 'intake', ideaId: '', hash } : null),
+  (hash) => (hash.startsWith('#automation:') ? parseAutomationRoute(hash, '#automation:') : null),
+  (hash) => (hash.startsWith('#review:') ? parseAutomationRoute(hash, '#review:') : null),
+  (hash) => (hash.startsWith('#automation') || hash.startsWith('#reviews') ? parseAutomationRoute(hash, '') : null),
+]
+
 export function canonicalDashboardHash(hashOrPath: string | undefined, fallback = '#overview'): string {
   let hash = normalizeHash(hashOrPath, fallback)
 
@@ -55,59 +120,9 @@ export function canonicalDashboardHash(hashOrPath: string | undefined, fallback 
 
 export function parseDashboardRoute(hashOrPath: string | undefined): DashboardRoute {
   const hash = normalizeHash(hashOrPath)
-  if (hash.startsWith('#project:')) return { page: 'detail', kind: 'project', id: detailId(hash, '#project:'), hash }
-  if (hash.startsWith('#run:')) return { page: 'detail', kind: 'run', id: detailId(hash, '#run:'), hash }
-  if (hash.startsWith('#paper:')) return { page: 'detail', kind: 'paper', id: detailId(hash, '#paper:'), hash }
-  if (hash.startsWith('#event:')) return { page: 'detail', kind: 'event', id: detailId(hash, '#event:'), hash }
-  if (hash.startsWith('#projects')) {
-    return { page: 'projects', status: queryParam(hash, 'status'), search: queryParam(hash, 'search'), hash }
-  }
-  if (hash.startsWith('#queue')) {
-    const status = hash.includes(':') ? hash.split(':', 2)[1].split('?', 1)[0] : queryParam(hash, 'status')
-    return { page: 'queue', status, search: queryParam(hash, 'search'), hash }
-  }
-  if (hash.startsWith('#runs')) {
-    const state = hash.includes(':') ? hash.split(':', 2)[1].split('?', 1)[0] : queryParam(hash, 'state')
-    return { page: 'runs', state, search: queryParam(hash, 'search'), hash }
-  }
-  if (hash.startsWith('#papers')) {
-    return { page: 'papers', status: queryParam(hash, 'status'), search: queryParam(hash, 'search'), hash }
-  }
-  if (hash.startsWith('#events')) return { page: 'events', eventType: queryParam(hash, 'event_type'), search: queryParam(hash, 'search'), hash }
-  if (hash.startsWith('#observability')) return { page: 'observability', hash }
-  if (hash.startsWith('#corpus')) return { page: 'corpus', status: queryParam(hash, 'status'), search: queryParam(hash, 'search'), hash }
-  if (hash.startsWith('#candidate:')) return { page: 'research', candidateId: detailId(hash, '#candidate:'), hash }
-  if (hash.startsWith('#research:')) return { page: 'research', candidateId: detailId(hash, '#research:'), hash }
-  if (hash.startsWith('#research')) return { page: 'research', candidateId: '', hash }
-  if (hash.startsWith('#idea:')) return { page: 'intake', ideaId: detailId(hash, '#idea:'), hash }
-  if (hash.startsWith('#intake:')) return { page: 'intake', ideaId: detailId(hash, '#intake:'), hash }
-  if (hash.startsWith('#intake')) return { page: 'intake', ideaId: '', hash }
-  if (hash.startsWith('#automation:')) {
-    return {
-      page: 'automation',
-      paperId: detailId(hash, '#automation:'),
-      search: queryParam(hash, 'search'),
-      reviewStatus: queryParam(hash, 'review_status'),
-      hash,
-    }
-  }
-  if (hash.startsWith('#review:')) {
-    return {
-      page: 'automation',
-      paperId: detailId(hash, '#review:'),
-      search: queryParam(hash, 'search'),
-      reviewStatus: queryParam(hash, 'review_status'),
-      hash,
-    }
-  }
-  if (hash.startsWith('#automation') || hash.startsWith('#reviews')) {
-    return {
-      page: 'automation',
-      paperId: '',
-      search: queryParam(hash, 'search'),
-      reviewStatus: queryParam(hash, 'review_status'),
-      hash,
-    }
+  for (const parse of ROUTE_PARSERS) {
+    const route = parse(hash)
+    if (route) return route
   }
   if (hash === '#overview' || hash === '#') return { page: 'overview', hash: '#overview' }
   return { page: 'unsupported', hash }

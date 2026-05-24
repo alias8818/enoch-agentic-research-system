@@ -45,6 +45,7 @@ ADMISSION_DECISION_BY_STATUS = {
 }
 DEFAULT_MODEL = "hf:zai-org/GLM-5.1"
 PROMPT_VERSION = "research_facility_llm_review_v1"
+SEARCH_PATH_ENOCH = "set search_path to enoch, public"
 
 
 def utc_now() -> str:
@@ -142,7 +143,7 @@ def latest_review_age_minutes(
 
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+            cur.execute(SEARCH_PATH_ENOCH)
             row = cur.execute(
                 "select created_at from control_events where event_type = any(%s) order by created_at desc limit 1",
                 (list(event_types),),
@@ -171,7 +172,7 @@ def record_review_cycle_event(
     key = f"research-janitor-llm-cycle:{payload['started_at']}:{provider_model}:{batch_count}"
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+            cur.execute(SEARCH_PATH_ENOCH)
             cur.execute(
                 """
                 insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
@@ -462,6 +463,96 @@ def _apply_admit_decision(
     return {"status_updates": promoted, "admissions_inserted": admissions_inserted}
 
 
+def _insert_llm_review_event(
+    cur: Any,
+    *,
+    event_key: str,
+    candidate_id: str,
+    payload: dict[str, Any],
+    payload_hash: str,
+) -> int:
+    event_type = "research.janitor.llm_review"
+    entity_type = "research_candidate"
+    cur.execute(
+        """
+        select event_id, event_type, entity_type, entity_id, payload_hash
+        from control_events
+        where idempotency_key = %s
+        """,
+        (event_key,),
+    )
+    existing = cur.fetchone()
+    if existing and (
+        _row_get(existing, "event_type", 1) != event_type
+        or _row_get(existing, "entity_type", 2) != entity_type
+        or _row_get(existing, "entity_id", 3) != candidate_id
+        or _row_get(existing, "payload_hash", 4) != payload_hash
+    ):
+        raise IdempotencyConflict(
+            f"idempotency key {event_key!r} was reused with different event identity"
+        )
+    if existing:
+        return 0
+    cur.execute(
+        """
+        insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
+        values (%s,'research.janitor.llm_review','research_candidate',%s,%s::jsonb,%s,%s)
+        """,
+        (
+            event_key,
+            candidate_id,
+            json.dumps(payload, sort_keys=True, default=str),
+            payload_hash,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    return int(cur.rowcount or 0)
+
+
+def _apply_review_decision(
+    cur: Any,
+    *,
+    decision: dict[str, Any],
+    janitor_action: dict[str, Any],
+    requested_by: str,
+    provider_model: str,
+) -> tuple[dict[str, int], str | None]:
+    candidate_id = decision["candidate_id"]
+    if decision["decision"] == "admit" and _confidence_allows_admit(decision):
+        update = _apply_admit_decision(
+            cur,
+            candidate_id=candidate_id,
+            decision=decision,
+            requested_by=requested_by,
+            janitor_action=janitor_action,
+        )
+        updated = int(update.get("status_updates") or 0)
+        return update, "admitted" if updated else None
+    update = _apply_non_admit_decision(
+        cur,
+        candidate_id=candidate_id,
+        decision=decision,
+        requested_by=requested_by,
+        provider_model=provider_model,
+        janitor_action=janitor_action,
+    )
+    status = _candidate_status_for_decision(decision)
+    updated = int(update.get("status_updates") or 0)
+    if updated and status in {"rejected", "rewrite_needed", "deferred"}:
+        return update, status
+    return update, None
+
+
+def _accumulate_apply_result(
+    result: dict[str, Any], update: dict[str, int], *, status_key: str | None
+) -> None:
+    updated = int(update.get("status_updates") or 0)
+    result["status_updates"] += updated
+    result["admissions_inserted"] += int(update.get("admissions_inserted") or 0)
+    if status_key:
+        result[status_key] += updated
+
+
 def record_review(
     database_url: str,
     *,
@@ -490,7 +581,7 @@ def record_review(
         return result
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+            cur.execute(SEARCH_PATH_ENOCH)
             for decision in decisions:
                 candidate_id = decision["candidate_id"]
                 source = by_id.get(candidate_id, {})
@@ -505,75 +596,21 @@ def record_review(
                 event_key = (
                     f"research-janitor-llm:{candidate_id}:{decision['decision']}"
                 )
-                payload_hash = _payload_hash(payload)
-                event_type = "research.janitor.llm_review"
-                entity_type = "research_candidate"
-                cur.execute(
-                    """
-                    select event_id, event_type, entity_type, entity_id, payload_hash
-                    from control_events
-                    where idempotency_key = %s
-                    """,
-                    (event_key,),
-                )
-                existing = cur.fetchone()
-                if existing and (
-                    _row_get(existing, "event_type", 1) != event_type
-                    or _row_get(existing, "entity_type", 2) != entity_type
-                    or _row_get(existing, "entity_id", 3) != candidate_id
-                    or _row_get(existing, "payload_hash", 4) != payload_hash
-                ):
-                    raise IdempotencyConflict(
-                        f"idempotency key {event_key!r} was reused with different event identity"
-                    )
-                if not existing:
-                    cur.execute(
-                        """
-                        insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
-                        values (%s,'research.janitor.llm_review','research_candidate',%s,%s::jsonb,%s,%s)
-                        """,
-                        (
-                            event_key,
-                            candidate_id,
-                            json.dumps(payload, sort_keys=True, default=str),
-                            payload_hash,
-                            datetime.now(timezone.utc).isoformat(),
-                        ),
-                    )
-                    result["events_inserted"] += int(cur.rowcount or 0)
-                if decision["decision"] == "admit" and _confidence_allows_admit(
-                    decision
-                ):
-                    update = _apply_admit_decision(
-                        cur,
-                        candidate_id=candidate_id,
-                        decision=decision,
-                        requested_by=requested_by,
-                        janitor_action=source.get("janitor_action") or {},
-                    )
-                    promoted = int(update.get("status_updates") or 0)
-                    result["admitted"] += promoted
-                    result["status_updates"] += promoted
-                    result["admissions_inserted"] += int(
-                        update.get("admissions_inserted") or 0
-                    )
-                    continue
-                update = _apply_non_admit_decision(
+                result["events_inserted"] += _insert_llm_review_event(
                     cur,
+                    event_key=event_key,
                     candidate_id=candidate_id,
+                    payload=payload,
+                    payload_hash=_payload_hash(payload),
+                )
+                update, status_key = _apply_review_decision(
+                    cur,
                     decision=decision,
+                    janitor_action=janitor_action,
                     requested_by=requested_by,
                     provider_model=provider_model,
-                    janitor_action=janitor_action,
                 )
-                status = _candidate_status_for_decision(decision)
-                updated = int(update.get("status_updates") or 0)
-                result["status_updates"] += updated
-                result["admissions_inserted"] += int(
-                    update.get("admissions_inserted") or 0
-                )
-                if updated and status in {"rejected", "rewrite_needed", "deferred"}:
-                    result[status] += updated
+                _accumulate_apply_result(result, update, status_key=status_key)
     return result
 
 
@@ -598,7 +635,7 @@ def apply_stored_llm_decisions(
     }
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:
-            cur.execute("set search_path to enoch, public")
+            cur.execute(SEARCH_PATH_ENOCH)
             rows = cur.execute(
                 """
                 select distinct on (e.entity_id)
@@ -637,39 +674,14 @@ def apply_stored_llm_decisions(
             for row in rows:
                 decision = dict(row["llm_decision"] or {})
                 decision["candidate_id"] = row["candidate_id"]
-                if decision.get("decision") == "admit" and _confidence_allows_admit(
-                    decision
-                ):
-                    update = _apply_admit_decision(
-                        cur,
-                        candidate_id=row["candidate_id"],
-                        decision=decision,
-                        requested_by=requested_by,
-                        janitor_action=dict(row["janitor_action"] or {}),
-                    )
-                    promoted = int(update.get("status_updates") or 0)
-                    result["admitted"] += promoted
-                    result["status_updates"] += promoted
-                    result["admissions_inserted"] += int(
-                        update.get("admissions_inserted") or 0
-                    )
-                    continue
-                update = _apply_non_admit_decision(
+                update, status_key = _apply_review_decision(
                     cur,
-                    candidate_id=row["candidate_id"],
                     decision=decision,
+                    janitor_action=dict(row["janitor_action"] or {}),
                     requested_by=requested_by,
                     provider_model=row["provider_model"] or DEFAULT_MODEL,
-                    janitor_action=dict(row["janitor_action"] or {}),
                 )
-                status = _candidate_status_for_decision(decision)
-                updated = int(update.get("status_updates") or 0)
-                result["status_updates"] += updated
-                result["admissions_inserted"] += int(
-                    update.get("admissions_inserted") or 0
-                )
-                if updated and status in {"rejected", "rewrite_needed", "deferred"}:
-                    result[status] += updated
+                _accumulate_apply_result(result, update, status_key=status_key)
     return result
 
 
@@ -722,6 +734,150 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_BUDGET_REPORT_KEYS = (
+    "ok",
+    "remaining_credits",
+    "min_remaining_credits",
+    "weekly_percent_remaining",
+    "min_weekly_percent_remaining",
+    "rolling_remaining",
+    "rolling_max",
+    "rolling_limited",
+    "estimated_requests",
+    "reserve_requests",
+    "failures",
+)
+
+
+def _emit_report(args: argparse.Namespace, report: dict[str, Any]) -> None:
+    text = json.dumps(report, indent=2, sort_keys=True, default=str)
+    if args.output:
+        args.output.write_text(text + "\n", encoding="utf-8")
+    else:
+        print(text)
+
+
+def _apply_stored_decisions_if_requested(
+    args: argparse.Namespace,
+    report: dict[str, Any],
+    *,
+    dry_run: bool,
+) -> int | None:
+    if not (args.apply_stored_decisions or args.apply_stored_decisions_only):
+        return None
+    report["stored_decision_apply"] = apply_stored_llm_decisions(
+        args.database_url,
+        requested_by=args.requested_by,
+        limit=args.stored_decision_limit,
+        dry_run=dry_run,
+    )
+    if not args.apply_stored_decisions_only:
+        return None
+    report.update({"ok": True, "action": "applied_stored_decisions"})
+    _emit_report(args, report)
+    return 0
+
+
+def _mark_cooldown_skip(
+    report: dict[str, Any], *, age: float, cooldown_minutes: int
+) -> None:
+    report.update(
+        {
+            "ok": True,
+            "action": "skipped",
+            "reason": f"cooldown active: {age:.1f}m < {cooldown_minutes}m",
+        }
+    )
+
+
+def _mark_budget_skip(report: dict[str, Any], budget: dict[str, Any]) -> None:
+    report.update(
+        {
+            "ok": True,
+            "action": "skipped",
+            "reason": "; ".join(budget.get("failures") or ["budget unavailable"]),
+        }
+    )
+
+
+def _run_provider_review(
+    args: argparse.Namespace,
+    report: dict[str, Any],
+    *,
+    dry_run: bool,
+) -> None:
+    budget = budget_status(
+        base_url=args.provider_base_url,
+        estimated_requests=args.estimated_requests,
+        reserve_requests=args.reserve_requests,
+        min_remaining_credits=args.min_remaining_credits,
+        min_rolling_remaining=args.min_rolling_remaining,
+        min_weekly_percent_remaining=args.min_weekly_percent_remaining,
+        timeout=min(max(args.timeout, 5), 60),
+    )
+    report["budget"] = {key: budget.get(key) for key in _BUDGET_REPORT_KEYS}
+    if not budget.get("ok"):
+        _mark_budget_skip(report, budget)
+        return
+    batch, janitor = select_review_batch(
+        args.database_url,
+        limit=max(1, min(args.batch_size, 50)),
+        janitor_limit=args.janitor_limit,
+    )
+    report["janitor"] = {
+        "row_count": janitor.get("row_count"),
+        "action_counts": janitor.get("action_counts"),
+    }
+    report["batch_count"] = len(batch)
+    if not batch:
+        report.update(
+            {
+                "ok": True,
+                "action": "skipped",
+                "reason": "no rewrite_suggested backlog",
+            }
+        )
+        return
+    prompt = build_review_prompt(batch)
+    report["cooldown_event_inserted"] = record_review_cycle_event(
+        args.database_url,
+        requested_by=args.requested_by,
+        provider_model=args.model,
+        batch_count=len(batch),
+    )
+    raw = call_review_model(
+        base_url=args.openai_base_url,
+        model=args.model,
+        prompt=prompt,
+        timeout=args.timeout,
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
+    )
+    decisions = normalize_decisions(raw, batch)
+    apply_result = record_review(
+        args.database_url,
+        decisions=decisions,
+        batch=batch,
+        requested_by=args.requested_by,
+        provider_model=args.model,
+        dry_run=dry_run,
+    )
+    report.update(
+        {
+            "ok": True,
+            "action": "reviewed",
+            "provider_model": args.model,
+            "provider_response_id": raw.get("provider_response_id", ""),
+            "prompt_version": PROMPT_VERSION,
+            "decision_count": len(decisions),
+            "decision_counts": apply_result.get("decision_counts")
+            or dict(Counter(d["decision"] for d in decisions)),
+            "apply_result": apply_result,
+            "decisions": decisions,
+        }
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     if not args.database_url:
@@ -733,131 +889,16 @@ def main(argv: list[str] | None = None) -> int:
         "dry_run": dry_run,
         "checked_at": utc_now(),
     }
-    if args.apply_stored_decisions or args.apply_stored_decisions_only:
-        stored = apply_stored_llm_decisions(
-            args.database_url,
-            requested_by=args.requested_by,
-            limit=args.stored_decision_limit,
-            dry_run=dry_run,
-        )
-        report["stored_decision_apply"] = stored
-        if args.apply_stored_decisions_only:
-            report.update({"ok": True, "action": "applied_stored_decisions"})
-            text = json.dumps(report, indent=2, sort_keys=True, default=str)
-            if args.output:
-                args.output.write_text(text + "\n", encoding="utf-8")
-            else:
-                print(text)
-            return 0
+    early_exit = _apply_stored_decisions_if_requested(args, report, dry_run=dry_run)
+    if early_exit is not None:
+        return early_exit
     age = latest_review_age_minutes(args.database_url)
     report["last_review_age_minutes"] = age
     if age is not None and age < args.cooldown_minutes:
-        report.update(
-            {
-                "ok": True,
-                "action": "skipped",
-                "reason": f"cooldown active: {age:.1f}m < {args.cooldown_minutes}m",
-            }
-        )
+        _mark_cooldown_skip(report, age=age, cooldown_minutes=args.cooldown_minutes)
     else:
-        budget = budget_status(
-            base_url=args.provider_base_url,
-            estimated_requests=args.estimated_requests,
-            reserve_requests=args.reserve_requests,
-            min_remaining_credits=args.min_remaining_credits,
-            min_rolling_remaining=args.min_rolling_remaining,
-            min_weekly_percent_remaining=args.min_weekly_percent_remaining,
-            timeout=min(max(args.timeout, 5), 60),
-        )
-        report["budget"] = {
-            key: budget.get(key)
-            for key in (
-                "ok",
-                "remaining_credits",
-                "min_remaining_credits",
-                "weekly_percent_remaining",
-                "min_weekly_percent_remaining",
-                "rolling_remaining",
-                "rolling_max",
-                "rolling_limited",
-                "estimated_requests",
-                "reserve_requests",
-                "failures",
-            )
-        }
-        if not budget.get("ok"):
-            report.update(
-                {
-                    "ok": True,
-                    "action": "skipped",
-                    "reason": "; ".join(
-                        budget.get("failures") or ["budget unavailable"]
-                    ),
-                }
-            )
-        else:
-            batch, janitor = select_review_batch(
-                args.database_url,
-                limit=max(1, min(args.batch_size, 50)),
-                janitor_limit=args.janitor_limit,
-            )
-            report["janitor"] = {
-                "row_count": janitor.get("row_count"),
-                "action_counts": janitor.get("action_counts"),
-            }
-            report["batch_count"] = len(batch)
-            if not batch:
-                report.update(
-                    {
-                        "ok": True,
-                        "action": "skipped",
-                        "reason": "no rewrite_suggested backlog",
-                    }
-                )
-            else:
-                prompt = build_review_prompt(batch)
-                report["cooldown_event_inserted"] = record_review_cycle_event(
-                    args.database_url,
-                    requested_by=args.requested_by,
-                    provider_model=args.model,
-                    batch_count=len(batch),
-                )
-                raw = call_review_model(
-                    base_url=args.openai_base_url,
-                    model=args.model,
-                    prompt=prompt,
-                    timeout=args.timeout,
-                    max_tokens=args.max_tokens,
-                    temperature=args.temperature,
-                )
-                decisions = normalize_decisions(raw, batch)
-                apply_result = record_review(
-                    args.database_url,
-                    decisions=decisions,
-                    batch=batch,
-                    requested_by=args.requested_by,
-                    provider_model=args.model,
-                    dry_run=dry_run,
-                )
-                report.update(
-                    {
-                        "ok": True,
-                        "action": "reviewed",
-                        "provider_model": args.model,
-                        "provider_response_id": raw.get("provider_response_id", ""),
-                        "prompt_version": PROMPT_VERSION,
-                        "decision_count": len(decisions),
-                        "decision_counts": apply_result.get("decision_counts")
-                        or dict(Counter(d["decision"] for d in decisions)),
-                        "apply_result": apply_result,
-                        "decisions": decisions,
-                    }
-                )
-    text = json.dumps(report, indent=2, sort_keys=True, default=str)
-    if args.output:
-        args.output.write_text(text + "\n", encoding="utf-8")
-    else:
-        print(text)
+        _run_provider_review(args, report, dry_run=dry_run)
+    _emit_report(args, report)
     return 0 if report.get("ok") else 1
 
 

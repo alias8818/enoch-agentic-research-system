@@ -16,11 +16,13 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlparse
 
 from enoch_control_plane.timeutils import parse_utc_datetime
 
 SCHEMA_VERSION = "enoch_promising_signal_v1"
 MANIFEST_SCHEMA_VERSION = "enoch_promising_signal_manifest_v1"
+MANIFEST_JSON = "manifest.json"
 RANKING_SCHEMA_VERSION = "enoch_promising_signal_ranking_v1"
 DISCLAIMER = (
     "These are not validated papers, not peer-reviewed results, and not "
@@ -163,7 +165,7 @@ def _list(value: Any) -> list[Any]:
             return []
         try:
             parsed = json.loads(text)
-        except (json.JSONDecodeError, ValueError, RecursionError):
+        except (ValueError, RecursionError):
             return [text]
         if isinstance(parsed, list):
             return parsed
@@ -198,51 +200,83 @@ def is_exportable_row(row: dict[str, Any]) -> bool:
     return _export_status(row) in EXPORT_STATUSES
 
 
-def _sources_from_row(row: dict[str, Any]) -> list[dict[str, str]]:
-    records = _list(row.get("source_records"))
+def _source_dict(record: dict[str, Any]) -> dict[str, str]:
+    return {
+        "source_id": _text(record.get("source_id")),
+        "url": _text(record.get("url")),
+        "title": _text(record.get("title")),
+    }
+
+
+def _normalize_source_record(record: Any) -> dict[str, Any] | None:
+    if isinstance(record, str):
+        try:
+            parsed = json.loads(record)
+        except Exception:
+            parsed = None
+        record = parsed if isinstance(parsed, dict) else {"source_id": record}
+    if not isinstance(record, dict):
+        return None
+    return record
+
+
+def _append_unique_source(
+    sources: list[dict[str, str]],
+    seen: set[tuple[str, str, str]],
+    source: dict[str, str],
+) -> None:
+    key = (source["source_id"], source["url"], source["title"])
+    if any(source.values()) and key not in seen:
+        sources.append(source)
+        seen.add(key)
+
+
+def _sources_from_source_records(records: list[Any]) -> list[dict[str, str]]:
     sources: list[dict[str, str]] = []
     seen: set[tuple[str, str, str]] = set()
     for record in records:
-        if isinstance(record, str):
-            try:
-                parsed = json.loads(record)
-            except Exception:
-                parsed = None
-            record = parsed if isinstance(parsed, dict) else {"source_id": record}
-        if not isinstance(record, dict):
+        normalized = _normalize_source_record(record)
+        if normalized is None:
             continue
-        source = {
-            "source_id": _text(record.get("source_id")),
-            "url": _text(record.get("url")),
-            "title": _text(record.get("title")),
-        }
-        key = (source["source_id"], source["url"], source["title"])
-        if any(source.values()) and key not in seen:
-            sources.append(source)
-            seen.add(key)
-    if sources:
-        sources.sort(key=lambda item: (item["source_id"], item["url"], item["title"]))
-        return sources
+        _append_unique_source(sources, seen, _source_dict(normalized))
+    sources.sort(key=lambda item: (item["source_id"], item["url"], item["title"]))
+    return sources
 
+
+def _parallel_source_value(values: list[str], index: int, *, fallback: str = "") -> str:
+    if index < len(values):
+        return values[index]
+    return fallback if index == 0 else ""
+
+
+def _sources_from_parallel_fields(row: dict[str, Any]) -> list[dict[str, str]]:
     ids = [_text(item) for item in _list(row.get("source_ids"))]
     urls = [_text(item) for item in _list(row.get("source_urls"))]
     titles = [_text(item) for item in _list(row.get("source_titles"))]
     count = max(
         len(ids), len(urls), len(titles), 1 if _text(row.get("source_url")) else 0
     )
+    sources: list[dict[str, str]] = []
     for index in range(count):
         source = {
-            "source_id": ids[index] if index < len(ids) else "",
-            "url": urls[index]
-            if index < len(urls)
-            else (_text(row.get("source_url")) if index == 0 else ""),
-            "title": titles[index]
-            if index < len(titles)
-            else (_text(row.get("source_paper")) if index == 0 else ""),
+            "source_id": _parallel_source_value(ids, index),
+            "url": _parallel_source_value(
+                urls, index, fallback=_text(row.get("source_url"))
+            ),
+            "title": _parallel_source_value(
+                titles, index, fallback=_text(row.get("source_paper"))
+            ),
         }
         if any(source.values()):
             sources.append(source)
     return sources
+
+
+def _sources_from_row(row: dict[str, Any]) -> list[dict[str, str]]:
+    sources = _sources_from_source_records(_list(row.get("source_records")))
+    if sources:
+        return sources
+    return _sources_from_parallel_fields(row)
 
 
 def _strength_score(value: Any) -> tuple[int, str]:
@@ -273,11 +307,108 @@ def _has_external_source_url(sources: list[dict[str, Any]]) -> bool:
     for source in sources:
         url = _text(source.get("url")).lower()
         source_id = _text(source.get("source_id")).lower()
-        if url.startswith(("http://", "https://", "arxiv:", "doi:")):
+        if url.startswith(("arxiv:", "doi:")):
+            return True
+        if urlparse(url).scheme in {"http", "https"}:
             return True
         if source_id.startswith(("arxiv:", "doi:")):
             return True
     return False
+
+
+def _source_lineage_score(sources: list[dict[str, Any]]) -> tuple[int, list[str]]:
+    reasons: list[str] = []
+    if sources:
+        score = 8
+        reasons.append("source lineage present")
+    else:
+        score = -20
+        reasons.append("source lineage missing")
+    if _has_external_source_url(sources):
+        score += 4
+        reasons.append("external source URL present")
+    return score, reasons
+
+
+def _followup_score(followup: dict[str, Any]) -> tuple[int, list[str]]:
+    reasons: list[str] = []
+    score = 0
+    if _truthy(followup.get("recommended")):
+        score += 10
+        reasons.append("bounded follow-up is specified")
+    required_evidence = [
+        _text(item) for item in _list(followup.get("required_evidence")) if _text(item)
+    ]
+    score += min(5, len(required_evidence) * 2)
+    depth = int(followup.get("depth") or 0)
+    if depth > 2:
+        score -= min(15, (depth - 2) * 5)
+        reasons.append("follow-up depth is already high")
+    return score, reasons
+
+
+def _bounded_evidence_score(signal: dict[str, Any]) -> tuple[int, list[str]]:
+    reasons: list[str] = []
+    evidence = (
+        signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
+    )
+    artifact_paths = [
+        _text(item) for item in _list(evidence.get("artifact_paths")) if _text(item)
+    ]
+    score = min(10, len(artifact_paths) * 2)
+    if artifact_paths:
+        reasons.append("local evidence artifact paths are present")
+    joined_paths = " ".join(path.lower() for path in artifact_paths)
+    if "metrics" in joined_paths:
+        score += 4
+        reasons.append("metrics artifact is present")
+    if "project_decision" in joined_paths:
+        score += 4
+        reasons.append("project decision artifact is present")
+    disclaimer = (
+        signal.get("do_not_overclaim")
+        if isinstance(signal.get("do_not_overclaim"), dict)
+        else {}
+    )
+    if (
+        disclaimer.get("not_a_paper") is True
+        and _text(signal.get("claim_scope"))
+        and _text(signal.get("scale_limits"))
+    ):
+        score += 4
+    return score, reasons
+
+
+def _normalized_hypothesis_status(signal: dict[str, Any]) -> str:
+    return (
+        _text(signal.get("hypothesis_status"))
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+
+
+def _ranking_bucket(
+    signal: dict[str, Any], *, score: int, followup: dict[str, Any]
+) -> str:
+    if _text(signal.get("status")) == "compute_scale_blocked":
+        return "compute_scale_blocked"
+    hypothesis_text = _normalized_hypothesis_status(signal)
+    if (
+        hypothesis_text in {"unsupported", "not_supported", "negative", "falsified"}
+        or score < 35
+    ):
+        return "likely_stale_low_value_archive"
+    if score >= 85 and _text(signal.get("evidence_strength")).lower() in {
+        "strong",
+        "high",
+        "moderate",
+        "medium",
+    }:
+        return "top_external_researcher_candidates"
+    if _truthy(followup.get("recommended")) and score >= 45:
+        return "followup_recommended"
+    return "weak_local_only_preserved"
 
 
 def rank_signal(signal: dict[str, Any]) -> dict[str, Any]:
@@ -297,91 +428,24 @@ def rank_signal(signal: dict[str, Any]) -> dict[str, Any]:
     reasons.append(hypothesis_reason)
 
     sources = signal.get("sources") if isinstance(signal.get("sources"), list) else []
-    source_score = 0
-    if sources:
-        source_score += 8
-        reasons.append("source lineage present")
-    else:
-        source_score -= 20
-        reasons.append("source lineage missing")
-    if _has_external_source_url(sources):
-        source_score += 4
-        reasons.append("external source URL present")
+    source_score, source_reasons = _source_lineage_score(sources)
     score_breakdown["source_lineage"] = source_score
+    reasons.extend(source_reasons)
 
     followup = (
         signal.get("followup") if isinstance(signal.get("followup"), dict) else {}
     )
-    followup_score = 0
-    if _truthy(followup.get("recommended")):
-        followup_score += 10
-        reasons.append("bounded follow-up is specified")
-    required_evidence = [
-        _text(item) for item in _list(followup.get("required_evidence")) if _text(item)
-    ]
-    followup_score += min(5, len(required_evidence) * 2)
-    depth = int(followup.get("depth") or 0)
-    if depth > 2:
-        followup_score -= min(15, (depth - 2) * 5)
-        reasons.append("follow-up depth is already high")
+    followup_score, followup_reasons = _followup_score(followup)
     score_breakdown["followup"] = followup_score
+    reasons.extend(followup_reasons)
 
-    evidence = (
-        signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
-    )
-    artifact_paths = [
-        _text(item) for item in _list(evidence.get("artifact_paths")) if _text(item)
-    ]
-    bounded_score = min(10, len(artifact_paths) * 2)
-    if artifact_paths:
-        reasons.append("local evidence artifact paths are present")
-    joined_paths = " ".join(path.lower() for path in artifact_paths)
-    if "metrics" in joined_paths:
-        bounded_score += 4
-        reasons.append("metrics artifact is present")
-    if "project_decision" in joined_paths:
-        bounded_score += 4
-        reasons.append("project decision artifact is present")
-    disclaimer = (
-        signal.get("do_not_overclaim")
-        if isinstance(signal.get("do_not_overclaim"), dict)
-        else {}
-    )
-    if (
-        disclaimer.get("not_a_paper") is True
-        and _text(signal.get("claim_scope"))
-        and _text(signal.get("scale_limits"))
-    ):
-        bounded_score += 4
+    bounded_score, bounded_reasons = _bounded_evidence_score(signal)
     score_breakdown["bounded_evidence"] = bounded_score
+    reasons.extend(bounded_reasons)
 
     raw_score = sum(score_breakdown.values())
     score = max(0, min(100, raw_score))
-    hypothesis_text = (
-        _text(signal.get("hypothesis_status"))
-        .lower()
-        .replace("-", "_")
-        .replace(" ", "_")
-    )
-    status = _text(signal.get("status"))
-    if status == "compute_scale_blocked":
-        bucket = "compute_scale_blocked"
-    elif (
-        hypothesis_text in {"unsupported", "not_supported", "negative", "falsified"}
-        or score < 35
-    ):
-        bucket = "likely_stale_low_value_archive"
-    elif score >= 85 and _text(signal.get("evidence_strength")).lower() in {
-        "strong",
-        "high",
-        "moderate",
-        "medium",
-    }:
-        bucket = "top_external_researcher_candidates"
-    elif _truthy(followup.get("recommended")) and score >= 45:
-        bucket = "followup_recommended"
-    else:
-        bucket = "weak_local_only_preserved"
+    bucket = _ranking_bucket(signal, score=score, followup=followup)
 
     return {
         "schema_version": RANKING_SCHEMA_VERSION,
@@ -451,34 +515,49 @@ def signal_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return signal
 
 
-def validate_signal(signal: dict[str, Any]) -> list[str]:
+def _signal_dict_section(signal: dict[str, Any], key: str) -> dict[str, Any]:
+    value = signal.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _validate_signal_required_fields(signal: dict[str, Any]) -> list[str]:
     issues: list[str] = []
     for field in PROMISING_SIGNAL_SCHEMA["required"]:
         value = signal.get(field)
         if value in (None, "", [], {}):
             issues.append(f"{field}:required")
+    return issues
+
+
+def _validate_signal_identity(signal: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
     if signal.get("schema_version") != SCHEMA_VERSION:
         issues.append("schema_version:invalid")
     if signal.get("status") not in EXPORT_STATUSES:
         issues.append("status:invalid")
-    disclaimer = (
-        signal.get("do_not_overclaim")
-        if isinstance(signal.get("do_not_overclaim"), dict)
-        else {}
-    )
+    return issues
+
+
+def _validate_do_not_overclaim(disclaimer: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
     for key in ("not_a_paper", "not_publication_validated", "not_in_main_corpus"):
         if disclaimer.get(key) is not True:
             issues.append(f"do_not_overclaim.{key}:required_true")
     if "not validated papers" not in str(disclaimer.get("disclaimer") or ""):
         issues.append("do_not_overclaim.disclaimer:missing_not_validated_papers")
-    evidence = (
-        signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
-    )
+    return issues
+
+
+def _validate_signal_evidence(evidence: dict[str, Any]) -> list[str]:
     if evidence.get("public_evidence_copied") is not False:
-        issues.append("evidence.public_evidence_copied:must_be_false")
-    curation = (
-        signal.get("curation") if isinstance(signal.get("curation"), dict) else {}
-    )
+        return ["evidence.public_evidence_copied:must_be_false"]
+    return []
+
+
+def _validate_signal_curation(
+    signal: dict[str, Any], curation: dict[str, Any]
+) -> list[str]:
+    issues: list[str] = []
     expected_curation = rank_signal(signal)
     if curation.get("schema_version") != RANKING_SCHEMA_VERSION:
         issues.append("curation.schema_version:invalid")
@@ -487,10 +566,30 @@ def validate_signal(signal: dict[str, Any]) -> list[str]:
     for key in ("score", "bucket", "bucket_label", "score_breakdown", "reasons"):
         if curation.get(key) != expected_curation.get(key):
             issues.append(f"curation.{key}:drift")
+    return issues
+
+
+def _validate_signal_private_path_redaction(signal: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
     serialized = json.dumps(signal, sort_keys=True)
     for private_root in PRIVATE_PATH_ROOTS:
         if private_root in serialized:
             issues.append(f"private_path_not_redacted:{private_root}")
+    return issues
+
+
+def validate_signal(signal: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
+    issues.extend(_validate_signal_required_fields(signal))
+    issues.extend(_validate_signal_identity(signal))
+    issues.extend(
+        _validate_do_not_overclaim(_signal_dict_section(signal, "do_not_overclaim"))
+    )
+    issues.extend(_validate_signal_evidence(_signal_dict_section(signal, "evidence")))
+    issues.extend(
+        _validate_signal_curation(signal, _signal_dict_section(signal, "curation"))
+    )
+    issues.extend(_validate_signal_private_path_redaction(signal))
     return sorted(set(issues))
 
 
@@ -513,9 +612,8 @@ def export_signals(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def ranked_signals(signals: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-    materialized = list(signals)
     return sorted(
-        materialized,
+        signals,
         key=lambda signal: (
             -int((signal.get("curation") or {}).get("score") or 0),
             _text(signal.get("title")).lower(),
@@ -607,26 +705,19 @@ def _records_from_repo(repo_root: Path) -> list[dict[str, Any]]:
     ]
 
 
-def validate_export_repo(repo_root: Path) -> list[str]:
+def _signal_record_validation_issues(records: list[dict[str, Any]]) -> list[str]:
     issues: list[str] = []
-    records = _records_from_repo(repo_root)
-    manifest_path = repo_root / "data" / "manifest.json"
-    if not manifest_path.exists():
-        return ["manifest:missing"]
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return ["manifest:invalid_json"]
-    expected = export_manifest(
-        records,
-        selection_summary=manifest.get("selection_summary")
-        if isinstance(manifest.get("selection_summary"), dict)
-        else None,
-    )
     for record in records:
         project_id = _text(record.get("project_id")) or "unknown_project"
         for issue in validate_signal(record):
             issues.append(f"signal.{project_id}.{issue}")
+    return issues
+
+
+def _manifest_validation_issues(
+    manifest: dict[str, Any], expected: dict[str, Any]
+) -> list[str]:
+    issues: list[str] = []
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         issues.append("manifest.schema_version:invalid")
     if manifest.get("record_count") != expected["record_count"]:
@@ -649,37 +740,62 @@ def validate_export_repo(repo_root: Path) -> list[str]:
         issues.append("manifest.ranking_summary:drift")
     if manifest.get("public_evidence_copied") is not False:
         issues.append("manifest.public_evidence_copied:must_be_false")
+    return issues
+
+
+def _ranking_item_compare_view(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project_id": item.get("project_id"),
+        "score": item.get("score"),
+        "bucket": item.get("bucket"),
+        "reasons": item.get("reasons"),
+    }
+
+
+def _ranking_validation_issues(
+    repo_root: Path, records: list[dict[str, Any]]
+) -> list[str]:
     ranking_path = repo_root / "data" / "ranking.json"
     if not ranking_path.exists():
-        issues.append("ranking:missing")
-    else:
-        ranking = json.loads(ranking_path.read_text(encoding="utf-8"))
-        expected_ranking = export_ranking(records)
-        if ranking.get("schema_version") != RANKING_SCHEMA_VERSION:
-            issues.append("ranking.schema_version:invalid")
-        if ranking.get("bucket_counts") != expected_ranking["bucket_counts"]:
-            issues.append("ranking.bucket_counts:drift")
-        actual_items = [
-            {
-                "project_id": item.get("project_id"),
-                "score": item.get("score"),
-                "bucket": item.get("bucket"),
-                "reasons": item.get("reasons"),
-            }
-            for item in ranking.get("items", [])
-            if isinstance(item, dict)
-        ]
-        expected_items = [
-            {
-                "project_id": item.get("project_id"),
-                "score": item.get("score"),
-                "bucket": item.get("bucket"),
-                "reasons": item.get("reasons"),
-            }
-            for item in expected_ranking["items"]
-        ]
-        if actual_items != expected_items:
-            issues.append("ranking.items:drift")
+        return ["ranking:missing"]
+    ranking = json.loads(ranking_path.read_text(encoding="utf-8"))
+    expected_ranking = export_ranking(records)
+    issues: list[str] = []
+    if ranking.get("schema_version") != RANKING_SCHEMA_VERSION:
+        issues.append("ranking.schema_version:invalid")
+    if ranking.get("bucket_counts") != expected_ranking["bucket_counts"]:
+        issues.append("ranking.bucket_counts:drift")
+    actual_items = [
+        _ranking_item_compare_view(item)
+        for item in ranking.get("items", [])
+        if isinstance(item, dict)
+    ]
+    expected_items = [
+        _ranking_item_compare_view(item) for item in expected_ranking["items"]
+    ]
+    if actual_items != expected_items:
+        issues.append("ranking.items:drift")
+    return issues
+
+
+def validate_export_repo(repo_root: Path) -> list[str]:
+    records = _records_from_repo(repo_root)
+    manifest_path = repo_root / "data" / MANIFEST_JSON
+    if not manifest_path.exists():
+        return ["manifest:missing"]
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return ["manifest:invalid_json"]
+    selection_summary = (
+        manifest.get("selection_summary")
+        if isinstance(manifest.get("selection_summary"), dict)
+        else None
+    )
+    expected = export_manifest(records, selection_summary=selection_summary)
+    issues = _signal_record_validation_issues(records)
+    issues.extend(_manifest_validation_issues(manifest, expected))
+    issues.extend(_ranking_validation_issues(repo_root, records))
     return sorted(issues)
 
 
@@ -690,7 +806,7 @@ def validate_repo_against_rows(
     issues = validate_export_repo(repo_root)
     report = audit_backfill(materialized)
     expected_summary = report["summary"]
-    manifest_path = repo_root / "data" / "manifest.json"
+    manifest_path = repo_root / "data" / MANIFEST_JSON
     if not manifest_path.exists():
         return sorted(set(issues + ["manifest:missing"]))
     if "manifest:invalid_json" in issues:
@@ -772,24 +888,78 @@ def validate_source_backfill_policy(
     }
 
 
-def _markdown(signal: dict[str, Any]) -> str:
-    sources = signal.get("sources") or []
-    source_lines = [
-        f"- {src.get('title') or src.get('source_id') or 'source'}: {src.get('url') or src.get('source_id') or ''}"
-        for src in sources
+def _markdown_source_line(src: dict[str, Any]) -> str:
+    title = src.get("title") or src.get("source_id") or "source"
+    ref = src.get("url") or src.get("source_id") or ""
+    return f"- {title}: {ref}"
+
+
+def _markdown_source_section_lines(sources: Any) -> list[str]:
+    source_lines = [_markdown_source_line(src) for src in (sources or [])]
+    return source_lines or ["- No source URL recorded."]
+
+
+def _markdown_curation(signal: dict[str, Any]) -> dict[str, Any]:
+    curation = signal.get("curation")
+    if isinstance(curation, dict):
+        return curation
+    return rank_signal(signal)
+
+
+def _markdown_score_breakdown(curation: dict[str, Any]) -> dict[str, Any]:
+    breakdown = curation.get("score_breakdown")
+    if isinstance(breakdown, dict):
+        return breakdown
+    return {}
+
+
+def _markdown_curation_section_lines(
+    curation: dict[str, Any], breakdown: dict[str, Any]
+) -> list[str]:
+    bucket = curation.get("bucket_label") or curation.get("bucket")
+    reason_lines = [f"- {reason}" for reason in curation.get("reasons") or []]
+    return [
+        "## Deterministic curation",
+        "",
+        f"- Bucket: {bucket}",
+        f"- Score: `{curation.get('score')}`",
+        f"- Score breakdown: `{json.dumps(breakdown, sort_keys=True)}`",
+        "",
+        "Reasons:",
+        *reason_lines,
+        "",
     ]
+
+
+def _markdown_followup_section_lines(followup: dict[str, Any]) -> list[str]:
+    return [
+        "## Follow-up",
+        "",
+        f"- Recommended: `{str(bool(followup.get('recommended'))).lower()}`",
+        f"- Type: `{followup.get('type') or ''}`",
+        f"- Title: {followup.get('title') or ''}",
+        f"- Success threshold: {followup.get('success_threshold') or ''}",
+        f"- Stop condition: {followup.get('stop_condition') or ''}",
+        "",
+    ]
+
+
+def _markdown_evidence_section_lines(evidence: dict[str, Any]) -> list[str]:
+    path_lines = [f"- `{path}`" for path in evidence.get("artifact_paths") or []]
+    return [
+        "## Evidence references",
+        "",
+        f"- Artifact root: `{evidence.get('artifact_root') or ''}`",
+        *path_lines,
+        "",
+    ]
+
+
+def _markdown(signal: dict[str, Any]) -> str:
     followup = signal.get("followup") or {}
     evidence = signal.get("evidence") or {}
-    curation = (
-        signal.get("curation")
-        if isinstance(signal.get("curation"), dict)
-        else rank_signal(signal)
-    )
-    breakdown = (
-        curation.get("score_breakdown")
-        if isinstance(curation.get("score_breakdown"), dict)
-        else {}
-    )
+    curation = _markdown_curation(signal)
+    breakdown = _markdown_score_breakdown(curation)
     return "\n".join(
         [
             f"# {signal['title']}",
@@ -802,18 +972,10 @@ def _markdown(signal: dict[str, Any]) -> str:
             "",
             "> This is a promising-signal record, not a paper. It is bounded local evidence preserved for possible larger-compute follow-up.",
             "",
-            "## Deterministic curation",
-            "",
-            f"- Bucket: {curation.get('bucket_label') or curation.get('bucket')}",
-            f"- Score: `{curation.get('score')}`",
-            f"- Score breakdown: `{json.dumps(breakdown, sort_keys=True)}`",
-            "",
-            "Reasons:",
-            *(f"- {reason}" for reason in curation.get("reasons") or []),
-            "",
+            *_markdown_curation_section_lines(curation, breakdown),
             "## Source",
             "",
-            *(source_lines or ["- No source URL recorded."]),
+            *_markdown_source_section_lines(signal.get("sources")),
             "",
             "## What looked useful",
             "",
@@ -835,19 +997,8 @@ def _markdown(signal: dict[str, Any]) -> str:
             "",
             signal["recommended_next_action"],
             "",
-            "## Follow-up",
-            "",
-            f"- Recommended: `{str(bool(followup.get('recommended'))).lower()}`",
-            f"- Type: `{followup.get('type') or ''}`",
-            f"- Title: {followup.get('title') or ''}",
-            f"- Success threshold: {followup.get('success_threshold') or ''}",
-            f"- Stop condition: {followup.get('stop_condition') or ''}",
-            "",
-            "## Evidence references",
-            "",
-            f"- Artifact root: `{evidence.get('artifact_root') or ''}`",
-            *[f"- `{path}`" for path in evidence.get("artifact_paths") or []],
-            "",
+            *_markdown_followup_section_lines(followup),
+            *_markdown_evidence_section_lines(evidence),
             "## Do not overclaim",
             "",
             signal["do_not_overclaim"]["disclaimer"],
@@ -920,6 +1071,87 @@ def _dedupe_source_records(records: Iterable[dict[str, Any]]) -> list[dict[str, 
     return deduped
 
 
+_DECISION_FIELD_MAP = {
+    "research_outcome": "research_outcome",
+    "hypothesis_status": "hypothesis_status",
+    "evidence_strength": "evidence_strength",
+    "claim_scope": "claim_scope",
+    "scale_limits": "scale_limits",
+    "useful_signal_summary": "useful_signal_summary",
+    "recommended_next_action": "recommended_next_action",
+    "stop_reason": "stop_reason",
+    "bounded_paper_ready": "bounded_paper_ready",
+    "compute_scale_blocked": "compute_scale_blocked",
+}
+
+
+def _backfill_decision_fields(
+    repaired: dict[str, Any],
+    decision: dict[str, Any],
+    classification: list[str],
+    actions: list[str],
+) -> None:
+    for row_field, decision_field in _DECISION_FIELD_MAP.items():
+        if repaired.get(row_field) not in (None, "", [], {}):
+            continue
+        value = decision.get(decision_field)
+        if value in (None, "", [], {}):
+            continue
+        repaired[row_field] = value
+        if "missing_decision_field" not in classification:
+            classification.append("missing_decision_field")
+        actions.append(f"{row_field}:project_decision")
+
+
+def _backfill_source_lineage(
+    repaired: dict[str, Any],
+    row: dict[str, Any],
+    classification: list[str],
+    actions: list[str],
+) -> None:
+    if _sources_from_row(repaired):
+        return
+    candidate_sources = _source_records_from_candidate_metadata(row)
+    if candidate_sources:
+        repaired["source_records"] = candidate_sources
+        classification.append("missing_research_source_lineage")
+        actions.append("source_records:research_candidate_metadata")
+        return
+    project_id = _text(row.get("project_id"))
+    title = _text(row.get("project_name") or row.get("title"))
+    if project_id and title:
+        repaired["source_records"] = [
+            {
+                "source_id": f"internal_generated:{project_id}",
+                "url": "",
+                "title": f"Internal Enoch project: {title}",
+            }
+        ]
+        classification.append("missing_research_source_lineage")
+        actions.append("source_records:queue_project_metadata")
+        return
+    classification.append("unrecoverable_project_identity")
+
+
+def _append_backfill_validation_classifications(
+    repaired: dict[str, Any],
+    row: dict[str, Any],
+    classification: list[str],
+    issues: list[str],
+) -> None:
+    if (
+        "sources:required" in issues
+        and "missing_research_source_lineage" not in classification
+    ):
+        classification.append("missing_research_source_lineage")
+    if any(issue.startswith("sources") for issue in issues) and _sources_from_row(
+        repaired
+    ):
+        classification.append("missing_source_url_or_title")
+    if not _text(row.get("artifact_root")) and not _list(row.get("artifact_paths")):
+        classification.append("missing_evidence_claim_boundary")
+
+
 def backfill_promising_signal_row(row: dict[str, Any]) -> dict[str, Any]:
     """Return a deterministically enriched copy of a promising-signal row.
 
@@ -937,62 +1169,12 @@ def backfill_promising_signal_row(row: dict[str, Any]) -> dict[str, Any]:
         or row.get("payload_json")
         or row.get("project_decision")
     )
-    decision_field_map = {
-        "research_outcome": "research_outcome",
-        "hypothesis_status": "hypothesis_status",
-        "evidence_strength": "evidence_strength",
-        "claim_scope": "claim_scope",
-        "scale_limits": "scale_limits",
-        "useful_signal_summary": "useful_signal_summary",
-        "recommended_next_action": "recommended_next_action",
-        "stop_reason": "stop_reason",
-        "bounded_paper_ready": "bounded_paper_ready",
-        "compute_scale_blocked": "compute_scale_blocked",
-    }
-    for row_field, decision_field in decision_field_map.items():
-        if repaired.get(row_field) in (None, "", [], {}):
-            value = decision.get(decision_field)
-            if value not in (None, "", [], {}):
-                repaired[row_field] = value
-                if "missing_decision_field" not in classification:
-                    classification.append("missing_decision_field")
-                actions.append(f"{row_field}:project_decision")
-
-    if not _sources_from_row(repaired):
-        candidate_sources = _source_records_from_candidate_metadata(row)
-        if candidate_sources:
-            repaired["source_records"] = candidate_sources
-            classification.append("missing_research_source_lineage")
-            actions.append("source_records:research_candidate_metadata")
-        else:
-            project_id = _text(row.get("project_id"))
-            title = _text(row.get("project_name") or row.get("title"))
-            if project_id and title:
-                repaired["source_records"] = [
-                    {
-                        "source_id": f"internal_generated:{project_id}",
-                        "url": "",
-                        "title": f"Internal Enoch project: {title}",
-                    }
-                ]
-                classification.append("missing_research_source_lineage")
-                actions.append("source_records:queue_project_metadata")
-            else:
-                classification.append("unrecoverable_project_identity")
+    _backfill_decision_fields(repaired, decision, classification, actions)
+    _backfill_source_lineage(repaired, row, classification, actions)
 
     signal = signal_from_row(repaired)
     issues = validate_signal(signal)
-    if (
-        "sources:required" in issues
-        and "missing_research_source_lineage" not in classification
-    ):
-        classification.append("missing_research_source_lineage")
-    if any(issue.startswith("sources") for issue in issues) and _sources_from_row(
-        repaired
-    ):
-        classification.append("missing_source_url_or_title")
-    if not _text(row.get("artifact_root")) and not _list(row.get("artifact_paths")):
-        classification.append("missing_evidence_claim_boundary")
+    _append_backfill_validation_classifications(repaired, row, classification, issues)
 
     repaired["_promising_signal_backfill"] = {
         "classification": sorted(set(classification)),
@@ -1046,6 +1228,79 @@ def _audit_row_summary(
     return summary
 
 
+def _promising_signal_backfill_meta(backfilled: dict[str, Any]) -> dict[str, Any]:
+    meta = backfilled.get("_promising_signal_backfill")
+    return meta if isinstance(meta, dict) else {}
+
+
+def _audit_stale_row_summary(
+    row: dict[str, Any],
+    *,
+    project_id: str,
+    run_id: str,
+    latest_keys: set[tuple[str, str]],
+) -> dict[str, Any] | None:
+    if not project_id or (project_id, run_id) in latest_keys:
+        return None
+    return _audit_row_summary(
+        row,
+        ["stale_duplicate_superseded"],
+        backfill={
+            "classification": ["stale_duplicate_superseded"],
+            "actions": [],
+            "remaining_issues": [],
+        },
+        include_identifiers=False,
+    )
+
+
+def _audit_paper_corpus_row_summary(row: dict[str, Any]) -> dict[str, Any] | None:
+    if not _paper_or_corpus_excluded(row):
+        return None
+    return _audit_row_summary(
+        row,
+        ["paper_or_corpus_row"],
+        backfill={
+            "classification": [],
+            "actions": [],
+            "remaining_issues": [],
+        },
+        include_identifiers=False,
+    )
+
+
+def _audit_exportable_row_outcome(
+    row: dict[str, Any],
+) -> tuple[str, dict[str, Any], bool]:
+    backfilled = backfill_promising_signal_row(row)
+    backfill_meta = _promising_signal_backfill_meta(backfilled)
+    status = _export_status(backfilled)
+    if status not in EXPORT_STATUSES:
+        return (
+            "hard_negative_or_stale",
+            _audit_row_summary(
+                backfilled,
+                ["research_outcome:not_export_status"],
+                backfill=backfill_meta,
+                include_identifiers=False,
+            ),
+            False,
+        )
+    signal = signal_from_row(backfilled)
+    issues = validate_signal(signal)
+    if issues:
+        return (
+            "missing_required_evidence_or_fields",
+            _audit_row_summary(backfilled, issues, backfill=backfill_meta),
+            False,
+        )
+    return (
+        "export_cleanly_now",
+        _audit_row_summary(backfilled, [], backfill=backfill_meta),
+        bool(backfill_meta.get("actions")),
+    )
+
+
 def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     materialized = list(rows)
     latest_keys = _latest_project_keys(materialized)
@@ -1061,63 +1316,20 @@ def audit_backfill(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         total += 1
         project_id = _text(row.get("project_id"))
         run_id = _text(row.get("run_id") or row.get("current_run_id"))
-        if project_id and (project_id, run_id) not in latest_keys:
-            buckets["hard_negative_or_stale"].append(
-                _audit_row_summary(
-                    row,
-                    ["stale_duplicate_superseded"],
-                    backfill={
-                        "classification": ["stale_duplicate_superseded"],
-                        "actions": [],
-                        "remaining_issues": [],
-                    },
-                    include_identifiers=False,
-                )
-            )
-            continue
-        if _paper_or_corpus_excluded(row):
-            buckets["excluded_paper_or_corpus"].append(
-                _audit_row_summary(
-                    row,
-                    ["paper_or_corpus_row"],
-                    backfill={
-                        "classification": [],
-                        "actions": [],
-                        "remaining_issues": [],
-                    },
-                    include_identifiers=False,
-                )
-            )
-            continue
-        backfilled = backfill_promising_signal_row(row)
-        backfill_meta = (
-            backfilled.get("_promising_signal_backfill")
-            if isinstance(backfilled.get("_promising_signal_backfill"), dict)
-            else {}
+        stale_summary = _audit_stale_row_summary(
+            row, project_id=project_id, run_id=run_id, latest_keys=latest_keys
         )
-        status = _export_status(backfilled)
-        if status not in EXPORT_STATUSES:
-            buckets["hard_negative_or_stale"].append(
-                _audit_row_summary(
-                    backfilled,
-                    ["research_outcome:not_export_status"],
-                    backfill=backfill_meta,
-                    include_identifiers=False,
-                )
-            )
+        if stale_summary is not None:
+            buckets["hard_negative_or_stale"].append(stale_summary)
             continue
-        signal = signal_from_row(backfilled)
-        issues = validate_signal(signal)
-        if issues:
-            buckets["missing_required_evidence_or_fields"].append(
-                _audit_row_summary(backfilled, issues, backfill=backfill_meta)
-            )
+        paper_summary = _audit_paper_corpus_row_summary(row)
+        if paper_summary is not None:
+            buckets["excluded_paper_or_corpus"].append(paper_summary)
             continue
-        if backfill_meta.get("actions"):
+        bucket_key, summary, exportable = _audit_exportable_row_outcome(row)
+        if exportable:
             backfilled_exportable += 1
-        buckets["export_cleanly_now"].append(
-            _audit_row_summary(backfilled, [], backfill=backfill_meta)
-        )
+        buckets[bucket_key].append(summary)
     for key in buckets:
         buckets[key].sort(
             key=lambda item: (item.get("project_id") or "", item.get("run_id") or "")
@@ -1157,16 +1369,65 @@ def clean_export_rows(rows: Iterable[dict[str, Any]]) -> ExportRows:
     return ExportRows(clean_rows, selection_summary=report["summary"])
 
 
+_AUDIT_BACKFILL_BUCKET_LABELS: tuple[tuple[str, str], ...] = (
+    ("Export cleanly now", "export_cleanly_now"),
+    ("Backfilled exportable", "backfilled_exportable"),
+    ("Missing required evidence/fields", "missing_required_evidence_or_fields"),
+    ("Excluded because paper/corpus", "excluded_paper_or_corpus"),
+    ("Hard negative or stale", "hard_negative_or_stale"),
+)
+
+
+def _audit_backfill_bucket_rows(
+    buckets: dict[str, Any], key: str
+) -> list[dict[str, Any]]:
+    if key == "backfilled_exportable":
+        return [
+            row
+            for row in buckets.get("export_cleanly_now") or []
+            if (row.get("backfill") or {}).get("actions")
+        ]
+    return list(buckets.get(key) or [])
+
+
+def _audit_backfill_row_table_line(row: dict[str, Any]) -> str:
+    project = row.get("project_id") or row.get("title") or "unknown"
+    outcome = row.get("research_outcome") or (
+        "compute_scale_blocked" if row.get("compute_scale_blocked") else ""
+    )
+    issues = ", ".join(row.get("issues") or [])
+    backfill = row.get("backfill") if isinstance(row.get("backfill"), dict) else {}
+    backfill_text = "; ".join(
+        part
+        for part in [
+            ", ".join(backfill.get("classification") or []),
+            ", ".join(backfill.get("actions") or []),
+        ]
+        if part
+    )
+    return f"| `{project}` | `{outcome}` | {issues} | {backfill_text} |"
+
+
+def _audit_backfill_bucket_section_lines(
+    label: str, rows: list[dict[str, Any]]
+) -> list[str]:
+    lines = [
+        f"## {label}",
+        "",
+        "| Project | Outcome | Issues | Backfill |",
+        "|---|---|---|---|",
+    ]
+    if not rows:
+        lines.append("| _none_ |  |  |  |")
+    else:
+        lines.extend(_audit_backfill_row_table_line(row) for row in rows)
+    lines.append("")
+    return lines
+
+
 def audit_backfill_markdown(report: dict[str, Any]) -> str:
     summary = report.get("summary") or {}
     buckets = report.get("buckets") or {}
-    labels = [
-        ("Export cleanly now", "export_cleanly_now"),
-        ("Backfilled exportable", "backfilled_exportable"),
-        ("Missing required evidence/fields", "missing_required_evidence_or_fields"),
-        ("Excluded because paper/corpus", "excluded_paper_or_corpus"),
-        ("Hard negative or stale", "hard_negative_or_stale"),
-    ]
     lines = [
         "# Promising signals backfill audit",
         "",
@@ -1180,7 +1441,7 @@ def audit_backfill_markdown(report: dict[str, Any]) -> str:
         "|---|---:|",
         f"| Total candidate rows | {summary.get('total_candidate_rows', 0)} |",
     ]
-    for label, key in labels:
+    for label, key in _AUDIT_BACKFILL_BUCKET_LABELS:
         lines.append(f"| {label} | {summary.get(key, 0)} |")
     lines.extend(
         [
@@ -1194,45 +1455,13 @@ def audit_backfill_markdown(report: dict[str, Any]) -> str:
             "",
         ]
     )
-    for label, key in labels:
-        rows = buckets.get(key) or []
-        if key == "backfilled_exportable":
-            rows = [
-                row
-                for row in buckets.get("export_cleanly_now") or []
-                if (row.get("backfill") or {}).get("actions")
-            ]
-        else:
-            rows = buckets.get(key) or []
+    for label, key in _AUDIT_BACKFILL_BUCKET_LABELS:
         lines.extend(
-            [
-                f"## {label}",
-                "",
-                "| Project | Outcome | Issues | Backfill |",
-                "|---|---|---|---|",
-            ]
+            _audit_backfill_bucket_section_lines(
+                label,
+                _audit_backfill_bucket_rows(buckets, key),
+            )
         )
-        if not rows:
-            lines.append("| _none_ |  |  |  |")
-        for row in rows:
-            project = row.get("project_id") or row.get("title") or "unknown"
-            outcome = row.get("research_outcome") or (
-                "compute_scale_blocked" if row.get("compute_scale_blocked") else ""
-            )
-            issues = ", ".join(row.get("issues") or [])
-            backfill = (
-                row.get("backfill") if isinstance(row.get("backfill"), dict) else {}
-            )
-            backfill_text = "; ".join(
-                part
-                for part in [
-                    ", ".join(backfill.get("classification") or []),
-                    ", ".join(backfill.get("actions") or []),
-                ]
-                if part
-            )
-            lines.append(f"| `{project}` | `{outcome}` | {issues} | {backfill_text} |")
-        lines.append("")
     return "\n".join(lines)
 
 
@@ -1437,7 +1666,7 @@ def write_export(rows: Iterable[dict[str, Any]], repo_root: Path) -> dict[str, A
     (repo_root / "data" / "ranking.json").write_text(
         json.dumps(ranking, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    (repo_root / "data" / "manifest.json").write_text(
+    (repo_root / "data" / MANIFEST_JSON).write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     index_lines = [

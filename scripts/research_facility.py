@@ -192,6 +192,102 @@ def _token_budget(value: Any) -> str:
     return ""
 
 
+_RUNTIME_PENALTY_BY_CLASS = {
+    "": 0.0,
+    "small": 0.0,
+    "medium": 1.0,
+    "large": 3.0,
+    "overnight": 5.0,
+}
+
+_TARGETED_SOURCE_HOSTS = ("github.com/", "dspy.ai/", "docs.vllm.ai/")
+
+
+def _dispatch_lineage_bonus(
+    *,
+    mode: str,
+    parent_project_id: str,
+    parent_run_id: str,
+    falsifiability_score: float,
+) -> float:
+    if mode == "followup_from_negative" or parent_project_id or parent_run_id:
+        return 8.0
+    if mode == "paper_replication_extension":
+        return 5.0
+    if mode == "implementation_gap":
+        return 3.0
+    if mode == "home_hardware_accessibility":
+        return 2.0
+    if mode == "moonshot":
+        return 2.0 if falsifiability_score >= 7.0 else -6.0
+    return 0.0
+
+
+def _dispatch_targeted_source_bonus(
+    *, source_kind: str, source_urls: list[str]
+) -> float:
+    bonus = 0.0
+    if source_kind == "arxiv" or any("arxiv.org/abs/" in url for url in source_urls):
+        bonus += 4.0
+    if any(host in url for url in source_urls for host in _TARGETED_SOURCE_HOSTS):
+        bonus += 1.5
+    return bonus
+
+
+def _dispatch_age_bonus(
+    *, created: datetime | None, now_dt: datetime
+) -> tuple[float, float]:
+    if created is None:
+        return 0.0, 0.0
+    age_days = max(0.0, (now_dt - created).total_seconds() / 86400.0)
+    return age_days, min(5.0, age_days * 0.25)
+
+
+def _dispatch_saturation_penalty(
+    *, category: str, category_counts: dict[str, int] | None
+) -> tuple[float, int]:
+    category_count = int((category_counts or {}).get(category, 0) or 0)
+    if category_count <= 8:
+        return 0.0, category_count
+    return min(8.0, (category_count - 8) * 0.5), category_count
+
+
+def _dispatch_duplicate_penalty(
+    *, similar_prior: list[Any], novelty_comparison: str
+) -> float:
+    if not similar_prior:
+        return 0.0
+    penalty = 4.0
+    if not novelty_comparison:
+        penalty += 4.0
+    return penalty
+
+
+def _dispatch_runtime_penalty(*, runtime_class: str, token_budget: str) -> float:
+    penalty = _RUNTIME_PENALTY_BY_CLASS.get(runtime_class, 1.0)
+    if token_budget == "large":
+        penalty += 1.0
+    return penalty
+
+
+def _dispatch_weak_contract_penalty(
+    *,
+    total_score: float,
+    novelty_score: float,
+    falsifiability_score: float,
+) -> float:
+    penalty = 0.0
+    if total_score < 68.0:
+        penalty += 6.0
+    elif total_score < 72.0:
+        penalty += 2.0
+    if novelty_score and novelty_score < 7.0:
+        penalty += 2.0
+    if falsifiability_score and falsifiability_score < 7.0:
+        penalty += 2.0
+    return penalty
+
+
 def dispatch_priority_breakdown(
     row: dict[str, Any],
     *,
@@ -222,67 +318,32 @@ def dispatch_priority_breakdown(
     novelty_score = _as_float(row.get("novelty_score"))
     falsifiability_score = _as_float(row.get("falsifiability_score"))
 
-    lineage_bonus = 0.0
-    if mode == "followup_from_negative" or parent_project_id or parent_run_id:
-        lineage_bonus += 8.0
-    elif mode == "paper_replication_extension":
-        lineage_bonus += 5.0
-    elif mode == "implementation_gap":
-        lineage_bonus += 3.0
-    elif mode == "home_hardware_accessibility":
-        lineage_bonus += 2.0
-    elif mode == "moonshot":
-        lineage_bonus += 2.0 if falsifiability_score >= 7.0 else -6.0
-
-    targeted_source_bonus = 0.0
-    if source_kind == "arxiv" or any("arxiv.org/abs/" in url for url in source_urls):
-        targeted_source_bonus += 4.0
-    if any(
-        host in url
-        for url in source_urls
-        for host in ("github.com/", "dspy.ai/", "docs.vllm.ai/")
-    ):
-        targeted_source_bonus += 1.5
-
+    lineage_bonus = _dispatch_lineage_bonus(
+        mode=mode,
+        parent_project_id=parent_project_id,
+        parent_run_id=parent_run_id,
+        falsifiability_score=falsifiability_score,
+    )
+    targeted_source_bonus = _dispatch_targeted_source_bonus(
+        source_kind=source_kind, source_urls=source_urls
+    )
     created = _parse_datetime(row.get("created_at") or row.get("updated_at"))
-    age_days = 0.0
-    if created is not None:
-        age_days = max(0.0, (now_dt - created).total_seconds() / 86400.0)
-    age_bonus = min(5.0, age_days * 0.25)
-
-    saturation_penalty = 0.0
-    category_count = int((category_counts or {}).get(category, 0) or 0)
-    if category_count > 8:
-        saturation_penalty = min(8.0, (category_count - 8) * 0.5)
-
-    duplicate_penalty = 0.0
-    if similar_prior:
-        duplicate_penalty = 4.0
-        # Similarity is not fatal if the candidate includes a novelty
-        # comparison, but it should not beat cleaner work unless other signals
-        # are strong.
-        if not _as_text(row.get("novelty_comparison")):
-            duplicate_penalty += 4.0
-
-    runtime_penalty = {
-        "": 0.0,
-        "small": 0.0,
-        "medium": 1.0,
-        "large": 3.0,
-        "overnight": 5.0,
-    }.get(runtime_class, 1.0)
-    if token_budget == "large":
-        runtime_penalty += 1.0
-
-    weak_contract_penalty = 0.0
-    if total_score < 68.0:
-        weak_contract_penalty += 6.0
-    elif total_score < 72.0:
-        weak_contract_penalty += 2.0
-    if novelty_score and novelty_score < 7.0:
-        weak_contract_penalty += 2.0
-    if falsifiability_score and falsifiability_score < 7.0:
-        weak_contract_penalty += 2.0
+    age_days, age_bonus = _dispatch_age_bonus(created=created, now_dt=now_dt)
+    saturation_penalty, category_count = _dispatch_saturation_penalty(
+        category=category, category_counts=category_counts
+    )
+    duplicate_penalty = _dispatch_duplicate_penalty(
+        similar_prior=similar_prior,
+        novelty_comparison=_as_text(row.get("novelty_comparison")),
+    )
+    runtime_penalty = _dispatch_runtime_penalty(
+        runtime_class=runtime_class, token_budget=token_budget
+    )
+    weak_contract_penalty = _dispatch_weak_contract_penalty(
+        total_score=total_score,
+        novelty_score=novelty_score,
+        falsifiability_score=falsifiability_score,
+    )
 
     score = (
         total_score
@@ -607,36 +668,31 @@ def normalize_candidate(
     return row
 
 
-def evaluate_candidate(
-    row: dict[str, Any],
-    *,
-    admit_threshold: float = 72.0,
-    review_threshold: float = 58.0,
-) -> CandidatePlan:
-    plan = CandidatePlan(candidate=row)
+def _collect_candidate_hard_failures(row: dict[str, Any]) -> list[str]:
+    failures: list[str] = []
     mode = row["generation_mode"]
     if mode not in GENERATION_MODES:
-        plan.hard_failures.append(f"unsupported generation_mode: {mode}")
+        failures.append(f"unsupported generation_mode: {mode}")
     if row["status"] not in CANDIDATE_STATUSES:
-        plan.hard_failures.append(f"unsupported status: {row['status']}")
+        failures.append(f"unsupported status: {row['status']}")
     for key in REQUIRED_TEXT_FIELDS:
         if not row[key]:
-            plan.hard_failures.append(f"missing {key}")
+            failures.append(f"missing {key}")
     for key in REQUIRED_ARRAY_FIELDS:
         if not row[key]:
-            plan.hard_failures.append(f"missing {key}")
+            failures.append(f"missing {key}")
     if mode == "fresh_grounded" and not row["source_ids"] and not row["source_urls"]:
-        plan.hard_failures.append("fresh_grounded requires source_ids or source_urls")
+        failures.append("fresh_grounded requires source_ids or source_urls")
     if (
         mode == "followup_from_negative"
         and not row["parent_project_id"]
         and not row["parent_run_id"]
     ):
-        plan.hard_failures.append(
+        failures.append(
             "followup_from_negative requires parent_project_id or parent_run_id"
         )
     if row["similar_prior_projects"] and not row["novelty_comparison"]:
-        plan.hard_failures.append("similar_prior_projects requires novelty_comparison")
+        failures.append("similar_prior_projects requires novelty_comparison")
     text = "\n".join(
         [
             row["title"],
@@ -647,26 +703,53 @@ def evaluate_candidate(
         ]
     ).lower()
     if any(re.search(pattern, text) for pattern in SHALLOW_INCREMENT_PATTERNS):
-        plan.hard_failures.append("candidate looks like shallow incremental sludge")
+        failures.append("candidate looks like shallow incremental sludge")
+    return failures
 
-    novelty = row["novelty_score"]
-    feasibility = row["feasibility_score"]
-    accessibility = row["accessibility_score"]
-    falsifiability = row["falsifiability_score"]
+
+def _resolved_accessibility_score(row: dict[str, Any], accessibility: float) -> float:
     if not accessibility and row["accessibility_delta"]:
-        accessibility = 5.0
+        return 5.0
+    return accessibility
+
+
+def _resolved_falsifiability_score(row: dict[str, Any], falsifiability: float) -> float:
     if not falsifiability and row["success_threshold"] and row["kill_condition"]:
-        falsifiability = 6.0
-    mode_bonus = {
-        "moonshot": 4.0 if falsifiability >= 7 else -8.0,
-        "home_hardware_accessibility": 4.0 if accessibility >= 7 else -5.0,
-        "followup_from_negative": 3.0 if row["novelty_comparison"] else -8.0,
+        return 6.0
+    return falsifiability
+
+
+def _candidate_mode_bonus(
+    mode: str,
+    row: dict[str, Any],
+    *,
+    accessibility: float,
+    falsifiability: float,
+) -> float:
+    if mode == "moonshot":
+        return 4.0 if falsifiability >= 7 else -8.0
+    if mode == "home_hardware_accessibility":
+        return 4.0 if accessibility >= 7 else -5.0
+    if mode == "followup_from_negative":
+        return 3.0 if row["novelty_comparison"] else -8.0
+    return {
         "fresh_grounded": 2.0,
         "implementation_gap": 2.0,
         "paper_replication_extension": 1.0,
         "manual_import": 0.0,
     }.get(mode, 0.0)
-    missing_field_penalty = 6.0 * len(plan.hard_failures)
+
+
+def _compute_candidate_total_score(
+    *,
+    novelty: float,
+    feasibility: float,
+    accessibility: float,
+    falsifiability: float,
+    mode_bonus: float,
+    hard_failure_count: int,
+) -> float:
+    missing_field_penalty = 6.0 * hard_failure_count
     total = (
         (novelty * 2.6)
         + (feasibility * 1.7)
@@ -675,11 +758,21 @@ def evaluate_candidate(
         + mode_bonus
         - missing_field_penalty
     )
-    total = max(0.0, min(100.0, round(total, 2)))
-    row["accessibility_score"] = accessibility
-    row["falsifiability_score"] = falsifiability
-    row["total_score"] = total
-    row["score_breakdown"] = {
+    return max(0.0, min(100.0, round(total, 2)))
+
+
+def _build_candidate_score_breakdown(
+    *,
+    novelty: float,
+    feasibility: float,
+    accessibility: float,
+    falsifiability: float,
+    mode_bonus: float,
+    missing_field_penalty: float,
+    admit_threshold: float,
+    review_threshold: float,
+) -> dict[str, float]:
+    return {
         "novelty_weighted": round(novelty * 2.6, 2),
         "feasibility_weighted": round(feasibility * 1.7, 2),
         "accessibility_weighted": round(accessibility * 2.5, 2),
@@ -689,30 +782,96 @@ def evaluate_candidate(
         "admit_threshold": admit_threshold,
         "review_threshold": review_threshold,
     }
-    plan.score_breakdown = row["score_breakdown"] | {"total_score": total}
 
+
+def _apply_candidate_admission(
+    plan: CandidatePlan,
+    row: dict[str, Any],
+    total: float,
+    *,
+    admit_threshold: float,
+    review_threshold: float,
+) -> None:
     if plan.hard_failures:
         plan.admission_decision = "rejected"
         plan.admission_reason = "; ".join(plan.hard_failures)
-    elif total >= admit_threshold:
+        return
+    if total >= admit_threshold:
         plan.admission_decision = "admitted"
-        plan.admission_reason = f"score {total} >= admit threshold {admit_threshold} with required research contract present"
-        plan.admitted_idea_id = row["candidate_id"]
-    elif total >= review_threshold:
-        plan.admission_decision = "needs_review"
-        plan.admission_reason = f"score {total} below admit threshold {admit_threshold} but above review threshold {review_threshold}"
-    else:
-        plan.admission_decision = "rejected"
         plan.admission_reason = (
-            f"score {total} below review threshold {review_threshold}"
+            f"score {total} >= admit threshold {admit_threshold} "
+            "with required research contract present"
         )
-    row["status"] = (
-        "admitted"
-        if plan.admission_decision == "admitted"
-        else (
-            "needs_review" if plan.admission_decision == "needs_review" else "rejected"
+        plan.admitted_idea_id = row["candidate_id"]
+        return
+    if total >= review_threshold:
+        plan.admission_decision = "needs_review"
+        plan.admission_reason = (
+            f"score {total} below admit threshold {admit_threshold} "
+            f"but above review threshold {review_threshold}"
         )
+        return
+    plan.admission_decision = "rejected"
+    plan.admission_reason = f"score {total} below review threshold {review_threshold}"
+
+
+def _status_for_admission_decision(decision: str) -> str:
+    if decision == "admitted":
+        return "admitted"
+    if decision == "needs_review":
+        return "needs_review"
+    return "rejected"
+
+
+def evaluate_candidate(
+    row: dict[str, Any],
+    *,
+    admit_threshold: float = 72.0,
+    review_threshold: float = 58.0,
+) -> CandidatePlan:
+    plan = CandidatePlan(candidate=row)
+    mode = row["generation_mode"]
+    plan.hard_failures = _collect_candidate_hard_failures(row)
+
+    novelty = row["novelty_score"]
+    feasibility = row["feasibility_score"]
+    accessibility = _resolved_accessibility_score(row, row["accessibility_score"])
+    falsifiability = _resolved_falsifiability_score(row, row["falsifiability_score"])
+    mode_bonus = _candidate_mode_bonus(
+        mode, row, accessibility=accessibility, falsifiability=falsifiability
     )
+    missing_field_penalty = 6.0 * len(plan.hard_failures)
+    total = _compute_candidate_total_score(
+        novelty=novelty,
+        feasibility=feasibility,
+        accessibility=accessibility,
+        falsifiability=falsifiability,
+        mode_bonus=mode_bonus,
+        hard_failure_count=len(plan.hard_failures),
+    )
+    row["accessibility_score"] = accessibility
+    row["falsifiability_score"] = falsifiability
+    row["total_score"] = total
+    row["score_breakdown"] = _build_candidate_score_breakdown(
+        novelty=novelty,
+        feasibility=feasibility,
+        accessibility=accessibility,
+        falsifiability=falsifiability,
+        mode_bonus=mode_bonus,
+        missing_field_penalty=missing_field_penalty,
+        admit_threshold=admit_threshold,
+        review_threshold=review_threshold,
+    )
+    plan.score_breakdown = row["score_breakdown"] | {"total_score": total}
+
+    _apply_candidate_admission(
+        plan,
+        row,
+        total,
+        admit_threshold=admit_threshold,
+        review_threshold=review_threshold,
+    )
+    row["status"] = _status_for_admission_decision(plan.admission_decision)
     return plan
 
 
@@ -721,7 +880,9 @@ def load_candidates(path: Path) -> list[dict[str, Any]]:
     try:
         data = json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", text, flags=re.S)
+        match = re.search(
+            r"```(?:json)?\s*(\[[^\]]*\]|\{[^\}]*\})\s*```", text, flags=re.S
+        )
         if not match:
             match = re.search(r"(\[\s*\{.*\}\s*\])", text, flags=re.S)
         if not match:
@@ -750,6 +911,14 @@ def sql_json(value: Any) -> str:
     )
 
 
+# Indented fragments for sql_raise_if_exists guards (Sonar S1192 in emit_sql).
+_SQL_GUARD_EXISTS_SELECT = "    select 1"
+# Opening AND clause for identity-conflict guards (Sonar S1192 in emit_sql).
+_SQL_GUARD_AND_OPEN = "      and ("
+# Closing paren for identity-conflict guards (Sonar S1192 in emit_sql).
+_SQL_GUARD_AND_CLOSE = "      )"
+
+
 def sql_raise_if_exists(query: str, message: str) -> str:
     return "\n".join(
         [
@@ -765,6 +934,246 @@ def sql_raise_if_exists(query: str, message: str) -> str:
     )
 
 
+def _emit_source_record_sql(
+    lines: list[str], source: dict[str, Any], candidate: dict[str, Any]
+) -> None:
+    source_id = _as_text(source.get("source_id")) or "source-" + stable_hash(
+        _as_text(source.get("url") or source.get("title")), 24
+    )
+    source_kind = _as_text(
+        source.get("source_kind") or candidate.get("source_kind") or "other"
+    )
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.research_sources",
+                    f"    where source_id = {sql_literal(source_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        source_kind is distinct from {sql_literal(source_kind)}",
+                    f"        or url is distinct from {sql_literal(_as_text(source.get('url')))}",
+                    f"        or external_id is distinct from {sql_literal(_as_text(source.get('external_id')))}",
+                    _SQL_GUARD_AND_CLOSE,
+                ]
+            ),
+            "conflicting research source identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash) values "
+        f"({sql_literal(source_id)}, {sql_literal(source_kind)}, {sql_literal(_as_text(source.get('title') or candidate['title']))}, {sql_literal(_as_text(source.get('url')))}, {sql_literal(_as_text(source.get('external_id')))}, "
+        f"nullif({sql_literal(_as_text(source.get('retrieved_at')))}, '')::timestamptz, {sql_literal(_as_text(source.get('summary')))}, {sql_json(source.get('payload_json') or {})}, {sql_literal(_as_text(source.get('content_hash')) or stable_hash(json.dumps(source, sort_keys=True), 64))}) "
+        "on conflict (source_id) do update set title = excluded.title, url = excluded.url, summary = excluded.summary, payload_json = excluded.payload_json, content_hash = excluded.content_hash, updated_at = now();"
+    )
+
+
+def _emit_url_source_sql(lines: list[str], url: Any, candidate: dict[str, Any]) -> None:
+    source_id = "url-" + stable_hash(_as_text(url), 24)
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.research_sources",
+                    f"    where source_id = {sql_literal(source_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        url is distinct from {sql_literal(_as_text(url))}",
+                    _SQL_GUARD_AND_CLOSE,
+                ]
+            ),
+            "conflicting research source identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.research_sources(source_id, source_kind, title, url, content_hash, payload_json) values "
+        f"({sql_literal(source_id)}, {sql_literal(candidate['source_kind'] or 'other')}, {sql_literal(candidate['title'])}, {sql_literal(_as_text(url))}, {sql_literal(stable_hash(_as_text(url), 64))}, {sql_json({'url': _as_text(url)})}) "
+        "on conflict (source_id) do update set title = excluded.title, url = excluded.url, updated_at = now();"
+    )
+
+
+def _emit_candidate_sql(
+    lines: list[str], candidate: dict[str, Any], plan: CandidatePlan
+) -> None:
+    c = candidate
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.research_candidates",
+                    f"    where candidate_id = {sql_literal(c['candidate_id'])}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        generation_mode is distinct from {sql_literal(c['generation_mode'])}",
+                    f"        or dedupe_key is distinct from {sql_literal(c['dedupe_key'])}",
+                    f"        or title is distinct from {sql_literal(c['title'])}",
+                    _SQL_GUARD_AND_CLOSE,
+                ]
+            ),
+            "conflicting research candidate identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.research_candidates("
+        "candidate_id, generation_mode, status, title, category, priority, source_kind, source_ids, source_urls, "
+        "parent_project_id, parent_run_id, hypothesis, mechanism, description, implementation, baseline_to_beat, "
+        "success_threshold, kill_condition, accessibility_delta, expected_artifacts, required_evidence, likely_failure_modes, "
+        "estimated_runtime_class, expected_token_budget, machine_target, model, sandbox, novelty_score, feasibility_score, "
+        "accessibility_score, falsifiability_score, total_score, score_breakdown, dedupe_key, similar_prior_projects, "
+        "novelty_comparison, risk_notes, rejection_reason, provider, provider_model, prompt_version, generated_by, raw_candidate_json"
+        ") values ("
+        f"{sql_literal(c['candidate_id'])}, {sql_literal(c['generation_mode'])}, {sql_literal(c['status'])}, {sql_literal(c['title'])}, "
+        f"{sql_literal(c['category'])}, {sql_literal(c['priority'])}, {sql_literal(c['source_kind'])}, {sql_json(c['source_ids'])}, {sql_json(c['source_urls'])}, "
+        f"{sql_literal(c['parent_project_id'])}, {sql_literal(c['parent_run_id'])}, {sql_literal(c['hypothesis'])}, {sql_literal(c['mechanism'])}, "
+        f"{sql_literal(c['description'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['success_threshold'])}, "
+        f"{sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_json(c['expected_artifacts'])}, {sql_json(c['required_evidence'])}, {sql_json(c['likely_failure_modes'])}, "
+        f"{sql_literal(c['estimated_runtime_class'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, "
+        f"{c['novelty_score']:.2f}, {c['feasibility_score']:.2f}, {c['accessibility_score']:.2f}, {c['falsifiability_score']:.2f}, {c['total_score']:.2f}, "
+        f"{sql_json(c['score_breakdown'])}, {sql_literal(c['dedupe_key'])}, {sql_json(c['similar_prior_projects'])}, {sql_literal(c['novelty_comparison'])}, {sql_literal(c['risk_notes'])}, "
+        f"{sql_literal(plan.admission_reason if plan.admission_decision == 'rejected' else '')}, {sql_literal(c['provider'])}, {sql_literal(c['provider_model'])}, {sql_literal(c['prompt_version'])}, {sql_literal(c['generated_by'])}, {sql_json(c['raw_candidate_json'])}"
+        ") on conflict (candidate_id) do update set "
+        "status = case when enoch.research_candidates.status not in ('admitted', 'rejected', 'merged') then excluded.status else enoch.research_candidates.status end, "
+        "total_score = excluded.total_score, score_breakdown = excluded.score_breakdown, updated_at = now() "
+        "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged');"
+    )
+
+
+def _emit_lineage_sql(lines: list[str], candidate: dict[str, Any]) -> None:
+    for source_id in candidate["source_ids"]:
+        lines.append(
+            "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+            f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'source_ids': candidate['source_ids']})});"
+        )
+    for url in candidate["source_urls"]:
+        source_id = "url-" + stable_hash(_as_text(url), 24)
+        lines.append(
+            "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+            f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})});"
+        )
+
+
+def _emit_admitted_queue_sql(
+    lines: list[str],
+    candidate: dict[str, Any],
+    plan: CandidatePlan,
+    *,
+    requested_by: str,
+) -> None:
+    c = candidate
+    idea_id = plan.admitted_idea_id
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.ideas",
+                    f"    where idea_id = {sql_literal(idea_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    "        source_kind is distinct from 'research_facility'",
+                    _SQL_GUARD_AND_CLOSE,
+                ]
+            ),
+            "conflicting research facility idea identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.ideas(idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation, baseline_to_beat, kill_condition, accessibility_delta, expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json) values "
+        f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, 'testing', {sql_literal(c['category'])}, {sql_literal(c['priority'])}, 'research_facility', {sql_literal(c['source_urls'][0] if c['source_urls'] else '')}, {sql_literal(c['description'] or c['hypothesis'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(str(c['novelty_score']))}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, 50, 50, {sql_json(c)}) "
+        "on conflict (idea_id) do update set title = excluded.title, source_payload_json = excluded.source_payload_json, updated_at = now();"
+    )
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.projects",
+                    f"    where project_id = {sql_literal(idea_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        project_dir is distinct from {sql_literal(idea_id)}",
+                    "        or origin_idea_status is distinct from 'testing'",
+                    _SQL_GUARD_AND_CLOSE,
+                ]
+            ),
+            "conflicting research facility project identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status) values "
+        f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, {sql_literal(idea_id)}, 'testing') "
+        "on conflict (project_id) do update set project_name = excluded.project_name, updated_at = now();"
+    )
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.queue_items",
+                    f"    where project_id = {sql_literal(idea_id)}",
+                    _SQL_GUARD_AND_OPEN,
+                    "        status is distinct from 'queued'",
+                    "        or coalesce(current_run_id, '') <> ''",
+                    "        or coalesce(next_action_hint, '') not in ('', 'controller_review')",
+                    _SQL_GUARD_AND_CLOSE,
+                ]
+            ),
+            "conflicting research facility queue promotion identity",
+        )
+    )
+    lines.append(
+        "insert into enoch.queue_items(project_id, status, selection_rank, dispatch_priority, auto_continue, continue_count, max_continues, retry_count, max_retries, next_action_hint, manual_review_required, machine_target, model, sandbox, updated_at) values "
+        f"({sql_literal(idea_id)}, 'queued', 50, 50, true, 0, 0, 0, 2, 'controller_review', false, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, now()) "
+        "on conflict (project_id) do update set machine_target = excluded.machine_target, model = excluded.model, sandbox = excluded.sandbox, updated_at = now() "
+        "where enoch.queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling');"
+    )
+    lines.append(
+        "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+        f"('candidate', {sql_literal(c['candidate_id'])}, 'idea', {sql_literal(idea_id)}, 'admitted_as', {sql_json({'admission_reason': plan.admission_reason})}), "
+        f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})});"
+    )
+
+
+def _emit_admission_sql(
+    lines: list[str],
+    candidate: dict[str, Any],
+    plan: CandidatePlan,
+    *,
+    requested_by: str,
+    queue_admitted: bool,
+    idempotency_key: str,
+) -> None:
+    c = candidate
+    admitted_idea_sql = (
+        sql_literal(plan.admitted_idea_id)
+        if (queue_admitted and plan.admitted_idea_id)
+        else "null"
+    )
+    lines.append(
+        sql_raise_if_exists(
+            "\n".join(
+                [
+                    _SQL_GUARD_EXISTS_SELECT,
+                    "    from enoch.research_admissions",
+                    f"    where idempotency_key = {sql_literal(idempotency_key)}",
+                    _SQL_GUARD_AND_OPEN,
+                    f"        candidate_id is distinct from {sql_literal(c['candidate_id'])}",
+                    f"        or admission_decision is distinct from {sql_literal(plan.admission_decision)}",
+                    f"        or admission_reason is distinct from {sql_literal(plan.admission_reason)}",
+                    f"        or score_breakdown is distinct from {sql_json(plan.score_breakdown)}",
+                    f"        or admitted_idea_id is distinct from {admitted_idea_sql}",
+                    f"        or operator is distinct from {sql_literal(requested_by)}",
+                    _SQL_GUARD_AND_CLOSE,
+                ]
+            ),
+            "conflicting research admission idempotency key",
+        )
+    )
+    lines.append(
+        "insert into enoch.research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key) values "
+        f"({sql_literal(c['candidate_id'])}, {sql_literal(plan.admission_decision)}, {sql_literal(plan.admission_reason)}, {sql_json(plan.score_breakdown)}, {admitted_idea_sql}, {sql_literal(requested_by)}, {sql_literal(idempotency_key)}) "
+        "on conflict (idempotency_key) do nothing;"
+    )
+
+
 def emit_sql(
     plans: list[CandidatePlan], *, requested_by: str, queue_admitted: bool
 ) -> str:
@@ -777,213 +1186,24 @@ def emit_sql(
     for plan in plans:
         c = plan.candidate
         for source in c.get("source_records", []):
-            if not isinstance(source, dict):
-                continue
-            source_id = _as_text(source.get("source_id")) or "source-" + stable_hash(
-                _as_text(source.get("url") or source.get("title")), 24
-            )
-            source_kind = _as_text(
-                source.get("source_kind") or c.get("source_kind") or "other"
-            )
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            "    select 1",
-                            "    from enoch.research_sources",
-                            f"    where source_id = {sql_literal(source_id)}",
-                            "      and (",
-                            f"        source_kind is distinct from {sql_literal(source_kind)}",
-                            f"        or url is distinct from {sql_literal(_as_text(source.get('url')))}",
-                            f"        or external_id is distinct from {sql_literal(_as_text(source.get('external_id')))}",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research source identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash) values "
-                f"({sql_literal(source_id)}, {sql_literal(source_kind)}, {sql_literal(_as_text(source.get('title') or c['title']))}, {sql_literal(_as_text(source.get('url')))}, {sql_literal(_as_text(source.get('external_id')))}, "
-                f"nullif({sql_literal(_as_text(source.get('retrieved_at')))}, '')::timestamptz, {sql_literal(_as_text(source.get('summary')))}, {sql_json(source.get('payload_json') or {})}, {sql_literal(_as_text(source.get('content_hash')) or stable_hash(json.dumps(source, sort_keys=True), 64))}) "
-                "on conflict (source_id) do update set title = excluded.title, url = excluded.url, summary = excluded.summary, payload_json = excluded.payload_json, content_hash = excluded.content_hash, updated_at = now();"
-            )
+            if isinstance(source, dict):
+                _emit_source_record_sql(lines, source, c)
         for url in c["source_urls"]:
-            source_id = "url-" + stable_hash(_as_text(url), 24)
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            "    select 1",
-                            "    from enoch.research_sources",
-                            f"    where source_id = {sql_literal(source_id)}",
-                            "      and (",
-                            f"        url is distinct from {sql_literal(_as_text(url))}",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research source identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.research_sources(source_id, source_kind, title, url, content_hash, payload_json) values "
-                f"({sql_literal(source_id)}, {sql_literal(c['source_kind'] or 'other')}, {sql_literal(c['title'])}, {sql_literal(_as_text(url))}, {sql_literal(stable_hash(_as_text(url), 64))}, {sql_json({'url': _as_text(url)})}) "
-                "on conflict (source_id) do update set title = excluded.title, url = excluded.url, updated_at = now();"
-            )
-        lines.append(
-            sql_raise_if_exists(
-                "\n".join(
-                    [
-                        "    select 1",
-                        "    from enoch.research_candidates",
-                        f"    where candidate_id = {sql_literal(c['candidate_id'])}",
-                        "      and (",
-                        f"        generation_mode is distinct from {sql_literal(c['generation_mode'])}",
-                        f"        or dedupe_key is distinct from {sql_literal(c['dedupe_key'])}",
-                        f"        or title is distinct from {sql_literal(c['title'])}",
-                        "      )",
-                    ]
-                ),
-                "conflicting research candidate identity",
-            )
-        )
-        lines.append(
-            "insert into enoch.research_candidates("
-            "candidate_id, generation_mode, status, title, category, priority, source_kind, source_ids, source_urls, "
-            "parent_project_id, parent_run_id, hypothesis, mechanism, description, implementation, baseline_to_beat, "
-            "success_threshold, kill_condition, accessibility_delta, expected_artifacts, required_evidence, likely_failure_modes, "
-            "estimated_runtime_class, expected_token_budget, machine_target, model, sandbox, novelty_score, feasibility_score, "
-            "accessibility_score, falsifiability_score, total_score, score_breakdown, dedupe_key, similar_prior_projects, "
-            "novelty_comparison, risk_notes, rejection_reason, provider, provider_model, prompt_version, generated_by, raw_candidate_json"
-            ") values ("
-            f"{sql_literal(c['candidate_id'])}, {sql_literal(c['generation_mode'])}, {sql_literal(c['status'])}, {sql_literal(c['title'])}, "
-            f"{sql_literal(c['category'])}, {sql_literal(c['priority'])}, {sql_literal(c['source_kind'])}, {sql_json(c['source_ids'])}, {sql_json(c['source_urls'])}, "
-            f"{sql_literal(c['parent_project_id'])}, {sql_literal(c['parent_run_id'])}, {sql_literal(c['hypothesis'])}, {sql_literal(c['mechanism'])}, "
-            f"{sql_literal(c['description'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['success_threshold'])}, "
-            f"{sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_json(c['expected_artifacts'])}, {sql_json(c['required_evidence'])}, {sql_json(c['likely_failure_modes'])}, "
-            f"{sql_literal(c['estimated_runtime_class'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, "
-            f"{c['novelty_score']:.2f}, {c['feasibility_score']:.2f}, {c['accessibility_score']:.2f}, {c['falsifiability_score']:.2f}, {c['total_score']:.2f}, "
-            f"{sql_json(c['score_breakdown'])}, {sql_literal(c['dedupe_key'])}, {sql_json(c['similar_prior_projects'])}, {sql_literal(c['novelty_comparison'])}, {sql_literal(c['risk_notes'])}, "
-            f"{sql_literal(plan.admission_reason if plan.admission_decision == 'rejected' else '')}, {sql_literal(c['provider'])}, {sql_literal(c['provider_model'])}, {sql_literal(c['prompt_version'])}, {sql_literal(c['generated_by'])}, {sql_json(c['raw_candidate_json'])}"
-            ") on conflict (candidate_id) do update set "
-            "status = case when enoch.research_candidates.status not in ('admitted', 'rejected', 'merged') then excluded.status else enoch.research_candidates.status end, "
-            "total_score = excluded.total_score, score_breakdown = excluded.score_breakdown, updated_at = now() "
-            "where enoch.research_candidates.status not in ('admitted', 'rejected', 'merged');"
-        )
+            _emit_url_source_sql(lines, url, c)
+        _emit_candidate_sql(lines, c, plan)
         idempotency_key = (
             f"research-admission:{c['candidate_id']}:{plan.admission_decision}"
         )
-        for source_id in c["source_ids"]:
-            lines.append(
-                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(c['candidate_id'])}, 'generated_from', {sql_json({'source_ids': c['source_ids']})});"
-            )
-        for url in c["source_urls"]:
-            source_id = "url-" + stable_hash(_as_text(url), 24)
-            lines.append(
-                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(c['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})});"
-            )
+        _emit_lineage_sql(lines, c)
         if plan.admission_decision == "admitted" and queue_admitted:
-            idea_id = plan.admitted_idea_id
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            "    select 1",
-                            "    from enoch.ideas",
-                            f"    where idea_id = {sql_literal(idea_id)}",
-                            "      and (",
-                            "        source_kind is distinct from 'research_facility'",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research facility idea identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.ideas(idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation, baseline_to_beat, kill_condition, accessibility_delta, expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json) values "
-                f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, 'testing', {sql_literal(c['category'])}, {sql_literal(c['priority'])}, 'research_facility', {sql_literal(c['source_urls'][0] if c['source_urls'] else '')}, {sql_literal(c['description'] or c['hypothesis'])}, {sql_literal(c['implementation'])}, {sql_literal(c['baseline_to_beat'])}, {sql_literal(c['kill_condition'])}, {sql_literal(c['accessibility_delta'])}, {sql_literal(c['expected_token_budget'])}, {sql_literal(str(c['novelty_score']))}, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, 50, 50, {sql_json(c)}) "
-                "on conflict (idea_id) do update set title = excluded.title, source_payload_json = excluded.source_payload_json, updated_at = now();"
-            )
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            "    select 1",
-                            "    from enoch.projects",
-                            f"    where project_id = {sql_literal(idea_id)}",
-                            "      and (",
-                            f"        project_dir is distinct from {sql_literal(idea_id)}",
-                            "        or origin_idea_status is distinct from 'testing'",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research facility project identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.projects(project_id, project_name, project_dir, origin_idea_status) values "
-                f"({sql_literal(idea_id)}, {sql_literal(c['title'])}, {sql_literal(idea_id)}, 'testing') "
-                "on conflict (project_id) do update set project_name = excluded.project_name, updated_at = now();"
-            )
-            lines.append(
-                sql_raise_if_exists(
-                    "\n".join(
-                        [
-                            "    select 1",
-                            "    from enoch.queue_items",
-                            f"    where project_id = {sql_literal(idea_id)}",
-                            "      and (",
-                            "        status is distinct from 'queued'",
-                            "        or coalesce(current_run_id, '') <> ''",
-                            "        or coalesce(next_action_hint, '') not in ('', 'controller_review')",
-                            "      )",
-                        ]
-                    ),
-                    "conflicting research facility queue promotion identity",
-                )
-            )
-            lines.append(
-                "insert into enoch.queue_items(project_id, status, selection_rank, dispatch_priority, auto_continue, continue_count, max_continues, retry_count, max_retries, next_action_hint, manual_review_required, machine_target, model, sandbox, updated_at) values "
-                f"({sql_literal(idea_id)}, 'queued', 50, 50, true, 0, 0, 0, 2, 'controller_review', false, {sql_literal(c['machine_target'])}, {sql_literal(c['model'])}, {sql_literal(c['sandbox'])}, now()) "
-                "on conflict (project_id) do update set machine_target = excluded.machine_target, model = excluded.model, sandbox = excluded.sandbox, updated_at = now() "
-                "where enoch.queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling');"
-            )
-            lines.append(
-                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                f"('candidate', {sql_literal(c['candidate_id'])}, 'idea', {sql_literal(idea_id)}, 'admitted_as', {sql_json({'admission_reason': plan.admission_reason})}), "
-                f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})});"
-            )
-        admitted_idea_sql = (
-            sql_literal(plan.admitted_idea_id)
-            if (queue_admitted and plan.admitted_idea_id)
-            else "null"
-        )
-        lines.append(
-            sql_raise_if_exists(
-                "\n".join(
-                    [
-                        "    select 1",
-                        "    from enoch.research_admissions",
-                        f"    where idempotency_key = {sql_literal(idempotency_key)}",
-                        "      and (",
-                        f"        candidate_id is distinct from {sql_literal(c['candidate_id'])}",
-                        f"        or admission_decision is distinct from {sql_literal(plan.admission_decision)}",
-                        f"        or admission_reason is distinct from {sql_literal(plan.admission_reason)}",
-                        f"        or score_breakdown is distinct from {sql_json(plan.score_breakdown)}",
-                        f"        or admitted_idea_id is distinct from {admitted_idea_sql}",
-                        f"        or operator is distinct from {sql_literal(requested_by)}",
-                        "      )",
-                    ]
-                ),
-                "conflicting research admission idempotency key",
-            )
-        )
-        lines.append(
-            "insert into enoch.research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key) values "
-            f"({sql_literal(c['candidate_id'])}, {sql_literal(plan.admission_decision)}, {sql_literal(plan.admission_reason)}, {sql_json(plan.score_breakdown)}, {admitted_idea_sql}, {sql_literal(requested_by)}, {sql_literal(idempotency_key)}) "
-            "on conflict (idempotency_key) do nothing;"
+            _emit_admitted_queue_sql(lines, c, plan, requested_by=requested_by)
+        _emit_admission_sql(
+            lines,
+            c,
+            plan,
+            requested_by=requested_by,
+            queue_admitted=queue_admitted,
+            idempotency_key=idempotency_key,
         )
         lines.append("")
     lines.append("commit;")

@@ -10,8 +10,8 @@ from .datasets import as_bool, is_supported_negative_nonblocking, negative_ratio
 
 DEFAULT_REPORT_PATHS = (
     "/var/lib/enoch-control-plane/research-quality/latest-report.json",
-    "/tmp/enoch-dspy-quality-report.after.json",
-    "/tmp/enoch-dspy-quality-report.json",
+    "/var/lib/enoch-control-plane/research-quality/dspy-quality-report.after.json",
+    "/var/lib/enoch-control-plane/research-quality/dspy-quality-report.json",
 )
 DEFAULT_WINDOW_REPORT_PATH = (
     "/var/lib/enoch-control-plane/research-quality/latest-window-comparison.json"
@@ -19,6 +19,10 @@ DEFAULT_WINDOW_REPORT_PATH = (
 DEFAULT_AUTOPILOT_HISTORY_PATH = (
     "/var/lib/enoch-control-plane/research-quality/autopilot-history.jsonl"
 )
+
+RESEARCH_QUALITY_LABEL_BLOCKED = "Research quality: BLOCKED"
+RESEARCH_QUALITY_LABEL_CLEAN = "Research quality: clean"
+RESEARCH_QUALITY_LABEL_WARNINGS = "Research quality: warnings"
 
 
 def _utc_iso_from_mtime(path: Path) -> str:
@@ -29,21 +33,36 @@ def _utc_iso_from_mtime(path: Path) -> str:
     )
 
 
-def _problem_severity(problem: str, item: dict[str, Any]) -> str:
-    decision = str(item.get("decision") or "").strip()
-    hypothesis_status = str(item.get("hypothesis_status") or "").strip()
-    if (
+def _weak_evidence_problem_severity(
+    problem: str,
+    *,
+    decision: str,
+    hypothesis_status: str,
+) -> str | None:
+    weak_evidence_problems = {
+        "weak_or_missing_evidence_strength",
+        "supported_but_negative_requires_review",
+    }
+    demote_decision = (
         decision == "finalize_negative"
         and hypothesis_status in {"mixed", "unsupported"}
     ) or (
         decision == "blocked"
         and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"}
-    ):
-        if problem in {
-            "weak_or_missing_evidence_strength",
-            "supported_but_negative_requires_review",
-        }:
-            return "warning"
+    )
+    if demote_decision and problem in weak_evidence_problems:
+        return "warning"
+    return None
+
+
+def _problem_severity(problem: str, item: dict[str, Any]) -> str:
+    decision = str(item.get("decision") or "").strip()
+    hypothesis_status = str(item.get("hypothesis_status") or "").strip()
+    demoted = _weak_evidence_problem_severity(
+        problem, decision=decision, hypothesis_status=hypothesis_status
+    )
+    if demoted is not None:
+        return demoted
     followup_recommended = as_bool(item.get("followup_recommended"))
     bounded_followup = (
         followup_recommended
@@ -77,44 +96,70 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
     return "blocked"
 
 
-def classify_quality_report(
-    report: dict[str, Any], *, report_path: str = "", report_mtime: str = ""
-) -> dict[str, Any]:
-    summary_raw = report.get("summary")
-    candidate_scores_raw = report.get("candidate_scores")
-    decision_scores_raw = report.get("decision_scores")
+def _quality_report_malformed_reasons(report: dict[str, Any]) -> list[str]:
     malformed_reasons: list[str] = []
-    if not isinstance(summary_raw, dict):
+    if not isinstance(report.get("summary"), dict):
         malformed_reasons.append("missing_or_invalid_summary")
-    if not isinstance(candidate_scores_raw, list):
+    if not isinstance(report.get("candidate_scores"), list):
         malformed_reasons.append("missing_or_invalid_candidate_scores")
-    if not isinstance(decision_scores_raw, list):
+    if not isinstance(report.get("decision_scores"), list):
         malformed_reasons.append("missing_or_invalid_decision_scores")
-    if malformed_reasons:
-        return {
-            "ok": False,
-            "status": "blocked",
-            "label": "Research quality: BLOCKED",
-            "report_path": report_path,
-            "report_mtime": report_mtime,
-            "report_generated_at": report.get("generated_at") or "",
-            "schema_version": report.get("schema_version") or "",
-            "decisions_checked": 0,
-            "candidates_checked": 0,
-            "problem_counts": {"malformed_quality_report": 1},
-            "raw_problem_counts": {},
-            "severity_counts": {"blocked": 1},
-            "problem_details": [
-                {
-                    "section": "report",
-                    "severity": "blocked",
-                    "problem": "malformed_quality_report",
-                    "reason": "; ".join(malformed_reasons),
-                }
-            ],
-        }
-    summary = summary_raw
-    raw_problem_counts = dict(summary.get("problem_counts") or {})
+    return malformed_reasons
+
+
+def _blocked_malformed_quality_report(
+    report: dict[str, Any],
+    *,
+    report_path: str,
+    report_mtime: str,
+    malformed_reasons: list[str],
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": "blocked",
+        "label": RESEARCH_QUALITY_LABEL_BLOCKED,
+        "report_path": report_path,
+        "report_mtime": report_mtime,
+        "report_generated_at": report.get("generated_at") or "",
+        "schema_version": report.get("schema_version") or "",
+        "decisions_checked": 0,
+        "candidates_checked": 0,
+        "problem_counts": {"malformed_quality_report": 1},
+        "raw_problem_counts": {},
+        "severity_counts": {"blocked": 1},
+        "problem_details": [
+            {
+                "section": "report",
+                "severity": "blocked",
+                "problem": "malformed_quality_report",
+                "reason": "; ".join(malformed_reasons),
+            }
+        ],
+    }
+
+
+def _quality_problem_detail(
+    section_name: str,
+    problem: str,
+    severity: str,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "section": section_name,
+        "severity": severity,
+        "problem": problem,
+        "project_id": item.get("project_id"),
+        "candidate_id": item.get("candidate_id"),
+        "run_id": item.get("run_id"),
+        "title": item.get("project_name") or item.get("title"),
+        "decision": item.get("decision"),
+        "hypothesis_status": item.get("hypothesis_status"),
+    }
+
+
+def _collect_quality_problem_metrics(
+    report: dict[str, Any],
+) -> tuple[Counter[str], Counter[str], list[dict[str, Any]]]:
     actionable_problem_counts: Counter[str] = Counter()
     severity_counts: Counter[str] = Counter()
     problem_details: list[dict[str, Any]] = []
@@ -129,27 +174,49 @@ def classify_quality_report(
                 if severity in {"warning", "blocked"}:
                     actionable_problem_counts[str(problem)] += 1
                 problem_details.append(
-                    {
-                        "section": section_name,
-                        "severity": severity,
-                        "problem": str(problem),
-                        "project_id": item.get("project_id"),
-                        "candidate_id": item.get("candidate_id"),
-                        "run_id": item.get("run_id"),
-                        "title": item.get("project_name") or item.get("title"),
-                        "decision": item.get("decision"),
-                        "hypothesis_status": item.get("hypothesis_status"),
-                    }
+                    _quality_problem_detail(section_name, str(problem), severity, item)
                 )
 
+    return actionable_problem_counts, severity_counts, problem_details
+
+
+def _quality_status_from_severity_counts(
+    severity_counts: Counter[str],
+) -> tuple[str, str]:
     blocked = int(severity_counts.get("blocked") or 0)
     warnings = int(severity_counts.get("warning") or 0)
-    status = "blocked" if blocked else "warnings" if warnings else "clean"
+    if blocked:
+        status = "blocked"
+    elif warnings:
+        status = "warnings"
+    else:
+        status = "clean"
     label = {
-        "clean": "Research quality: clean",
-        "warnings": "Research quality: warnings",
-        "blocked": "Research quality: BLOCKED",
+        "clean": RESEARCH_QUALITY_LABEL_CLEAN,
+        "warnings": RESEARCH_QUALITY_LABEL_WARNINGS,
+        "blocked": RESEARCH_QUALITY_LABEL_BLOCKED,
     }[status]
+    return status, label
+
+
+def classify_quality_report(
+    report: dict[str, Any], *, report_path: str = "", report_mtime: str = ""
+) -> dict[str, Any]:
+    malformed_reasons = _quality_report_malformed_reasons(report)
+    if malformed_reasons:
+        return _blocked_malformed_quality_report(
+            report,
+            report_path=report_path,
+            report_mtime=report_mtime,
+            malformed_reasons=malformed_reasons,
+        )
+
+    summary = report["summary"]
+    raw_problem_counts = dict(summary.get("problem_counts") or {})
+    actionable_problem_counts, severity_counts, problem_details = (
+        _collect_quality_problem_metrics(report)
+    )
+    status, label = _quality_status_from_severity_counts(severity_counts)
     return {
         "ok": status != "blocked",
         "status": status,
@@ -195,6 +262,63 @@ def _load_json_file(path: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _autopilot_history_item_timestamp(item: dict[str, Any]) -> str:
+    return str(item.get("checked_at") or item.get("recorded_at") or "")
+
+
+def _parse_autopilot_history_row(line: str, cutoff: str) -> dict[str, Any] | None:
+    try:
+        item = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(item, dict):
+        return None
+    if cutoff and _autopilot_history_item_timestamp(item) < cutoff:
+        return None
+    return item
+
+
+def _collect_autopilot_history_rows(
+    lines: list[str], cutoff: str
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for line in lines:
+        row = _parse_autopilot_history_row(line, cutoff)
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
+def _autopilot_history_summary_from_rows(
+    path: str, rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    malformed_rows = [
+        item
+        for item in rows
+        if _safe_int(item.get("malformed_provider_response_count")) > 0
+    ]
+    last_row = rows[-1] if rows else None
+    last_malformed = malformed_rows[-1] if malformed_rows else None
+    return {
+        "path": path,
+        "available": True,
+        "rows_checked": len(rows),
+        "malformed_provider_response_ticks": len(malformed_rows),
+        "malformed_provider_response_count": sum(
+            _safe_int(item.get("malformed_provider_response_count")) for item in rows
+        ),
+        "last_malformed_at": _autopilot_history_item_timestamp(last_malformed)
+        if last_malformed
+        else "",
+        "last_generated_count": _safe_int(last_row.get("generated_count"))
+        if last_row
+        else 0,
+        "last_checked_at": _autopilot_history_item_timestamp(last_row)
+        if last_row
+        else "",
+    }
+
+
 def _load_autopilot_history_summary(
     path: str, *, cutoff: str = "", max_rows: int = 200
 ) -> dict[str, Any]:
@@ -208,50 +332,8 @@ def _load_autopilot_history_summary(
     except OSError as exc:
         return {"path": path, "available": False, "reason": f"read_failed: {exc}"}
 
-    rows: list[dict[str, Any]] = []
-    for line in lines:
-        try:
-            item = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(item, dict):
-            continue
-        if (
-            cutoff
-            and str(item.get("checked_at") or item.get("recorded_at") or "") < cutoff
-        ):
-            continue
-        rows.append(item)
-
-    malformed_rows = [
-        item
-        for item in rows
-        if _safe_int(item.get("malformed_provider_response_count")) > 0
-    ]
-    return {
-        "path": path,
-        "available": True,
-        "rows_checked": len(rows),
-        "malformed_provider_response_ticks": len(malformed_rows),
-        "malformed_provider_response_count": sum(
-            _safe_int(item.get("malformed_provider_response_count")) for item in rows
-        ),
-        "last_malformed_at": str(
-            malformed_rows[-1].get("checked_at")
-            or malformed_rows[-1].get("recorded_at")
-            or ""
-        )
-        if malformed_rows
-        else "",
-        "last_generated_count": _safe_int(rows[-1].get("generated_count"))
-        if rows
-        else 0,
-        "last_checked_at": str(
-            rows[-1].get("checked_at") or rows[-1].get("recorded_at") or ""
-        )
-        if rows
-        else "",
-    }
+    rows = _collect_autopilot_history_rows(lines, cutoff)
+    return _autopilot_history_summary_from_rows(path, rows)
 
 
 def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, Any]:
@@ -324,7 +406,7 @@ def load_latest_quality_status(
         return {
             "ok": False,
             "status": "blocked",
-            "label": "Research quality: BLOCKED",
+            "label": RESEARCH_QUALITY_LABEL_BLOCKED,
             "report_path": report_path,
             "report_mtime": "",
             "report_generated_at": "",

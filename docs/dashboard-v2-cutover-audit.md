@@ -118,7 +118,7 @@ Phase 3 re-verification against landed V2 on `main` (2026-05-21). Source files: 
 | B4 | Automation list **filters/pagination** | **Resolved** | `ListFilterBar` (search, review_status, page cursor) on `AutomationPage` | Pass |
 | B5 | Research **generate-batch** / **generate-provider-batch** | **Resolved** | `ResearchPage.tsx` dry-run → confirm → live for both endpoints | Pass |
 | B6 | Legacy **theme toggle** + **global search** chrome | **Resolved** | `GlobalSearchForm` + `theme.ts` in `App.tsx`; no `Open legacy dashboard` link | Pass |
-| B7 | V2 pause payload omits `maintenance_mode:true` | **Resolved (code)** — **operator VM check pending** | `SafetyBar.tsx` sends `maintenance_mode: true` on pause; Vitest guard in `CommandCenter.test.tsx`. Operators should confirm pause/resume on reference VM ([`current-runtime-snapshot.md`](current-runtime-snapshot.md), SSH `enoch-core.exe.xyz`) during deploy smoke. | Pass pending VM |
+| B7 | V2 pause payload omits `maintenance_mode:true` | **Resolved** | `SafetyBar.tsx` sends `maintenance_mode: true` on pause; Vitest guard in `CommandCenter.test.tsx`; router regression `test_overview_flags_reflect_dashboard_v2_pause_maintenance_mode` (2026-05-23). Optional operator VM step: confirm pause/resume in the V2 UI on reference VM during deploy smoke. | Pass |
 | B8 | Read-model links still emit `/control/dashboard#…` | **Resolved** | `router.py` `_enrich_queue_row` emits `/control/dashboard-v2#…`; legacy `/control/dashboard` 307-redirects to V2 | Pass |
 
 ### Cutover gate recommendation
@@ -130,10 +130,10 @@ Phase 3 re-verification against landed V2 on `main` (2026-05-21). Source files: 
 | Automation page full legacy parity | **Pass** — B1–B4 resolved on `AutomationPage` |
 | Research generation UI | **Pass** — B5 resolved on `ResearchPage` |
 | Operator chrome (search, theme, no legacy escape) | **Pass** — B6 resolved |
-| Pause / maintenance semantics | **Pass (code)** — B7 patched; confirm on live VM before declaring ops-ready |
+| Pause / maintenance semantics | **Pass** — B7 covered by frontend + router tests; optional VM UI smoke on deploy |
 | Backend link targets | **Pass** — B8 resolved |
 
-**Cutover complete on `main`.** Remaining operator step: run B7 VM verification (pause queue → confirm `maintenance_mode` in overview flags → resume) on the reference control VM during the next deploy smoke. Only residual legacy-only gap: manual **claim review** on automation rows (AI pipeline actor; accepted drop).
+**Cutover complete on `main`.** B7 pause/maintenance semantics verified in CI (`test_overview_flags_reflect_dashboard_v2_pause_maintenance_mode`, 2026-05-23). Optional deploy smoke: pause/resume once in the V2 UI on the reference VM. Only residual legacy-only gap: manual **claim review** on automation rows (AI pipeline actor; accepted drop).
 
 ## Files changed (Agent 1)
 

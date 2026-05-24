@@ -181,9 +181,7 @@ def _compact_dashboard_body(body: dict[str, Any]) -> dict[str, Any]:
     compact: dict[str, Any] = {}
     for key in ("timestamp", "service", "totals", "telemetry", "queue", "papers"):
         value = body.get(key)
-        if isinstance(value, dict):
-            compact[key] = value
-        elif value is not None:
+        if value is not None:
             compact[key] = value
     runs = body.get("runs")
     if isinstance(runs, list):
@@ -194,19 +192,11 @@ def _compact_dashboard_body(body: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
-def run_worker_preflight(
+def _append_control_flag_checks(
+    checks: list[WorkerPreflightCheck],
     payload: WorkerPreflightRequest,
     flags: ControlFlags,
-    *,
-    transport: Transport = _http_get_json,
-) -> WorkerPreflightResponse:
-    """Run non-dispatching checks before the VM can target a GB10 worker.
-
-    This function intentionally performs no mutation and never starts work. It
-    is safe while the queue is paused and during GB10 maintenance windows.
-    """
-
-    checks: list[WorkerPreflightCheck] = []
+) -> None:
     if payload.require_paused:
         checks.append(
             _check(
@@ -227,159 +217,210 @@ def run_worker_preflight(
         )
     )
 
-    base = payload.wake_gate_url.rstrip("/")
+
+def _health_check_detail(health: HttpResult, health_body: dict[str, Any] | None) -> str:
+    if health.ok and health.body is not None and health_body is None:
+        return "wake gate health endpoint returned malformed JSON body"
+    if health.ok:
+        return "wake gate health endpoint returned ok"
+    return f"wake gate health failed: {health.error or health.status}"
+
+
+def _wake_gate_health_check(
+    transport: Transport,
+    base: str,
+) -> WorkerPreflightCheck:
     health = transport(f"{base}/healthz", {})
     health_body = health.body if isinstance(health.body, dict) else None
-    health_detail = (
-        "wake gate health endpoint returned malformed JSON body"
-        if health.ok and health.body is not None and health_body is None
-        else (
-            "wake gate health endpoint returned ok"
-            if health.ok
-            else f"wake gate health failed: {health.error or health.status}"
-        )
+    return _check(
+        "wake_gate_healthz",
+        bool(health.ok and health_body and health_body.get("ok") is True),
+        _health_check_detail(health, health_body),
+        {"status": health.status, "body": health_body or {}},
     )
-    checks.append(
+
+
+def _parse_dashboard_body(dashboard: HttpResult) -> dict[str, Any] | None:
+    if not dashboard.ok or not isinstance(dashboard.body, dict) or not dashboard.body:
+        return None
+    return dashboard.body
+
+
+def _dashboard_check_detail(
+    dashboard: HttpResult,
+    *,
+    malformed: bool,
+    dashboard_body: dict[str, Any] | None,
+) -> str:
+    if malformed:
+        return "dashboard API returned malformed JSON body"
+    if dashboard_body:
+        return "dashboard API reachable"
+    return f"dashboard API unavailable: {dashboard.error or dashboard.status}"
+
+
+def _fetch_dashboard_check(
+    transport: Transport,
+    base: str,
+    bearer_token: str,
+) -> tuple[WorkerPreflightCheck, dict[str, Any] | None]:
+    dashboard = transport(
+        f"{base}/dashboard/api?limit=5&event_limit=5",
+        _auth_headers(bearer_token),
+    )
+    malformed = (
+        dashboard.ok
+        and dashboard.body is not None
+        and not isinstance(dashboard.body, dict)
+    )
+    dashboard_body = _parse_dashboard_body(dashboard)
+    check = _check(
+        "wake_gate_dashboard_api",
+        bool(dashboard_body),
+        _dashboard_check_detail(
+            dashboard, malformed=malformed, dashboard_body=dashboard_body
+        ),
+        {
+            "status": dashboard.status,
+            "body": _compact_dashboard_body(dashboard_body) if dashboard_body else {},
+        },
+    )
+    return check, dashboard_body
+
+
+def _skipped_dashboard_check() -> WorkerPreflightCheck:
+    return _check(
+        "wake_gate_dashboard_api",
+        True,
+        "skipped authenticated dashboard checks; provide bearer_token for telemetry and active-run checks",
+        {"skipped": True},
+    )
+
+
+def _worker_telemetry_checks(
+    payload: WorkerPreflightRequest,
+    dashboard_body: dict[str, Any] | None,
+) -> list[WorkerPreflightCheck]:
+    telemetry = (dashboard_body or {}).get("telemetry") or {}
+    queue = (dashboard_body or {}).get("queue") or {}
+    totals = (dashboard_body or {}).get("totals") or {}
+    service = (dashboard_body or {}).get("service") or {}
+    gpu_pct = _float_or(telemetry.get("gpu_pct"), missing=0.0, malformed=101.0)
+    mem_available = _int_or(
+        telemetry.get("memory_available_mib"), missing=0, malformed=0
+    )
+    swap_free = _int_or(telemetry.get("swap_free_mib"), missing=0, malformed=0)
+    gpu_pids = telemetry.get("gpu_compute_pids") or []
+    active_or_waiting = _int_or(totals.get("active_or_waiting"), missing=0, malformed=1)
+    live = _int_or(totals.get("live"), missing=0, malformed=1)
+    queue_active = _int_or(queue.get("active_count"), missing=0, malformed=1)
+    callback_compatible = _callback_token_compatible(
+        payload.expected_callback_token_fingerprint,
+        service.get("completion_callback_token_fingerprint"),
+    )
+    return [
         _check(
-            "wake_gate_healthz",
-            bool(health.ok and health_body and health_body.get("ok") is True),
-            health_detail,
-            {"status": health.status, "body": health_body or {}},
-        )
-    )
+            "worker_gpu_idle",
+            gpu_pct <= payload.max_gpu_pct and not gpu_pids,
+            f"gpu_pct={gpu_pct}, gpu_compute_pids={gpu_pids}",
+            {"gpu_pct": gpu_pct, "gpu_compute_pids": gpu_pids},
+        ),
+        _check(
+            "worker_memory_available",
+            mem_available >= payload.min_memory_available_mib,
+            f"memory_available_mib={mem_available}",
+            {"memory_available_mib": mem_available, "swap_free_mib": swap_free},
+        ),
+        _check(
+            "worker_no_live_runs",
+            active_or_waiting == 0 and live == 0,
+            f"active_or_waiting={active_or_waiting}, live={live}",
+            {"active_or_waiting": active_or_waiting, "live": live},
+        ),
+        _check(
+            "worker_queue_snapshot_no_active",
+            queue_active == 0,
+            f"queue_active_count={queue_active}",
+            {"queue_active_count": queue_active},
+        ),
+        _check(
+            "worker_swapless_allowed",
+            True,
+            f"swap_free_mib={swap_free}; swapless GB10 is allowed when earlyoom is active",
+            {"swap_free_mib": swap_free},
+        ),
+        _check(
+            "worker_callback_token_compatible",
+            callback_compatible,
+            "callback token fingerprint matches control-plane expectation"
+            if callback_compatible
+            else "callback token fingerprint mismatch or missing",
+            {
+                "expected_supplied": bool(payload.expected_callback_token_fingerprint),
+                "worker_fingerprint_present": bool(
+                    service.get("completion_callback_token_fingerprint")
+                ),
+            },
+        ),
+    ]
 
-    dashboard_body: dict[str, Any] | None = None
-    if payload.bearer_token:
-        dashboard = transport(
-            f"{base}/dashboard/api?limit=5&event_limit=5",
-            _auth_headers(payload.bearer_token),
-        )
-        malformed_dashboard = (
-            dashboard.ok
-            and dashboard.body is not None
-            and not isinstance(dashboard.body, dict)
-        )
-        dashboard_body = (
-            dashboard.body
-            if dashboard.ok and isinstance(dashboard.body, dict) and dashboard.body
-            else None
-        )
-        checks.append(
-            _check(
-                "wake_gate_dashboard_api",
-                bool(dashboard_body),
-                "dashboard API returned malformed JSON body"
-                if malformed_dashboard
-                else (
-                    "dashboard API reachable"
-                    if dashboard_body
-                    else f"dashboard API unavailable: {dashboard.error or dashboard.status}"
-                ),
-                {
-                    "status": dashboard.status,
-                    "body": _compact_dashboard_body(dashboard_body)
-                    if dashboard_body
-                    else {},
-                },
-            )
-        )
-        telemetry = (dashboard_body or {}).get("telemetry") or {}
-        queue = (dashboard_body or {}).get("queue") or {}
-        totals = (dashboard_body or {}).get("totals") or {}
-        service = (dashboard_body or {}).get("service") or {}
-        gpu_pct = _float_or(telemetry.get("gpu_pct"), missing=0.0, malformed=101.0)
-        mem_available = _int_or(
-            telemetry.get("memory_available_mib"), missing=0, malformed=0
-        )
-        swap_free = _int_or(telemetry.get("swap_free_mib"), missing=0, malformed=0)
-        gpu_pids = telemetry.get("gpu_compute_pids") or []
-        active_or_waiting = _int_or(
-            totals.get("active_or_waiting"), missing=0, malformed=1
-        )
-        live = _int_or(totals.get("live"), missing=0, malformed=1)
-        queue_active = _int_or(queue.get("active_count"), missing=0, malformed=1)
-        checks.extend(
-            [
-                _check(
-                    "worker_gpu_idle",
-                    gpu_pct <= payload.max_gpu_pct and not gpu_pids,
-                    f"gpu_pct={gpu_pct}, gpu_compute_pids={gpu_pids}",
-                    {"gpu_pct": gpu_pct, "gpu_compute_pids": gpu_pids},
-                ),
-                _check(
-                    "worker_memory_available",
-                    mem_available >= payload.min_memory_available_mib,
-                    f"memory_available_mib={mem_available}",
-                    {"memory_available_mib": mem_available, "swap_free_mib": swap_free},
-                ),
-                _check(
-                    "worker_no_live_runs",
-                    active_or_waiting == 0 and live == 0,
-                    f"active_or_waiting={active_or_waiting}, live={live}",
-                    {"active_or_waiting": active_or_waiting, "live": live},
-                ),
-                _check(
-                    "worker_queue_snapshot_no_active",
-                    queue_active == 0,
-                    f"queue_active_count={queue_active}",
-                    {"queue_active_count": queue_active},
-                ),
-                _check(
-                    "worker_swapless_allowed",
-                    True,
-                    f"swap_free_mib={swap_free}; swapless GB10 is allowed when earlyoom is active",
-                    {"swap_free_mib": swap_free},
-                ),
-                _check(
-                    "worker_callback_token_compatible",
-                    _callback_token_compatible(
-                        payload.expected_callback_token_fingerprint,
-                        service.get("completion_callback_token_fingerprint"),
-                    ),
-                    "callback token fingerprint matches control-plane expectation"
-                    if _callback_token_compatible(
-                        payload.expected_callback_token_fingerprint,
-                        service.get("completion_callback_token_fingerprint"),
-                    )
-                    else "callback token fingerprint mismatch or missing",
-                    {
-                        "expected_supplied": bool(
-                            payload.expected_callback_token_fingerprint
-                        ),
-                        "worker_fingerprint_present": bool(
-                            service.get("completion_callback_token_fingerprint")
-                        ),
-                    },
-                ),
-            ]
-        )
-    else:
-        checks.append(
-            _check(
-                "wake_gate_dashboard_api",
-                True,
-                "skipped authenticated dashboard checks; provide bearer_token for telemetry and active-run checks",
-                {"skipped": True},
-            )
-        )
 
-    required_names = (
+def _required_preflight_names(payload: WorkerPreflightRequest) -> set[str]:
+    required = (
         {"control_queue_paused", "wake_gate_healthz"}
         if payload.require_paused
         else {"wake_gate_healthz"}
     )
-    if payload.bearer_token:
-        required_names.update(
-            {
-                "wake_gate_dashboard_api",
-                "worker_gpu_idle",
-                "worker_memory_available",
-                "worker_no_live_runs",
-                "worker_queue_snapshot_no_active",
-            }
-        )
-        if payload.expected_callback_token_fingerprint:
-            required_names.add("worker_callback_token_compatible")
+    if not payload.bearer_token:
+        return required
+    required.update(
+        {
+            "wake_gate_dashboard_api",
+            "worker_gpu_idle",
+            "worker_memory_available",
+            "worker_no_live_runs",
+            "worker_queue_snapshot_no_active",
+        }
+    )
+    if payload.expected_callback_token_fingerprint:
+        required.add("worker_callback_token_compatible")
+    return required
+
+
+def _append_dashboard_checks(
+    checks: list[WorkerPreflightCheck],
+    payload: WorkerPreflightRequest,
+    transport: Transport,
+    base: str,
+) -> None:
+    if not payload.bearer_token:
+        checks.append(_skipped_dashboard_check())
+        return
+    dashboard_check, dashboard_body = _fetch_dashboard_check(
+        transport, base, payload.bearer_token
+    )
+    checks.append(dashboard_check)
+    checks.extend(_worker_telemetry_checks(payload, dashboard_body))
+
+
+def run_worker_preflight(
+    payload: WorkerPreflightRequest,
+    flags: ControlFlags,
+    *,
+    transport: Transport = _http_get_json,
+) -> WorkerPreflightResponse:
+    """Run non-dispatching checks before the VM can target a GB10 worker.
+
+    This function intentionally performs no mutation and never starts work. It
+    is safe while the queue is paused and during GB10 maintenance windows.
+    """
+
+    checks: list[WorkerPreflightCheck] = []
+    _append_control_flag_checks(checks, payload, flags)
+    base = payload.wake_gate_url.rstrip("/")
+    checks.append(_wake_gate_health_check(transport, base))
+    _append_dashboard_checks(checks, payload, transport, base)
+    required_names = _required_preflight_names(payload)
     passed = all(
         check.ok for check in checks if check.name in required_names or payload.strict
     )

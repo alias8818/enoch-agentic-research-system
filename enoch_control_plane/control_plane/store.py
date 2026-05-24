@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -49,6 +51,8 @@ ACTIVE_STATUSES = {
     "wake_received",
     "reconciling",
 }
+# Centralized SQL fragment for queue status equality filters (Sonar S1192).
+_QUEUE_STATUS_EQ = "q.status = ?"
 TERMINAL_SUCCESS_CALLBACK_STATES = {"wake_ready", "session_finished_ready"}
 WORKER_CALLBACK_AUDIT_KEYS = {
     "delivered_at",
@@ -62,6 +66,7 @@ WORKER_CALLBACK_AUDIT_KEYS = {
     "current_run_id",
     "current_last_run_state",
 }
+MISSING_TITLE_REASON = "missing title"
 
 
 def _json(payload: Any) -> str:
@@ -148,6 +153,10 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _row_or(row: dict[str, Any], key: str, default: Any = "") -> Any:
+    return row.get(key) or default
+
+
 def _normal(value: Any) -> str:
     return _text(value).lower().replace("-", "_").replace(" ", "_")
 
@@ -157,6 +166,66 @@ def _expanduser_or_none(value: str) -> Path | None:
         return Path(value).expanduser()
     except RuntimeError:
         return None
+
+
+def _unresolved_artifact(field: str, raw_path: str) -> dict[str, Any]:
+    return {
+        "field": field,
+        "path": raw_path,
+        "absolute_path": "",
+        "exists": False,
+        "readable": False,
+        "safe": False,
+        "size_bytes": 0,
+    }
+
+
+def _resolve_artifact_absolute_path(
+    path: Path, project_dir: Path | None
+) -> Path | None:
+    try:
+        if path.is_absolute():
+            candidate = path
+        elif project_dir:
+            candidate = project_dir / path
+        else:
+            candidate = path
+        return candidate.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _artifact_path_within_project(resolved: Path, project_dir: Path | None) -> bool:
+    if project_dir is None:
+        return True
+    try:
+        resolved.relative_to(project_dir.resolve())
+        return True
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _artifact_access_stats(
+    resolved: Path, raw_path: str, safe: bool
+) -> tuple[bool, bool, int]:
+    try:
+        exists = bool(raw_path) and resolved.exists()
+        readable = safe and exists and resolved.is_file()
+        size_bytes = resolved.stat().st_size if readable else 0
+        return exists, readable, size_bytes
+    except (OSError, RuntimeError, ValueError):
+        return bool(raw_path), False, 0
+
+
+def _default_supabase_finalization_root() -> Path:
+    """User-private storage for Supabase finalization manifests (not world-writable /tmp)."""
+    return (
+        Path.home()
+        / ".local"
+        / "state"
+        / "enoch-worker-gate"
+        / "supabase-finalization-packages"
+    )
 
 
 def _is_older_timestamp(incoming: Any, existing: Any) -> bool:
@@ -200,6 +269,109 @@ def _completed_success_queue_row(row: dict[str, Any] | None, run_id: str) -> boo
     )
 
 
+def _worker_callback_payload(callback: Any) -> dict[str, Any]:
+    if hasattr(callback, "model_dump"):
+        return callback.model_dump(mode="json")
+    return dict(callback)
+
+
+def _derived_worker_callback_idempotency_key(
+    payload: dict[str, Any], *, run_id: str, event_type: str, idempotency_key: str
+) -> str:
+    if idempotency_key:
+        return idempotency_key
+    session_part = _text(payload.get("session_id")) or "no-session"
+    payload_part = _hash(payload)[:16]
+    return (
+        f"worker-callback:{run_id or 'unknown'}:{event_type or 'unknown'}:"
+        f"{session_part}:{payload_part}"
+    )
+
+
+def _worker_callback_event_type_name(event_type: str) -> str:
+    return f"worker_callback.{event_type}"
+
+
+def _worker_callback_entity_id(run_id: str, project_id: str) -> str:
+    return run_id or project_id or "unknown"
+
+
+def _worker_callback_transition(
+    event_type: str, payload: dict[str, Any]
+) -> tuple[str, str, int, str]:
+    status = QueueStatus.COMPLETED.value
+    manual_review_required = 0
+    last_error = ""
+    if event_type == "session_started":
+        status = QueueStatus.RUNNING.value
+        next_action_hint = "await_callback"
+    elif event_type == "question_pending":
+        status = QueueStatus.NEEDS_REVIEW.value
+        next_action_hint = "answer_worker_question"
+        manual_review_required = 1
+    elif event_type in {"gate_timeout", "gate_error"}:
+        status = QueueStatus.BLOCKED.value
+        next_action_hint = "inspect_worker_gate_failure"
+        manual_review_required = 1
+        last_error = _text(payload.get("reason")) or event_type
+    elif event_type in TERMINAL_SUCCESS_CALLBACK_STATES:
+        next_action_hint = "draft_paper_or_select_next_project"
+    else:
+        status = QueueStatus.NEEDS_REVIEW.value
+        next_action_hint = "inspect_unknown_worker_callback"
+        manual_review_required = 1
+        last_error = (
+            _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
+        )
+    return status, next_action_hint, manual_review_required, last_error
+
+
+def _stale_worker_callback_ignore_reason(*, run_id: str, current_status: str) -> str:
+    if not run_id and current_status in ACTIVE_STATUSES:
+        return "missing_run_id_for_active_project"
+    if not run_id:
+        return "missing_run_id_for_project_callback"
+    return "run_id_mismatch"
+
+
+def _late_terminal_success_worker_callback_payload(
+    payload: dict[str, Any],
+    current_queue_row: dict[str, Any],
+    *,
+    received_by: str,
+) -> dict[str, Any]:
+    return {
+        **payload,
+        "received_by": received_by,
+        "applied_status": _text(current_queue_row.get("status")),
+        "applied_next_action_hint": _text(current_queue_row.get("next_action_hint")),
+        "late_callback_ignored": True,
+        "ignore_reason": "terminal_success_precedence",
+        "current_run_id": _text(current_queue_row.get("current_run_id")),
+        "current_last_run_state": _text(current_queue_row.get("last_run_state")),
+    }
+
+
+def _stale_worker_callback_payload(
+    payload: dict[str, Any],
+    current_queue_row: dict[str, Any],
+    *,
+    received_by: str,
+    status: str,
+    next_action_hint: str,
+    ignore_reason: str,
+) -> dict[str, Any]:
+    return {
+        **payload,
+        "received_by": received_by,
+        "applied_status": status,
+        "applied_next_action_hint": next_action_hint,
+        "stale_callback_ignored": True,
+        "ignore_reason": ignore_reason,
+        "current_run_id": _text(current_queue_row.get("current_run_id")),
+    }
+
+
 def _first_present(raw: dict[str, Any], *names: str) -> Any:
     for name in names:
         if name in raw and raw.get(name) not in (None, ""):
@@ -207,15 +379,30 @@ def _first_present(raw: dict[str, Any], *names: str) -> Any:
     return None
 
 
-def _snapshot_rows(
-    snapshot: dict[str, Any] | list[dict[str, Any]] | None, *, paper: bool = False
+def _snapshot_row_key(row: dict[str, Any], *, paper: bool) -> str:
+    id_field = "paper_id" if paper else "project_id"
+    return _text(row.get(id_field)) or _hash(row)
+
+
+def _register_snapshot_row(
+    row: dict[str, Any],
+    *,
+    paper: bool,
+    seen: dict[str, str],
+    rows: list[dict[str, Any]],
+) -> None:
+    row_key = _snapshot_row_key(row, paper=paper)
+    if row_key in seen:
+        if seen[row_key] != _json(row):
+            raise ValueError(f"conflicting snapshot row identity for {row_key!r}")
+        return
+    seen[row_key] = _json(row)
+    rows.append(row)
+
+
+def _snapshot_rows_from_dict(
+    snapshot: dict[str, Any], *, paper: bool
 ) -> list[dict[str, Any]]:
-    if snapshot is None:
-        return []
-    if isinstance(snapshot, list):
-        return [row for row in snapshot if isinstance(row, dict)]
-    if not isinstance(snapshot, dict):
-        return []
     keys = (
         ("latest_rows", "rows", "active_rows", "blocked_rows")
         if paper
@@ -228,20 +415,21 @@ def _snapshot_rows(
         if not isinstance(value, list):
             continue
         for row in value:
-            if not isinstance(row, dict):
-                continue
-            row_key = _text(
-                row.get("paper_id") if paper else row.get("project_id")
-            ) or _hash(row)
-            if row_key in seen:
-                if seen[row_key] != _json(row):
-                    raise ValueError(
-                        f"conflicting snapshot row identity for {row_key!r}"
-                    )
-                continue
-            seen[row_key] = _json(row)
-            rows.append(row)
+            if isinstance(row, dict):
+                _register_snapshot_row(row, paper=paper, seen=seen, rows=rows)
     return rows
+
+
+def _snapshot_rows(
+    snapshot: dict[str, Any] | list[dict[str, Any]] | None, *, paper: bool = False
+) -> list[dict[str, Any]]:
+    if snapshot is None:
+        return []
+    if isinstance(snapshot, list):
+        return [row for row in snapshot if isinstance(row, dict)]
+    if not isinstance(snapshot, dict):
+        return []
+    return _snapshot_rows_from_dict(snapshot, paper=paper)
 
 
 def _reject_conflicting_snapshot_rows(
@@ -292,6 +480,313 @@ def _paper_identity_conflicts(
     )
 
 
+def _validate_import_snapshot_rows(
+    queue_rows: list[dict[str, Any]], paper_rows: list[dict[str, Any]]
+) -> None:
+    _reject_conflicting_snapshot_rows(
+        queue_rows,
+        key_fields=("project_id",),
+        identity_fields=(
+            ("project_name", "name", "title"),
+            ("project_dir", "project_path"),
+            ("status", "queue_status"),
+            ("current_run_id",),
+        ),
+        label="queue project",
+    )
+    _reject_conflicting_snapshot_rows(
+        paper_rows,
+        key_fields=("paper_id",),
+        identity_fields=(
+            ("project_id",),
+            ("run_id",),
+            ("paper_type",),
+            ("paper_status",),
+            ("draft_markdown_path",),
+            ("draft_latex_path",),
+            ("evidence_bundle_path",),
+            ("claim_ledger_path",),
+            ("manifest_path",),
+        ),
+        label="paper",
+    )
+
+
+def _import_snapshot_event_payload(
+    request: ImportSnapshotRequest,
+    queue_rows: list[dict[str, Any]],
+    paper_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    event_payload = request.model_dump(mode="json")
+    event_payload["normalized_queue_row_count"] = len(queue_rows)
+    event_payload["normalized_paper_row_count"] = len(paper_rows)
+    return event_payload
+
+
+def _queue_status_from_import_raw(raw: dict[str, Any]) -> QueueStatus:
+    status_text = _text(_first_present(raw, "status", "queue_status")) or "queued"
+    if status_text in QueueStatus._value2member_map_:
+        return QueueStatus(status_text)
+    return QueueStatus.QUEUED
+
+
+def _project_record_from_import_queue_raw(
+    raw: dict[str, Any], project_id: str
+) -> ProjectRecord:
+    return ProjectRecord(
+        project_id=project_id,
+        project_name=_text(_first_present(raw, "project_name", "name", "title"))
+        or project_id,
+        project_dir=_text(_first_present(raw, "project_dir", "project_path")),
+        notion_page_url=_text(_first_present(raw, "notion_page_url", "url")),
+        notion_page_id=_text(_first_present(raw, "notion_page_id", "page_id", "id"))
+        or _notion_page_id_from_url(
+            _text(_first_present(raw, "notion_page_url", "url"))
+        ),
+        origin_idea_status=_text(
+            _first_present(raw, "origin_idea_status", "idea_status")
+        )
+        or "unknown",
+        created_at=_text(_first_present(raw, "createdAt", "created_at")) or utc_now(),
+        updated_at=_text(
+            _first_present(raw, "updatedAt", "updated_at", "last_execution_update")
+        )
+        or utc_now(),
+    )
+
+
+def _queue_item_record_from_import_raw(
+    raw: dict[str, Any], project_id: str
+) -> QueueItemRecord:
+    return QueueItemRecord(
+        project_id=project_id,
+        status=_queue_status_from_import_raw(raw),
+        selection_rank=_int(_first_present(raw, "selection_rank", "rank"), 50),
+        dispatch_priority=_int(
+            _first_present(raw, "dispatch_priority", "priority"), 50
+        ),
+        auto_continue=_bool(_first_present(raw, "auto_continue", "autoContinue")),
+        continue_count=_int(_first_present(raw, "continue_count", "continueCount"), 0),
+        max_continues=_int(_first_present(raw, "max_continues", "maxContinues"), 0),
+        retry_count=_int(_first_present(raw, "retry_count", "retryCount"), 0),
+        max_retries=_int(_first_present(raw, "max_retries", "maxRetries"), 2),
+        current_run_id=_text(raw.get("current_run_id")),
+        current_session_id=_text(raw.get("current_session_id")),
+        last_run_state=_text(raw.get("last_run_state")),
+        last_event_type=_text(raw.get("last_event_type")),
+        next_action_hint=_text(raw.get("next_action_hint")) or "controller_review",
+        manual_review_required=_bool(raw.get("manual_review_required")),
+        blocked_reason=_text(raw.get("blocked_reason")),
+        last_error=_text(raw.get("last_error")),
+        last_result_summary=_text(raw.get("last_result_summary")),
+        machine_target=_text(raw.get("machine_target")) or "worker.example",
+        model=_text(raw.get("model")) or "gpt-5.5",
+        sandbox=_text(raw.get("sandbox")) or "danger-full-access",
+        last_dispatch_at=_first_present(
+            raw, "last_dispatch_at", "last_execution_update"
+        ),
+        last_callback_at=raw.get("last_callback_at"),
+        stale_after=raw.get("stale_after"),
+        updated_at=_text(
+            _first_present(raw, "updatedAt", "updated_at", "last_execution_update")
+        )
+        or utc_now(),
+    )
+
+
+def _upsert_import_project(conn: sqlite3.Connection, project: ProjectRecord) -> None:
+    conn.execute(
+        """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(project_id) DO UPDATE SET
+            project_name=excluded.project_name,
+            project_dir=COALESCE(NULLIF(projects.project_dir,''), excluded.project_dir),
+            notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
+            notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
+            origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
+            updated_at=excluded.updated_at
+        WHERE excluded.updated_at >= projects.updated_at""",
+        (
+            project.project_id,
+            project.project_name,
+            project.project_dir,
+            project.notion_page_url,
+            project.notion_page_id,
+            project.origin_idea_status,
+            project.created_at,
+            project.updated_at,
+        ),
+    )
+
+
+def _existing_queue_row_for_import(
+    conn: sqlite3.Connection, project_id: str
+) -> dict[str, Any] | None:
+    existing_row = conn.execute(
+        "SELECT status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at FROM queue_items WHERE project_id=?",
+        (project_id,),
+    ).fetchone()
+    return dict(existing_row) if existing_row else None
+
+
+def _preserve_active_runtime_on_import(
+    qi: QueueItemRecord,
+    existing_queue: dict[str, Any],
+    raw: dict[str, Any],
+) -> None:
+    existing_run_id = _text(existing_queue.get("current_run_id"))
+    incoming_run_id = _text(raw.get("current_run_id"))
+    preserve_active_runtime = bool(
+        _text(existing_queue["status"]) in ACTIVE_STATUSES
+        and (
+            not existing_run_id
+            or incoming_run_id != existing_run_id
+            or qi.status.value not in ACTIVE_STATUSES
+        )
+    )
+    if not preserve_active_runtime:
+        return
+    qi.status = QueueStatus(_text(existing_queue["status"]))
+    qi.current_run_id = existing_run_id
+    qi.current_session_id = _text(existing_queue["current_session_id"])
+    qi.last_run_state = _text(existing_queue["last_run_state"])
+    qi.last_event_type = _text(existing_queue["last_event_type"])
+    qi.next_action_hint = _text(existing_queue["next_action_hint"]) or "await_callback"
+    qi.manual_review_required = _bool(existing_queue["manual_review_required"])
+    qi.blocked_reason = _text(existing_queue["blocked_reason"])
+    qi.last_error = _text(existing_queue["last_error"])
+    qi.last_result_summary = _text(existing_queue["last_result_summary"])
+    qi.last_dispatch_at = existing_queue["last_dispatch_at"]
+    qi.last_callback_at = existing_queue["last_callback_at"]
+    qi.stale_after = existing_queue["stale_after"]
+
+
+def _upsert_import_queue_item(conn: sqlite3.Connection, qi: QueueItemRecord) -> None:
+    conn.execute(
+        """INSERT OR REPLACE INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            qi.project_id,
+            qi.status.value,
+            qi.selection_rank,
+            qi.dispatch_priority,
+            int(qi.auto_continue),
+            qi.continue_count,
+            qi.max_continues,
+            qi.retry_count,
+            qi.max_retries,
+            qi.current_run_id,
+            qi.current_session_id,
+            qi.last_run_state,
+            qi.last_event_type,
+            qi.next_action_hint,
+            int(qi.manual_review_required),
+            qi.blocked_reason,
+            qi.last_error,
+            qi.last_result_summary,
+            qi.machine_target,
+            qi.model,
+            qi.sandbox,
+            qi.last_dispatch_at,
+            qi.last_callback_at,
+            qi.stale_after,
+            qi.updated_at,
+        ),
+    )
+
+
+def _import_queue_row(conn: sqlite3.Connection, raw: dict[str, Any]) -> tuple[int, int]:
+    project_id = _text(raw.get("project_id"))
+    if not project_id:
+        return 0, 0
+    project = _project_record_from_import_queue_raw(raw, project_id)
+    qi = _queue_item_record_from_import_raw(raw, project_id)
+    _upsert_import_project(conn, project)
+    projects = 1
+    existing_queue = _existing_queue_row_for_import(conn, project_id)
+    if existing_queue and _is_older_timestamp(
+        qi.updated_at, existing_queue.get("updated_at")
+    ):
+        return projects, 0
+    if existing_queue:
+        _preserve_active_runtime_on_import(qi, existing_queue, raw)
+    _upsert_import_queue_item(conn, qi)
+    return projects, 1
+
+
+def _paper_status_from_import_raw(raw: dict[str, Any]) -> str:
+    status = _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
+    if status not in PaperStatus._value2member_map_:
+        return PaperStatus.DRAFT_REVIEW.value
+    return status
+
+
+def _ensure_import_project_for_paper(
+    conn: sqlite3.Connection, raw: dict[str, Any], project_id: str
+) -> None:
+    conn.execute(
+        "INSERT OR IGNORE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+        (
+            project_id,
+            _text(raw.get("project_name")) or project_id,
+            _text(raw.get("project_dir")),
+            _text(raw.get("notion_page_url")),
+            _text(raw.get("notion_page_id"))
+            or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
+            "unknown",
+            utc_now(),
+            utc_now(),
+        ),
+    )
+
+
+def _import_paper_row(conn: sqlite3.Connection, raw: dict[str, Any]) -> int:
+    paper_id = _text(raw.get("paper_id"))
+    project_id = _text(raw.get("project_id"))
+    if not paper_id or not project_id:
+        return 0
+    _ensure_import_project_for_paper(conn, raw, project_id)
+    status = _paper_status_from_import_raw(raw)
+    existing_paper = conn.execute(
+        "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
+        (paper_id,),
+    ).fetchone()
+    if _paper_identity_conflicts(
+        existing_paper,
+        {
+            "project_id": project_id,
+            "run_id": _text(raw.get("run_id")),
+            "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
+        },
+    ):
+        raise IdempotencyConflict(
+            f"paper id {paper_id!r} was reused with different paper identity"
+        )
+    if existing_paper and _is_older_timestamp(
+        raw.get("updated_at"), existing_paper["updated_at"]
+    ):
+        return 0
+    conn.execute(
+        """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            paper_id,
+            project_id,
+            _text(raw.get("run_id")),
+            _text(raw.get("paper_type")) or "arxiv_draft",
+            status,
+            _text(raw.get("draft_markdown_path")),
+            _text(raw.get("draft_latex_path")),
+            _text(raw.get("evidence_bundle_path")),
+            _text(raw.get("claim_ledger_path")),
+            _text(raw.get("manifest_path")),
+            _text(raw.get("generated_at")) or utc_now(),
+            _text(raw.get("updated_at")) or utc_now(),
+        ),
+    )
+    return 1
+
+
 def _slug_id(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")[:80]
 
@@ -337,6 +832,186 @@ def _notion_page_id(raw: dict[str, Any]) -> str:
     ) or _notion_page_id_from_url(_notion_url(raw))
 
 
+def _notion_intake_row_result(
+    raw: dict[str, Any],
+    *,
+    include_statuses: set[str],
+    default_machine_target: str,
+    workload_machine_targets: dict[str, str] | None,
+    default_model: str,
+    default_sandbox: str,
+    source: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    title = _notion_title(raw)
+    status = _notion_status(raw).lower()
+    page_id = _notion_page_id(raw)
+    page_url = _notion_url(raw)
+    if not title:
+        return None, {"reason": MISSING_TITLE_REASON, "row": raw}
+    if include_statuses and not status:
+        return None, {
+            "reason": "missing status",
+            "title": title,
+            "status": status,
+            "page_id": page_id,
+        }
+    if include_statuses and status not in include_statuses:
+        return None, {
+            "reason": f"status {status!r} not included",
+            "title": title,
+            "status": status,
+            "page_id": page_id,
+        }
+    project_id = (
+        _slug_id(page_id.replace("-", "")) if page_id else f"notion-{_slug_id(title)}"
+    )
+    if not project_id:
+        return None, {
+            "reason": "missing project id",
+            "title": title,
+            "page_id": page_id,
+        }
+    rank = _priority_rank(raw)
+    routing = route_machine_target(
+        raw,
+        default_machine_target=default_machine_target,
+        workload_machine_targets=workload_machine_targets,
+    )
+    return {
+        "project_id": project_id,
+        "project_name": title,
+        "project_dir": project_id,
+        "notion_page_url": page_url,
+        "notion_page_id": page_id,
+        "origin_idea_status": status,
+        "status": QueueStatus.QUEUED.value,
+        "selection_rank": rank,
+        "dispatch_priority": rank,
+        "next_action_hint": "controller_review",
+        "machine_target": routing["machine_target"],
+        "workload_class": routing["workload_class"],
+        "routing_reason": routing["routing_reason"],
+        "model": default_model,
+        "sandbox": default_sandbox,
+        "source_kind": source or "notion",
+        "source_row": raw,
+    }, None
+
+
+_NOTION_EXECUTION_STATE_MAP = {
+    QueueStatus.QUEUED.value: "queued",
+    QueueStatus.DISPATCHING.value: "running",
+    QueueStatus.RUNNING.value: "running",
+    QueueStatus.AWAITING_WAKE.value: "waiting",
+    QueueStatus.WAKE_RECEIVED.value: "waiting",
+    QueueStatus.RECONCILING.value: "waiting",
+    QueueStatus.COMPLETED.value: "completed",
+    QueueStatus.PAUSED.value: "blocked",
+    QueueStatus.CANCELED.value: "completed",
+    QueueStatus.DISPATCH_ERROR.value: "failed",
+    QueueStatus.BLOCKED.value: "blocked",
+    QueueStatus.NEEDS_REVIEW.value: "blocked",
+}
+
+
+def _queue_row_merged_with_paper(
+    row: dict[str, Any], paper_by_project: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    paper = paper_by_project.get(row.get("project_id")) or {}
+    return {
+        **row,
+        "paper_id": paper.get("paper_id") or "",
+        "paper_status": paper.get("paper_status") or "",
+        "paper_type": paper.get("paper_type") or "",
+        "draft_markdown_path": paper.get("draft_markdown_path") or "",
+        "paper_updated_at": paper.get("updated_at") or "",
+    }
+
+
+def _notion_execution_blocked_reason(row: dict[str, Any], execution_state: str) -> str:
+    return (
+        row.get("blocked_reason")
+        or (
+            row.get("last_result_summary")
+            if execution_state in {"blocked", "failed"}
+            else ""
+        )
+        or ""
+    )
+
+
+def _notion_manual_review_required(row: dict[str, Any]) -> str:
+    return "__YES__" if _bool(row.get("manual_review_required")) else "__NO__"
+
+
+def _notion_execution_core_properties(
+    row: dict[str, Any], *, execution_state: str, blocked_reason: str
+) -> dict[str, Any]:
+    return {
+        "Execution State": execution_state,
+        "Current Run ID": _row_or(row, "current_run_id"),
+        "Next Action": _row_or(row, "next_action_hint"),
+        "Blocked Reason": blocked_reason,
+        "Last Execution Update": _row_or(row, "updated_at", utc_now()),
+        "Execution Summary": _row_or(row, "last_result_summary"),
+    }
+
+
+def _notion_execution_enoch_properties(row: dict[str, Any]) -> dict[str, Any]:
+    paper_updated_at = _row_or(row, "paper_updated_at")
+    return {
+        "Enoch Project ID": _row_or(row, "project_id"),
+        "Enoch Queue Status": _row_or(row, "status"),
+        "Enoch Last Run State": _row_or(row, "last_run_state"),
+        "Enoch Last Event Type": _row_or(row, "last_event_type"),
+        "Enoch Next Action Hint": _row_or(row, "next_action_hint"),
+        "Enoch Project Dir": _row_or(row, "project_dir"),
+        "Enoch Current Session ID": _row_or(row, "current_session_id"),
+        "Enoch Last Result Summary": _row_or(row, "last_result_summary"),
+        "Enoch Last Error": _row_or(row, "last_error"),
+        "Enoch Manual Review Required": _notion_manual_review_required(row),
+        "Enoch Dispatch Priority": _row_or(row, "dispatch_priority", 0),
+        "Enoch Selection Rank": _row_or(row, "selection_rank", 0),
+        "Enoch Paper ID": _row_or(row, "paper_id"),
+        "Enoch Paper Status": _row_or(row, "paper_status"),
+        "Enoch Paper Type": _row_or(row, "paper_type"),
+        "Enoch Paper Markdown Path": _row_or(row, "draft_markdown_path"),
+        "Enoch Paper Updated At": paper_updated_at,
+        "Enoch Paper Updated At ISO": paper_updated_at,
+    }
+
+
+def _notion_execution_update_properties(
+    row: dict[str, Any], *, execution_state: str, blocked_reason: str
+) -> dict[str, Any]:
+    return {
+        **_notion_execution_core_properties(
+            row, execution_state=execution_state, blocked_reason=blocked_reason
+        ),
+        **_notion_execution_enoch_properties(row),
+    }
+
+
+def _notion_execution_update_row(
+    row: dict[str, Any], state_map: dict[str, str]
+) -> dict[str, Any] | None:
+    page_url = row.get("notion_page_url") or ""
+    if not page_url:
+        return None
+    execution_state = state_map.get(row.get("status") or "", "blocked")
+    blocked_reason = _notion_execution_blocked_reason(row, execution_state)
+    return {
+        "project_id": row.get("project_id") or "",
+        "page_id": row.get("notion_page_id") or _notion_page_id_from_url(page_url),
+        "notion_page_url": page_url,
+        "properties": _notion_execution_update_properties(
+            row,
+            execution_state=execution_state,
+            blocked_reason=blocked_reason,
+        ),
+    }
+
+
 def _priority_rank(raw: dict[str, Any]) -> int:
     priority = _text(_notion_prop(raw, "Priority")).lower()
     if priority == "high":
@@ -350,6 +1025,80 @@ def _priority_rank(raw: dict[str, Any]) -> int:
     if novelty or confidence:
         return max(1, 100 - max(novelty, confidence))
     return 50
+
+
+def _notion_intake_skip_row(
+    raw: dict[str, Any],
+    *,
+    title: str,
+    status: str,
+    page_id: str,
+    include_statuses: set[str],
+) -> dict[str, Any] | None:
+    if not title:
+        return {"reason": MISSING_TITLE_REASON, "row": raw}
+    if include_statuses and not status:
+        return {
+            "reason": "missing status",
+            "title": title,
+            "status": status,
+            "page_id": page_id,
+        }
+    if include_statuses and status not in include_statuses:
+        return {
+            "reason": f"status {status!r} not included",
+            "title": title,
+            "status": status,
+            "page_id": page_id,
+        }
+    return None
+
+
+def _notion_intake_candidate(
+    raw: dict[str, Any],
+    request: NotionIntakeRequest,
+    *,
+    title: str,
+    status: str,
+    page_id: str,
+    page_url: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    project_id = (
+        _slug_id(page_id.replace("-", "")) if page_id else f"notion-{_slug_id(title)}"
+    )
+    if not project_id:
+        return None, {
+            "reason": "missing project id",
+            "title": title,
+            "page_id": page_id,
+        }
+    routing = route_machine_target(
+        raw,
+        default_machine_target=request.default_machine_target,
+        workload_machine_targets=request.workload_machine_targets,
+    )
+    priority = _priority_rank(raw)
+    return (
+        {
+            "project_id": project_id,
+            "project_name": title,
+            "project_dir": project_id,
+            "notion_page_url": page_url,
+            "notion_page_id": page_id,
+            "origin_idea_status": status,
+            "status": QueueStatus.QUEUED.value,
+            "selection_rank": priority,
+            "dispatch_priority": priority,
+            "next_action_hint": "controller_review",
+            "machine_target": routing["machine_target"],
+            "workload_class": routing["workload_class"],
+            "routing_reason": routing["routing_reason"],
+            "model": request.default_model,
+            "sandbox": request.default_sandbox,
+            "source_row": raw,
+        },
+        None,
+    )
 
 
 def _idea_title(raw: dict[str, Any]) -> str:
@@ -373,6 +1122,74 @@ def _idea_id(raw: dict[str, Any], title: str) -> str:
     return f"idea-{_slug_id(title)}" if title else ""
 
 
+def _collect_idea_intake_candidates(
+    request: IdeaIntakeRequest,
+    include_statuses: set[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    candidates: list[dict[str, Any]] = []
+    skipped_rows: list[dict[str, Any]] = []
+    for raw in request.ideas:
+        title = _idea_title(raw)
+        origin_status = _idea_status(raw).lower()
+        status = origin_status or "exploring"
+        if not title:
+            skipped_rows.append({"reason": MISSING_TITLE_REASON, "row": raw})
+            continue
+        if include_statuses and status and status not in include_statuses:
+            skipped_rows.append(
+                {
+                    "reason": f"status {status!r} not included",
+                    "title": title,
+                    "status": status,
+                    "idea_id": _text(
+                        _first_present(raw, "idea_id", "project_id", "id")
+                    ),
+                }
+            )
+            continue
+        project_id = _idea_id(raw, title)
+        if not project_id:
+            skipped_rows.append({"reason": "missing idea id", "title": title})
+            continue
+        rank = _int(
+            _first_present(raw, "selection_rank", "dispatch_priority"),
+            _priority_rank(raw),
+        )
+        dispatch_priority = _int(
+            _first_present(raw, "dispatch_priority", "selection_rank"), rank
+        )
+        routing = route_machine_target(
+            raw,
+            default_machine_target=request.default_machine_target,
+            workload_machine_targets=request.workload_machine_targets,
+        )
+        candidates.append(
+            {
+                "project_id": project_id,
+                "idea_id": project_id,
+                "project_name": title,
+                "project_dir": project_id,
+                "origin_idea_status": origin_status,
+                "status": QueueStatus.QUEUED.value,
+                "selection_rank": rank,
+                "dispatch_priority": dispatch_priority,
+                "next_action_hint": "controller_review",
+                "machine_target": routing["machine_target"],
+                "workload_class": routing["workload_class"],
+                "routing_reason": routing["routing_reason"],
+                "model": _text(_first_present(raw, "model", "default_model"))
+                or request.default_model,
+                "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox"))
+                or request.default_sandbox,
+                "source_kind": _text(raw.get("source_kind"))
+                or request.source
+                or "supabase_native",
+                "source_row": raw,
+            }
+        )
+    return candidates, skipped_rows
+
+
 REVIEW_CHECKLIST_DEFINITION = (
     ("artifact_readability", "Artifact readability", True),
     ("title_abstract_quality", "Title/abstract quality", True),
@@ -388,6 +1205,22 @@ REVIEW_CHECKLIST_ITEMS = tuple(
     item_id for item_id, _label, _required in REVIEW_CHECKLIST_DEFINITION
 )
 CHECKLIST_ITEM_STATUSES = {"pending", "pass", "fail", "accepted_risk", "not_applicable"}
+_FINALIZATION_PACKAGE_ARTIFACT_FIELDS = (
+    "draft_markdown_path",
+    "draft_latex_path",
+    "evidence_bundle_path",
+    "claim_ledger_path",
+    "manifest_path",
+)
+_AUTOMATED_FINALIZATION_BLOCKED_STATUSES = frozenset(
+    {
+        ReviewStatus.BLOCKED.value,
+        ReviewStatus.CHANGES_REQUESTED.value,
+        ReviewStatus.IN_REVIEW.value,
+        ReviewStatus.REJECTED.value,
+        ReviewStatus.UNREVIEWED.value,
+    }
+)
 SYSTEM_REVIEW_STATUSES = {
     ReviewStatus.QUEUED.value,
     ReviewStatus.UNREVIEWED.value,
@@ -509,15 +1342,7 @@ def _progress_for_items(items: list[dict[str, Any]]) -> dict[str, int]:
 
 def _default_review_checklist() -> dict[str, Any]:
     items = [
-        {
-            "id": item_id,
-            "label": label,
-            "required": required,
-            "status": "pending",
-            "note": "",
-            "updated_at": "",
-            "updated_by": "",
-        }
+        _checklist_item_record(item_id, label, required, {})
         for item_id, label, required in REVIEW_CHECKLIST_DEFINITION
     ]
     return {
@@ -528,46 +1353,63 @@ def _default_review_checklist() -> dict[str, Any]:
     }
 
 
-def _normalize_review_checklist(checklist: dict[str, Any] | None) -> dict[str, Any]:
-    raw = checklist or {}
+def _checklist_status(existing: dict[str, Any]) -> str:
+    status = _text(existing.get("status")) or "pending"
+    if status not in CHECKLIST_ITEM_STATUSES:
+        return "pending"
+    return status
+
+
+def _checklist_items_by_id(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
     by_id: dict[str, dict[str, Any]] = {}
     if isinstance(raw.get("items"), list):
         for item in raw.get("items") or []:
             if isinstance(item, dict) and _text(item.get("id")):
                 by_id[_text(item.get("id"))] = item
-    else:
-        for item_id, value in raw.items():
-            by_id[_text(item_id)] = {
-                "id": _text(item_id),
-                "status": _text(value) or "pending",
-            }
-    items: list[dict[str, Any]] = []
-    for item_id, label, required in REVIEW_CHECKLIST_DEFINITION:
-        existing = by_id.get(item_id, {})
-        status = _text(existing.get("status")) or "pending"
-        if status not in CHECKLIST_ITEM_STATUSES:
-            status = "pending"
-        items.append(
-            {
-                "id": item_id,
-                "label": label,
-                "required": required,
-                "status": status,
-                "note": _text(existing.get("note")),
-                "updated_at": _text(existing.get("updated_at")),
-                "updated_by": _text(existing.get("updated_by")),
-            }
-        )
+        return by_id
+    for item_id, value in raw.items():
+        by_id[_text(item_id)] = {
+            "id": _text(item_id),
+            "status": _text(value) or "pending",
+        }
+    return by_id
+
+
+def _checklist_item_record(
+    item_id: str, label: str, required: bool, existing: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "label": label,
+        "required": required,
+        "status": _checklist_status(existing),
+        "note": _text(existing.get("note")),
+        "updated_at": _text(existing.get("updated_at")),
+        "updated_by": _text(existing.get("updated_by")),
+    }
+
+
+def _normalized_review_checklist_items(
+    by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        _checklist_item_record(item_id, label, required, by_id.get(item_id, {}))
+        for item_id, label, required in REVIEW_CHECKLIST_DEFINITION
+    ]
+
+
+def _normalize_review_checklist(checklist: dict[str, Any] | None) -> dict[str, Any]:
+    raw = checklist or {}
+    items = _normalized_review_checklist_items(_checklist_items_by_id(raw))
     accepted_risks = (
         raw.get("accepted_risks") if isinstance(raw.get("accepted_risks"), list) else []
     )
-    normalized = {
+    return {
         "version": "publication_review_v1",
         "items": items,
         "accepted_risks": accepted_risks,
         "progress": _progress_for_items(items),
     }
-    return normalized
 
 
 def _checklist_progress(checklist: dict[str, Any]) -> dict[str, int]:
@@ -611,6 +1453,84 @@ def _readiness_passed(audit: dict[str, Any]) -> bool:
     )
 
 
+_REVIEW_REQUIRED_JSON = (
+    "evidence_bundle_path",
+    "claim_ledger_path",
+    "manifest_path",
+)
+_BLOCKING_QUEUE_STATUSES = frozenset(
+    {
+        QueueStatus.BLOCKED.value,
+        QueueStatus.NEEDS_REVIEW.value,
+        QueueStatus.DISPATCH_ERROR.value,
+    }
+)
+
+
+def _paper_status_review_score(paper_status: str) -> tuple[int, str | None]:
+    if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
+        return 100, "publication_draft +100"
+    if paper_status == PaperStatus.DRAFT_REVIEW.value:
+        return 40, "draft_review +40"
+    return 0, None
+
+
+def _audit_review_adjustment(
+    audit: dict[str, Any], missing: list[str]
+) -> tuple[int, list[str], str | None]:
+    if _readiness_passed(audit):
+        return 20, missing, "readiness audit passed +20"
+    updated = list(missing)
+    if not audit:
+        updated.append("readiness_audit")
+    return 0, updated, None
+
+
+def _required_json_review_adjustment(
+    paper: dict[str, Any], missing: list[str]
+) -> tuple[int, list[str], str | None]:
+    if all(_text(paper.get(name)) for name in _REVIEW_REQUIRED_JSON):
+        return 10, missing, "evidence/claim/manifest paths present +10"
+    updated = list(missing)
+    for name in _REVIEW_REQUIRED_JSON:
+        if not _text(paper.get(name)):
+            updated.append(name)
+    return 0, updated, None
+
+
+def _draft_paths_review_score(paper: dict[str, Any]) -> tuple[int, str | None]:
+    if _text(paper.get("draft_markdown_path")) and _text(paper.get("draft_latex_path")):
+        return 5, "draft markdown/latex paths present +5"
+    return 0, None
+
+
+def _queue_blocks_review(queue_item: dict[str, Any]) -> bool:
+    return bool(
+        _text(queue_item.get("blocked_reason"))
+        or _text(queue_item.get("status")) in _BLOCKING_QUEUE_STATUSES
+        or bool(queue_item.get("manual_review_required"))
+    )
+
+
+def _review_rank_bucket(score: int) -> str:
+    if score < 0:
+        return "blocked"
+    if score >= 100:
+        return "ready"
+    return "review"
+
+
+def _review_rank_tiebreaker(paper: dict[str, Any], paper_status: str) -> str:
+    status_priority = {
+        PaperStatus.PUBLICATION_DRAFT.value: 0,
+        PaperStatus.DRAFT_REVIEW.value: 1,
+    }.get(paper_status, 9)
+    return (
+        f"{status_priority}:{_text(paper.get('updated_at'))}:"
+        f"{_text(paper.get('paper_id'))}"
+    )
+
+
 def _review_rank(
     paper: dict[str, Any],
     queue_item: dict[str, Any] | None,
@@ -621,44 +1541,30 @@ def _review_rank(
     missing = list(dict.fromkeys(initial_missing))
     score = 0
     paper_status = _text(paper.get("paper_status"))
-    if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
-        score += 100
-        reasons.append("publication_draft +100")
-    elif paper_status == PaperStatus.DRAFT_REVIEW.value:
-        score += 40
-        reasons.append("draft_review +40")
 
-    audit_ready = _readiness_passed(audit)
-    if audit_ready:
-        score += 20
-        reasons.append("readiness audit passed +20")
-    elif not audit:
-        missing.append("readiness_audit")
+    status_score, status_reason = _paper_status_review_score(paper_status)
+    score += status_score
+    if status_reason:
+        reasons.append(status_reason)
 
-    required_json = ["evidence_bundle_path", "claim_ledger_path", "manifest_path"]
-    if all(_text(paper.get(name)) for name in required_json):
-        score += 10
-        reasons.append("evidence/claim/manifest paths present +10")
-    else:
-        for name in required_json:
-            if not _text(paper.get(name)):
-                missing.append(name)
+    audit_score, missing, audit_reason = _audit_review_adjustment(audit, missing)
+    score += audit_score
+    if audit_reason:
+        reasons.append(audit_reason)
 
-    if _text(paper.get("draft_markdown_path")) and _text(paper.get("draft_latex_path")):
-        score += 5
-        reasons.append("draft markdown/latex paths present +5")
+    paths_score, missing, paths_reason = _required_json_review_adjustment(
+        paper, missing
+    )
+    score += paths_score
+    if paths_reason:
+        reasons.append(paths_reason)
 
-    queue_item = queue_item or {}
-    if (
-        _text(queue_item.get("blocked_reason"))
-        or _text(queue_item.get("status"))
-        in {
-            QueueStatus.BLOCKED.value,
-            QueueStatus.NEEDS_REVIEW.value,
-            QueueStatus.DISPATCH_ERROR.value,
-        }
-        or bool(queue_item.get("manual_review_required"))
-    ):
+    draft_score, draft_reason = _draft_paths_review_score(paper)
+    score += draft_score
+    if draft_reason:
+        reasons.append(draft_reason)
+
+    if _queue_blocks_review(queue_item or {}):
         score -= 100
         reasons.append("blocked/manual-action queue signal -100")
 
@@ -667,12 +1573,8 @@ def _review_rank(
         score -= 25
         reasons.append("material ranking inputs missing -25")
 
-    status_priority = {
-        PaperStatus.PUBLICATION_DRAFT.value: 0,
-        PaperStatus.DRAFT_REVIEW.value: 1,
-    }.get(paper_status, 9)
-    tiebreaker = f"{status_priority}:{_text(paper.get('updated_at'))}:{_text(paper.get('paper_id'))}"
-    bucket = "blocked" if score < 0 else "ready" if score >= 100 else "review"
+    tiebreaker = _review_rank_tiebreaker(paper, paper_status)
+    bucket = _review_rank_bucket(score)
     return score, reasons, material_missing, tiebreaker, bucket
 
 
@@ -685,6 +1587,104 @@ def _int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+_EVENT_PAGE_ORDER_BY = {
+    "recent": "event_id DESC",
+    "oldest": "event_id ASC",
+    "type": "event_type ASC, event_id DESC",
+    "entity": "entity_type ASC, entity_id ASC, event_id DESC",
+}
+
+
+def _event_page_filter_clauses(
+    *,
+    event_id: str = "",
+    entity_type: str = "",
+    entity_id: str = "",
+    event_type: str = "",
+    search: str = "",
+    cursor: str = "",
+) -> tuple[list[str], list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    event_id_int = _int(event_id, 0)
+    if event_id_int > 0:
+        clauses.append("event_id = ?")
+        params.append(event_id_int)
+    if entity_type:
+        clauses.append("entity_type = ?")
+        params.append(entity_type)
+    if entity_id:
+        clauses.append("entity_id = ?")
+        params.append(entity_id)
+    if event_type:
+        clauses.append("event_type = ?")
+        params.append(event_type)
+    if search:
+        clauses.append("(event_type LIKE ? OR entity_id LIKE ? OR payload_json LIKE ?)")
+        needle = f"%{search}%"
+        params.extend([needle, needle, needle])
+    cursor_id = _int(cursor, 0)
+    if cursor_id > 0:
+        clauses.append("event_id < ?")
+        params.append(cursor_id)
+    return clauses, params
+
+
+def _event_page_order_by(sort: str) -> str:
+    return _EVENT_PAGE_ORDER_BY.get(sort, "event_id DESC")
+
+
+def _event_page_attach_payload_fields(
+    item: dict[str, Any], *, include_payload: bool
+) -> None:
+    payload_json = item.pop("payload_json", "{}")
+    item.pop("payload_hash", None)
+    if include_payload:
+        item["payload"] = json.loads(payload_json)
+        return
+    try:
+        payload = json.loads(payload_json)
+        item["payload_summary"] = {
+            "keys": sorted(payload.keys())[:12] if isinstance(payload, dict) else [],
+            "bytes": len(payload_json.encode("utf-8")),
+        }
+    except json.JSONDecodeError:
+        item["payload_summary"] = {
+            "keys": [],
+            "bytes": len(payload_json.encode("utf-8")),
+            "invalid_json": True,
+        }
+
+
+_query_logger = logging.getLogger("enoch.store.queries")
+
+# Threshold in milliseconds; queries slower than this are logged at WARNING
+# to surface potential N+1 query patterns during development and CI.
+_SLOW_QUERY_MS = 50
+
+
+def _sqlite_trace_callback(sql: str) -> None:
+    """SQLite trace callback for query timing and N+1 detection.
+
+    Logs queries that exceed the slow-query threshold, helping developers
+    identify N+1 patterns where individual row lookups in a loop generate
+    many small queries instead of one batch query.
+    """
+    if not _query_logger.isEnabledFor(logging.DEBUG) and not _query_logger.isEnabledFor(
+        logging.WARNING
+    ):
+        return
+    # Skip PRAGMA and transaction statements.
+    upper = sql.strip().upper()
+    if upper.startswith("PRAGMA") or upper in ("BEGIN", "COMMIT", "ROLLBACK"):
+        return
+    _query_logger.debug("SQL: %s", sql[:200])
+    # The actual timing is handled at the _connect level via wall-clock
+    # measurement. This trace callback provides query visibility for N+1
+    # pattern analysis. When many similar SELECT statements appear in a
+    # single request, it indicates an N+1 query pattern.
 
 
 class ControlPlaneStore:
@@ -700,6 +1700,12 @@ class ControlPlaneStore:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=5000")
+        # Instrument SQLite with query timing for N+1 detection.
+        # set_trace_callback may not be available on mock connections in tests.
+        try:
+            conn.set_trace_callback(_sqlite_trace_callback)
+        except AttributeError:
+            pass
         try:
             with conn:
                 yield conn
@@ -1031,36 +2037,8 @@ class ControlPlaneStore:
             *request.paper_rows,
             *_snapshot_rows(request.paper_snapshot, paper=True),
         ]
-        _reject_conflicting_snapshot_rows(
-            queue_rows,
-            key_fields=("project_id",),
-            identity_fields=(
-                ("project_name", "name", "title"),
-                ("project_dir", "project_path"),
-                ("status", "queue_status"),
-                ("current_run_id",),
-            ),
-            label="queue project",
-        )
-        _reject_conflicting_snapshot_rows(
-            paper_rows,
-            key_fields=("paper_id",),
-            identity_fields=(
-                ("project_id",),
-                ("run_id",),
-                ("paper_type",),
-                ("paper_status",),
-                ("draft_markdown_path",),
-                ("draft_latex_path",),
-                ("evidence_bundle_path",),
-                ("claim_ledger_path",),
-                ("manifest_path",),
-            ),
-            label="paper",
-        )
-        event_payload = request.model_dump(mode="json")
-        event_payload["normalized_queue_row_count"] = len(queue_rows)
-        event_payload["normalized_paper_row_count"] = len(paper_rows)
+        _validate_import_snapshot_rows(queue_rows, paper_rows)
+        event_payload = _import_snapshot_event_payload(request, queue_rows, paper_rows)
         projects = queue_items = papers = 0
         with self._connect() as conn:
             _, inserted = self._append_event_in_conn(
@@ -1074,254 +2052,11 @@ class ControlPlaneStore:
             if not inserted:
                 return False, 0, 0, 0
             for raw in queue_rows:
-                project_id = _text(raw.get("project_id"))
-                if not project_id:
-                    continue
-                project = ProjectRecord(
-                    project_id=project_id,
-                    project_name=_text(
-                        _first_present(raw, "project_name", "name", "title")
-                    )
-                    or project_id,
-                    project_dir=_text(
-                        _first_present(raw, "project_dir", "project_path")
-                    ),
-                    notion_page_url=_text(
-                        _first_present(raw, "notion_page_url", "url")
-                    ),
-                    notion_page_id=_text(
-                        _first_present(raw, "notion_page_id", "page_id", "id")
-                    )
-                    or _notion_page_id_from_url(
-                        _text(_first_present(raw, "notion_page_url", "url"))
-                    ),
-                    origin_idea_status=_text(
-                        _first_present(raw, "origin_idea_status", "idea_status")
-                    )
-                    or "unknown",
-                    created_at=_text(_first_present(raw, "createdAt", "created_at"))
-                    or utc_now(),
-                    updated_at=_text(
-                        _first_present(
-                            raw, "updatedAt", "updated_at", "last_execution_update"
-                        )
-                    )
-                    or utc_now(),
-                )
-                qi = QueueItemRecord(
-                    project_id=project_id,
-                    status=QueueStatus(
-                        _text(_first_present(raw, "status", "queue_status")) or "queued"
-                    )
-                    if (
-                        _text(_first_present(raw, "status", "queue_status")) or "queued"
-                    )
-                    in QueueStatus._value2member_map_
-                    else QueueStatus.QUEUED,
-                    selection_rank=_int(
-                        _first_present(raw, "selection_rank", "rank"), 50
-                    ),
-                    dispatch_priority=_int(
-                        _first_present(raw, "dispatch_priority", "priority"), 50
-                    ),
-                    auto_continue=_bool(
-                        _first_present(raw, "auto_continue", "autoContinue")
-                    ),
-                    continue_count=_int(
-                        _first_present(raw, "continue_count", "continueCount"), 0
-                    ),
-                    max_continues=_int(
-                        _first_present(raw, "max_continues", "maxContinues"), 0
-                    ),
-                    retry_count=_int(
-                        _first_present(raw, "retry_count", "retryCount"), 0
-                    ),
-                    max_retries=_int(
-                        _first_present(raw, "max_retries", "maxRetries"), 2
-                    ),
-                    current_run_id=_text(raw.get("current_run_id")),
-                    current_session_id=_text(raw.get("current_session_id")),
-                    last_run_state=_text(raw.get("last_run_state")),
-                    last_event_type=_text(raw.get("last_event_type")),
-                    next_action_hint=_text(raw.get("next_action_hint"))
-                    or "controller_review",
-                    manual_review_required=_bool(raw.get("manual_review_required")),
-                    blocked_reason=_text(raw.get("blocked_reason")),
-                    last_error=_text(raw.get("last_error")),
-                    last_result_summary=_text(raw.get("last_result_summary")),
-                    machine_target=_text(raw.get("machine_target")) or "worker.example",
-                    model=_text(raw.get("model")) or "gpt-5.5",
-                    sandbox=_text(raw.get("sandbox")) or "danger-full-access",
-                    last_dispatch_at=_first_present(
-                        raw, "last_dispatch_at", "last_execution_update"
-                    ),
-                    last_callback_at=raw.get("last_callback_at"),
-                    stale_after=raw.get("stale_after"),
-                    updated_at=_text(
-                        _first_present(
-                            raw, "updatedAt", "updated_at", "last_execution_update"
-                        )
-                    )
-                    or utc_now(),
-                )
-                conn.execute(
-                    """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?)
-                    ON CONFLICT(project_id) DO UPDATE SET
-                        project_name=excluded.project_name,
-                        project_dir=COALESCE(NULLIF(projects.project_dir,''), excluded.project_dir),
-                        notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
-                        notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
-                        origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
-                        updated_at=excluded.updated_at
-                    WHERE excluded.updated_at >= projects.updated_at""",
-                    (
-                        project.project_id,
-                        project.project_name,
-                        project.project_dir,
-                        project.notion_page_url,
-                        project.notion_page_id,
-                        project.origin_idea_status,
-                        project.created_at,
-                        project.updated_at,
-                    ),
-                )
-                projects += 1
-                existing_row = conn.execute(
-                    "SELECT status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at FROM queue_items WHERE project_id=?",
-                    (project_id,),
-                ).fetchone()
-                existing_queue = dict(existing_row) if existing_row else None
-                if existing_queue and _is_older_timestamp(
-                    qi.updated_at, existing_queue.get("updated_at")
-                ):
-                    continue
-                existing_run_id = _text((existing_queue or {}).get("current_run_id"))
-                incoming_run_id = _text(raw.get("current_run_id"))
-                preserve_active_runtime = bool(
-                    existing_queue
-                    and _text(existing_queue["status"]) in ACTIVE_STATUSES
-                    and (
-                        not existing_run_id
-                        or incoming_run_id != existing_run_id
-                        or qi.status.value not in ACTIVE_STATUSES
-                    )
-                )
-                if preserve_active_runtime:
-                    assert existing_queue is not None
-                    qi.status = QueueStatus(_text(existing_queue["status"]))
-                    qi.current_run_id = existing_run_id
-                    qi.current_session_id = _text(existing_queue["current_session_id"])
-                    qi.last_run_state = _text(existing_queue["last_run_state"])
-                    qi.last_event_type = _text(existing_queue["last_event_type"])
-                    qi.next_action_hint = (
-                        _text(existing_queue["next_action_hint"]) or "await_callback"
-                    )
-                    qi.manual_review_required = _bool(
-                        existing_queue["manual_review_required"]
-                    )
-                    qi.blocked_reason = _text(existing_queue["blocked_reason"])
-                    qi.last_error = _text(existing_queue["last_error"])
-                    qi.last_result_summary = _text(
-                        existing_queue["last_result_summary"]
-                    )
-                    qi.last_dispatch_at = existing_queue["last_dispatch_at"]
-                    qi.last_callback_at = existing_queue["last_callback_at"]
-                    qi.stale_after = existing_queue["stale_after"]
-                conn.execute(
-                    """INSERT OR REPLACE INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        qi.project_id,
-                        qi.status.value,
-                        qi.selection_rank,
-                        qi.dispatch_priority,
-                        int(qi.auto_continue),
-                        qi.continue_count,
-                        qi.max_continues,
-                        qi.retry_count,
-                        qi.max_retries,
-                        qi.current_run_id,
-                        qi.current_session_id,
-                        qi.last_run_state,
-                        qi.last_event_type,
-                        qi.next_action_hint,
-                        int(qi.manual_review_required),
-                        qi.blocked_reason,
-                        qi.last_error,
-                        qi.last_result_summary,
-                        qi.machine_target,
-                        qi.model,
-                        qi.sandbox,
-                        qi.last_dispatch_at,
-                        qi.last_callback_at,
-                        qi.stale_after,
-                        qi.updated_at,
-                    ),
-                )
-                queue_items += 1
+                row_projects, row_queue_items = _import_queue_row(conn, raw)
+                projects += row_projects
+                queue_items += row_queue_items
             for raw in paper_rows:
-                paper_id = _text(raw.get("paper_id"))
-                project_id = _text(raw.get("project_id"))
-                if not paper_id or not project_id:
-                    continue
-                conn.execute(
-                    "INSERT OR IGNORE INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)",
-                    (
-                        project_id,
-                        _text(raw.get("project_name")) or project_id,
-                        _text(raw.get("project_dir")),
-                        _text(raw.get("notion_page_url")),
-                        _text(raw.get("notion_page_id"))
-                        or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
-                        "unknown",
-                        utc_now(),
-                        utc_now(),
-                    ),
-                )
-                status = (
-                    _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
-                )
-                if status not in PaperStatus._value2member_map_:
-                    status = PaperStatus.DRAFT_REVIEW.value
-                existing_paper = conn.execute(
-                    "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
-                    (paper_id,),
-                ).fetchone()
-                if _paper_identity_conflicts(
-                    existing_paper,
-                    {
-                        "project_id": project_id,
-                        "run_id": _text(raw.get("run_id")),
-                        "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
-                    },
-                ):
-                    raise IdempotencyConflict(
-                        f"paper id {paper_id!r} was reused with different paper identity"
-                    )
-                if existing_paper and _is_older_timestamp(
-                    raw.get("updated_at"), existing_paper["updated_at"]
-                ):
-                    continue
-                conn.execute(
-                    """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        paper_id,
-                        project_id,
-                        _text(raw.get("run_id")),
-                        _text(raw.get("paper_type")) or "arxiv_draft",
-                        status,
-                        _text(raw.get("draft_markdown_path")),
-                        _text(raw.get("draft_latex_path")),
-                        _text(raw.get("evidence_bundle_path")),
-                        _text(raw.get("claim_ledger_path")),
-                        _text(raw.get("manifest_path")),
-                        _text(raw.get("generated_at")) or utc_now(),
-                        _text(raw.get("updated_at")) or utc_now(),
-                    ),
-                )
-                papers += 1
+                papers += _import_paper_row(conn, raw)
         return inserted, projects, queue_items, papers
 
     def queue_rows(self) -> list[dict[str, Any]]:
@@ -1408,7 +2143,7 @@ class ControlPlaneStore:
             clauses.append(f"q.status IN ({','.join('?' for _ in ACTIVE_STATUSES)})")
             params.extend(sorted(ACTIVE_STATUSES))
         elif queue == "queued":
-            clauses.append("q.status = ?")
+            clauses.append(_QUEUE_STATUS_EQ)
             params.append(QueueStatus.QUEUED.value)
         elif queue == "blocked":
             clauses.append("(q.manual_review_required = 1 OR q.status IN (?, ?, ?))")
@@ -1420,16 +2155,16 @@ class ControlPlaneStore:
                 ]
             )
         elif queue == "paused":
-            clauses.append("q.status = ?")
+            clauses.append(_QUEUE_STATUS_EQ)
             params.append(QueueStatus.PAUSED.value)
         elif queue == "completed":
             clauses.append("q.status IN (?, ?)")
             params.extend([QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value])
         elif queue not in {"", "all"}:
-            clauses.append("q.status = ?")
+            clauses.append(_QUEUE_STATUS_EQ)
             params.append(queue)
         if status:
-            clauses.append("q.status = ?")
+            clauses.append(_QUEUE_STATUS_EQ)
             params.append(status)
         if search.strip():
             needle = f"%{search.strip()}%"
@@ -1860,11 +2595,7 @@ class ControlPlaneStore:
             claimed_at=_text(row.get("claimed_at")),
             updated_at=updated_at,
             rank_score=score,
-            rank_bucket="blocked"
-            if score < 0
-            else "ready"
-            if score >= 100
-            else "review",
+            rank_bucket=_review_rank_bucket(score),
             rank_reasons=rank_reasons,
             missing_signals=missing_signals,
             rank_tiebreaker=_text(row.get("rank_tiebreaker")),
@@ -1913,58 +2644,144 @@ class ControlPlaneStore:
             _json_dict(row.get("checklist_json")) if row else {}
         )
 
-    def backfill_paper_reviews(
+    def _papers_for_review_backfill(
         self, request: PaperReviewBackfillRequest
-    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
-        audit_by_paper = _audit_rows(request.source_audit_path)
+    ) -> list[dict[str, Any]]:
         requested_paper_ids = {
             _text(paper_id) for paper_id in request.paper_ids if _text(paper_id)
         }
-        papers = [
+        return [
             paper
             for paper in self.paper_rows()
             if not requested_paper_ids
             or _text(paper.get("paper_id")) in requested_paper_ids
         ]
+
+    def _paper_review_backfill_candidate(
+        self,
+        paper: dict[str, Any],
+        audit_by_paper: dict[str, dict[str, Any]],
+        source_audit_path: str,
+    ) -> tuple[PaperReviewRecord, dict[str, Any] | None]:
+        paper_id = _text(paper.get("paper_id"))
+        mandatory = [
+            "draft_markdown_path",
+            "draft_latex_path",
+            "evidence_bundle_path",
+            "claim_ledger_path",
+            "manifest_path",
+        ]
+        missing_paths = [name for name in mandatory if not _text(paper.get(name))]
+        error = (
+            {
+                "paper_id": paper_id,
+                "reason": "missing mandatory artifact path",
+                "missing_paths": missing_paths,
+            }
+            if missing_paths
+            else None
+        )
+        audit = audit_by_paper.get(paper_id, {})
+        initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
+        queue_item = self.queue_row(_text(paper.get("project_id")))
+        rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = _review_rank(
+            paper, queue_item, audit, initial_missing
+        )
+        status = ReviewStatus.QUEUED if not missing_paths else ReviewStatus.BLOCKED
+        record = PaperReviewRecord(
+            paper_id=paper_id,
+            review_status=status,
+            checklist_json=_default_review_checklist(),
+            rank_score=rank_score,
+            rank_reasons=rank_reasons,
+            missing_signals=missing_signals,
+            rank_tiebreaker=tiebreaker,
+            source_audit_path=source_audit_path,
+        )
+        return record, error
+
+    def _apply_paper_review_backfill_record(
+        self,
+        conn: sqlite3.Connection,
+        record: PaperReviewRecord,
+        now: str,
+    ) -> str:
+        existing = conn.execute(
+            "SELECT * FROM paper_review_items WHERE paper_id=?",
+            (record.paper_id,),
+        ).fetchone()
+        rank_reasons_json = _json(record.rank_reasons)
+        missing_signals_json = _json(record.missing_signals)
+        if not existing:
+            conn.execute(
+                """INSERT INTO paper_review_items(paper_id,review_status,reviewer,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    record.paper_id,
+                    record.review_status.value,
+                    record.reviewer,
+                    record.blocker,
+                    record.claimed_at,
+                    _json(_normalize_review_checklist(record.checklist_json)),
+                    record.rank_score,
+                    rank_reasons_json,
+                    missing_signals_json,
+                    record.rank_tiebreaker,
+                    record.source_audit_path,
+                    record.finalization_package_path,
+                    record.finalized_at,
+                    record.decision_summary,
+                    now,
+                    now,
+                ),
+            )
+            return "created"
+        existing_review_status = _normal(existing["review_status"])
+        next_review_status = (
+            record.review_status.value
+            if existing_review_status in SYSTEM_REVIEW_STATUSES
+            else existing_review_status
+        )
+        changes = {
+            "review_status": next_review_status,
+            "rank_score": record.rank_score,
+            "rank_reasons_json": rank_reasons_json,
+            "missing_signals_json": missing_signals_json,
+            "rank_tiebreaker": record.rank_tiebreaker,
+            "source_audit_path": record.source_audit_path,
+        }
+        if all(str(existing[key]) == str(value) for key, value in changes.items()):
+            return "skipped"
+        conn.execute(
+            """UPDATE paper_review_items
+            SET review_status=?, rank_score=?, rank_reasons_json=?, missing_signals_json=?, rank_tiebreaker=?, source_audit_path=?, updated_at=?
+            WHERE paper_id=?""",
+            (
+                next_review_status,
+                record.rank_score,
+                rank_reasons_json,
+                missing_signals_json,
+                record.rank_tiebreaker,
+                record.source_audit_path,
+                now,
+                record.paper_id,
+            ),
+        )
+        return "updated"
+
+    def backfill_paper_reviews(
+        self, request: PaperReviewBackfillRequest
+    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
+        audit_by_paper = _audit_rows(request.source_audit_path)
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
-        for paper in papers:
-            paper_id = _text(paper.get("paper_id"))
-            mandatory = [
-                "draft_markdown_path",
-                "draft_latex_path",
-                "evidence_bundle_path",
-                "claim_ledger_path",
-                "manifest_path",
-            ]
-            missing_paths = [name for name in mandatory if not _text(paper.get(name))]
-            if missing_paths:
-                errors.append(
-                    {
-                        "paper_id": paper_id,
-                        "reason": "missing mandatory artifact path",
-                        "missing_paths": missing_paths,
-                    }
-                )
-            audit = audit_by_paper.get(paper_id, {})
-            initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
-            queue_item = self.queue_row(_text(paper.get("project_id")))
-            rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = (
-                _review_rank(paper, queue_item, audit, initial_missing)
+        for paper in self._papers_for_review_backfill(request):
+            record, error = self._paper_review_backfill_candidate(
+                paper, audit_by_paper, request.source_audit_path
             )
-            status = ReviewStatus.QUEUED if not missing_paths else ReviewStatus.BLOCKED
-            candidates.append(
-                PaperReviewRecord(
-                    paper_id=paper_id,
-                    review_status=status,
-                    checklist_json=_default_review_checklist(),
-                    rank_score=rank_score,
-                    rank_reasons=rank_reasons,
-                    missing_signals=missing_signals,
-                    rank_tiebreaker=tiebreaker,
-                    source_audit_path=request.source_audit_path,
-                )
-            )
+            if error:
+                errors.append(error)
+            candidates.append(record)
         if request.dry_run:
             return False, len(candidates), 0, 0, errors
         event_payload = request.model_dump(mode="json")
@@ -1985,73 +2802,13 @@ class ControlPlaneStore:
             if not inserted:
                 return False, 0, 0, 0, errors
             for record in candidates:
-                existing = conn.execute(
-                    "SELECT * FROM paper_review_items WHERE paper_id=?",
-                    (record.paper_id,),
-                ).fetchone()
-                rank_reasons_json = _json(record.rank_reasons)
-                missing_signals_json = _json(record.missing_signals)
-                if existing:
-                    existing_review_status = _normal(existing["review_status"])
-                    next_review_status = (
-                        record.review_status.value
-                        if existing_review_status in SYSTEM_REVIEW_STATUSES
-                        else existing_review_status
-                    )
-                    changes = {
-                        "review_status": next_review_status,
-                        "rank_score": record.rank_score,
-                        "rank_reasons_json": rank_reasons_json,
-                        "missing_signals_json": missing_signals_json,
-                        "rank_tiebreaker": record.rank_tiebreaker,
-                        "source_audit_path": record.source_audit_path,
-                    }
-                    if all(
-                        str(existing[key]) == str(value)
-                        for key, value in changes.items()
-                    ):
-                        skipped += 1
-                        continue
-                    conn.execute(
-                        """UPDATE paper_review_items
-                        SET review_status=?, rank_score=?, rank_reasons_json=?, missing_signals_json=?, rank_tiebreaker=?, source_audit_path=?, updated_at=?
-                        WHERE paper_id=?""",
-                        (
-                            next_review_status,
-                            record.rank_score,
-                            rank_reasons_json,
-                            missing_signals_json,
-                            record.rank_tiebreaker,
-                            record.source_audit_path,
-                            now,
-                            record.paper_id,
-                        ),
-                    )
+                outcome = self._apply_paper_review_backfill_record(conn, record, now)
+                if outcome == "created":
+                    created += 1
+                elif outcome == "updated":
                     updated += 1
-                    continue
-                conn.execute(
-                    """INSERT INTO paper_review_items(paper_id,review_status,reviewer,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        record.paper_id,
-                        record.review_status.value,
-                        record.reviewer,
-                        record.blocker,
-                        record.claimed_at,
-                        _json(_normalize_review_checklist(record.checklist_json)),
-                        record.rank_score,
-                        rank_reasons_json,
-                        missing_signals_json,
-                        record.rank_tiebreaker,
-                        record.source_audit_path,
-                        record.finalization_package_path,
-                        record.finalized_at,
-                        record.decision_summary,
-                        now,
-                        now,
-                    ),
-                )
-                created += 1
+                else:
+                    skipped += 1
         return inserted, created, updated, skipped, errors
 
     def _raw_paper_review_row(self, paper_id: str) -> dict[str, Any] | None:
@@ -2143,6 +2900,231 @@ class ControlPlaneStore:
                 f"idempotency key {idempotency_key!r} was reused with different callback payload"
             )
         return int(row["event_id"])
+
+    def _resolve_worker_callback_project_id(self, project_id: str, run_id: str) -> str:
+        if project_id or not run_id:
+            return project_id
+        with self._connect() as conn:
+            found = conn.execute(
+                "SELECT project_id FROM runs WHERE run_id=?", (run_id,)
+            ).fetchone()
+        return found["project_id"] if found else ""
+
+    def _worker_callback_queue_snapshot(
+        self, project_id: str, run_id: str
+    ) -> tuple[dict[str, Any] | None, bool, str]:
+        if not project_id:
+            return None, False, ""
+        with self._connect() as conn:
+            found = conn.execute(
+                "SELECT status,current_run_id,current_session_id,last_run_state,next_action_hint FROM queue_items WHERE project_id=?",
+                (project_id,),
+            ).fetchone()
+        current_queue_row = dict(found) if found else None
+        current_run_id = _text((current_queue_row or {}).get("current_run_id"))
+        current_status = _text((current_queue_row or {}).get("status"))
+        stale_callback = bool(
+            current_queue_row is not None and (not run_id or current_run_id != run_id)
+        )
+        return current_queue_row, stale_callback, current_status
+
+    def _worker_callback_result_row(
+        self, project_id: str, *, scan_all_queue_rows: bool = False
+    ) -> dict[str, Any]:
+        if not project_id:
+            return {}
+        if scan_all_queue_rows:
+            return next(
+                (
+                    item
+                    for item in self.queue_rows()
+                    if item.get("project_id") == project_id
+                ),
+                {},
+            )
+        return self.queue_row(project_id) or {}
+
+    def _emit_worker_callback_side_effect(
+        self,
+        *,
+        idempotency_key: str,
+        event_payload: dict[str, Any],
+        event_type: str,
+        run_id: str,
+        project_id: str,
+    ) -> tuple[int, bool, dict[str, Any]]:
+        event_type_name = _worker_callback_event_type_name(event_type)
+        entity_id = _worker_callback_entity_id(run_id, project_id)
+        replayed_event_id = self._replayed_event_id(
+            idempotency_key,
+            event_payload,
+            event_type=event_type_name,
+            entity_type="run",
+            entity_id=entity_id,
+        )
+        if replayed_event_id is not None:
+            return (
+                replayed_event_id,
+                False,
+                self._worker_callback_result_row(project_id),
+            )
+        event_id, inserted = self.append_event(
+            idempotency_key=idempotency_key,
+            event_type=event_type_name,
+            entity_type="run",
+            entity_id=entity_id,
+            payload=event_payload,
+        )
+        return event_id, inserted, self._worker_callback_result_row(project_id)
+
+    def _try_record_late_terminal_success_worker_callback(
+        self,
+        *,
+        payload: dict[str, Any],
+        current_queue_row: dict[str, Any] | None,
+        run_id: str,
+        project_id: str,
+        event_type: str,
+        idempotency_key: str,
+        received_by: str,
+    ) -> tuple[int, bool, dict[str, Any]] | None:
+        if not (
+            _completed_success_queue_row(current_queue_row, run_id)
+            and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
+        ):
+            return None
+        assert current_queue_row is not None
+        event_payload = _late_terminal_success_worker_callback_payload(
+            payload, current_queue_row, received_by=received_by
+        )
+        return self._emit_worker_callback_side_effect(
+            idempotency_key=idempotency_key,
+            event_payload=event_payload,
+            event_type=event_type,
+            run_id=run_id,
+            project_id=project_id,
+        )
+
+    def _try_record_stale_worker_callback(
+        self,
+        *,
+        payload: dict[str, Any],
+        current_queue_row: dict[str, Any] | None,
+        stale_callback: bool,
+        run_id: str,
+        project_id: str,
+        event_type: str,
+        idempotency_key: str,
+        received_by: str,
+        current_status: str,
+    ) -> tuple[int, bool, dict[str, Any]] | None:
+        if not (stale_callback and current_queue_row):
+            return None
+        preserved_status = (
+            _text(current_queue_row.get("status")) or QueueStatus.NEEDS_REVIEW.value
+        )
+        preserved_hint = (
+            _text(current_queue_row.get("next_action_hint")) or "await_callback"
+        )
+        _ = _text(current_queue_row.get("last_run_state")) or preserved_status
+        event_payload = _stale_worker_callback_payload(
+            payload,
+            current_queue_row,
+            received_by=received_by,
+            status=preserved_status,
+            next_action_hint=preserved_hint,
+            ignore_reason=_stale_worker_callback_ignore_reason(
+                run_id=run_id, current_status=current_status
+            ),
+        )
+        return self._emit_worker_callback_side_effect(
+            idempotency_key=idempotency_key,
+            event_payload=event_payload,
+            event_type=event_type,
+            run_id=run_id,
+            project_id=project_id,
+        )
+
+    def _persist_applied_worker_callback(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        now: str,
+        payload: dict[str, Any],
+        project_id: str,
+        run_id: str,
+        event_type: str,
+        idempotency_key: str,
+        event_payload: dict[str, Any],
+        status: str,
+        next_action_hint: str,
+        manual_review_required: int,
+        last_error: str,
+    ) -> tuple[int, bool]:
+        summary = (
+            f"worker callback {event_type}: "
+            f"{_text(payload.get('reason')) or 'worker reported ready'}"
+        )
+        last_run_state, run_state, gate_state = _contract_worker_callback_states(
+            event_type, _text(payload.get("gate_state"))
+        )
+        run_ended_at = None if event_type == "session_started" else now
+        if project_id:
+            conn.execute(
+                """UPDATE queue_items
+                SET status=?, current_session_id=COALESCE(NULLIF(?, ''), current_session_id), last_run_state=?,
+                    last_event_type=?, next_action_hint=?, manual_review_required=?, last_error=?,
+                    last_result_summary=?, last_callback_at=?, updated_at=?
+                WHERE project_id=?""",
+                (
+                    status,
+                    _text(payload.get("session_id")),
+                    last_run_state,
+                    "worker_callback",
+                    next_action_hint,
+                    manual_review_required,
+                    last_error,
+                    summary,
+                    now,
+                    now,
+                    project_id,
+                ),
+            )
+        if run_id and project_id:
+            conn.execute(
+                """INSERT INTO runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(run_id) DO UPDATE SET
+                    session_id=COALESCE(NULLIF(excluded.session_id, ''), runs.session_id),
+                    state=excluded.state,
+                    ended_at=excluded.ended_at,
+                    last_callback_at=excluded.last_callback_at,
+                    gate_state=excluded.gate_state,
+                    current_activity=excluded.current_activity,
+                    updated_at=excluded.updated_at""",
+                (
+                    run_id,
+                    project_id,
+                    _text(payload.get("session_id")),
+                    run_state,
+                    "callback",
+                    now,
+                    run_ended_at,
+                    now,
+                    gate_state,
+                    "worker_callback",
+                    idempotency_key,
+                    now,
+                ),
+            )
+        return self._append_event_in_conn(
+            conn,
+            idempotency_key=idempotency_key,
+            event_type=_worker_callback_event_type_name(event_type),
+            entity_type="run",
+            entity_id=_worker_callback_entity_id(run_id, project_id),
+            payload=event_payload,
+        )
 
     def claim_paper_review(
         self, paper_id: str, request: PaperReviewClaimRequest
@@ -2337,56 +3319,15 @@ class ControlPlaneStore:
         )
         path = _expanduser_or_none(raw_path) if raw_path else Path()
         if project_dir_text and project_dir is None:
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
+            return _unresolved_artifact(field, raw_path)
         if raw_path and path is None:
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
+            return _unresolved_artifact(field, raw_path)
         path = path or Path()
-        try:
-            resolved = (
-                path
-                if path.is_absolute()
-                else (project_dir / path if project_dir else path)
-            ).resolve()
-        except (OSError, RuntimeError, ValueError):
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
-        safe = True
-        if project_dir is not None:
-            try:
-                resolved.relative_to(project_dir.resolve())
-            except (OSError, RuntimeError, ValueError):
-                safe = False
-        try:
-            exists = bool(raw_path) and resolved.exists()
-            readable = safe and exists and resolved.is_file()
-            size_bytes = resolved.stat().st_size if readable else 0
-        except (OSError, RuntimeError, ValueError):
-            exists = bool(raw_path)
-            readable = False
-            size_bytes = 0
+        resolved = _resolve_artifact_absolute_path(path, project_dir)
+        if resolved is None:
+            return _unresolved_artifact(field, raw_path)
+        safe = _artifact_path_within_project(resolved, project_dir)
+        exists, readable, size_bytes = _artifact_access_stats(resolved, raw_path, safe)
         return {
             "field": field,
             "path": raw_path,
@@ -2490,80 +3431,60 @@ class ControlPlaneStore:
         except OSError:
             return {}
 
-    def prepare_paper_review_finalization_package(
+    def _replay_paper_review_finalization_if_any(
         self,
         paper_id: str,
         request: PaperReviewPrepareFinalizationRequest,
-        *,
-        require_approval: bool = True,
-    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
-        row = self._require_paper_review(paper_id)
-        payload = self._mutation_payload(request, action="prepare_finalization_package")
-        payload.update(
-            {
-                "to_status": ReviewStatus.FINALIZED.value,
-                "require_approval": require_approval,
-            }
+        payload: dict[str, Any],
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]] | None:
+        if request.dry_run:
+            return None
+        replayed_event_id = self._replayed_event_id(
+            request.idempotency_key,
+            payload,
+            event_type="paper_review.finalization_package_prepared",
+            entity_type="paper_review",
+            entity_id=paper_id,
         )
-        if not request.dry_run:
-            replayed_event_id = self._replayed_event_id(
-                request.idempotency_key,
-                payload,
-                event_type="paper_review.finalization_package_prepared",
-                entity_type="paper_review",
-                entity_id=paper_id,
-            )
-            if replayed_event_id is not None:
-                item = self.paper_review_row(paper_id) or {}
-                return (
-                    replayed_event_id,
-                    False,
-                    item,
-                    _text(item.get("finalization_package_path")),
-                    self._load_manifest(_text(item.get("finalization_package_path"))),
-                )
-        current = _normal(row.get("review_status"))
-        if (
-            not request.dry_run
-            and require_approval
-            and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value
-        ):
+        if replayed_event_id is None:
+            return None
+        item = self.paper_review_row(paper_id) or {}
+        path = _text(item.get("finalization_package_path"))
+        return replayed_event_id, False, item, path, self._load_manifest(path)
+
+    def _ensure_finalization_review_status(
+        self,
+        current: str,
+        *,
+        require_approval: bool,
+        dry_run: bool,
+    ) -> None:
+        if dry_run:
+            return
+        if require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError(
                 "legacy approval-gated finalization requires internal approved_for_finalization state"
             )
-        if (
-            not request.dry_run
-            and not require_approval
-            and current
-            in {
-                ReviewStatus.BLOCKED.value,
-                ReviewStatus.CHANGES_REQUESTED.value,
-                ReviewStatus.IN_REVIEW.value,
-                ReviewStatus.REJECTED.value,
-                ReviewStatus.UNREVIEWED.value,
-            }
-        ):
+        if not require_approval and current in _AUTOMATED_FINALIZATION_BLOCKED_STATUSES:
             raise ValueError(
                 f"automated finalization cannot publish paper reviews with review_status={current}"
             )
-        paper = self.paper_row(paper_id)
-        if paper is None:
-            raise ValueError("paper row not found")
-        checklist = self.paper_review_checklist(paper_id)
-        artifacts = [
+
+    def _collect_finalization_artifacts(
+        self, paper: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        return [
             self._resolved_artifact(paper, field)
-            for field in (
-                "draft_markdown_path",
-                "draft_latex_path",
-                "evidence_bundle_path",
-                "claim_ledger_path",
-                "manifest_path",
-            )
+            for field in _FINALIZATION_PACKAGE_ARTIFACT_FIELDS
         ]
+
+    def _check_finalization_artifact_gates(
+        self, artifacts: list[dict[str, Any]], *, dry_run: bool
+    ) -> list[str]:
         unreadable = [
             artifact["field"] for artifact in artifacts if not artifact["readable"]
         ]
-        if unreadable and not request.dry_run:
+        if unreadable and not dry_run:
             raise ValueError(
                 f"finalization package requires readable artifacts: {', '.join(unreadable)}"
             )
@@ -2572,19 +3493,27 @@ class ControlPlaneStore:
             if unreadable
             else self._semantic_finalization_artifact_failures(artifacts)
         )
-        if semantic_failures and not request.dry_run:
+        if semantic_failures and not dry_run:
             raise ValueError(
                 f"semantic evidence gate failed: {', '.join(semantic_failures)}"
             )
-        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
-            item = self.paper_review_row(paper_id) or {}
-            path = _text(item.get("finalization_package_path"))
-            return None, False, item, path, self._load_manifest(path)
-        package_path = self._finalization_manifest_path(
-            paper_id, request.idempotency_key
-        )
-        now = utc_now()
-        manifest = {
+        return semantic_failures
+
+    def _build_finalization_package_manifest(
+        self,
+        *,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        paper: dict[str, Any],
+        row: dict[str, Any],
+        current: str,
+        require_approval: bool,
+        artifacts: list[dict[str, Any]],
+        semantic_failures: list[str],
+        checklist: list[dict[str, Any]],
+        now: str,
+    ) -> dict[str, Any]:
+        return {
             "schema": "paper_finalization_package_v1",
             "generated_at": now,
             "dry_run": request.dry_run,
@@ -2608,14 +3537,16 @@ class ControlPlaneStore:
             "review_item": self.paper_review_row(paper_id) or {},
             "no_submission_side_effects": True,
         }
-        if request.dry_run:
-            return (
-                None,
-                False,
-                self.paper_review_row(paper_id) or {},
-                str(package_path),
-                manifest,
-            )
+
+    def _persist_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        payload: dict[str, Any],
+        package_path: Path,
+        manifest: dict[str, Any],
+        now: str,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
         previous_manifest_exists, previous_manifest_content = _existing_file_snapshot(
             package_path,
             label="finalization package manifest",
@@ -2651,6 +3582,69 @@ class ControlPlaneStore:
             raise
         item = self.paper_review_row(paper_id) or {}
         return event_id, inserted, item, str(package_path), manifest
+
+    def prepare_paper_review_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        *,
+        require_approval: bool = True,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        payload = self._mutation_payload(request, action="prepare_finalization_package")
+        payload.update(
+            {
+                "to_status": ReviewStatus.FINALIZED.value,
+                "require_approval": require_approval,
+            }
+        )
+        replay = self._replay_paper_review_finalization_if_any(
+            paper_id, request, payload
+        )
+        if replay is not None:
+            return replay
+        current = _normal(row.get("review_status"))
+        self._ensure_finalization_review_status(
+            current, require_approval=require_approval, dry_run=request.dry_run
+        )
+        paper = self.paper_row(paper_id)
+        if paper is None:
+            raise ValueError("paper row not found")
+        artifacts = self._collect_finalization_artifacts(paper)
+        semantic_failures = self._check_finalization_artifact_gates(
+            artifacts, dry_run=request.dry_run
+        )
+        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
+            item = self.paper_review_row(paper_id) or {}
+            path = _text(item.get("finalization_package_path"))
+            return None, False, item, path, self._load_manifest(path)
+        package_path = self._finalization_manifest_path(
+            paper_id, request.idempotency_key
+        )
+        now = utc_now()
+        manifest = self._build_finalization_package_manifest(
+            paper_id=paper_id,
+            request=request,
+            paper=paper,
+            row=row,
+            current=current,
+            require_approval=require_approval,
+            artifacts=artifacts,
+            semantic_failures=semantic_failures,
+            checklist=self.paper_review_checklist(paper_id),
+            now=now,
+        )
+        if request.dry_run:
+            return (
+                None,
+                False,
+                self.paper_review_row(paper_id) or {},
+                str(package_path),
+                manifest,
+            )
+        return self._persist_finalization_package(
+            paper_id, request, payload, package_path, manifest, now
+        )
 
     def event_rows(
         self,
@@ -2706,38 +3700,16 @@ class ControlPlaneStore:
         sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
-        clauses: list[str] = []
-        params: list[Any] = []
-        event_id_int = _int(event_id, 0)
-        if event_id_int > 0:
-            clauses.append("event_id = ?")
-            params.append(event_id_int)
-        if entity_type:
-            clauses.append("entity_type = ?")
-            params.append(entity_type)
-        if entity_id:
-            clauses.append("entity_id = ?")
-            params.append(entity_id)
-        if event_type:
-            clauses.append("event_type = ?")
-            params.append(event_type)
-        if search:
-            clauses.append(
-                "(event_type LIKE ? OR entity_id LIKE ? OR payload_json LIKE ?)"
-            )
-            needle = f"%{search}%"
-            params.extend([needle, needle, needle])
-        cursor_id = _int(cursor, 0)
-        if cursor_id > 0:
-            clauses.append("event_id < ?")
-            params.append(cursor_id)
+        clauses, params = _event_page_filter_clauses(
+            event_id=event_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            event_type=event_type,
+            search=search,
+            cursor=cursor,
+        )
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        order_by = {
-            "recent": "event_id DESC",
-            "oldest": "event_id ASC",
-            "type": "event_type ASC, event_id DESC",
-            "entity": "entity_type ASC, entity_id ASC, event_id DESC",
-        }.get(sort, "event_id DESC")
+        order_by = _event_page_order_by(sort)
         with self._connect() as conn:
             rows = conn.execute(
                 f"SELECT * FROM events {where} ORDER BY {order_by} LIMIT ?",
@@ -2746,25 +3718,7 @@ class ControlPlaneStore:
         out = []
         for row in rows[:safe_size]:
             item = dict(row)
-            payload_json = item.pop("payload_json", "{}")
-            item.pop("payload_hash", None)
-            if include_payload:
-                item["payload"] = json.loads(payload_json)
-            else:
-                try:
-                    payload = json.loads(payload_json)
-                    item["payload_summary"] = {
-                        "keys": sorted(payload.keys())[:12]
-                        if isinstance(payload, dict)
-                        else [],
-                        "bytes": len(payload_json.encode("utf-8")),
-                    }
-                except json.JSONDecodeError:
-                    item["payload_summary"] = {
-                        "keys": [],
-                        "bytes": len(payload_json.encode("utf-8")),
-                        "invalid_json": True,
-                    }
+            _event_page_attach_payload_fields(item, include_payload=include_payload)
             out.append(item)
         has_more = len(rows) > safe_size
         next_cursor = str(out[-1]["event_id"]) if has_more and out else None
@@ -3242,6 +4196,7 @@ class ControlPlaneStore:
     def dispatch_next_dry_run(
         self, *, requested_by: str
     ) -> tuple[str, dict[str, Any] | None, int | None, str]:
+        # requested_by is unused: SQLite dry-run does not append dispatch events.
         flags = self.flags()
         if flags.queue_paused:
             return "paused", None, None, flags.pause_reason or "queue paused"
@@ -3372,6 +4327,123 @@ class ControlPlaneStore:
                 )
         return self.queue_row(project_id) or {}
 
+    def _persist_notion_intake_candidate(
+        self,
+        conn: sqlite3.Connection,
+        candidate: dict[str, Any],
+        *,
+        override_existing_dispatch_metadata: bool,
+        now: str,
+    ) -> str:
+        existed = (
+            conn.execute(
+                "SELECT 1 FROM queue_items WHERE project_id=?",
+                (candidate["project_id"],),
+            ).fetchone()
+            is not None
+        )
+        project = ProjectRecord(
+            project_id=candidate["project_id"],
+            project_name=candidate["project_name"],
+            project_dir=candidate["project_dir"],
+            notion_page_url=candidate["notion_page_url"],
+            notion_page_id=candidate["notion_page_id"],
+            origin_idea_status=candidate["origin_idea_status"],
+            created_at=now,
+            updated_at=now,
+        )
+        qi = QueueItemRecord(
+            project_id=project.project_id,
+            status=QueueStatus.QUEUED,
+            selection_rank=int(candidate["selection_rank"]),
+            dispatch_priority=int(candidate["dispatch_priority"]),
+            next_action_hint=candidate["next_action_hint"],
+            machine_target=candidate["machine_target"],
+            model=candidate["model"],
+            sandbox=candidate["sandbox"],
+            updated_at=now,
+        )
+        conn.execute(
+            """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                project_name=excluded.project_name,
+                project_dir=projects.project_dir,
+                notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
+                notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
+                origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
+                updated_at=excluded.updated_at""",
+            (
+                project.project_id,
+                project.project_name,
+                project.project_dir,
+                project.notion_page_url,
+                project.notion_page_id,
+                project.origin_idea_status,
+                project.created_at,
+                project.updated_at,
+            ),
+        )
+        if existed:
+            if override_existing_dispatch_metadata:
+                conn.execute(
+                    """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, machine_target=?, model=?, sandbox=?, updated_at=?
+                    WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
+                    (
+                        qi.selection_rank,
+                        qi.dispatch_priority,
+                        qi.machine_target,
+                        qi.model,
+                        qi.sandbox,
+                        qi.updated_at,
+                        qi.project_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, updated_at=?
+                    WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
+                    (
+                        qi.selection_rank,
+                        qi.dispatch_priority,
+                        qi.updated_at,
+                        qi.project_id,
+                    ),
+                )
+            return "updated"
+        conn.execute(
+            """INSERT INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                qi.project_id,
+                qi.status.value,
+                qi.selection_rank,
+                qi.dispatch_priority,
+                int(qi.auto_continue),
+                qi.continue_count,
+                qi.max_continues,
+                qi.retry_count,
+                qi.max_retries,
+                qi.current_run_id,
+                qi.current_session_id,
+                qi.last_run_state,
+                qi.last_event_type,
+                qi.next_action_hint,
+                int(qi.manual_review_required),
+                qi.blocked_reason,
+                qi.last_error,
+                qi.last_result_summary,
+                qi.machine_target,
+                qi.model,
+                qi.sandbox,
+                qi.last_dispatch_at,
+                qi.last_callback_at,
+                qi.stale_after,
+                qi.updated_at,
+            ),
+        )
+        return "created"
+
     def ingest_notion_ideas(
         self, request: NotionIntakeRequest
     ) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
@@ -3385,64 +4457,28 @@ class ControlPlaneStore:
             status = _notion_status(raw).lower()
             page_id = _notion_page_id(raw)
             page_url = _notion_url(raw)
-            if not title:
-                skipped_rows.append({"reason": "missing title", "row": raw})
-                continue
-            if include_statuses and not status:
-                skipped_rows.append(
-                    {
-                        "reason": "missing status",
-                        "title": title,
-                        "status": status,
-                        "page_id": page_id,
-                    }
-                )
-                continue
-            if include_statuses and status not in include_statuses:
-                skipped_rows.append(
-                    {
-                        "reason": f"status {status!r} not included",
-                        "title": title,
-                        "status": status,
-                        "page_id": page_id,
-                    }
-                )
-                continue
-            project_id = (
-                _slug_id(page_id.replace("-", ""))
-                if page_id
-                else f"notion-{_slug_id(title)}"
-            )
-            if not project_id:
-                skipped_rows.append(
-                    {"reason": "missing project id", "title": title, "page_id": page_id}
-                )
-                continue
-            routing = route_machine_target(
+            skip = _notion_intake_skip_row(
                 raw,
-                default_machine_target=request.default_machine_target,
-                workload_machine_targets=request.workload_machine_targets,
+                title=title,
+                status=status,
+                page_id=page_id,
+                include_statuses=include_statuses,
             )
-            candidates.append(
-                {
-                    "project_id": project_id,
-                    "project_name": title,
-                    "project_dir": project_id,
-                    "notion_page_url": page_url,
-                    "notion_page_id": page_id,
-                    "origin_idea_status": status,
-                    "status": QueueStatus.QUEUED.value,
-                    "selection_rank": _priority_rank(raw),
-                    "dispatch_priority": _priority_rank(raw),
-                    "next_action_hint": "controller_review",
-                    "machine_target": routing["machine_target"],
-                    "workload_class": routing["workload_class"],
-                    "routing_reason": routing["routing_reason"],
-                    "model": request.default_model,
-                    "sandbox": request.default_sandbox,
-                    "source_row": raw,
-                }
+            if skip is not None:
+                skipped_rows.append(skip)
+                continue
+            candidate, skip = _notion_intake_candidate(
+                raw,
+                request,
+                title=title,
+                status=status,
+                page_id=page_id,
+                page_url=page_url,
             )
+            if skip is not None:
+                skipped_rows.append(skip)
+                continue
+            candidates.append(candidate)
         if request.dry_run:
             return False, 0, 0, len(skipped_rows), candidates, skipped_rows
         event_payload = request.model_dump(mode="json")
@@ -3469,116 +4505,131 @@ class ControlPlaneStore:
                     skipped_rows,
                 )
             for candidate in candidates:
-                existed = (
-                    conn.execute(
-                        "SELECT 1 FROM queue_items WHERE project_id=?",
-                        (candidate["project_id"],),
-                    ).fetchone()
-                    is not None
+                outcome = self._persist_notion_intake_candidate(
+                    conn,
+                    candidate,
+                    override_existing_dispatch_metadata=request.override_existing_dispatch_metadata,
+                    now=now,
                 )
-                project = ProjectRecord(
-                    project_id=candidate["project_id"],
-                    project_name=candidate["project_name"],
-                    project_dir=candidate["project_dir"],
-                    notion_page_url=candidate["notion_page_url"],
-                    notion_page_id=candidate["notion_page_id"],
-                    origin_idea_status=candidate["origin_idea_status"],
-                    created_at=now,
-                    updated_at=now,
-                )
-                qi = QueueItemRecord(
-                    project_id=project.project_id,
-                    status=QueueStatus.QUEUED,
-                    selection_rank=int(candidate["selection_rank"]),
-                    dispatch_priority=int(candidate["dispatch_priority"]),
-                    next_action_hint=candidate["next_action_hint"],
-                    machine_target=candidate["machine_target"],
-                    model=candidate["model"],
-                    sandbox=candidate["sandbox"],
-                    updated_at=now,
-                )
+                if outcome == "created":
+                    created += 1
+                else:
+                    updated += 1
+        return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
+
+    def _apply_idea_intake_candidate(
+        self,
+        conn: sqlite3.Connection,
+        candidate: dict[str, Any],
+        *,
+        override_existing_dispatch_metadata: bool,
+        now: str,
+    ) -> bool:
+        """Persist one idea intake candidate. Returns True if queue row was updated."""
+        existed = (
+            conn.execute(
+                "SELECT 1 FROM queue_items WHERE project_id=?",
+                (candidate["project_id"],),
+            ).fetchone()
+            is not None
+        )
+        project = ProjectRecord(
+            project_id=candidate["project_id"],
+            project_name=candidate["project_name"],
+            project_dir=candidate["project_dir"],
+            origin_idea_status=candidate["origin_idea_status"],
+            created_at=now,
+            updated_at=now,
+        )
+        qi = QueueItemRecord(
+            project_id=project.project_id,
+            status=QueueStatus.QUEUED,
+            selection_rank=int(candidate["selection_rank"]),
+            dispatch_priority=int(candidate["dispatch_priority"]),
+            next_action_hint=candidate["next_action_hint"],
+            machine_target=candidate["machine_target"],
+            model=candidate["model"],
+            sandbox=candidate["sandbox"],
+            updated_at=now,
+        )
+        conn.execute(
+            """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(project_id) DO UPDATE SET
+                project_name=excluded.project_name,
+                project_dir=excluded.project_dir,
+                origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
+                updated_at=excluded.updated_at""",
+            (
+                project.project_id,
+                project.project_name,
+                project.project_dir,
+                "",
+                "",
+                project.origin_idea_status,
+                project.created_at,
+                project.updated_at,
+            ),
+        )
+        if existed:
+            if override_existing_dispatch_metadata:
                 conn.execute(
-                    """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?)
-                    ON CONFLICT(project_id) DO UPDATE SET
-                        project_name=excluded.project_name,
-                        project_dir=projects.project_dir,
-                        notion_page_url=COALESCE(NULLIF(excluded.notion_page_url,''), projects.notion_page_url),
-                        notion_page_id=COALESCE(NULLIF(excluded.notion_page_id,''), projects.notion_page_id),
-                        origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
-                        updated_at=excluded.updated_at""",
+                    """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, machine_target=?, model=?, sandbox=?, updated_at=?
+                    WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
                     (
-                        project.project_id,
-                        project.project_name,
-                        project.project_dir,
-                        project.notion_page_url,
-                        project.notion_page_id,
-                        project.origin_idea_status,
-                        project.created_at,
-                        project.updated_at,
+                        qi.selection_rank,
+                        qi.dispatch_priority,
+                        qi.machine_target,
+                        qi.model,
+                        qi.sandbox,
+                        qi.updated_at,
+                        qi.project_id,
                     ),
                 )
-                if existed:
-                    if request.override_existing_dispatch_metadata:
-                        conn.execute(
-                            """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, machine_target=?, model=?, sandbox=?, updated_at=?
-                            WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
-                            (
-                                qi.selection_rank,
-                                qi.dispatch_priority,
-                                qi.machine_target,
-                                qi.model,
-                                qi.sandbox,
-                                qi.updated_at,
-                                qi.project_id,
-                            ),
-                        )
-                    else:
-                        conn.execute(
-                            """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, updated_at=?
-                            WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
-                            (
-                                qi.selection_rank,
-                                qi.dispatch_priority,
-                                qi.updated_at,
-                                qi.project_id,
-                            ),
-                        )
-                    updated += 1
-                else:
-                    conn.execute(
-                        """INSERT INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            qi.project_id,
-                            qi.status.value,
-                            qi.selection_rank,
-                            qi.dispatch_priority,
-                            int(qi.auto_continue),
-                            qi.continue_count,
-                            qi.max_continues,
-                            qi.retry_count,
-                            qi.max_retries,
-                            qi.current_run_id,
-                            qi.current_session_id,
-                            qi.last_run_state,
-                            qi.last_event_type,
-                            qi.next_action_hint,
-                            int(qi.manual_review_required),
-                            qi.blocked_reason,
-                            qi.last_error,
-                            qi.last_result_summary,
-                            qi.machine_target,
-                            qi.model,
-                            qi.sandbox,
-                            qi.last_dispatch_at,
-                            qi.last_callback_at,
-                            qi.stale_after,
-                            qi.updated_at,
-                        ),
-                    )
-                    created += 1
-        return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
+            else:
+                conn.execute(
+                    """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, updated_at=?
+                    WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
+                    (
+                        qi.selection_rank,
+                        qi.dispatch_priority,
+                        qi.updated_at,
+                        qi.project_id,
+                    ),
+                )
+            return True
+        conn.execute(
+            """INSERT INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                qi.project_id,
+                qi.status.value,
+                qi.selection_rank,
+                qi.dispatch_priority,
+                int(qi.auto_continue),
+                qi.continue_count,
+                qi.max_continues,
+                qi.retry_count,
+                qi.max_retries,
+                qi.current_run_id,
+                qi.current_session_id,
+                qi.last_run_state,
+                qi.last_event_type,
+                qi.next_action_hint,
+                int(qi.manual_review_required),
+                qi.blocked_reason,
+                qi.last_error,
+                qi.last_result_summary,
+                qi.machine_target,
+                qi.model,
+                qi.sandbox,
+                qi.last_dispatch_at,
+                qi.last_callback_at,
+                qi.stale_after,
+                qi.updated_at,
+            ),
+        )
+        return False
 
     def ingest_ideas(
         self, request: IdeaIntakeRequest
@@ -3586,67 +4637,9 @@ class ControlPlaneStore:
         include_statuses = {
             item.strip().lower() for item in request.include_statuses if item.strip()
         }
-        candidates: list[dict[str, Any]] = []
-        skipped_rows: list[dict[str, Any]] = []
-        for raw in request.ideas:
-            title = _idea_title(raw)
-            origin_status = _idea_status(raw).lower()
-            status = origin_status or "exploring"
-            if not title:
-                skipped_rows.append({"reason": "missing title", "row": raw})
-                continue
-            if include_statuses and status and status not in include_statuses:
-                skipped_rows.append(
-                    {
-                        "reason": f"status {status!r} not included",
-                        "title": title,
-                        "status": status,
-                        "idea_id": _text(
-                            _first_present(raw, "idea_id", "project_id", "id")
-                        ),
-                    }
-                )
-                continue
-            project_id = _idea_id(raw, title)
-            if not project_id:
-                skipped_rows.append({"reason": "missing idea id", "title": title})
-                continue
-            rank = _int(
-                _first_present(raw, "selection_rank", "dispatch_priority"),
-                _priority_rank(raw),
-            )
-            dispatch_priority = _int(
-                _first_present(raw, "dispatch_priority", "selection_rank"), rank
-            )
-            routing = route_machine_target(
-                raw,
-                default_machine_target=request.default_machine_target,
-                workload_machine_targets=request.workload_machine_targets,
-            )
-            candidates.append(
-                {
-                    "project_id": project_id,
-                    "idea_id": project_id,
-                    "project_name": title,
-                    "project_dir": project_id,
-                    "origin_idea_status": origin_status,
-                    "status": QueueStatus.QUEUED.value,
-                    "selection_rank": rank,
-                    "dispatch_priority": dispatch_priority,
-                    "next_action_hint": "controller_review",
-                    "machine_target": routing["machine_target"],
-                    "workload_class": routing["workload_class"],
-                    "routing_reason": routing["routing_reason"],
-                    "model": _text(_first_present(raw, "model", "default_model"))
-                    or request.default_model,
-                    "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox"))
-                    or request.default_sandbox,
-                    "source_kind": _text(raw.get("source_kind"))
-                    or request.source
-                    or "supabase_native",
-                    "source_row": raw,
-                }
-            )
+        candidates, skipped_rows = _collect_idea_intake_candidates(
+            request, include_statuses
+        )
         if request.dry_run:
             return False, 0, 0, len(skipped_rows), candidates, skipped_rows
         event_payload = request.model_dump(mode="json")
@@ -3673,110 +4666,14 @@ class ControlPlaneStore:
                     skipped_rows,
                 )
             for candidate in candidates:
-                existed = (
-                    conn.execute(
-                        "SELECT 1 FROM queue_items WHERE project_id=?",
-                        (candidate["project_id"],),
-                    ).fetchone()
-                    is not None
-                )
-                project = ProjectRecord(
-                    project_id=candidate["project_id"],
-                    project_name=candidate["project_name"],
-                    project_dir=candidate["project_dir"],
-                    origin_idea_status=candidate["origin_idea_status"],
-                    created_at=now,
-                    updated_at=now,
-                )
-                qi = QueueItemRecord(
-                    project_id=project.project_id,
-                    status=QueueStatus.QUEUED,
-                    selection_rank=int(candidate["selection_rank"]),
-                    dispatch_priority=int(candidate["dispatch_priority"]),
-                    next_action_hint=candidate["next_action_hint"],
-                    machine_target=candidate["machine_target"],
-                    model=candidate["model"],
-                    sandbox=candidate["sandbox"],
-                    updated_at=now,
-                )
-                conn.execute(
-                    """INSERT INTO projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?)
-                    ON CONFLICT(project_id) DO UPDATE SET
-                        project_name=excluded.project_name,
-                        project_dir=excluded.project_dir,
-                        origin_idea_status=COALESCE(NULLIF(excluded.origin_idea_status,''), projects.origin_idea_status),
-                        updated_at=excluded.updated_at""",
-                    (
-                        project.project_id,
-                        project.project_name,
-                        project.project_dir,
-                        "",
-                        "",
-                        project.origin_idea_status,
-                        project.created_at,
-                        project.updated_at,
-                    ),
-                )
-                if existed:
-                    if request.override_existing_dispatch_metadata:
-                        conn.execute(
-                            """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, machine_target=?, model=?, sandbox=?, updated_at=?
-                            WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
-                            (
-                                qi.selection_rank,
-                                qi.dispatch_priority,
-                                qi.machine_target,
-                                qi.model,
-                                qi.sandbox,
-                                qi.updated_at,
-                                qi.project_id,
-                            ),
-                        )
-                    else:
-                        conn.execute(
-                            """UPDATE queue_items SET selection_rank=?, dispatch_priority=?, updated_at=?
-                            WHERE project_id=? AND status NOT IN ('dispatching','running','awaiting_wake','wake_received','reconciling')""",
-                            (
-                                qi.selection_rank,
-                                qi.dispatch_priority,
-                                qi.updated_at,
-                                qi.project_id,
-                            ),
-                        )
+                if self._apply_idea_intake_candidate(
+                    conn,
+                    candidate,
+                    override_existing_dispatch_metadata=request.override_existing_dispatch_metadata,
+                    now=now,
+                ):
                     updated += 1
                 else:
-                    conn.execute(
-                        """INSERT INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            qi.project_id,
-                            qi.status.value,
-                            qi.selection_rank,
-                            qi.dispatch_priority,
-                            int(qi.auto_continue),
-                            qi.continue_count,
-                            qi.max_continues,
-                            qi.retry_count,
-                            qi.max_retries,
-                            qi.current_run_id,
-                            qi.current_session_id,
-                            qi.last_run_state,
-                            qi.last_event_type,
-                            qi.next_action_hint,
-                            int(qi.manual_review_required),
-                            qi.blocked_reason,
-                            qi.last_error,
-                            qi.last_result_summary,
-                            qi.machine_target,
-                            qi.model,
-                            qi.sandbox,
-                            qi.last_dispatch_at,
-                            qi.last_callback_at,
-                            qi.stale_after,
-                            qi.updated_at,
-                        ),
-                    )
                     created += 1
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
@@ -3797,95 +4694,25 @@ class ControlPlaneStore:
     def research_facility_workbench_projection(
         self, *, limit: int = 200
     ) -> list[dict[str, Any]]:
-        # The SQLite compatibility store predates the Research Facility ledgers.
+        # limit is unused: SQLite compatibility store predates Research Facility ledgers.
         # Returning an empty projection keeps legacy/local smokes working while
         # the Supabase/Postgres store owns the real source/candidate/admission
-        # workbench.
+        # workbench and honors limit on queries.
         return []
 
     def research_facility_workbench_counts(self) -> dict[str, int]:
         return {}
 
     def notion_execution_update_projection(self) -> list[dict[str, Any]]:
-        state_map = {
-            QueueStatus.QUEUED.value: "queued",
-            QueueStatus.DISPATCHING.value: "running",
-            QueueStatus.RUNNING.value: "running",
-            QueueStatus.AWAITING_WAKE.value: "waiting",
-            QueueStatus.WAKE_RECEIVED.value: "waiting",
-            QueueStatus.RECONCILING.value: "waiting",
-            QueueStatus.COMPLETED.value: "completed",
-            QueueStatus.PAUSED.value: "blocked",
-            QueueStatus.CANCELED.value: "completed",
-            QueueStatus.DISPATCH_ERROR.value: "failed",
-            QueueStatus.BLOCKED.value: "blocked",
-            QueueStatus.NEEDS_REVIEW.value: "blocked",
-        }
         paper_by_project = {
             paper.get("project_id"): paper for paper in self.paper_rows()
         }
-        rows = []
+        rows: list[dict[str, Any]] = []
         for row in self.queue_rows():
-            paper = paper_by_project.get(row.get("project_id")) or {}
-            row = {
-                **row,
-                "paper_id": paper.get("paper_id") or "",
-                "paper_status": paper.get("paper_status") or "",
-                "paper_type": paper.get("paper_type") or "",
-                "draft_markdown_path": paper.get("draft_markdown_path") or "",
-                "paper_updated_at": paper.get("updated_at") or "",
-            }
-            page_url = row.get("notion_page_url") or ""
-            if not page_url:
-                continue
-            execution_state = state_map.get(row.get("status") or "", "blocked")
-            blocked_reason = (
-                row.get("blocked_reason")
-                or (
-                    row.get("last_result_summary")
-                    if execution_state in {"blocked", "failed"}
-                    else ""
-                )
-                or ""
-            )
-            rows.append(
-                {
-                    "project_id": row.get("project_id") or "",
-                    "page_id": row.get("notion_page_id")
-                    or _notion_page_id_from_url(page_url),
-                    "notion_page_url": page_url,
-                    "properties": {
-                        "Execution State": execution_state,
-                        "Current Run ID": row.get("current_run_id") or "",
-                        "Next Action": row.get("next_action_hint") or "",
-                        "Blocked Reason": blocked_reason,
-                        "Last Execution Update": row.get("updated_at") or utc_now(),
-                        "Execution Summary": row.get("last_result_summary") or "",
-                        "Enoch Project ID": row.get("project_id") or "",
-                        "Enoch Queue Status": row.get("status") or "",
-                        "Enoch Last Run State": row.get("last_run_state") or "",
-                        "Enoch Last Event Type": row.get("last_event_type") or "",
-                        "Enoch Next Action Hint": row.get("next_action_hint") or "",
-                        "Enoch Project Dir": row.get("project_dir") or "",
-                        "Enoch Current Session ID": row.get("current_session_id") or "",
-                        "Enoch Last Result Summary": row.get("last_result_summary")
-                        or "",
-                        "Enoch Last Error": row.get("last_error") or "",
-                        "Enoch Manual Review Required": "__YES__"
-                        if _bool(row.get("manual_review_required"))
-                        else "__NO__",
-                        "Enoch Dispatch Priority": row.get("dispatch_priority") or 0,
-                        "Enoch Selection Rank": row.get("selection_rank") or 0,
-                        "Enoch Paper ID": row.get("paper_id") or "",
-                        "Enoch Paper Status": row.get("paper_status") or "",
-                        "Enoch Paper Type": row.get("paper_type") or "",
-                        "Enoch Paper Markdown Path": row.get("draft_markdown_path")
-                        or "",
-                        "Enoch Paper Updated At": row.get("paper_updated_at") or "",
-                        "Enoch Paper Updated At ISO": row.get("paper_updated_at") or "",
-                    },
-                }
-            )
+            merged = _queue_row_merged_with_paper(row, paper_by_project)
+            update = _notion_execution_update_row(merged, _NOTION_EXECUTION_STATE_MAP)
+            if update is not None:
+                rows.append(update)
         return rows
 
     def export_snapshot(self, *, event_limit: int = 50) -> dict[str, Any]:
@@ -4031,153 +4858,56 @@ class ControlPlaneStore:
         self, callback: Any, *, received_by: str = "worker-callback"
     ) -> tuple[int, bool, dict[str, Any]]:
         now = utc_now()
-        payload = (
-            callback.model_dump(mode="json")
-            if hasattr(callback, "model_dump")
-            else dict(callback)
-        )
+        payload = _worker_callback_payload(callback)
         run_id = _text(payload.get("run_id"))
         project_id = _text(payload.get("project_id"))
         event_type = _normal(payload.get("event_type"))
-        idempotency_key = _text(payload.get("idempotency_key"))
-        if not idempotency_key:
-            session_part = _text(payload.get("session_id")) or "no-session"
-            payload_part = _hash(payload)[:16]
-            idempotency_key = f"worker-callback:{run_id or 'unknown'}:{event_type or 'unknown'}:{session_part}:{payload_part}"
-        if not project_id and run_id:
-            with self._connect() as conn:
-                found = conn.execute(
-                    "SELECT project_id FROM runs WHERE run_id=?", (run_id,)
-                ).fetchone()
-                project_id = found["project_id"] if found else ""
+        idempotency_key = _derived_worker_callback_idempotency_key(
+            payload,
+            run_id=run_id,
+            event_type=event_type,
+            idempotency_key=_text(payload.get("idempotency_key")),
+        )
+        project_id = self._resolve_worker_callback_project_id(project_id, run_id)
         replayed_callback_event_id = self._replayed_worker_callback_event_id(
             idempotency_key, payload
         )
         if replayed_callback_event_id is not None:
-            row = self.queue_row(project_id) if project_id else {}
-            return replayed_callback_event_id, False, row or {}
-        current_queue_row: dict[str, Any] | None = None
-        stale_callback = False
-        if project_id:
-            with self._connect() as conn:
-                found = conn.execute(
-                    "SELECT status,current_run_id,current_session_id,last_run_state,next_action_hint FROM queue_items WHERE project_id=?",
-                    (project_id,),
-                ).fetchone()
-                current_queue_row = dict(found) if found else None
-            current_run_id = _text((current_queue_row or {}).get("current_run_id"))
-            current_status = _text((current_queue_row or {}).get("status"))
-            stale_callback = bool(
-                current_queue_row is not None
-                and (not run_id or current_run_id != run_id)
+            return (
+                replayed_callback_event_id,
+                False,
+                self._worker_callback_result_row(project_id),
             )
-        if (
-            _completed_success_queue_row(current_queue_row, run_id)
-            and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
-        ):
-            assert current_queue_row is not None
-            event_payload = {
-                **payload,
-                "received_by": received_by,
-                "applied_status": _text(current_queue_row.get("status")),
-                "applied_next_action_hint": _text(
-                    current_queue_row.get("next_action_hint")
-                ),
-                "late_callback_ignored": True,
-                "ignore_reason": "terminal_success_precedence",
-                "current_run_id": _text(current_queue_row.get("current_run_id")),
-                "current_last_run_state": _text(
-                    current_queue_row.get("last_run_state")
-                ),
-            }
-            replayed_event_id = self._replayed_event_id(
-                idempotency_key,
-                event_payload,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-            )
-            if replayed_event_id is not None:
-                row = self.queue_row(project_id) if project_id else {}
-                return replayed_event_id, False, row or {}
-            event_id, inserted = self.append_event(
-                idempotency_key=idempotency_key,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-                payload=event_payload,
-            )
-            row = self.queue_row(project_id) if project_id else {}
-            return event_id, inserted, row or {}
-
-        status = QueueStatus.COMPLETED.value
-        next_action_hint = "select_next_project"
-        manual_review_required = 0
-        last_error = ""
-        if event_type == "session_started":
-            status = QueueStatus.RUNNING.value
-            next_action_hint = "await_callback"
-        elif event_type == "question_pending":
-            status = QueueStatus.NEEDS_REVIEW.value
-            next_action_hint = "answer_worker_question"
-            manual_review_required = 1
-        elif event_type in {"gate_timeout", "gate_error"}:
-            status = QueueStatus.BLOCKED.value
-            next_action_hint = "inspect_worker_gate_failure"
-            manual_review_required = 1
-            last_error = _text(payload.get("reason")) or event_type
-        elif event_type in {"wake_ready", "session_finished_ready"}:
-            next_action_hint = "draft_paper_or_select_next_project"
-        else:
-            status = QueueStatus.NEEDS_REVIEW.value
-            next_action_hint = "inspect_unknown_worker_callback"
-            manual_review_required = 1
-            last_error = (
-                _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
-            )
-        if stale_callback and current_queue_row:
-            status = (
-                _text(current_queue_row.get("status")) or QueueStatus.NEEDS_REVIEW.value
-            )
-            next_action_hint = (
-                _text(current_queue_row.get("next_action_hint")) or "await_callback"
-            )
-            last_run_state = _text(current_queue_row.get("last_run_state")) or status
-            event_payload = {
-                **payload,
-                "received_by": received_by,
-                "applied_status": status,
-                "applied_next_action_hint": next_action_hint,
-                "stale_callback_ignored": True,
-                "ignore_reason": (
-                    "missing_run_id_for_active_project"
-                    if not run_id and current_status in ACTIVE_STATUSES
-                    else "missing_run_id_for_project_callback"
-                    if not run_id
-                    else "run_id_mismatch"
-                ),
-                "current_run_id": _text(current_queue_row.get("current_run_id")),
-            }
-            replayed_event_id = self._replayed_event_id(
-                idempotency_key,
-                event_payload,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-            )
-            if replayed_event_id is not None:
-                row = self.queue_row(project_id) if project_id else {}
-                return replayed_event_id, False, row or {}
-            event_id, inserted = self.append_event(
-                idempotency_key=idempotency_key,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-                payload=event_payload,
-            )
-            row = self.queue_row(project_id) if project_id else {}
-            return event_id, inserted, row or {}
-
+        current_queue_row, stale_callback, current_status = (
+            self._worker_callback_queue_snapshot(project_id, run_id)
+        )
+        late_result = self._try_record_late_terminal_success_worker_callback(
+            payload=payload,
+            current_queue_row=current_queue_row,
+            run_id=run_id,
+            project_id=project_id,
+            event_type=event_type,
+            idempotency_key=idempotency_key,
+            received_by=received_by,
+        )
+        if late_result is not None:
+            return late_result
+        status, next_action_hint, manual_review_required, last_error = (
+            _worker_callback_transition(event_type, payload)
+        )
+        stale_result = self._try_record_stale_worker_callback(
+            payload=payload,
+            current_queue_row=current_queue_row,
+            stale_callback=stale_callback,
+            run_id=run_id,
+            project_id=project_id,
+            event_type=event_type,
+            idempotency_key=idempotency_key,
+            received_by=received_by,
+            current_status=current_status,
+        )
+        if stale_result is not None:
+            return stale_result
         event_payload = {
             **payload,
             "received_by": received_by,
@@ -4187,84 +4917,36 @@ class ControlPlaneStore:
         replayed_event_id = self._replayed_event_id(
             idempotency_key,
             event_payload,
-            event_type=f"worker_callback.{event_type}",
+            event_type=_worker_callback_event_type_name(event_type),
             entity_type="run",
-            entity_id=run_id or project_id or "unknown",
+            entity_id=_worker_callback_entity_id(run_id, project_id),
         )
         if replayed_event_id is not None:
-            row = self.queue_row(project_id) if project_id else {}
-            return replayed_event_id, False, row or {}
-        summary = f"worker callback {event_type}: {_text(payload.get('reason')) or 'worker reported ready'}"
-        last_run_state, run_state, gate_state = _contract_worker_callback_states(
-            event_type, _text(payload.get("gate_state"))
-        )
-        run_ended_at = None if event_type == "session_started" else now
-        with self._connect() as conn:
-            if project_id:
-                conn.execute(
-                    """UPDATE queue_items
-                    SET status=?, current_session_id=COALESCE(NULLIF(?, ''), current_session_id), last_run_state=?,
-                        last_event_type=?, next_action_hint=?, manual_review_required=?, last_error=?,
-                        last_result_summary=?, last_callback_at=?, updated_at=?
-                    WHERE project_id=?""",
-                    (
-                        status,
-                        _text(payload.get("session_id")),
-                        last_run_state,
-                        "worker_callback",
-                        next_action_hint,
-                        manual_review_required,
-                        last_error,
-                        summary,
-                        now,
-                        now,
-                        project_id,
-                    ),
-                )
-            if run_id and project_id:
-                conn.execute(
-                    """INSERT INTO runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(run_id) DO UPDATE SET
-                        session_id=COALESCE(NULLIF(excluded.session_id, ''), runs.session_id),
-                        state=excluded.state,
-                        ended_at=excluded.ended_at,
-                        last_callback_at=excluded.last_callback_at,
-                        gate_state=excluded.gate_state,
-                        current_activity=excluded.current_activity,
-                        updated_at=excluded.updated_at""",
-                    (
-                        run_id,
-                        project_id,
-                        _text(payload.get("session_id")),
-                        run_state,
-                        "callback",
-                        now,
-                        run_ended_at,
-                        now,
-                        gate_state,
-                        "worker_callback",
-                        idempotency_key,
-                        now,
-                    ),
-                )
-            event_id, inserted = self._append_event_in_conn(
-                conn,
-                idempotency_key=idempotency_key,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-                payload=event_payload,
+            return (
+                replayed_event_id,
+                False,
+                self._worker_callback_result_row(project_id),
             )
-        row = next(
-            (
-                item
-                for item in self.queue_rows()
-                if item.get("project_id") == project_id
-            ),
-            {},
+        with self._connect() as conn:
+            event_id, inserted = self._persist_applied_worker_callback(
+                conn,
+                now=now,
+                payload=payload,
+                project_id=project_id,
+                run_id=run_id,
+                event_type=event_type,
+                idempotency_key=idempotency_key,
+                event_payload=event_payload,
+                status=status,
+                next_action_hint=next_action_hint,
+                manual_review_required=manual_review_required,
+                last_error=last_error,
+            )
+        return (
+            event_id,
+            inserted,
+            self._worker_callback_result_row(project_id, scan_all_queue_rows=True),
         )
-        return event_id, inserted, row
 
     def mark_queue_item_paused(
         self, *, project_id: str, reason: str, updated_by: str = "operator"

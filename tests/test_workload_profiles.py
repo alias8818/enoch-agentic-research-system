@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi import HTTPException
+from enoch_control_plane.app import ControlPlaneHttpError
 
 from enoch_control_plane.app import (
     _normalize_prepare_metadata,
@@ -43,7 +43,7 @@ class WorkloadProfileTests(unittest.TestCase):
         self.assertEqual(normalized["workload_class"], "inference_eval")
 
     def test_prepare_metadata_rejects_unknown_workload_class(self) -> None:
-        with self.assertRaises(HTTPException) as raised:
+        with self.assertRaises(ControlPlaneHttpError) as raised:
             _normalize_prepare_metadata({"workload_class": "burst_eval"})
         self.assertEqual(raised.exception.status_code, 400)
 

@@ -7,13 +7,13 @@ export function SelectedEntityActions({
   description,
   children,
   ariaLabel = 'Selected entity actions',
-}: {
+}: Readonly<{
   title: string
   entityId: string
   description?: string
   children: ReactNode
   ariaLabel?: string
-}) {
+}>) {
   return (
     <section className="queue-command-card queue-command-card--compact" aria-label={ariaLabel}>
       <div>

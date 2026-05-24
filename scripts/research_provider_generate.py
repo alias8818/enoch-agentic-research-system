@@ -230,7 +230,6 @@ def candidates_from_provider_response(
     *,
     provider: str,
     provider_model: str,
-    prompt: str,
     topic: str,
     temperature: float,
     seed: str,
@@ -329,7 +328,6 @@ def generate_provider_candidates(
     max_candidates = max(1, min(int(max_candidates), 10))
     seed = seed or utc_now()
     attempts = max(1, min(int(attempts), 3))
-    last_error: Exception | None = None
     provider_payload: dict[str, Any] = {}
     candidates: list[dict[str, Any]] = []
     attempt_used = 0
@@ -361,7 +359,6 @@ def generate_provider_candidates(
                 provider_payload,
                 provider="synthetic.new",
                 provider_model=model,
-                prompt=prompt,
                 topic=topic,
                 temperature=temperature,
                 seed=attempt_seed,
@@ -372,7 +369,6 @@ def generate_provider_candidates(
             candidates = candidates[:max_candidates]
             break
         except Exception as exc:
-            last_error = exc
             if attempt == attempts:
                 raise ValueError(
                     f"provider returned no usable candidate JSON after {attempts} attempt(s): {exc}"

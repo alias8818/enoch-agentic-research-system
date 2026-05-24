@@ -26,6 +26,36 @@ def _is_benign_project_process(cmdline: str) -> bool:
     return False
 
 
+_ALLOWED_REAP_SIGNALS = frozenset({signal.SIGTERM, signal.SIGKILL})
+
+
+def _safe_send_signal(
+    pid: int,
+    sig: int,
+    *,
+    tracked: ProcessInfo | None = None,
+    proc: object | None = None,
+) -> None:
+    """Send ``sig`` to ``pid`` only after PID/signal guards and identity checks.
+
+    Guards against broadcast kills (``pid <= 0``), unexpected signals, and PID
+    reuse when ``tracked`` carries a ``create_time`` anchor.
+    """
+    if pid <= 0:
+        raise ProcessLookupError(pid)
+    if sig not in _ALLOWED_REAP_SIGNALS:
+        raise ValueError(f"unsupported stale-process reaper signal: {sig}")
+    if tracked is not None and tracked.create_time is not None:
+        active_proc = proc
+        if active_proc is None:
+            if psutil is None:
+                raise ProcessLookupError(pid)
+            active_proc = psutil.Process(pid)
+        if ProcessTracker._same_process(active_proc, tracked) is not True:
+            raise ProcessLookupError(pid)
+    os.kill(pid, sig)
+
+
 class ProcessTracker:
     """Track whether a run still owns any live local processes."""
 
@@ -170,42 +200,76 @@ class ProcessTracker:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return None
 
-    def snapshot(
-        self, record: RunRecord, gpu_compute_pids: list[int] | None = None
-    ) -> ProcessSnapshot:
-        if psutil is None:
-            return ProcessSnapshot(
-                tracked=record.root_pid is not None,
-                root_pid=record.root_pid,
-                process_alive=False,
-                descendants_alive=False,
-                gpu_processes_alive=False,
-                project_cwd_processes_alive=False,
-            )
+    @staticmethod
+    def _process_is_alive(proc: object) -> bool:
+        try:
+            return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
 
-        tracked = self._tracked_processes(record)
+    def _has_non_benign_project_cwd_process(
+        self, proc: object, project_dir: Path
+    ) -> bool:
+        if not self._process_in_project_dir(proc, project_dir):
+            return False
+        cmdline = " ".join(proc.cmdline()).strip() or proc.name()
+        return not _is_benign_project_process(cmdline)
+
+    def _scan_tracked_alive_state(
+        self,
+        record: RunRecord,
+        tracked: dict[int, object],
+        project_dir: Path | None,
+    ) -> tuple[bool, bool, bool, set[int]]:
         process_alive = False
         descendants_alive = False
         project_cwd_processes_alive = False
         alive_pids: set[int] = set()
-        project_dir = self._project_dir(record)
 
         for pid, proc in tracked.items():
-            try:
-                if proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE:
-                    alive_pids.add(pid)
-                    if pid == record.root_pid:
-                        process_alive = True
-                    else:
-                        descendants_alive = True
-                    if project_dir is not None and self._process_in_project_dir(
-                        proc, project_dir
-                    ):
-                        cmdline = " ".join(proc.cmdline()).strip() or proc.name()
-                        if not _is_benign_project_process(cmdline):
-                            project_cwd_processes_alive = True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            if not self._process_is_alive(proc):
                 continue
+            alive_pids.add(pid)
+            if pid == record.root_pid:
+                process_alive = True
+            else:
+                descendants_alive = True
+            if project_dir is not None and self._has_non_benign_project_cwd_process(
+                proc, project_dir
+            ):
+                project_cwd_processes_alive = True
+
+        return (
+            process_alive,
+            descendants_alive,
+            project_cwd_processes_alive,
+            alive_pids,
+        )
+
+    def _snapshot_without_psutil(self, record: RunRecord) -> ProcessSnapshot:
+        return ProcessSnapshot(
+            tracked=record.root_pid is not None,
+            root_pid=record.root_pid,
+            process_alive=False,
+            descendants_alive=False,
+            gpu_processes_alive=False,
+            project_cwd_processes_alive=False,
+        )
+
+    def snapshot(
+        self, record: RunRecord, gpu_compute_pids: list[int] | None = None
+    ) -> ProcessSnapshot:
+        if psutil is None:
+            return self._snapshot_without_psutil(record)
+
+        tracked = self._tracked_processes(record)
+        project_dir = self._project_dir(record)
+        (
+            process_alive,
+            descendants_alive,
+            project_cwd_processes_alive,
+            alive_pids,
+        ) = self._scan_tracked_alive_state(record, tracked, project_dir)
 
         gpu_processes_alive = any(pid in alive_pids for pid in (gpu_compute_pids or []))
 
@@ -229,6 +293,46 @@ class ProcessTracker:
                 described.append(info)
         return described
 
+    def _stale_reap_scan_context(
+        self,
+        record: RunRecord,
+        *,
+        gpu_compute_pids: list[int] | None,
+        command_markers: list[str],
+    ) -> tuple[list[str], set[int]] | None:
+        if psutil is None or not self._root_exited(record):
+            return None
+
+        project_dir = self._project_dir(record)
+        if project_dir is None or not project_dir.exists():
+            return None
+
+        markers = [marker.lower() for marker in command_markers if marker.strip()]
+        gpu_pids = set(gpu_compute_pids or [])
+        return markers, gpu_pids
+
+    def _maybe_stale_reap_candidate(
+        self,
+        pid: int,
+        proc: object,
+        *,
+        root_pid: int | None,
+        stale_after_sec: int,
+        markers: list[str],
+        gpu_pids: set[int],
+    ) -> ProcessInfo | None:
+        if pid == root_pid:
+            return None
+        info = self._process_info(proc)
+        if info is None or _is_benign_project_process(info.cmdline):
+            return None
+        if (info.elapsed_sec or 0) < stale_after_sec:
+            return None
+        cmd = info.cmdline.lower()
+        if not (any(marker in cmd for marker in markers) or pid in gpu_pids):
+            return None
+        return info
+
     def stale_reap_candidates(
         self,
         record: RunRecord,
@@ -248,30 +352,26 @@ class ProcessTracker:
         than the configured grace window, and it must either appear in GPU
         compute telemetry or match an explicit stale-command marker.
         """
-        if psutil is None or not self._root_exited(record):
+        context = self._stale_reap_scan_context(
+            record,
+            gpu_compute_pids=gpu_compute_pids,
+            command_markers=command_markers,
+        )
+        if context is None:
             return []
 
-        project_dir = self._project_dir(record)
-        if project_dir is None or not project_dir.exists():
-            return []
-
-        markers = [marker.lower() for marker in command_markers if marker.strip()]
-        gpu_pids = set(gpu_compute_pids or [])
+        markers, gpu_pids = context
         candidates: list[ProcessInfo] = []
         for pid, proc in sorted(self._project_owned_processes(record).items()):
-            if pid == record.root_pid:
-                continue
-            info = self._process_info(proc)
-            if info is None:
-                continue
-            if _is_benign_project_process(info.cmdline):
-                continue
-            if (info.elapsed_sec or 0) < stale_after_sec:
-                continue
-            cmd = info.cmdline.lower()
-            marker_match = any(marker in cmd for marker in markers)
-            gpu_match = pid in gpu_pids
-            if marker_match or gpu_match:
+            info = self._maybe_stale_reap_candidate(
+                pid,
+                proc,
+                root_pid=record.root_pid,
+                stale_after_sec=stale_after_sec,
+                markers=markers,
+                gpu_pids=gpu_pids,
+            )
+            if info is not None:
                 candidates.append(info)
         return candidates
 
@@ -285,6 +385,41 @@ class ProcessTracker:
             return None
         except psutil.AccessDenied:
             return False
+
+    @staticmethod
+    def _send_term_to_stale_candidates(
+        candidates: list[ProcessInfo],
+    ) -> list[ProcessInfo]:
+        term_signaled: list[ProcessInfo] = []
+        for info in candidates:
+            try:
+                _safe_send_signal(info.pid, signal.SIGTERM, tracked=info)
+                term_signaled.append(info)
+            except (OSError, ValueError):
+                continue
+        return term_signaled
+
+    def _finalize_stale_reap(self, info: ProcessInfo) -> ProcessInfo | None:
+        """Reap one TERM-signaled process; return info if reaped, None if skipped."""
+        try:
+            proc = psutil.Process(info.pid) if psutil is not None else None
+            if proc is None:
+                return None
+            same_process = self._same_process(proc, info)
+            if same_process is None:
+                return info
+            if not same_process:
+                # PID was reused during the TERM grace window. Never signal
+                # the new occupant.
+                return None
+            if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+                return info
+            _safe_send_signal(info.pid, signal.SIGKILL, tracked=info, proc=proc)
+            return info
+        except (psutil.NoSuchProcess, ProcessLookupError):
+            return info
+        except (PermissionError, psutil.AccessDenied):
+            return None
 
     def reap_stale_project_processes(
         self,
@@ -304,38 +439,13 @@ class ProcessTracker:
         if not candidates:
             return []
 
-        term_signaled: list[ProcessInfo] = []
-        for info in candidates:
-            try:
-                os.kill(info.pid, signal.SIGTERM)
-                term_signaled.append(info)
-            except (ProcessLookupError, PermissionError):
-                continue
-
+        term_signaled = self._send_term_to_stale_candidates(candidates)
         if term_grace_sec > 0:
             time.sleep(term_grace_sec)
 
         reaped: list[ProcessInfo] = []
         for info in term_signaled:
-            try:
-                proc = psutil.Process(info.pid) if psutil is not None else None
-                if proc is None:
-                    continue
-                same_process = self._same_process(proc, info)
-                if same_process is None:
-                    reaped.append(info)
-                    continue
-                if not same_process:
-                    # PID was reused during the TERM grace window. Never signal
-                    # the new occupant.
-                    continue
-                if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
-                    reaped.append(info)
-                    continue
-                os.kill(info.pid, signal.SIGKILL)
-                reaped.append(info)
-            except (psutil.NoSuchProcess, ProcessLookupError):
-                reaped.append(info)
-            except (PermissionError, psutil.AccessDenied):
-                continue
+            result = self._finalize_stale_reap(info)
+            if result is not None:
+                reaped.append(result)
         return reaped

@@ -54,7 +54,7 @@ export function resolveCommandHeroState(
       reason: 'Run the readiness check before leaving automation unattended.',
     }
   }
-  if (readinessState.readiness && readinessState.readiness.ok === false) {
+  if (readinessState.readiness?.ok === false) {
     return {
       className: 'command-hero command-hero--blocked',
       answer: 'Not yet',
@@ -71,10 +71,10 @@ export function CommandHero({
   readinessRequested = false,
   readinessLoading = false,
   requiresReadinessCheck = false,
-}: {
+}: Readonly<{
   overview: OverviewResponse
   diagnosis: MovementDiagnosis
-} & HeroReadinessState) {
+} & HeroReadinessState>) {
   const active = overview.counts?.active ?? 0
   const queued = overview.counts?.queued ?? 0
   const chips = [

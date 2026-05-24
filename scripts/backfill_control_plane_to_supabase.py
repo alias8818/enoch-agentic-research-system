@@ -49,6 +49,10 @@ POSTGRES_TABLE_COLUMNS = {
     "runs": {"run_id", "project_id"},
 }
 
+# Centralized filename constant for the top remaining S1192 duplication
+# (project decision artifact paths in .enoch/, .omx/, and root).
+PROJECT_DECISION_JSON = "project_decision.json"
+
 SQLITE_TABLE_ORDER_COLUMNS = {
     "projects": {"project_id"},
     "queue_items": {"project_id"},
@@ -195,38 +199,51 @@ def reject_target_identity_conflicts(
                 )
 
 
-def decision_file_candidates(
-    project: dict[str, Any], project_roots: Sequence[Path]
-) -> list[Path]:
-    candidates: list[Path] = []
-    project_dir = str(project.get("project_dir") or "").strip()
-    project_id = str(project.get("project_id") or "").strip()
-    names = [value for value in (project_dir, project_id) if value]
+def _resolved_project_roots(project_roots: Sequence[Path]) -> list[Path]:
     safe_roots: list[Path] = []
     for root in project_roots:
         try:
             safe_roots.append(root.expanduser().resolve())
         except (OSError, RuntimeError, ValueError):
             continue
-    for root in safe_roots:
-        for name in names:
-            try:
-                path = Path(name).expanduser()
-                candidate = (
-                    path.resolve() if path.is_absolute() else (root / path).resolve()
-                )
-                candidate.relative_to(root)
-            except (OSError, RuntimeError, ValueError):
-                continue
-            candidates.append(candidate)
+    return safe_roots
+
+
+def _decision_path_under_root(root: Path, name: str) -> Path | None:
+    try:
+        path = Path(name).expanduser()
+        candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
+        candidate.relative_to(root)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return candidate
+
+
+def _unique_paths(paths: Iterable[Path]) -> list[Path]:
     seen: set[str] = set()
     result: list[Path] = []
-    for candidate in candidates:
+    for candidate in paths:
         key = str(candidate)
-        if key not in seen:
-            seen.add(key)
-            result.append(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
     return result
+
+
+def decision_file_candidates(
+    project: dict[str, Any], project_roots: Sequence[Path]
+) -> list[Path]:
+    project_dir = str(project.get("project_dir") or "").strip()
+    project_id = str(project.get("project_id") or "").strip()
+    names = [value for value in (project_dir, project_id) if value]
+    candidates: list[Path] = []
+    for root in _resolved_project_roots(project_roots):
+        for name in names:
+            candidate = _decision_path_under_root(root, name)
+            if candidate is not None:
+                candidates.append(candidate)
+    return _unique_paths(candidates)
 
 
 def decision_gate_state(gate: dict[str, Any]) -> str:
@@ -257,49 +274,566 @@ def decision_gate_state(gate: dict[str, Any]) -> str:
     return "unknown"
 
 
+def _decision_artifact_path(root: Path) -> str:
+    enoch_path = root / ".enoch" / PROJECT_DECISION_JSON
+    if enoch_path.exists():
+        return str(enoch_path)
+    omx_path = root / ".omx" / PROJECT_DECISION_JSON
+    if omx_path.exists():
+        return str(omx_path)
+    return str(root / PROJECT_DECISION_JSON)
+
+
+def _gate_has_usable_decision(gate: dict[str, Any]) -> bool:
+    return (
+        bool(gate.get("values"))
+        or gate.get("reason") != "missing project decision artifact"
+    )
+
+
+def _project_decision_row(
+    project_id: str,
+    queue_row: dict[str, Any],
+    project: dict[str, Any],
+    root: Path,
+    gate: dict[str, Any],
+) -> dict[str, Any]:
+    payload = {"gate": gate, "project_root": str(root)}
+    return {
+        "project_id": project_id,
+        "run_id": str(queue_row.get("current_run_id") or "") or None,
+        "decision_gate_state": decision_gate_state(gate),
+        "decision_summary": str(gate.get("decision") or gate.get("reason") or ""),
+        "artifact_path": _decision_artifact_path(root),
+        "payload_json": json_text(payload, {}),
+        "payload_hash": stable_hash(payload),
+        "decided_at": project.get("updated_at") or queue_row.get("updated_at"),
+    }
+
+
+def _find_project_decision(
+    project: dict[str, Any],
+    queue_by_project: dict[str, dict[str, Any]],
+    project_roots: Sequence[Path],
+) -> dict[str, Any] | None:
+    project_id = str(project.get("project_id") or "")
+    if not project_id:
+        return None
+    queue_row = queue_by_project.get(project_id, {})
+    for root in decision_file_candidates(project, project_roots):
+        gate = paper_draft_decision_gate(root)
+        if _gate_has_usable_decision(gate):
+            return _project_decision_row(project_id, queue_row, project, root, gate)
+    return None
+
+
 def load_project_decisions(
     projects: list[dict[str, Any]],
     queue_by_project: dict[str, dict[str, Any]],
     project_roots: Sequence[Path],
 ) -> list[dict[str, Any]]:
-    decisions: list[dict[str, Any]] = []
     if not project_roots:
-        return decisions
+        return []
+    decisions: list[dict[str, Any]] = []
     for project in projects:
-        project_id = str(project.get("project_id") or "")
-        if not project_id:
-            continue
-        queue_row = queue_by_project.get(project_id, {})
-        for root in decision_file_candidates(project, project_roots):
-            gate = paper_draft_decision_gate(root)
-            if (
-                gate.get("values")
-                or gate.get("reason") != "missing project decision artifact"
-            ):
-                payload = {"gate": gate, "project_root": str(root)}
-                decisions.append(
-                    {
-                        "project_id": project_id,
-                        "run_id": str(queue_row.get("current_run_id") or "") or None,
-                        "decision_gate_state": decision_gate_state(gate),
-                        "decision_summary": str(
-                            gate.get("decision") or gate.get("reason") or ""
-                        ),
-                        "artifact_path": str(root / ".enoch" / "project_decision.json")
-                        if (root / ".enoch" / "project_decision.json").exists()
-                        else (
-                            str(root / ".omx" / "project_decision.json")
-                            if (root / ".omx" / "project_decision.json").exists()
-                            else str(root / "project_decision.json")
-                        ),
-                        "payload_json": json_text(payload, {}),
-                        "payload_hash": stable_hash(payload),
-                        "decided_at": project.get("updated_at")
-                        or queue_row.get("updated_at"),
-                    }
-                )
-                break
+        row = _find_project_decision(project, queue_by_project, project_roots)
+        if row is not None:
+            decisions.append(row)
     return decisions
+
+
+def _require_psycopg() -> tuple[Any, Any]:
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+    except ImportError as exc:  # pragma: no cover - dependency declared in pyproject.
+        raise RuntimeError(
+            "psycopg is required; run via uv or install project dependencies"
+        ) from exc
+    return psycopg, dict_row
+
+
+def _dashboard_observation_rows(
+    conn: sqlite3.Connection, observation_limit: int
+) -> list[dict[str, Any]]:
+    if observation_limit < 0:
+        return rows(conn, "dashboard_observations", order_by="observation_id")
+    if observation_limit == 0:
+        return []
+    return [
+        dict(row)
+        for row in conn.execute(
+            "select * from dashboard_observations order by observation_id desc limit ?",
+            (observation_limit,),
+        ).fetchall()
+    ]
+
+
+def _load_sqlite_backfill_snapshot(
+    sqlite_path: Path, observation_limit: int
+) -> dict[str, Any]:
+    sqlite_conn = sqlite3.connect(sqlite_path)
+    sqlite_conn.row_factory = sqlite3.Row
+    try:
+        return {
+            "source_counts": table_counts_sqlite(sqlite_conn),
+            "project_rows": rows(sqlite_conn, "projects", order_by="project_id"),
+            "queue_rows": rows(sqlite_conn, "queue_items", order_by="project_id"),
+            "run_rows": rows(sqlite_conn, "runs", order_by="run_id"),
+            "paper_rows": rows(sqlite_conn, "papers", order_by="paper_id"),
+            "review_rows": rows(sqlite_conn, "paper_review_items", order_by="paper_id"),
+            "event_rows": rows(sqlite_conn, "events", order_by="event_id"),
+            "observation_rows": _dashboard_observation_rows(
+                sqlite_conn, observation_limit
+            ),
+            "flags": rows(sqlite_conn, "control_flags"),
+        }
+    finally:
+        sqlite_conn.close()
+
+
+def _backfill_derived_data(
+    snapshot: dict[str, Any], project_roots: Sequence[Path]
+) -> dict[str, Any]:
+    run_rows = snapshot["run_rows"]
+    paper_rows = snapshot["paper_rows"]
+    event_rows = snapshot["event_rows"]
+    project_rows = snapshot["project_rows"]
+    queue_rows = snapshot["queue_rows"]
+
+    run_ids = {str(row.get("run_id") or "") for row in run_rows if row.get("run_id")}
+    queue_by_project = {str(row.get("project_id") or ""): row for row in queue_rows}
+    decision_rows = load_project_decisions(
+        project_rows, queue_by_project, project_roots
+    )
+    return {
+        "run_ids": run_ids,
+        "decision_rows": decision_rows,
+        "run_identity_rows": [
+            {"run_id": row.get("run_id"), "project_id": row.get("project_id")}
+            for row in run_rows
+        ],
+        "paper_identity_rows": [
+            {
+                "paper_id": row.get("paper_id"),
+                "project_id": row.get("project_id"),
+                "run_id": row.get("run_id") if row.get("run_id") in run_ids else None,
+                "paper_type": row.get("paper_type") or "arxiv_draft",
+            }
+            for row in paper_rows
+        ],
+        "event_identity_rows": [
+            {
+                "idempotency_key": row.get("idempotency_key")
+                or f"sqlite-event:{row.get('event_id')}",
+                "event_type": row.get("event_type") or "unknown",
+                "entity_type": row.get("entity_type") or "unknown",
+                "entity_id": row.get("entity_id") or "",
+                "payload_hash": valid_hash(
+                    row.get("payload_hash"), row.get("payload_json") or "{}"
+                ),
+            }
+            for row in event_rows
+        ],
+    }
+
+
+def _reset_backfill_target(cur: Any) -> None:
+    cur.execute(
+        "truncate table "
+        + ", ".join(f"enoch.{table}" for table in DOMAIN_TABLES)
+        + " restart identity cascade"
+    )
+    cur.execute("delete from enoch.control_flags where singleton = true")
+
+
+def _guard_backfill_identity_conflicts(cur: Any, derived: dict[str, Any]) -> None:
+    reject_target_identity_conflicts(
+        cur,
+        table="runs",
+        key_columns=("run_id",),
+        identity_columns=("project_id",),
+        source_rows=derived["run_identity_rows"],
+    )
+    reject_target_identity_conflicts(
+        cur,
+        table="papers",
+        key_columns=("paper_id",),
+        identity_columns=("project_id", "run_id", "paper_type"),
+        source_rows=derived["paper_identity_rows"],
+    )
+    reject_target_identity_conflicts(
+        cur,
+        table="control_events",
+        key_columns=("idempotency_key",),
+        identity_columns=(
+            "event_type",
+            "entity_type",
+            "entity_id",
+            "payload_hash",
+        ),
+        source_rows=derived["event_identity_rows"],
+    )
+
+
+def _upsert_backfill_control_flags(cur: Any, flags: list[dict[str, Any]]) -> None:
+    if not flags:
+        return
+    flag = flags[0]
+    cur.execute(
+        """
+        insert into control_flags(singleton, queue_paused, maintenance_mode, pause_reason, paused_at, paused_by, updated_at)
+        values (true, %s, %s, %s, %s, %s, %s)
+        on conflict (singleton) do update set
+          queue_paused = excluded.queue_paused,
+          maintenance_mode = excluded.maintenance_mode,
+          pause_reason = excluded.pause_reason,
+          paused_at = excluded.paused_at,
+          paused_by = excluded.paused_by,
+          updated_at = excluded.updated_at
+        where control_flags.updated_at is null or excluded.updated_at >= control_flags.updated_at
+        """,
+        (
+            bool(flag.get("queue_paused")),
+            bool(flag.get("maintenance_mode")),
+            str(flag.get("pause_reason") or ""),
+            flag.get("paused_at"),
+            str(flag.get("paused_by") or ""),
+            flag.get("updated_at"),
+        ),
+    )
+
+
+def _import_backfill_projects(cur: Any, project_rows: list[dict[str, Any]]) -> int:
+    return execute_many(
+        cur,
+        """
+        insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id,
+          origin_idea_status, created_at, updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do update set
+          project_name=excluded.project_name,
+          project_dir=excluded.project_dir,
+          notion_page_url=excluded.notion_page_url,
+          notion_page_id=excluded.notion_page_id,
+          origin_idea_status=excluded.origin_idea_status,
+          created_at=excluded.created_at,
+          updated_at=excluded.updated_at
+        where projects.updated_at is null or excluded.updated_at >= projects.updated_at
+        """,
+        (
+            (
+                row.get("project_id"),
+                row.get("project_name") or row.get("project_id"),
+                row.get("project_dir") or "",
+                row.get("notion_page_url") or "",
+                row.get("notion_page_id") or "",
+                row.get("origin_idea_status") or "unknown",
+                row.get("created_at"),
+                row.get("updated_at"),
+            )
+            for row in project_rows
+        ),
+    )
+
+
+def _backfill_row_int(row: dict[str, Any], key: str) -> int:
+    return int(row.get(key) or 0)
+
+
+def _backfill_row_str(row: dict[str, Any], key: str, default: str = "") -> str:
+    return str(row.get(key) or default)
+
+
+def _backfill_row_bool(row: dict[str, Any], key: str) -> bool:
+    return bool(row.get(key))
+
+
+def _backfill_queue_item_params(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        row.get("project_id"),
+        _backfill_row_str(row, "status", "unknown"),
+        _backfill_row_int(row, "selection_rank"),
+        _backfill_row_int(row, "dispatch_priority"),
+        _backfill_row_bool(row, "auto_continue"),
+        _backfill_row_int(row, "continue_count"),
+        _backfill_row_int(row, "max_continues"),
+        _backfill_row_int(row, "retry_count"),
+        _backfill_row_int(row, "max_retries"),
+        _backfill_row_str(row, "current_run_id"),
+        _backfill_row_str(row, "current_session_id"),
+        _backfill_row_str(row, "last_run_state"),
+        _backfill_row_str(row, "last_event_type"),
+        _backfill_row_str(row, "next_action_hint"),
+        _backfill_row_bool(row, "manual_review_required"),
+        _backfill_row_str(row, "blocked_reason"),
+        _backfill_row_str(row, "last_error"),
+        _backfill_row_str(row, "last_result_summary"),
+        _backfill_row_str(row, "machine_target"),
+        _backfill_row_str(row, "model"),
+        _backfill_row_str(row, "sandbox"),
+        row.get("last_dispatch_at"),
+        row.get("last_callback_at"),
+        row.get("stale_after"),
+        row.get("updated_at"),
+    )
+
+
+def _import_backfill_queue_items(cur: Any, queue_rows: list[dict[str, Any]]) -> int:
+    return execute_many(
+        cur,
+        """
+        insert into queue_items(project_id, status, selection_rank, dispatch_priority, auto_continue,
+          continue_count, max_continues, retry_count, max_retries, current_run_id, current_session_id,
+          last_run_state, last_event_type, next_action_hint, manual_review_required, blocked_reason,
+          last_error, last_result_summary, machine_target, model, sandbox, last_dispatch_at,
+          last_callback_at, stale_after, updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do update set
+          status=excluded.status, selection_rank=excluded.selection_rank,
+          dispatch_priority=excluded.dispatch_priority, auto_continue=excluded.auto_continue,
+          continue_count=excluded.continue_count, max_continues=excluded.max_continues,
+          retry_count=excluded.retry_count, max_retries=excluded.max_retries,
+          current_run_id=excluded.current_run_id, current_session_id=excluded.current_session_id,
+          last_run_state=excluded.last_run_state, last_event_type=excluded.last_event_type,
+          next_action_hint=excluded.next_action_hint, manual_review_required=excluded.manual_review_required,
+          blocked_reason=excluded.blocked_reason, last_error=excluded.last_error,
+          last_result_summary=excluded.last_result_summary, machine_target=excluded.machine_target,
+          model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
+          last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after,
+          updated_at=excluded.updated_at
+        where queue_items.updated_at is null or excluded.updated_at >= queue_items.updated_at
+        """,
+        (_backfill_queue_item_params(row) for row in queue_rows),
+    )
+
+
+def _import_backfill_runs(cur: Any, run_rows: list[dict[str, Any]]) -> int:
+    return execute_many(
+        cur,
+        """
+        insert into runs(run_id, project_id, session_id, state, dispatch_mode, started_at, ended_at,
+          last_callback_at, gate_state, current_activity, idempotency_key, updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (run_id) do update set
+          project_id=excluded.project_id, session_id=excluded.session_id, state=excluded.state,
+          dispatch_mode=excluded.dispatch_mode, started_at=excluded.started_at, ended_at=excluded.ended_at,
+          last_callback_at=excluded.last_callback_at, gate_state=excluded.gate_state,
+          current_activity=excluded.current_activity, idempotency_key=excluded.idempotency_key,
+          updated_at=excluded.updated_at
+        where runs.updated_at is null or excluded.updated_at >= runs.updated_at
+        """,
+        (
+            (
+                row.get("run_id"),
+                row.get("project_id"),
+                row.get("session_id") or "",
+                row.get("state") or "unknown",
+                row.get("dispatch_mode") or "",
+                row.get("started_at"),
+                row.get("ended_at"),
+                row.get("last_callback_at"),
+                row.get("gate_state") or "",
+                row.get("current_activity") or "",
+                row.get("idempotency_key") or f"sqlite-run:{row.get('run_id')}",
+                row.get("updated_at"),
+            )
+            for row in run_rows
+        ),
+    )
+
+
+def _import_backfill_papers(
+    cur: Any, paper_rows: list[dict[str, Any]], run_ids: set[str]
+) -> int:
+    return execute_many(
+        cur,
+        """
+        insert into papers(paper_id, project_id, run_id, paper_type, paper_status,
+          draft_markdown_path, draft_latex_path, evidence_bundle_path, claim_ledger_path,
+          manifest_path, artifact_root, artifact_payload_hash, generated_at, updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (paper_id) do update set
+          project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
+          paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
+          draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
+          claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
+          artifact_root=excluded.artifact_root, artifact_payload_hash=excluded.artifact_payload_hash,
+          generated_at=excluded.generated_at, updated_at=excluded.updated_at
+        where papers.updated_at is null or excluded.updated_at >= papers.updated_at
+        """,
+        (
+            (
+                row.get("paper_id"),
+                row.get("project_id"),
+                row.get("run_id") if row.get("run_id") in run_ids else None,
+                row.get("paper_type") or "arxiv_draft",
+                row.get("paper_status") or "unknown",
+                row.get("draft_markdown_path") or "",
+                row.get("draft_latex_path") or "",
+                row.get("evidence_bundle_path") or "",
+                row.get("claim_ledger_path") or "",
+                row.get("manifest_path") or "",
+                row.get("artifact_root") or "",
+                row.get("artifact_payload_hash") or "",
+                row.get("generated_at"),
+                row.get("updated_at"),
+            )
+            for row in paper_rows
+        ),
+    )
+
+
+def _import_backfill_project_decisions(
+    cur: Any, decision_rows: list[dict[str, Any]], run_ids: set[str]
+) -> int:
+    return execute_many(
+        cur,
+        """
+        insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
+          decision_summary, artifact_path, payload_json, payload_hash, decided_at)
+        values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s)
+        on conflict (project_id, run_id, decision_type) do update set
+          decision_gate_state=excluded.decision_gate_state,
+          decision_summary=excluded.decision_summary,
+          artifact_path=excluded.artifact_path,
+          payload_json=excluded.payload_json,
+          payload_hash=excluded.payload_hash,
+          decided_at=excluded.decided_at
+        where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at
+        """,
+        (
+            (
+                row["project_id"],
+                row["run_id"] if row["run_id"] in run_ids else None,
+                row["decision_gate_state"],
+                row["decision_summary"],
+                row["artifact_path"],
+                row["payload_json"],
+                row["payload_hash"],
+                row["decided_at"],
+            )
+            for row in decision_rows
+        ),
+    )
+
+
+def _import_backfill_publication_automation_items(
+    cur: Any, review_rows: list[dict[str, Any]]
+) -> int:
+    return execute_many(
+        cur,
+        """
+        insert into publication_automation_items(paper_id, automation_status, automation_actor, blocker,
+          claimed_at, checklist_json, rank_score, rank_reasons_json, missing_signals_json,
+          rank_tiebreaker, source_audit_path, finalization_package_path, finalized_at,
+          decision_summary, created_at, updated_at)
+        values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (paper_id) do update set
+          automation_status=excluded.automation_status, automation_actor=excluded.automation_actor,
+          blocker=excluded.blocker, claimed_at=excluded.claimed_at, checklist_json=excluded.checklist_json,
+          rank_score=excluded.rank_score, rank_reasons_json=excluded.rank_reasons_json,
+          missing_signals_json=excluded.missing_signals_json, rank_tiebreaker=excluded.rank_tiebreaker,
+          source_audit_path=excluded.source_audit_path, finalization_package_path=excluded.finalization_package_path,
+          finalized_at=excluded.finalized_at, decision_summary=excluded.decision_summary,
+          created_at=excluded.created_at, updated_at=excluded.updated_at
+        where publication_automation_items.updated_at is null or excluded.updated_at >= publication_automation_items.updated_at
+        """,
+        (
+            (
+                row.get("paper_id"),
+                row.get("review_status") or "unreviewed",
+                row.get("reviewer") or "",
+                row.get("blocker") or "",
+                row.get("claimed_at") or None,
+                json_text(row.get("checklist_json"), {}),
+                int(row.get("rank_score") or 0),
+                json_text(row.get("rank_reasons_json"), []),
+                json_text(row.get("missing_signals_json"), []),
+                row.get("rank_tiebreaker") or "",
+                row.get("source_audit_path") or "",
+                row.get("finalization_package_path") or "",
+                row.get("finalized_at") or None,
+                row.get("decision_summary") or "",
+                row.get("created_at"),
+                row.get("updated_at"),
+            )
+            for row in review_rows
+        ),
+    )
+
+
+def _import_backfill_control_events(cur: Any, event_rows: list[dict[str, Any]]) -> int:
+    return execute_many(
+        cur,
+        """
+        insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, created_at)
+        values (%s,%s,%s,%s,%s::jsonb,%s,%s)
+        on conflict (idempotency_key) do nothing
+        """,
+        (
+            (
+                row.get("idempotency_key") or f"sqlite-event:{row.get('event_id')}",
+                row.get("event_type") or "unknown",
+                row.get("entity_type") or "unknown",
+                row.get("entity_id") or "",
+                json_text(row.get("payload_json"), {}),
+                valid_hash(row.get("payload_hash"), row.get("payload_json") or "{}"),
+                row.get("created_at"),
+            )
+            for row in event_rows
+        ),
+    )
+
+
+def _import_backfill_operator_observations(
+    cur: Any, observation_rows: list[dict[str, Any]]
+) -> int:
+    return execute_many(
+        cur,
+        """
+        insert into operator_observations(source, scope, observed_at, ttl_seconds, status, payload_json, payload_hash, created_at)
+        values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+        """,
+        (
+            (
+                row.get("source") or "unknown",
+                row.get("scope") or "",
+                row.get("observed_at"),
+                int(row.get("ttl_seconds") or 0),
+                row.get("status") or "unknown",
+                json_text(row.get("payload_json"), {}),
+                valid_hash(row.get("payload_hash"), row.get("payload_json") or "{}"),
+                row.get("created_at"),
+            )
+            for row in observation_rows
+        ),
+    )
+
+
+def _import_backfill_domain_tables(
+    cur: Any,
+    *,
+    snapshot: dict[str, Any],
+    derived: dict[str, Any],
+) -> dict[str, int]:
+    run_ids = derived["run_ids"]
+    return {
+        "projects": _import_backfill_projects(cur, snapshot["project_rows"]),
+        "queue_items": _import_backfill_queue_items(cur, snapshot["queue_rows"]),
+        "runs": _import_backfill_runs(cur, snapshot["run_rows"]),
+        "papers": _import_backfill_papers(cur, snapshot["paper_rows"], run_ids),
+        "publication_automation_items": _import_backfill_publication_automation_items(
+            cur, snapshot["review_rows"]
+        ),
+        "project_decisions": _import_backfill_project_decisions(
+            cur, derived["decision_rows"], run_ids
+        ),
+        "control_events": _import_backfill_control_events(cur, snapshot["event_rows"]),
+        "operator_observations": _import_backfill_operator_observations(
+            cur, snapshot["observation_rows"]
+        ),
+    }
 
 
 def import_sqlite_to_postgres(
@@ -316,425 +850,24 @@ def import_sqlite_to_postgres(
             "--reset-target requires --apply so dry-run cannot erase then roll back misleadingly"
         )
 
-    try:
-        import psycopg
-        from psycopg.rows import dict_row
-    except ImportError as exc:  # pragma: no cover - dependency declared in pyproject.
-        raise RuntimeError(
-            "psycopg is required; run via uv or install project dependencies"
-        ) from exc
+    psycopg, dict_row = _require_psycopg()
 
     sqlite_path = sqlite_path.expanduser().resolve()
     if not sqlite_path.exists():
         raise FileNotFoundError(sqlite_path)
 
-    sqlite_conn = sqlite3.connect(sqlite_path)
-    sqlite_conn.row_factory = sqlite3.Row
-    try:
-        source_counts = table_counts_sqlite(sqlite_conn)
-        project_rows = rows(sqlite_conn, "projects", order_by="project_id")
-        queue_rows = rows(sqlite_conn, "queue_items", order_by="project_id")
-        run_rows = rows(sqlite_conn, "runs", order_by="run_id")
-        paper_rows = rows(sqlite_conn, "papers", order_by="paper_id")
-        review_rows = rows(sqlite_conn, "paper_review_items", order_by="paper_id")
-        event_rows = rows(sqlite_conn, "events", order_by="event_id")
-        if observation_limit < 0:
-            observation_rows = rows(
-                sqlite_conn, "dashboard_observations", order_by="observation_id"
-            )
-        elif observation_limit == 0:
-            observation_rows = []
-        else:
-            observation_rows = [
-                dict(row)
-                for row in sqlite_conn.execute(
-                    "select * from dashboard_observations order by observation_id desc limit ?",
-                    (observation_limit,),
-                ).fetchall()
-            ]
-        flags = rows(sqlite_conn, "control_flags")
-    finally:
-        sqlite_conn.close()
-
-    run_ids = {str(row.get("run_id") or "") for row in run_rows if row.get("run_id")}
-    queue_by_project = {str(row.get("project_id") or ""): row for row in queue_rows}
-    decision_rows = load_project_decisions(
-        project_rows, queue_by_project, project_roots
-    )
-    run_identity_rows = [
-        {"run_id": row.get("run_id"), "project_id": row.get("project_id")}
-        for row in run_rows
-    ]
-    paper_identity_rows = [
-        {
-            "paper_id": row.get("paper_id"),
-            "project_id": row.get("project_id"),
-            "run_id": row.get("run_id") if row.get("run_id") in run_ids else None,
-            "paper_type": row.get("paper_type") or "arxiv_draft",
-        }
-        for row in paper_rows
-    ]
-    event_identity_rows = [
-        {
-            "idempotency_key": row.get("idempotency_key")
-            or f"sqlite-event:{row.get('event_id')}",
-            "event_type": row.get("event_type") or "unknown",
-            "entity_type": row.get("entity_type") or "unknown",
-            "entity_id": row.get("entity_id") or "",
-            "payload_hash": valid_hash(
-                row.get("payload_hash"), row.get("payload_json") or "{}"
-            ),
-        }
-        for row in event_rows
-    ]
-
-    imported: dict[str, int] = {
-        "projects": 0,
-        "queue_items": 0,
-        "runs": 0,
-        "papers": 0,
-        "publication_automation_items": 0,
-        "project_decisions": 0,
-        "control_events": 0,
-        "operator_observations": 0,
-    }
+    snapshot = _load_sqlite_backfill_snapshot(sqlite_path, observation_limit)
+    derived = _backfill_derived_data(snapshot, project_roots)
 
     with psycopg.connect(database_url, row_factory=dict_row) as pg_conn:
         with pg_conn.cursor() as cur:
             cur.execute("set search_path to enoch, public")
             if reset_target:
-                cur.execute(
-                    "truncate table "
-                    + ", ".join(f"enoch.{table}" for table in DOMAIN_TABLES)
-                    + " restart identity cascade"
-                )
-                cur.execute("delete from enoch.control_flags where singleton = true")
-
-            reject_target_identity_conflicts(
-                cur,
-                table="runs",
-                key_columns=("run_id",),
-                identity_columns=("project_id",),
-                source_rows=run_identity_rows,
-            )
-            reject_target_identity_conflicts(
-                cur,
-                table="papers",
-                key_columns=("paper_id",),
-                identity_columns=("project_id", "run_id", "paper_type"),
-                source_rows=paper_identity_rows,
-            )
-            reject_target_identity_conflicts(
-                cur,
-                table="control_events",
-                key_columns=("idempotency_key",),
-                identity_columns=(
-                    "event_type",
-                    "entity_type",
-                    "entity_id",
-                    "payload_hash",
-                ),
-                source_rows=event_identity_rows,
-            )
-
-            if flags:
-                flag = flags[0]
-                cur.execute(
-                    """
-                    insert into control_flags(singleton, queue_paused, maintenance_mode, pause_reason, paused_at, paused_by, updated_at)
-                    values (true, %s, %s, %s, %s, %s, %s)
-                    on conflict (singleton) do update set
-                      queue_paused = excluded.queue_paused,
-                      maintenance_mode = excluded.maintenance_mode,
-                      pause_reason = excluded.pause_reason,
-                      paused_at = excluded.paused_at,
-                      paused_by = excluded.paused_by,
-                      updated_at = excluded.updated_at
-                    where control_flags.updated_at is null or excluded.updated_at >= control_flags.updated_at
-                    """,
-                    (
-                        bool(flag.get("queue_paused")),
-                        bool(flag.get("maintenance_mode")),
-                        str(flag.get("pause_reason") or ""),
-                        flag.get("paused_at"),
-                        str(flag.get("paused_by") or ""),
-                        flag.get("updated_at"),
-                    ),
-                )
-
-            imported["projects"] = execute_many(
-                cur,
-                """
-                insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id,
-                  origin_idea_status, created_at, updated_at)
-                values (%s,%s,%s,%s,%s,%s,%s,%s)
-                on conflict (project_id) do update set
-                  project_name=excluded.project_name,
-                  project_dir=excluded.project_dir,
-                  notion_page_url=excluded.notion_page_url,
-                  notion_page_id=excluded.notion_page_id,
-                  origin_idea_status=excluded.origin_idea_status,
-                  created_at=excluded.created_at,
-                  updated_at=excluded.updated_at
-                where projects.updated_at is null or excluded.updated_at >= projects.updated_at
-                """,
-                (
-                    (
-                        row.get("project_id"),
-                        row.get("project_name") or row.get("project_id"),
-                        row.get("project_dir") or "",
-                        row.get("notion_page_url") or "",
-                        row.get("notion_page_id") or "",
-                        row.get("origin_idea_status") or "unknown",
-                        row.get("created_at"),
-                        row.get("updated_at"),
-                    )
-                    for row in project_rows
-                ),
-            )
-
-            imported["queue_items"] = execute_many(
-                cur,
-                """
-                insert into queue_items(project_id, status, selection_rank, dispatch_priority, auto_continue,
-                  continue_count, max_continues, retry_count, max_retries, current_run_id, current_session_id,
-                  last_run_state, last_event_type, next_action_hint, manual_review_required, blocked_reason,
-                  last_error, last_result_summary, machine_target, model, sandbox, last_dispatch_at,
-                  last_callback_at, stale_after, updated_at)
-                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                on conflict (project_id) do update set
-                  status=excluded.status, selection_rank=excluded.selection_rank,
-                  dispatch_priority=excluded.dispatch_priority, auto_continue=excluded.auto_continue,
-                  continue_count=excluded.continue_count, max_continues=excluded.max_continues,
-                  retry_count=excluded.retry_count, max_retries=excluded.max_retries,
-                  current_run_id=excluded.current_run_id, current_session_id=excluded.current_session_id,
-                  last_run_state=excluded.last_run_state, last_event_type=excluded.last_event_type,
-                  next_action_hint=excluded.next_action_hint, manual_review_required=excluded.manual_review_required,
-                  blocked_reason=excluded.blocked_reason, last_error=excluded.last_error,
-                  last_result_summary=excluded.last_result_summary, machine_target=excluded.machine_target,
-                  model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
-                  last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after,
-                  updated_at=excluded.updated_at
-                where queue_items.updated_at is null or excluded.updated_at >= queue_items.updated_at
-                """,
-                (
-                    (
-                        row.get("project_id"),
-                        row.get("status") or "unknown",
-                        int(row.get("selection_rank") or 0),
-                        int(row.get("dispatch_priority") or 0),
-                        bool(row.get("auto_continue")),
-                        int(row.get("continue_count") or 0),
-                        int(row.get("max_continues") or 0),
-                        int(row.get("retry_count") or 0),
-                        int(row.get("max_retries") or 0),
-                        row.get("current_run_id") or "",
-                        row.get("current_session_id") or "",
-                        row.get("last_run_state") or "",
-                        row.get("last_event_type") or "",
-                        row.get("next_action_hint") or "",
-                        bool(row.get("manual_review_required")),
-                        row.get("blocked_reason") or "",
-                        row.get("last_error") or "",
-                        row.get("last_result_summary") or "",
-                        row.get("machine_target") or "",
-                        row.get("model") or "",
-                        row.get("sandbox") or "",
-                        row.get("last_dispatch_at"),
-                        row.get("last_callback_at"),
-                        row.get("stale_after"),
-                        row.get("updated_at"),
-                    )
-                    for row in queue_rows
-                ),
-            )
-
-            imported["runs"] = execute_many(
-                cur,
-                """
-                insert into runs(run_id, project_id, session_id, state, dispatch_mode, started_at, ended_at,
-                  last_callback_at, gate_state, current_activity, idempotency_key, updated_at)
-                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                on conflict (run_id) do update set
-                  project_id=excluded.project_id, session_id=excluded.session_id, state=excluded.state,
-                  dispatch_mode=excluded.dispatch_mode, started_at=excluded.started_at, ended_at=excluded.ended_at,
-                  last_callback_at=excluded.last_callback_at, gate_state=excluded.gate_state,
-                  current_activity=excluded.current_activity, idempotency_key=excluded.idempotency_key,
-                  updated_at=excluded.updated_at
-                where runs.updated_at is null or excluded.updated_at >= runs.updated_at
-                """,
-                (
-                    (
-                        row.get("run_id"),
-                        row.get("project_id"),
-                        row.get("session_id") or "",
-                        row.get("state") or "unknown",
-                        row.get("dispatch_mode") or "",
-                        row.get("started_at"),
-                        row.get("ended_at"),
-                        row.get("last_callback_at"),
-                        row.get("gate_state") or "",
-                        row.get("current_activity") or "",
-                        row.get("idempotency_key") or f"sqlite-run:{row.get('run_id')}",
-                        row.get("updated_at"),
-                    )
-                    for row in run_rows
-                ),
-            )
-
-            imported["papers"] = execute_many(
-                cur,
-                """
-                insert into papers(paper_id, project_id, run_id, paper_type, paper_status,
-                  draft_markdown_path, draft_latex_path, evidence_bundle_path, claim_ledger_path,
-                  manifest_path, artifact_root, artifact_payload_hash, generated_at, updated_at)
-                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                on conflict (paper_id) do update set
-                  project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
-                  paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
-                  draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
-                  claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
-                  artifact_root=excluded.artifact_root, artifact_payload_hash=excluded.artifact_payload_hash,
-                  generated_at=excluded.generated_at, updated_at=excluded.updated_at
-                where papers.updated_at is null or excluded.updated_at >= papers.updated_at
-                """,
-                (
-                    (
-                        row.get("paper_id"),
-                        row.get("project_id"),
-                        row.get("run_id") if row.get("run_id") in run_ids else None,
-                        row.get("paper_type") or "arxiv_draft",
-                        row.get("paper_status") or "unknown",
-                        row.get("draft_markdown_path") or "",
-                        row.get("draft_latex_path") or "",
-                        row.get("evidence_bundle_path") or "",
-                        row.get("claim_ledger_path") or "",
-                        row.get("manifest_path") or "",
-                        row.get("artifact_root") or "",
-                        row.get("artifact_payload_hash") or "",
-                        row.get("generated_at"),
-                        row.get("updated_at"),
-                    )
-                    for row in paper_rows
-                ),
-            )
-
-            imported["project_decisions"] = execute_many(
-                cur,
-                """
-                insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
-                  decision_summary, artifact_path, payload_json, payload_hash, decided_at)
-                values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s)
-                on conflict (project_id, run_id, decision_type) do update set
-                  decision_gate_state=excluded.decision_gate_state,
-                  decision_summary=excluded.decision_summary,
-                  artifact_path=excluded.artifact_path,
-                  payload_json=excluded.payload_json,
-                  payload_hash=excluded.payload_hash,
-                  decided_at=excluded.decided_at
-                where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at
-                """,
-                (
-                    (
-                        row["project_id"],
-                        row["run_id"] if row["run_id"] in run_ids else None,
-                        row["decision_gate_state"],
-                        row["decision_summary"],
-                        row["artifact_path"],
-                        row["payload_json"],
-                        row["payload_hash"],
-                        row["decided_at"],
-                    )
-                    for row in decision_rows
-                ),
-            )
-
-            imported["publication_automation_items"] = execute_many(
-                cur,
-                """
-                insert into publication_automation_items(paper_id, automation_status, automation_actor, blocker,
-                  claimed_at, checklist_json, rank_score, rank_reasons_json, missing_signals_json,
-                  rank_tiebreaker, source_audit_path, finalization_package_path, finalized_at,
-                  decision_summary, created_at, updated_at)
-                values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
-                on conflict (paper_id) do update set
-                  automation_status=excluded.automation_status, automation_actor=excluded.automation_actor,
-                  blocker=excluded.blocker, claimed_at=excluded.claimed_at, checklist_json=excluded.checklist_json,
-                  rank_score=excluded.rank_score, rank_reasons_json=excluded.rank_reasons_json,
-                  missing_signals_json=excluded.missing_signals_json, rank_tiebreaker=excluded.rank_tiebreaker,
-                  source_audit_path=excluded.source_audit_path, finalization_package_path=excluded.finalization_package_path,
-                  finalized_at=excluded.finalized_at, decision_summary=excluded.decision_summary,
-                  created_at=excluded.created_at, updated_at=excluded.updated_at
-                where publication_automation_items.updated_at is null or excluded.updated_at >= publication_automation_items.updated_at
-                """,
-                (
-                    (
-                        row.get("paper_id"),
-                        row.get("review_status") or "unreviewed",
-                        row.get("reviewer") or "",
-                        row.get("blocker") or "",
-                        row.get("claimed_at") or None,
-                        json_text(row.get("checklist_json"), {}),
-                        int(row.get("rank_score") or 0),
-                        json_text(row.get("rank_reasons_json"), []),
-                        json_text(row.get("missing_signals_json"), []),
-                        row.get("rank_tiebreaker") or "",
-                        row.get("source_audit_path") or "",
-                        row.get("finalization_package_path") or "",
-                        row.get("finalized_at") or None,
-                        row.get("decision_summary") or "",
-                        row.get("created_at"),
-                        row.get("updated_at"),
-                    )
-                    for row in review_rows
-                ),
-            )
-
-            imported["control_events"] = execute_many(
-                cur,
-                """
-                insert into control_events(idempotency_key, event_type, entity_type, entity_id, payload_json, payload_hash, created_at)
-                values (%s,%s,%s,%s,%s::jsonb,%s,%s)
-                on conflict (idempotency_key) do nothing
-                """,
-                (
-                    (
-                        row.get("idempotency_key")
-                        or f"sqlite-event:{row.get('event_id')}",
-                        row.get("event_type") or "unknown",
-                        row.get("entity_type") or "unknown",
-                        row.get("entity_id") or "",
-                        json_text(row.get("payload_json"), {}),
-                        valid_hash(
-                            row.get("payload_hash"), row.get("payload_json") or "{}"
-                        ),
-                        row.get("created_at"),
-                    )
-                    for row in event_rows
-                ),
-            )
-
-            imported["operator_observations"] = execute_many(
-                cur,
-                """
-                insert into operator_observations(source, scope, observed_at, ttl_seconds, status, payload_json, payload_hash, created_at)
-                values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
-                """,
-                (
-                    (
-                        row.get("source") or "unknown",
-                        row.get("scope") or "",
-                        row.get("observed_at"),
-                        int(row.get("ttl_seconds") or 0),
-                        row.get("status") or "unknown",
-                        json_text(row.get("payload_json"), {}),
-                        valid_hash(
-                            row.get("payload_hash"), row.get("payload_json") or "{}"
-                        ),
-                        row.get("created_at"),
-                    )
-                    for row in observation_rows
-                ),
+                _reset_backfill_target(cur)
+            _guard_backfill_identity_conflicts(cur, derived)
+            _upsert_backfill_control_flags(cur, snapshot["flags"])
+            imported = _import_backfill_domain_tables(
+                cur, snapshot=snapshot, derived=derived
             )
 
             target_counts = {
@@ -759,7 +892,7 @@ def import_sqlite_to_postgres(
                 "ok": True,
                 "mode": "apply" if apply else "dry-run",
                 "sqlite_path": str(sqlite_path),
-                "source_counts": source_counts,
+                "source_counts": snapshot["source_counts"],
                 "import_attempted": imported,
                 "target_counts_in_transaction": target_counts,
                 "operator_dashboard_counts": dict(dashboard_counts or {}),

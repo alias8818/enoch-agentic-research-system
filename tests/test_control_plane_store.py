@@ -1621,7 +1621,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             event = store.event_rows(
                 limit=1, entity_type="run", entity_id="idea-active"
             )[0]
-            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertTrue(event["payload"]["stale_callback_ignored"])
             self.assertEqual(
                 event["payload"]["ignore_reason"], "missing_run_id_for_active_project"
             )
@@ -1665,7 +1665,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             event = store.event_rows(
                 limit=1, entity_type="run", entity_id="idea-active-empty"
             )[0]
-            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertTrue(event["payload"]["stale_callback_ignored"])
             self.assertEqual(
                 event["payload"]["ignore_reason"], "missing_run_id_for_active_project"
             )
@@ -1708,7 +1708,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             event = store.event_rows(
                 limit=1, entity_type="run", entity_id="idea-queued-project-only"
             )[0]
-            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertTrue(event["payload"]["stale_callback_ignored"])
             self.assertEqual(
                 event["payload"]["ignore_reason"], "missing_run_id_for_project_callback"
             )
@@ -1754,7 +1754,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             event = store.event_rows(
                 limit=1, entity_type="run", entity_id="foreign-run"
             )[0]
-            self.assertEqual(event["payload"]["stale_callback_ignored"], True)
+            self.assertTrue(event["payload"]["stale_callback_ignored"])
             self.assertEqual(event["payload"]["ignore_reason"], "run_id_mismatch")
             self.assertEqual(event["payload"]["current_run_id"], "")
 
@@ -1815,7 +1815,7 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(second_row["status"], "completed")
             events = store.event_rows(limit=10, entity_type="run", entity_id="run-old")
             self.assertEqual(len(events), 1)
-            self.assertEqual(events[0]["payload"]["stale_callback_ignored"], True)
+            self.assertTrue(events[0]["payload"]["stale_callback_ignored"])
 
     def test_worker_callback_idempotency_rejects_payload_subset_reuse(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

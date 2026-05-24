@@ -9,6 +9,7 @@ import {
   parseAutomationListResponse,
   parseAutomationReadiness,
   parseEventListResponse,
+  parseIntakeIdeasResponse,
   parseOverviewResponse,
   parsePaperListResponse,
   parseProjectListResponse,
@@ -22,6 +23,7 @@ import {
 } from './readModelSchemas'
 import {
   eventListFixture,
+  intakeIdeasFixture,
   overviewFixture,
   paperListFixture,
   projectListFixture,
@@ -42,6 +44,13 @@ it('parses project, run, paper, event, and automation list responses', () => {
   expect(parsePaperListResponse(paperListFixture).rows?.[0]?.paper_status).toBe('publication_draft')
   expect(parseEventListResponse(eventListFixture).rows?.[0]?.event_type).toBe('worker_callback.received')
   expect(parseAutomationListResponse({ rows: [{ paper_id: 'paper-1', rank_score: 91 }] }).rows?.[0]?.rank_score).toBe(91)
+})
+
+it('parses intake ideas workbench responses and rejects malformed projections', () => {
+  const parsed = parseIntakeIdeasResponse(intakeIdeasFixture)
+  expect(parsed.queued_projection?.[0]?.operator_stage).toBe('ready_queue')
+  expect(parsed.queued_projection?.[0]?.operator_stage_label).toBe('Queued for lane')
+  expect(() => parseIntakeIdeasResponse({ queued_projection: 'bad' })).toThrow()
 })
 
 it('parses command-center overview, status, and readiness payloads', () => {

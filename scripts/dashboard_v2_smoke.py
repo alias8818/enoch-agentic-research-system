@@ -367,6 +367,110 @@ def first_event_id(events_body: bytes) -> str | None:
     return None
 
 
+def _record_check(report: SmokeReport, check: CheckResult) -> None:
+    report.checks.append(check)
+    if not check.ok:
+        report.ok = False
+
+
+def _run_shell_and_asset_checks(
+    report: SmokeReport, base_url: str, timeout: float
+) -> None:
+    health = check_health(base_url, timeout)
+    _record_check(report, health)
+
+    shell_check, index_html = check_shell(base_url, timeout)
+    _record_check(report, shell_check)
+    if shell_check.ok and index_html:
+        for asset_check in check_assets(base_url, index_html, timeout):
+            _record_check(report, asset_check)
+
+
+def _append_skipped_api_checks(report: SmokeReport, api_skip_detail: str) -> None:
+    for name in SKIPPED_API_CHECK_NAMES:
+        report.checks.append(CheckResult(name, True, "skipped", api_skip_detail))
+
+
+def _maybe_check_legacy_redirect(
+    report: SmokeReport,
+    base_url: str,
+    timeout: float,
+    *,
+    enabled: bool,
+) -> None:
+    if not enabled:
+        return
+    redirect = check_legacy_dashboard_redirect(base_url, timeout)
+    _record_check(report, redirect)
+
+
+def _run_events_api_checks(
+    report: SmokeReport, base_url: str, token: str, timeout: float
+) -> None:
+    events_status, events_body, events_elapsed, events_err = _http_get(
+        base_url,
+        API_EVENTS_INDEX,
+        token=token,
+        timeout=timeout,
+        accept="application/json",
+    )
+    if events_status is None or not (200 <= events_status < 300):
+        detail = events_err or f"HTTP {events_status}"
+        _record_check(
+            report,
+            CheckResult("api_events_index", False, "fail", detail, events_elapsed),
+        )
+        report.checks.append(
+            CheckResult("api_event_detail", True, "skipped", "events index failed")
+        )
+        return
+
+    _record_check(
+        report,
+        CheckResult("api_events_index", True, "pass", "ok", events_elapsed),
+    )
+    event_id = first_event_id(events_body)
+    if not event_id:
+        report.warnings.append(
+            "events index returned no rows; event detail check skipped"
+        )
+        report.checks.append(
+            CheckResult(
+                "api_event_detail",
+                True,
+                "warn",
+                "no events in index response",
+            )
+        )
+        return
+
+    detail_path = (
+        f"/control/api/v1/events?event_id={request.quote(event_id, safe='')}"
+        "&include_payload=true&page_size=1&sort=recent"
+    )
+    detail = check_api_endpoint(
+        base_url,
+        "api_event_detail",
+        detail_path,
+        token,
+        timeout,
+    )
+    _record_check(report, detail)
+
+
+def _run_authenticated_api_checks(
+    report: SmokeReport, base_url: str, token: str, timeout: float
+) -> None:
+    overview = check_api_endpoint(
+        base_url, "api_overview", API_OVERVIEW, token, timeout
+    )
+    _record_check(report, overview)
+    _run_events_api_checks(report, base_url, token, timeout)
+    for api_name, api_path in API_READ_CHECKS:
+        result = check_api_endpoint(base_url, api_name, api_path, token, timeout)
+        _record_check(report, result)
+
+
 def run_smoke(
     base_url: str,
     *,
@@ -378,101 +482,21 @@ def run_smoke(
     report = SmokeReport(ok=True, base_url=base_url)
     run_api, api_skip_detail = api_auth_status(token, shell_only)
 
-    health = check_health(base_url, timeout)
-    report.checks.append(health)
-    if not health.ok:
-        report.ok = False
-
-    shell_check, index_html = check_shell(base_url, timeout)
-    report.checks.append(shell_check)
-    if not shell_check.ok:
-        report.ok = False
-    elif index_html:
-        for asset_check in check_assets(base_url, index_html, timeout):
-            report.checks.append(asset_check)
-            if not asset_check.ok:
-                report.ok = False
+    _run_shell_and_asset_checks(report, base_url, timeout)
 
     if not run_api:
-        for name in SKIPPED_API_CHECK_NAMES:
-            report.checks.append(CheckResult(name, True, "skipped", api_skip_detail))
+        _append_skipped_api_checks(report, api_skip_detail)
         if not shell_only:
             report.ok = False
-        if check_legacy_redirect:
-            redirect = check_legacy_dashboard_redirect(base_url, timeout)
-            report.checks.append(redirect)
-            if not redirect.ok:
-                report.ok = False
+        _maybe_check_legacy_redirect(
+            report, base_url, timeout, enabled=check_legacy_redirect
+        )
         return report
 
-    overview = check_api_endpoint(
-        base_url, "api_overview", API_OVERVIEW, token, timeout
+    _run_authenticated_api_checks(report, base_url, token, timeout)
+    _maybe_check_legacy_redirect(
+        report, base_url, timeout, enabled=check_legacy_redirect
     )
-    report.checks.append(overview)
-    if not overview.ok:
-        report.ok = False
-
-    events_status, events_body, events_elapsed, events_err = _http_get(
-        base_url,
-        API_EVENTS_INDEX,
-        token=token,
-        timeout=timeout,
-        accept="application/json",
-    )
-    if events_status is None or not (200 <= events_status < 300):
-        detail = events_err or f"HTTP {events_status}"
-        report.checks.append(
-            CheckResult("api_events_index", False, "fail", detail, events_elapsed)
-        )
-        report.ok = False
-        report.checks.append(
-            CheckResult("api_event_detail", True, "skipped", "events index failed")
-        )
-    else:
-        report.checks.append(
-            CheckResult("api_events_index", True, "pass", "ok", events_elapsed)
-        )
-        event_id = first_event_id(events_body)
-        if not event_id:
-            report.warnings.append(
-                "events index returned no rows; event detail check skipped"
-            )
-            report.checks.append(
-                CheckResult(
-                    "api_event_detail",
-                    True,
-                    "warn",
-                    "no events in index response",
-                )
-            )
-        else:
-            detail_path = (
-                f"/control/api/v1/events?event_id={request.quote(event_id, safe='')}"
-                "&include_payload=true&page_size=1&sort=recent"
-            )
-            detail = check_api_endpoint(
-                base_url,
-                "api_event_detail",
-                detail_path,
-                token,
-                timeout,
-            )
-            report.checks.append(detail)
-            if not detail.ok:
-                report.ok = False
-
-    for api_name, api_path in API_READ_CHECKS:
-        result = check_api_endpoint(base_url, api_name, api_path, token, timeout)
-        report.checks.append(result)
-        if not result.ok:
-            report.ok = False
-
-    if check_legacy_redirect:
-        redirect = check_legacy_dashboard_redirect(base_url, timeout)
-        report.checks.append(redirect)
-        if not redirect.ok:
-            report.ok = False
-
     return report
 
 

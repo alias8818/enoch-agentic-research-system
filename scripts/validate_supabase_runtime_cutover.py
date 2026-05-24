@@ -119,26 +119,35 @@ def _live_counts(control_url: str, token: str) -> dict[str, Any]:
     }
 
 
-def compare(
-    live: dict[str, Any], supabase: dict[str, Any], *, require_safe_pause: bool = True
-) -> CutoverCheck:
-    failures: list[str] = []
+def _append_pipeline_mismatches(
+    live: dict[str, Any], supabase: dict[str, Any], failures: list[str]
+) -> None:
     for key in PIPELINE_KEYS:
         if int(live.get(key) or 0) != int(supabase.get(key) or 0):
             failures.append(
                 f"{key} mismatch: live={live.get(key)} supabase={supabase.get(key)}"
             )
-    if require_safe_pause:
-        flags = live.get("flags") or {}
-        for key, expected in EXPECTED_SAFE_FLAGS.items():
-            if bool(flags.get(key)) is not expected:
-                failures.append(
-                    f"live safety flag {key}={flags.get(key)!r}, expected {expected!r}"
-                )
+
+
+def _append_safe_pause_failures(live: dict[str, Any], failures: list[str]) -> None:
+    flags = live.get("flags") or {}
+    for key, expected in EXPECTED_SAFE_FLAGS.items():
+        if bool(flags.get(key)) is not expected:
+            failures.append(
+                f"live safety flag {key}={flags.get(key)!r}, expected {expected!r}"
+            )
+
+
+def _append_enoch_core_failures(live: dict[str, Any], failures: list[str]) -> None:
     if (live.get("enoch_core") or {}).get("store_backend") != "supabase":
         failures.append(
             f"enoch-core store_backend={(live.get('enoch_core') or {}).get('store_backend')!r}, expected 'supabase'"
         )
+
+
+def _append_table_count_failures(
+    live: dict[str, Any], supabase: dict[str, Any], failures: list[str]
+) -> None:
     table_counts = supabase.get("table_counts") or {}
     if int(table_counts.get("queue_items") or 0) < int(
         (live.get("state_counts") or {}).get("queue_total") or 0
@@ -152,6 +161,17 @@ def compare(
         failures.append(
             "Supabase Enoch core tables are missing from the runtime schema"
         )
+
+
+def compare(
+    live: dict[str, Any], supabase: dict[str, Any], *, require_safe_pause: bool = True
+) -> CutoverCheck:
+    failures: list[str] = []
+    _append_pipeline_mismatches(live, supabase, failures)
+    if require_safe_pause:
+        _append_safe_pause_failures(live, failures)
+    _append_enoch_core_failures(live, failures)
+    _append_table_count_failures(live, supabase, failures)
     return CutoverCheck(
         ok=not failures, failures=failures, live=live, supabase=supabase
     )

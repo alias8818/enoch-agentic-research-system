@@ -108,7 +108,7 @@ def classify_finalized_rows(
     }
 
 
-def main() -> int:
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Compare live Enoch paper ledgers with the public corpus index."
     )
@@ -144,12 +144,12 @@ def main() -> int:
     parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON only."
     )
-    args = parser.parse_args()
+    return parser
 
-    if not args.token:
-        print("Set --token or ENOCH_CONTROL_TOKEN", file=sys.stderr)
-        return 2
 
+def fetch_reconciliation_inputs(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     overview = request_json(
         args.control_url,
         args.token,
@@ -160,16 +160,26 @@ def main() -> int:
         if args.include_draft_candidate
         else {}
     )
-    paper_status_filter = args.paper_status
     finalized_rows = iter_review_rows(
         args.control_url,
         args.token,
         review_status="finalized",
-        paper_status=paper_status_filter,
+        paper_status=args.paper_status,
         page_size=args.page_size,
     )
     public = load_public_index(args.corpus)
+    return overview, finalized_rows, public, state
 
+
+def build_reconciliation_report(
+    *,
+    args: argparse.Namespace,
+    overview: dict[str, Any],
+    finalized_rows: list[dict[str, Any]],
+    public: dict[str, Any],
+    state: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    paper_status_filter = args.paper_status
     finalized_by_fp = {
         source_fingerprint(str(row.get("paper_id") or "")): row
         for row in finalized_rows
@@ -187,7 +197,6 @@ def main() -> int:
     next_candidate = (
         state.get("next_candidate") if args.include_draft_candidate else None
     )
-
     report = {
         "ok": not importable,
         "control_url": args.control_url,
@@ -208,39 +217,90 @@ def main() -> int:
         "public_without_live_finalized_sample": public_without_live_finalized[:20],
         "corpus_index": public["path"],
     }
+    return report, importable
 
+
+def print_draft_candidate_diagnostic(
+    *, include_draft_candidate: bool, next_candidate: Any
+) -> None:
+    if not include_draft_candidate:
+        return
+    if next_candidate:
+        print(
+            "  next live draft candidate: " + json.dumps(next_candidate, sort_keys=True)
+        )
+        return
+    print("  next live draft candidate: none")
+
+
+def print_importable_sample(importable: list[dict[str, Any]]) -> None:
+    if not importable:
+        return
+    print("  importable finalized sample:")
+    for row in importable[:20]:
+        item = compact_row(row)
+        print(
+            f"    - {item['project_name']} | {item['project_id']} | {item['paper_status']} / {item['review_status']}"
+        )
+
+
+def print_human_report(
+    report: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+    importable: list[dict[str, Any]],
+) -> None:
+    paper_status_filter = report["paper_status_filter"]
+    print("Paper ledger reconciliation")
+    print(f"  paper status filter: {paper_status_filter or 'all'}")
+    print(f"  finalized rows in corpus lane: {report['live_finalized_count']}")
+    print(f"  public corpus rows: {report['public_corpus_count']}")
+    print(
+        f"  already represented by source fingerprint: {report['exact_existing_finalized_count']}"
+    )
+    print(f"  importable finalized rows: {report['importable_finalized_count']}")
+    if args.verbose:
+        print(
+            f"  finalized rows missing exact fingerprint: {report['missing_exact_fingerprint_count']}"
+        )
+        print(
+            f"  public rows outside this live finalized filter: {report['public_without_live_finalized_count']}"
+        )
+    print_draft_candidate_diagnostic(
+        include_draft_candidate=args.include_draft_candidate,
+        next_candidate=report["next_draft_candidate"],
+    )
+    print_importable_sample(importable)
+
+
+def emit_reconciliation_report(
+    report: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+    importable: list[dict[str, Any]],
+) -> None:
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
-    else:
-        print("Paper ledger reconciliation")
-        print(f"  paper status filter: {paper_status_filter or 'all'}")
-        print(f"  finalized rows in corpus lane: {report['live_finalized_count']}")
-        print(f"  public corpus rows: {report['public_corpus_count']}")
-        print(
-            f"  already represented by source fingerprint: {report['exact_existing_finalized_count']}"
-        )
-        print(f"  importable finalized rows: {report['importable_finalized_count']}")
-        if args.verbose:
-            print(
-                f"  finalized rows missing exact fingerprint: {report['missing_exact_fingerprint_count']}"
-            )
-            print(
-                f"  public rows outside this live finalized filter: {report['public_without_live_finalized_count']}"
-            )
-        if args.include_draft_candidate and next_candidate:
-            print(
-                "  next live draft candidate: "
-                + json.dumps(next_candidate, sort_keys=True)
-            )
-        elif args.include_draft_candidate:
-            print("  next live draft candidate: none")
-        if importable:
-            print("  importable finalized sample:")
-            for row in importable[:20]:
-                item = compact_row(row)
-                print(
-                    f"    - {item['project_name']} | {item['project_id']} | {item['paper_status']} / {item['review_status']}"
-                )
+        return
+    print_human_report(report, args=args, importable=importable)
+
+
+def main() -> int:
+    args = build_arg_parser().parse_args()
+
+    if not args.token:
+        print("Set --token or ENOCH_CONTROL_TOKEN", file=sys.stderr)
+        return 2
+
+    overview, finalized_rows, public, state = fetch_reconciliation_inputs(args)
+    report, importable = build_reconciliation_report(
+        args=args,
+        overview=overview,
+        finalized_rows=finalized_rows,
+        public=public,
+        state=state,
+    )
+    emit_reconciliation_report(report, args=args, importable=importable)
 
     if args.require_synced and importable:
         return 1

@@ -2,7 +2,7 @@ import { apiPost } from '../api/client'
 import type { OverviewResponse } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
 
-export function SafetyBar({ flags, onRefresh }: { flags: OverviewResponse['flags']; onRefresh: () => void }) {
+export function SafetyBar({ flags, onRefresh }: Readonly<{ flags: OverviewResponse['flags']; onRefresh: () => void }>) {
   const paused = Boolean(flags?.queue_paused)
   const maintenance = Boolean(flags?.maintenance_mode)
   const { confirm, dialog } = useOperatorDialog()
@@ -40,8 +40,8 @@ export function SafetyBar({ flags, onRefresh }: { flags: OverviewResponse['flags
           <span>{paused ? 'paused' : 'unpaused'} · maintenance {maintenance ? 'on' : 'off'}</span>
         </div>
         <div>
-          <button className="danger-button" disabled={paused} onClick={pause}>Pause queue</button>
-          <button className="secondary-button" disabled={!paused && !maintenance} onClick={resume}>Resume queue</button>
+          <button className="danger-button" type="button" disabled={paused} onClick={pause}>Pause queue</button>
+          <button className="secondary-button" type="button" disabled={!paused && !maintenance} onClick={resume}>Resume queue</button>
         </div>
       </section>
       {dialog}

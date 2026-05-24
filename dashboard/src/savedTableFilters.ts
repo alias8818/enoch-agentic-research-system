@@ -1,3 +1,5 @@
+import { displayText } from './displayText'
+
 export type SavedTableFilterTableId = 'queue' | 'projects'
 
 export type SavedTableFilterPreset = {
@@ -33,14 +35,15 @@ function writeStore(store: SavedTableFilterStore): void {
 function normalizePreset(value: unknown): SavedTableFilterPreset | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
-  const name = String(record.name || '').trim()
+  const name = displayText(record.name).trim()
   if (!name) return null
+  const id = displayText(record.id).trim()
   return {
-    id: String(record.id || '').trim() || crypto.randomUUID(),
+    id: id || crypto.randomUUID(),
     name,
-    search: String(record.search || ''),
-    status: String(record.status || ''),
-    pageSize: String(record.pageSize || '50'),
+    search: displayText(record.search),
+    status: displayText(record.status),
+    pageSize: displayText(record.pageSize, '50'),
   }
 }
 

@@ -1,17 +1,43 @@
 from __future__ import annotations
 
 import json
+import logging
 from urllib import request
+from urllib.error import URLError
+
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+)
 
 from .url_safety import validate_http_url
 from .config import GateConfig
 from .models import GateCallback
+
+logger = logging.getLogger("enoch.callbacks")
+
+# Idempotent callbacks are safe to retry on transient network errors.
+# The downstream consumer deduplicates by idempotency_key.
+_RETRY_ON_NETWORK = retry(
+    retry=retry_if_exception_type((URLError, OSError, TimeoutError)),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=0.5, min=0.5, max=8),
+    before_sleep=lambda retry_state: logger.warning(
+        "callback send attempt %d failed (%s), retrying in %.1fs",
+        retry_state.attempt_number,
+        retry_state.outcome.exception(),
+        retry_state.next_action.sleep,
+    ),
+)
 
 
 class CallbackSender:
     def __init__(self, config: GateConfig) -> None:
         self.config = config
 
+    @_RETRY_ON_NETWORK
     def send(self, callback: GateCallback) -> tuple[int, str]:
         body = json.dumps(callback.model_dump()).encode("utf-8")
         safe_url = validate_http_url(

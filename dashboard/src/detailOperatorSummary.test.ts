@@ -211,12 +211,12 @@ describe('deriveDetailOperatorSummary', () => {
         paper_id: 'paper-2',
         paper_status: 'publication_draft',
         artifact_paths_present: {
-          draft_markdown_path: '/tmp/draft.md',
-          draft_latex_path: '/tmp/draft.tex',
-          evidence_bundle_path: '/tmp/evidence',
-          claim_ledger_path: '/tmp/claims',
-          manifest_path: '/tmp/manifest.json',
-          finalization_package_path: '/tmp/package',
+          draft_markdown_path: 'papers/paper-2/draft.md',
+          draft_latex_path: 'papers/paper-2/draft.tex',
+          evidence_bundle_path: 'papers/paper-2/evidence',
+          claim_ledger_path: 'papers/paper-2/claims',
+          manifest_path: 'papers/paper-2/manifest.json',
+          finalization_package_path: 'papers/paper-2/package',
         },
       },
     })

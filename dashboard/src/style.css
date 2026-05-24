@@ -160,7 +160,7 @@ button:disabled { cursor: not-allowed; }
 .nav-more--active > summary {
   border-color: rgba(226, 177, 91, 0.65);
   color: #fff8ea;
-  background: rgba(226, 177, 91, 0.12);
+  background: #221c11;
 }
 
 .nav-menu {
@@ -188,7 +188,7 @@ button:disabled { cursor: not-allowed; }
 .nav-link--active {
   border-color: rgba(226, 177, 91, 0.65);
   color: #fff8ea;
-  background: rgba(226, 177, 91, 0.12);
+  background: #221c11;
 }
 .nav-link:focus-visible,
 .nav-more > summary:focus-visible {
@@ -422,7 +422,7 @@ button:disabled { cursor: not-allowed; }
 .secondary-button--link { display: inline-block; text-decoration: none; }
 .unsupported-route-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.1rem; }
 .unsupported-route-actions .primary-button--link { margin-top: 0; }
-.secondary-button { border: 1px solid rgba(244,241,234,0.16); background: rgba(255,255,255,0.035); color: #f4f1ea; }
+.secondary-button { border: 1px solid rgba(244,241,234,0.16); background: #121110; color: #f4f1ea; }
 .secondary-button:hover:not(:disabled) { border-color: rgba(226,177,91,0.62); }
 .primary-button:focus-visible,
 .secondary-button:focus-visible,
@@ -943,6 +943,7 @@ button:disabled { cursor: not-allowed; }
   font-size: 0.9rem;
 }
 .composed-empty-state {
+  display: block;
   border: 1px dashed rgba(244,241,234,0.14);
   border-radius: 1.25rem;
   background: rgba(0,0,0,0.18);
@@ -1016,7 +1017,7 @@ span.cell-primary.cell-truncate {
 .copy-button {
   border: 1px solid rgba(244,241,234,0.16);
   border-radius: 0.5rem;
-  background: rgba(255,255,255,0.035);
+  background: #121110;
   color: #c9c0b3;
   padding: 0.18rem 0.38rem;
   font-size: 0.62rem;
@@ -1053,7 +1054,7 @@ span.cell-primary.cell-truncate {
   display: inline-flex;
   border-radius: 999px;
   padding: 0.16rem 0.45rem;
-  background: rgba(255,255,255,0.04);
+  background: #121110;
   color: #cfc6b8;
   font-size: 0.76rem;
 }
@@ -1203,7 +1204,7 @@ span.cell-primary.cell-truncate {
 
 .detail-related-row--link:hover,
 .detail-related-row--link:focus-visible {
-  background: rgba(14, 165, 233, 0.14);
+  background: #0a1f2a;
   color: #f8fafc;
 }
 

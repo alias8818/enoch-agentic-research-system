@@ -1,146 +1,54 @@
 import { shortId } from './format'
+import {
+  artifactChecklist,
+  entityLink,
+  firstValue,
+  latestEventSummary,
+  operatorNextStep,
+  operatorStageLabel,
+  pushLink,
+  queueRecord,
+  recentActivityFrom,
+  record,
+  recordArray,
+  text,
+  triStateFlag,
+  type DetailKind,
+  type DetailOperatorSummary,
+  type EntityLink,
+  type IntakeIdeaOperatorSummary,
+  type OperatorAnswer,
+} from './detailOperatorSummaryHelpers'
+import { paperSummary } from './detailOperatorSummaryPaper'
 
-export type DetailKind = 'project' | 'run' | 'paper' | 'event'
+export { deriveIntakeIdeaOperatorSummary } from './detailOperatorSummaryIntake'
 
-export type EntityLink = {
-  kind: DetailKind
-  id: string
-  label: string
-}
-
-export type OperatorAnswer = {
-  label: string
-  value: string
-}
-
-export type OperatorSection = {
-  title: string
-  answers: OperatorAnswer[]
-}
-
-export type DetailOperatorSummary = {
-  state: string
-  context: string
-  next: string
-  entityLinks: EntityLink[]
-  sections: OperatorSection[]
-  recentActivity: string | null
-  actionNeeded: string | null
-}
-
-export type IntakeIdeaOperatorSummary = {
-  state: string
-  context: string
-  next: string
-  entityLinks: EntityLink[]
-  sections: OperatorSection[]
-  actionNeeded: string | null
-}
-
-export type ResearchCandidateOperatorSummary = IntakeIdeaOperatorSummary
-
-function record(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
-
-function recordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item)) : []
-}
-
-function firstValue(...values: unknown[]): unknown {
-  return values.find((value) => value !== null && value !== undefined && value !== '')
-}
-
-function text(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—'
-  if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  return String(value)
-}
-
-function entityLink(kind: DetailKind, id: unknown, label?: unknown): EntityLink | null {
-  const normalized = text(id)
-  if (normalized === '—') return null
-  return { kind, id: normalized, label: text(label || shortId(normalized)) }
-}
-
-function pushLink(links: EntityLink[], link: EntityLink | null) {
-  if (!link) return
-  if (links.some((existing) => existing.kind === link.kind && existing.id === link.id)) return
-  links.push(link)
-}
-
-function operatorNextStep(source: Record<string, unknown>, fallback: string): string {
-  return text(firstValue(source.operator_next_step, fallback))
-}
-
-function operatorStageLabel(source: Record<string, unknown>, fallback: string): string {
-  return text(firstValue(source.operator_stage_label, source.operator_detail_stage_label, fallback))
-}
-
-function queueRecord(payload: Record<string, unknown>): Record<string, unknown> {
-  return record(payload.queue_item || payload.queue)
-}
-
-function nullableText(value: unknown): string | null {
-  const normalized = text(value)
-  return normalized === '—' ? null : normalized
-}
-
-function latestEventSummary(events: Record<string, unknown>[]): string | null {
-  const latest = events[0]
-  if (!latest) return null
-  const summary = text(firstValue(latest.summary, latest.event_type))
-  const when = text(firstValue(latest.created_at, latest.updated_at))
-  if (summary === '—') return null
-  return when !== '—' ? `${summary} (${when})` : summary
-}
-
-function recentActivityFrom(events: Record<string, unknown>[], ...fallbacks: unknown[]): string | null {
-  return latestEventSummary(events) ?? nullableText(firstValue(...fallbacks))
-}
-
-function artifactFlagPresent(flags: Record<string, unknown>, key: string): boolean {
-  const aliases: Record<string, string[]> = {
-    draft_markdown: ['draft_markdown', 'draft_markdown_path'],
-    draft_latex: ['draft_latex', 'draft_latex_path'],
-    evidence_bundle: ['evidence_bundle', 'evidence_bundle_path'],
-    claim_ledger: ['claim_ledger', 'claim_ledger_path'],
-    manifest: ['manifest', 'manifest_path'],
-    finalization_package: ['finalization_package', 'finalization_package_path'],
+function projectNextStepMessage(attention: boolean, state: string, runState: string): string {
+  if (attention) {
+    return 'Resolve the blocker or manual-review flag before dispatching again.'
   }
-  return (aliases[key] || [key]).some((alias) => Boolean(flags[alias]))
-}
-
-function artifactChecklist(flags: Record<string, unknown>): OperatorAnswer[] {
-  const labels: Record<string, string> = {
-    draft_markdown: 'draft markdown',
-    draft_latex: 'draft latex',
-    evidence_bundle: 'evidence bundle',
-    claim_ledger: 'claim ledger',
-    manifest: 'manifest',
-    finalization_package: 'finalization package',
+  if (state === 'queued') {
+    return 'Run a dispatch dry-run on the lane card before starting work.'
   }
-  return Object.entries(labels).map(([key, label]) => ({
-    label,
-    value: artifactFlagPresent(flags, key) ? 'present' : 'missing',
-  }))
-}
-
-function missingPublicationArtifacts(flags: Record<string, unknown>): string[] {
-  const labels: Record<string, string> = {
-    draft_markdown: 'draft markdown',
-    evidence_bundle: 'evidence bundle',
-    claim_ledger: 'claim ledger',
-    manifest: 'manifest',
-    finalization_package: 'finalization package',
+  if (runState === 'running' || state === 'running') {
+    return 'Open the current run and watch gate state plus recent events.'
   }
-  return Object.keys(labels).filter((key) => !artifactFlagPresent(flags, key)).map((key) => labels[key])
+  return 'Review paper status and recent events before taking a write action.'
 }
 
-function triStateFlag(value: unknown): string {
-  if (value === true || value === 1 || value === '1' || value === 'true') return 'yes'
-  if (value === false || value === 0 || value === '0' || value === 'false') return 'no'
-  return 'unknown'
+export type {
+  DetailKind,
+  DetailOperatorSummary,
+  EntityLink,
+  IntakeIdeaOperatorSummary,
+  OperatorAnswer,
+  OperatorSection,
+} from './detailOperatorSummaryHelpers'
+
+function projectActionNeeded(attention: boolean, blocked: string): string | null {
+  if (!attention) return null
+  if (blocked !== '—') return blocked
+  return 'Operator attention required.'
 }
 
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
@@ -162,19 +70,13 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
   const blocked = text(firstValue(queue.blocked_reason, queue.last_error, queue.decision_summary))
   const attention = queue.operator_attention === true || state.includes('blocked') || state.includes('review')
   const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
-  pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null, papers[0]?.paper_title || papers[0]?.title))
+  pushLink(entityLinks, entityLink('run', runId === '—' ? null : runId))
+  pushLink(entityLinks, entityLink('paper', paperId === '—' ? null : paperId, papers[0]?.paper_title || papers[0]?.title))
 
   return {
     state: operatorStageLabel(stageSource, state),
     context: `Queue ${state}; lane ${lane}; latest run ${runState}.`,
-    next: operatorNextStep(stageSource, attention
-      ? 'Resolve the blocker or manual-review flag before dispatching again.'
-      : state === 'queued'
-        ? 'Run a dispatch dry-run on the lane card before starting work.'
-        : runState === 'running' || state === 'running'
-          ? 'Open the current run and watch gate state plus recent events.'
-          : 'Review paper status and recent events before taking a write action.'),
+    next: operatorNextStep(stageSource, projectNextStepMessage(attention, state, runState)),
     entityLinks,
     sections: [
       {
@@ -213,7 +115,7 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
       },
     ],
     recentActivity: recentActivityFrom(events, queue.last_result_summary, queue.decision_summary),
-    actionNeeded: attention && blocked !== '—' ? blocked : attention ? 'Operator attention required.' : null,
+    actionNeeded: projectActionNeeded(attention, blocked),
   }
 }
 
@@ -228,7 +130,20 @@ function runOutcomeLabel(state: string, gate: string, endedAt: string): string {
   if (normalizedState === 'running' || normalizedState === 'dispatching' || normalizedState === 'reconciling') {
     return 'still running'
   }
-  return state !== '—' ? state : 'unknown'
+  return state === '—' ? 'unknown' : state
+}
+
+function runNextStepMessage(errorState: boolean, outcome: string, state: string): string {
+  if (errorState) {
+    return 'Inspect recent events and worker logs before retrying dispatch.'
+  }
+  if (outcome === 'waiting for wake') {
+    return 'Wait for the worker wake callback unless the gate has been stale for too long.'
+  }
+  if (state === 'running' || state === 'dispatching') {
+    return 'Watch activity and recent events; intervene only if the gate stops moving.'
+  }
+  return 'Review related paper artifacts before queuing another action.'
 }
 
 function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
@@ -251,8 +166,8 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const paperStatus = text(firstValue(run.related_paper_status, papers[0]?.paper_status, papers[0]?.status))
   const paperReview = text(firstValue(run.related_review_status, papers[0]?.review_status))
   const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, projectName))
-  pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null, papers[0]?.paper_title || papers[0]?.title))
+  pushLink(entityLinks, entityLink('project', projectId === '—' ? null : projectId, projectName))
+  pushLink(entityLinks, entityLink('paper', paperId === '—' ? null : paperId, papers[0]?.paper_title || papers[0]?.title))
   const errorState = state.includes('error') || gate.includes('error')
   const artifactFlags = record(run.related_artifact_paths_present)
   const outcome = runOutcomeLabel(state, gate, endedAt)
@@ -260,19 +175,13 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   return {
     state: operatorStageLabel(stageSource, state),
     context: `Gate ${gate}; activity ${activity}; outcome ${outcome}.`,
-    next: operatorNextStep(stageSource, errorState
-      ? 'Inspect recent events and worker logs before retrying dispatch.'
-      : outcome === 'waiting for wake'
-        ? 'Wait for the worker wake callback unless the gate has been stale for too long.'
-        : state === 'running' || state === 'dispatching'
-          ? 'Watch activity and recent events; intervene only if the gate stops moving.'
-          : 'Review related paper artifacts before queuing another action.'),
+    next: operatorNextStep(stageSource, runNextStepMessage(errorState, outcome, state)),
     entityLinks,
     sections: [
       {
         title: 'Which project ran?',
         answers: [
-          { label: 'project', value: projectName !== '—' ? projectName : projectId },
+          { label: 'project', value: projectName === '—' ? projectId : projectName },
           { label: 'project id', value: projectId },
         ],
       },
@@ -327,105 +236,6 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   }
 }
 
-function paperSummary(payload: Record<string, unknown>): DetailOperatorSummary {
-  const paper = record(payload.paper)
-  const project = record(payload.project)
-  const run = record(payload.run)
-  const queue = queueRecord(payload)
-  const events = recordArray(payload.events)
-  const stageSource = { ...paper, ...payload }
-  const title = text(firstValue(paper.paper_title, paper.title, payload.title))
-  const status = text(firstValue(paper.paper_status, paper.status, payload.status, payload.paper_status))
-  const review = text(firstValue(paper.review_status, payload.review_status))
-  const imported = paper.corpus_imported === true
-  const flags = record(paper.artifact_paths_present)
-  const projectId = text(firstValue(paper.project_id, project.project_id, payload.project_id))
-  const projectName = text(firstValue(project.project_name, paper.project_name))
-  const runId = text(firstValue(paper.run_id, run.run_id, payload.run_id))
-  const runState = text(firstValue(run.state, payload.run_state))
-  const machineTarget = text(firstValue(queue.machine_target, payload.machine_target))
-  const operatorExplanation = text(firstValue(paper.operator_explanation, payload.operator_explanation))
-  const missingArtifacts = missingPublicationArtifacts(flags)
-  const publicationBlocker = review === 'rejected'
-    ? 'Review rejected this paper.'
-    : operatorExplanation !== '—'
-      ? operatorExplanation
-      : missingArtifacts.length
-        ? `Missing: ${missingArtifacts.join(', ')}.`
-        : imported
-          ? 'Corpus import complete; no publication blockers.'
-          : 'Publication artifacts ready for corpus import.'
-  const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, projectName))
-  pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
-  const reviewRejected = review === 'rejected'
-  const needsFinalization = missingArtifacts.includes('finalization package')
-  const context = imported
-    ? 'Corpus import ledger shows this paper as imported.'
-    : missingArtifacts.length
-      ? `Publication blocked: missing ${missingArtifacts.join(', ')}.`
-      : review !== '—'
-        ? `Review ${review}; all publication artifacts present.`
-        : `Evidence paths ${artifactFlagPresent(flags, 'evidence_bundle') ? 'present' : 'missing'}; claim ledger ${artifactFlagPresent(flags, 'claim_ledger') ? 'present' : 'missing'}.`
-
-  return {
-    state: operatorStageLabel(stageSource, status),
-    context,
-    next: operatorNextStep(stageSource, imported
-      ? 'No corpus import action is needed for this paper.'
-      : reviewRejected
-        ? 'Do not publish; start a new run or resolve review rejection first.'
-        : needsFinalization || missingArtifacts.length
-          ? 'Preview artifacts, then finalize only after checklist items look correct.'
-          : 'Run corpus import when the publication checklist is complete.'),
-    entityLinks,
-    sections: [
-      {
-        title: 'What is this paper?',
-        answers: [
-          { label: 'title', value: title },
-          { label: 'paper status', value: status },
-          { label: 'paper type', value: text(paper.paper_type) },
-          { label: 'review status', value: review },
-        ],
-      },
-      {
-        title: 'Related project and run',
-        answers: [
-          { label: 'project', value: projectName !== '—' ? projectName : projectId },
-          { label: 'run state', value: runState },
-          { label: 'machine target', value: machineTarget },
-        ],
-      },
-      {
-        title: 'Publication checklist',
-        answers: artifactChecklist(flags),
-      },
-      {
-        title: 'Draft and import status',
-        answers: [
-          { label: 'corpus imported', value: text(imported) },
-          { label: 'corpus import id', value: text(paper.corpus_import_id) },
-          { label: 'HF dataset synced', value: text(paper.hf_dataset_synced) },
-        ],
-      },
-      {
-        title: 'What blocks publication?',
-        answers: [
-          { label: 'missing artifacts', value: publicationBlocker },
-          { label: 'operator explanation', value: operatorExplanation },
-        ],
-      },
-    ],
-    recentActivity: latestEventSummary(events),
-    actionNeeded: reviewRejected
-      ? 'Review rejected this paper; do not publish without a new run.'
-      : missingArtifacts.length
-        ? `Complete missing artifacts before publication: ${missingArtifacts.join(', ')}.`
-        : null,
-  }
-}
-
 const EVENT_PAYLOAD_PROOF_KEYS: ReadonlyArray<[string, string]> = [
   ['reason', 'reason'], ['detail', 'detail'], ['summary', 'payload summary'],
   ['gate_state', 'gate state'], ['state', 'state'], ['status', 'status'],
@@ -454,7 +264,12 @@ function eventEntityLinks(payload: Record<string, unknown>): EntityLink[] {
   }
   if (!entityLinks.length && entityId !== '—') {
     if (entityType === 'queue_alert') return entityLinks
-    const kind: DetailKind = entityType.includes('run') ? 'run' : entityType.includes('paper') || entityType.includes('paper_review') ? 'paper' : 'project'
+    let kind: DetailKind = 'project'
+    if (entityType.includes('run')) {
+      kind = 'run'
+    } else if (entityType.includes('paper') || entityType.includes('paper_review')) {
+      kind = 'paper'
+    }
     pushLink(entityLinks, entityLink(kind, entityId))
   }
   return entityLinks
@@ -467,25 +282,31 @@ function eventEntityLabel(entityType: string, entityId: string): string {
   return `${entityType} ${shortId(entityId)}`
 }
 
-function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[] {
-  const nested = eventPayloadRecord(payload)
-  const answers: OperatorAnswer[] = []
-  const seen = new Set<string>()
+function appendEventPayloadProofKeys(
+  answers: OperatorAnswer[],
+  seen: Set<string>,
+  nested: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): void {
   for (const [key, label] of EVENT_PAYLOAD_PROOF_KEYS) {
     const normalized = text(firstValue(nested[key], payload[key]))
     if (normalized === '—' || seen.has(label)) continue
     seen.add(label)
     answers.push({ label, value: normalized })
   }
+}
+
+function appendFindingsProofAnswers(answers: OperatorAnswer[], nested: Record<string, unknown>): void {
   const findings = recordArray(nested.findings)
-  if (findings.length) {
-    answers.push({ label: 'findings', value: `${findings.length} recorded` })
-    const topFinding = findings[0]
-    const topFindingMessage = text(firstValue(topFinding.message, topFinding.source))
-    if (topFindingMessage !== '—') {
-      answers.push({ label: 'top finding', value: topFindingMessage })
-    }
+  if (!findings.length) return
+  answers.push({ label: 'findings', value: `${findings.length} recorded` })
+  const topFindingMessage = text(firstValue(findings[0].message, findings[0].source))
+  if (topFindingMessage !== '—') {
+    answers.push({ label: 'top finding', value: topFindingMessage })
   }
+}
+
+function appendDispatchProofAnswers(answers: OperatorAnswer[], nested: Record<string, unknown>): void {
   if (Array.isArray(nested.dispatch_blockers)) {
     const blockers = nested.dispatch_blockers.map((item) => text(item)).filter((item) => item !== '—')
     answers.push({ label: 'dispatch blockers', value: blockers.length ? blockers.join('; ') : 'none' })
@@ -496,8 +317,25 @@ function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[]
   if (nested.dispatch_safe !== null && nested.dispatch_safe !== undefined) {
     answers.push({ label: 'dispatch safe at event time', value: text(nested.dispatch_safe) })
   }
+}
+
+function emptyPayloadProofFallback(nested: Record<string, unknown>): OperatorAnswer {
+  const hasNestedKeys = nested && Object.keys(nested).length > 0
+  return {
+    label: 'payload',
+    value: hasNestedKeys ? 'present — expand Raw payload for full evidence' : 'empty',
+  }
+}
+
+function payloadProofAnswers(payload: Record<string, unknown>): OperatorAnswer[] {
+  const nested = eventPayloadRecord(payload)
+  const answers: OperatorAnswer[] = []
+  const seen = new Set<string>()
+  appendEventPayloadProofKeys(answers, seen, nested, payload)
+  appendFindingsProofAnswers(answers, nested)
+  appendDispatchProofAnswers(answers, nested)
   if (!answers.length) {
-    answers.push({ label: 'payload', value: nested && Object.keys(nested).length ? 'present — expand Raw payload for full evidence' : 'empty' })
+    answers.push(emptyPayloadProofFallback(nested))
   }
   return answers
 }
@@ -516,11 +354,28 @@ function eventActionNeeded(payload: Record<string, unknown>): string | null {
   return null
 }
 
+function eventDefaultEntityType(payload: Record<string, unknown>): string {
+  if (payload.project_id) return 'project'
+  if (payload.run_id) return 'run'
+  if (payload.paper_id) return 'paper'
+  return 'entity'
+}
+
+function eventNextStepMessage(actionNeeded: string | null, entityLinks: EntityLink[]): string {
+  if (actionNeeded) {
+    return `Resolve the recorded blocker: ${actionNeeded}`
+  }
+  if (entityLinks.length) {
+    return 'Open the related project, run, or paper if this event requires action.'
+  }
+  return 'Use the payload only as supporting detail; do not treat it as a command.'
+}
+
 function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const eventType = text(payload.event_type)
   const headline = eventHumanSummary(payload)
   const entityId = text(firstValue(payload.entity_id, payload.project_id, payload.paper_id, payload.run_id))
-  const entityType = text(firstValue(payload.entity_type, payload.project_id ? 'project' : payload.run_id ? 'run' : payload.paper_id ? 'paper' : 'entity'))
+  const entityType = text(firstValue(payload.entity_type, eventDefaultEntityType(payload)))
   const createdAt = text(firstValue(payload.created_at, payload.updated_at))
   const eventId = text(firstValue(payload.event_id, payload.id))
   const entityLinks = eventEntityLinks(payload)
@@ -528,9 +383,9 @@ function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
   const stageSource = { ...payload, ...eventPayloadRecord(payload) }
 
   return {
-    state: operatorStageLabel(stageSource, headline !== eventType ? headline : eventType),
-    context: entityId !== '—' ? `${eventEntityLabel(entityType, entityId)} · logged ${createdAt}.` : `Logged ${createdAt}.`,
-    next: operatorNextStep(stageSource, actionNeeded ? `Resolve the recorded blocker: ${actionNeeded}` : entityLinks.length ? 'Open the related project, run, or paper if this event requires action.' : 'Use the payload only as supporting detail; do not treat it as a command.'),
+    state: operatorStageLabel(stageSource, headline === eventType ? eventType : headline),
+    context: entityId === '—' ? `Logged ${createdAt}.` : `${eventEntityLabel(entityType, entityId)} · logged ${createdAt}.`,
+    next: operatorNextStep(stageSource, eventNextStepMessage(actionNeeded, entityLinks)),
     entityLinks,
     sections: [
       { title: 'What happened?', answers: [{ label: 'event type', value: eventType }, { label: 'summary', value: headline }, { label: 'event id', value: eventId }] },
@@ -538,7 +393,7 @@ function eventSummary(payload: Record<string, unknown>): DetailOperatorSummary {
       { title: 'Which entity was affected?', answers: [{ label: 'entity type', value: entityType }, { label: 'entity id', value: entityId }, { label: 'related links', value: entityLinks.length ? `${entityLinks.length} linked` : 'none resolved' }] },
       { title: 'What does the payload prove?', answers: payloadProofAnswers(payload) },
     ],
-    recentActivity: headline !== eventType ? headline : null,
+    recentActivity: headline === eventType ? null : headline,
     actionNeeded,
   }
 }
@@ -550,105 +405,49 @@ export function deriveDetailOperatorSummary(kind: DetailKind, payload: Record<st
   return eventSummary(payload)
 }
 
-export function deriveIntakeIdeaOperatorSummary(row: Record<string, unknown>): IntakeIdeaOperatorSummary {
-  const ideaStatus = text(row.idea_status)
-  const queueStatus = text(row.queue_status)
-  const paperStatus = text(row.paper_status)
-  const nextHint = text(row.next_action_hint)
-  const ideaId = text(row.idea_id)
-  const projectId = text(firstValue(row.project_id, row.idea_id))
-  const sourceKind = text(row.source_kind)
-  const sourceExternalId = text(row.source_external_id)
-  const sourceExternalUrl = text(row.source_external_url)
-  const machineTarget = text(row.machine_target)
-  const runId = text(row.current_run_id)
-  const runState = text(row.last_run_state)
-  const paperId = text(row.paper_id)
-  const blocked = text(firstValue(row.blocked_reason, row.last_error))
-  const promoted = projectId !== '—' && projectId !== ideaId
-  const attention = row.manual_review_required === true || row.operator_attention === true || queueStatus.includes('blocked') || queueStatus.includes('review') || ideaStatus === 'rejected'
-  const whyNotQueued = blocked !== '—'
-    ? blocked
-    : queueStatus === 'queued'
-      ? 'currently queued'
-      : ideaStatus === 'rejected'
-        ? 'idea rejected at admission'
-        : ideaStatus === 'candidate'
-          ? 'not admitted yet — promote or admit before queuing'
-          : ideaStatus === 'stale'
-            ? 'idea marked stale — refresh or re-admit'
-            : !queueStatus || queueStatus === '—'
-              ? 'no queue row yet'
-              : `queue status is ${queueStatus}`
-  const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
-  pushLink(entityLinks, entityLink('run', runId !== '—' ? runId : null))
-  pushLink(entityLinks, entityLink('paper', paperId !== '—' ? paperId : null))
-
-  return {
-    state: operatorStageLabel(row, ideaStatus),
-    context: promoted
-      ? `Promoted to project ${shortId(projectId)}; source ${sourceKind}; queue ${queueStatus}; lane ${machineTarget}.`
-      : `Source ${sourceKind}; admission ${ideaStatus}; queue ${queueStatus}; paper ${paperStatus}.`,
-    next: operatorNextStep(row, attention && blocked !== '—'
-      ? `Resolve blocker first: ${blocked}.`
-      : queueStatus === 'queued'
-        ? 'Open the matching project and run a dispatch dry-run before starting work.'
-        : queueStatus === 'active' || queueStatus === 'running'
-          ? 'Open the current project/run detail and verify the lane is still moving.'
-          : ideaStatus === 'rejected'
-            ? 'Do not queue this idea; review admission rejection and source lineage.'
-            : ideaStatus === 'candidate'
-              ? 'Admit or promote this candidate before expecting queue work.'
-              : nextHint !== '—'
-                ? `Follow backend hint: ${nextHint}.`
-                : 'Review source lineage and admission state before creating more queue work.'),
-    entityLinks,
-    sections: [
-      {
-        title: 'Source and lineage',
-        answers: [
-          { label: 'source kind', value: sourceKind },
-          { label: 'source external id', value: sourceExternalId },
-          { label: 'source url', value: sourceExternalUrl },
-          { label: 'idea status', value: ideaStatus },
-          { label: 'updated', value: text(firstValue(row.queue_updated_at, row.updated_at)) },
-        ],
-      },
-      {
-        title: 'Admission and promote',
-        answers: [
-          { label: 'admission state', value: ideaStatus },
-          { label: 'promoted project', value: promoted ? projectId : 'not promoted yet' },
-          { label: 'manual review', value: text(row.manual_review_required) },
-          { label: 'selection rank', value: text(row.selection_rank) },
-        ],
-      },
-      {
-        title: 'Queue and lane',
-        answers: [
-          { label: 'queue status', value: queueStatus },
-          { label: 'lane / machine target', value: machineTarget },
-          { label: 'current run', value: runId },
-          { label: 'last run state', value: runState },
-          { label: 'paper status', value: paperStatus },
-          { label: 'next action hint', value: nextHint },
-          { label: 'why not queued', value: whyNotQueued },
-        ],
-      },
-      {
-        title: 'Related project',
-        answers: [
-          { label: 'project id', value: projectId },
-          { label: 'title', value: text(row.title) },
-        ],
-      },
-    ],
-    actionNeeded: attention ? (blocked !== '—' ? blocked : ideaStatus === 'rejected' ? 'Idea rejected at admission.' : 'Admission or queue state needs operator review.') : null,
-  }
+function researchCandidateRejected(status: string, admission: string): boolean {
+  return status === 'rejected' || admission.toLowerCase().includes('reject')
 }
 
-export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): ResearchCandidateOperatorSummary {
+function researchCandidateAdmitted(status: string, admission: string): boolean {
+  return status === 'admitted' || admission.toLowerCase().includes('admit')
+}
+
+function researchCandidateNeedsAttention(row: Record<string, unknown>, rejected: boolean): boolean {
+  return rejected || row.manual_review_required === true || row.operator_attention === true
+}
+
+function researchCandidatePromotePath(
+  rejected: boolean,
+  admitted: boolean,
+  promoted: boolean,
+  ideaId: string,
+  projectId: string,
+): string {
+  if (rejected) return 'admission rejected — keep as negative evidence'
+  if (!admitted) return 'not admitted — review facility scoring before promote'
+  if (!promoted) return 'admitted but not yet promoted to intake/queue'
+  if (ideaId !== '—') return `promoted to idea ${shortId(ideaId)}`
+  return `linked project ${shortId(projectId)}`
+}
+
+function researchCandidateNextStepMessage(rejected: boolean, admitted: boolean): string {
+  if (rejected) {
+    return 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
+  }
+  if (admitted) {
+    return 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
+  }
+  return 'Review admission, source lineage, and machine target before promoting or queuing work.'
+}
+
+function researchCandidateActionNeeded(attention: boolean, rejected: boolean): string | null {
+  if (!attention) return null
+  if (rejected) return 'Candidate rejected at admission.'
+  return 'Admission needs operator review before promote.'
+}
+
+export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): IntakeIdeaOperatorSummary {
   const status = text(row.status)
   const admission = text(row.admission_decision)
   const target = text(row.machine_target)
@@ -656,29 +455,17 @@ export function deriveResearchCandidateOperatorSummary(row: Record<string, unkno
   const ideaId = text(firstValue(row.admitted_idea_id, row.idea_id))
   const projectId = text(row.project_id)
   const promoted = ideaId !== '—' || projectId !== '—'
-  const rejected = status === 'rejected' || admission.toLowerCase().includes('reject')
-  const admitted = status === 'admitted' || admission.toLowerCase().includes('admit')
-  const attention = rejected || row.manual_review_required === true || row.operator_attention === true
-  const whyNotPromoted = rejected
-    ? 'admission rejected — keep as negative evidence'
-    : !admitted
-      ? 'not admitted — review facility scoring before promote'
-      : promoted
-        ? ideaId !== '—'
-          ? `promoted to idea ${shortId(ideaId)}`
-          : `linked project ${shortId(projectId)}`
-        : 'admitted but not yet promoted to intake/queue'
+  const rejected = researchCandidateRejected(status, admission)
+  const admitted = researchCandidateAdmitted(status, admission)
+  const attention = researchCandidateNeedsAttention(row, rejected)
+  const promotePath = researchCandidatePromotePath(rejected, admitted, promoted, ideaId, projectId)
   const entityLinks: EntityLink[] = []
-  pushLink(entityLinks, entityLink('project', projectId !== '—' ? projectId : null, row.title))
+  pushLink(entityLinks, entityLink('project', projectId === '—' ? null : projectId, row.title))
 
   return {
     state: operatorStageLabel(row, status),
     context: `Admission ${admission}; target ${target}; facility status ${status}.`,
-    next: operatorNextStep(row, rejected
-      ? 'No launch action is needed; keep this as negative evidence unless a new follow-up is warranted.'
-      : admitted
-        ? 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
-        : 'Review admission, source lineage, and machine target before promoting or queuing work.'),
+    next: operatorNextStep(row, researchCandidateNextStepMessage(rejected, admitted)),
     entityLinks,
     sections: [
       {
@@ -697,7 +484,7 @@ export function deriveResearchCandidateOperatorSummary(row: Record<string, unkno
           { label: 'admission decision', value: admission },
           { label: 'admitted idea', value: ideaId },
           { label: 'linked project', value: projectId },
-          { label: 'promote path', value: whyNotPromoted },
+          { label: 'promote path', value: promotePath },
           { label: 'selection rank', value: text(row.selection_rank) },
         ],
       },
@@ -710,6 +497,6 @@ export function deriveResearchCandidateOperatorSummary(row: Record<string, unkno
         ],
       },
     ],
-    actionNeeded: attention ? (rejected ? 'Candidate rejected at admission.' : 'Admission needs operator review before promote.') : null,
+    actionNeeded: researchCandidateActionNeeded(attention, rejected),
   }
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -69,14 +70,22 @@ def test_sonar_workflow_isolates_coverage_from_secret_bearing_scan_and_uses_node
     )
 
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in workflow
-    assert "uv run coverage run -m pytest -q" in workflow
-    assert "uv run coverage xml -o coverage.xml" in workflow
+    assert 'uv run pytest -q -n auto -m "not repo_root"' in workflow
+    assert 'uv run pytest -q -m "repo_root"' in workflow
+    assert "--cov-report=xml:coverage.xml" in workflow
     assert "coverage:" in workflow
     assert "sonar:" in workflow
     assert "needs: coverage" in workflow
-    assert "actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808" in workflow
-    assert "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16" in workflow
+    assert (
+        "actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808" in workflow
+    )
+    assert (
+        "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16" in workflow
+    )
     assert "persist-credentials: false" in workflow
+    sonar_index = workflow.index("SonarSource/sonarqube-scan-action")
+    assert workflow.index("--cov-report=xml:coverage.xml") < sonar_index
+    assert workflow.index("actions/download-artifact") < sonar_index
     assert "actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3" in workflow
     assert (
         "SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9"
@@ -93,3 +102,27 @@ def test_sonar_accepts_internal_http_for_research_control_plane() -> None:
     http_rule = props.get("sonar.issue.ignore.multicriteria.httpInternal.ruleKey", "")
     assert "python:S5332" in http_rule
     assert "typescript:S5332" in http_rule
+
+
+def test_sonar_cognitive_complexity_policy_thresholds() -> None:
+    """S3776 production threshold is 15; higher bands are documented review guidelines."""
+    props = _properties()
+    assert props["enoch.cognitiveComplexity.productionThreshold"] == "15"
+    assert props["enoch.cognitiveComplexity.scriptGuidelineThreshold"] == "20"
+    assert props["enoch.cognitiveComplexity.testGuidelineThreshold"] == "25"
+    assert props["enoch.cognitiveComplexity.blockThreshold"] == "25"
+    text = (ROOT / "sonar-project.properties").read_text(encoding="utf-8")
+    assert "python:S3776" in text
+    assert "typescript:S3776" in text
+    assert "total cognitive complexity" in text.lower()
+
+
+def test_sonarlint_s3776_threshold_is_fifteen_for_python_and_typescript() -> None:
+    settings = json.loads(
+        (ROOT / ".vscode" / "settings.json").read_text(encoding="utf-8")
+    )
+    rules = settings["sonarlint.rules"]
+    assert rules["python:S3776"]["parameters"]["threshold"] == 15
+    assert rules["typescript:S3776"]["parameters"]["threshold"] == 15
+    assert rules["python:S3776"]["level"] == "on"
+    assert rules["typescript:S3776"]["level"] == "on"

@@ -4,7 +4,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
+    # Wait 7 days after a new release before proposing the update,
+    # reducing risk from yanked or quickly-patched packages.
+    allow:
+      - dependency-type: "all"

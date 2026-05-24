@@ -93,6 +93,29 @@ export const paperListFixture = {
   page: { returned: 1, has_more: false },
 }
 
+export const intakeIdeasFixture = {
+  ok: true,
+  generated_at: '2026-05-21T12:00:00Z',
+  operator_summary: 'One admitted idea is queued for dispatch review.',
+  latest_sync: { source: 'supabase', status: 'ok', observed_at: '2026-05-21T11:55:00Z', authority: 'ideas' },
+  projection_counts: { queued: 1, admitted: 1 },
+  queued_projection: [{
+    idea_id: 'idea-operator',
+    title: 'Operator Idea',
+    idea_status: 'admitted',
+    queue_status: 'queued',
+    source_kind: 'supabase_idea',
+    machine_target: 'gb10',
+    project_id: 'project-operator',
+    operator_stage: 'ready_queue',
+    operator_detail_stage: 'idea_queued',
+    operator_next_step: 'Review queue placement before dispatch.',
+    operator_stage_label: 'Queued for lane',
+  }],
+  skipped_reasons: { below_threshold: 2 },
+  recent_events: [],
+}
+
 export const eventListFixture = {
   rows: [{
     event_id: 'evt-1',

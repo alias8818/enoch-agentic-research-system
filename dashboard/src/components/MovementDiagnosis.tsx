@@ -2,7 +2,7 @@ import { dashboardV2Href } from '../routes'
 import type { MovementDiagnosis as MovementDiagnosisType } from '../types'
 import { resolveMovementPanelCopy } from './movementPanelCopy'
 
-export function MovementDiagnosis({ diagnosis }: { diagnosis: MovementDiagnosisType }) {
+export function MovementDiagnosis({ diagnosis }: Readonly<{ diagnosis: MovementDiagnosisType }>) {
   const blockers = diagnosis.blockers || []
   const { title, subtitle } = resolveMovementPanelCopy(diagnosis)
   return (

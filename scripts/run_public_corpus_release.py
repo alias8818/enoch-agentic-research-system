@@ -12,11 +12,62 @@ from __future__ import annotations
 
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from enoch_control_plane.url_safety import secure_default_service_url
+
+CONTROL_PLANE_PORT = 8787
+# Documented on-prem control-plane host for the research-facility LAN.
+# Override via ENOCH_WORKER_HOST (host only) or ENOCH_CONTROL_URL (full base URL).
+LAB_CONTROL_PLANE_HOST = "192.168.1.166"  # NOSONAR python:S1313
+
+
+def _default_control_plane_host() -> str:
+    explicit = os.environ.get("ENOCH_WORKER_HOST", "").strip()
+    if explicit:
+        return explicit
+    try:
+        hostname = socket.gethostname().strip()
+    except OSError:
+        hostname = ""
+    if hostname and hostname not in {"localhost", "localhost.localdomain"}:
+        return hostname
+    return LAB_CONTROL_PLANE_HOST
+
+
+def default_control_url() -> str:
+    for env_name in ("ENOCH_CONTROL_URL", "ENOCH_CONTROL_PLANE_URL"):
+        explicit = os.environ.get(env_name, "").strip()
+        if explicit:
+            return explicit
+    host = _default_control_plane_host()
+    return secure_default_service_url(host, CONTROL_PLANE_PORT)
+
+
+def default_generated_manifest_path() -> Path:
+    override = os.environ.get("ENOCH_ECOSYSTEM_MANIFEST")
+    if override:
+        return Path(override)
+    fd, path = tempfile.mkstemp(
+        prefix="enoch-ecosystem.generated.",
+        suffix=".json",
+    )
+    os.close(fd)
+    return Path(path)
+
+
+def _default_ledger_sql_output() -> str:
+    fd, path = tempfile.mkstemp(
+        prefix="enoch-sync-corpus-imports.",
+        suffix=".sql",
+    )
+    os.close(fd)
+    return path
 
 
 @dataclass(frozen=True)
@@ -25,6 +76,48 @@ class Step:
     cmd: list[str]
     cwd: Path
     env: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class ReleasePaths:
+    system: Path
+    corpus: Path
+    docs: Path
+    promising: Path
+    profile_site: Path
+    owner_profile: Path
+    personal_site: Path
+    hf_export: Path
+
+
+def _release_paths(root: Path) -> ReleasePaths:
+    root = root.resolve()
+    return ReleasePaths(
+        system=root / "enoch-agentic-research-system",
+        corpus=root / "enoch-ai-research-corpus",
+        docs=root / "enoch-docs",
+        promising=root / "enoch-promising-signals",
+        profile_site=root / "alias8818.github.io",
+        owner_profile=root / "alias8818",
+        personal_site=root / "jeremyblankenship.dev",
+        hf_export=root / "hf-enoch-ai-research-corpus",
+    )
+
+
+def _control_token(args: argparse.Namespace) -> str:
+    return (
+        args.token
+        or os.environ.get("ENOCH_CONTROL_TOKEN")
+        or os.environ.get("ENOCH_CONTROL_PLANE_TOKEN")
+        or ""
+    )
+
+
+def _require_control_token(token: str, flag: str) -> None:
+    if not token:
+        raise SystemExit(
+            f"{flag} requires --token or ENOCH_CONTROL_TOKEN/ENOCH_CONTROL_PLANE_TOKEN"
+        )
 
 
 SECRET_ARG_NAMES = {"--token", "--database-url", "--db-url", "--ledger-database-url"}
@@ -55,124 +148,113 @@ def run(step: Step, *, dry_run: bool = False) -> None:
     subprocess.run(step.cmd, cwd=str(step.cwd), env=env, check=True)
 
 
-def build_steps(args: argparse.Namespace) -> list[Step]:
-    root = args.root.resolve()
-    system = root / "enoch-agentic-research-system"
-    corpus = root / "enoch-ai-research-corpus"
-    docs = root / "enoch-docs"
-    promising = root / "enoch-promising-signals"
-    profile_site = root / "alias8818.github.io"
-    owner_profile = root / "alias8818"
-    personal_site = root / "jeremyblankenship.dev"
-    hf_export = root / "hf-enoch-ai-research-corpus"
-    generated_manifest = Path(args.generated_manifest)
-    token = (
-        args.token
-        or os.environ.get("ENOCH_CONTROL_TOKEN")
-        or os.environ.get("ENOCH_CONTROL_PLANE_TOKEN")
-        or ""
-    )
-    steps: list[Step] = []
-
-    if args.import_from_control_plane:
-        if not token:
-            raise SystemExit(
-                "--import-from-control-plane requires --token or ENOCH_CONTROL_TOKEN/ENOCH_CONTROL_PLANE_TOKEN"
-            )
-        import_cmd = [
-            sys.executable,
-            "scripts/import_from_control_plane.py",
-            "--control-url",
-            args.control_url,
-            "--paper-status",
-            args.paper_status,
-            "--review-status",
-            args.review_status,
-        ]
-        if args.import_limit:
-            import_cmd.extend(["--limit", str(args.import_limit)])
-        if args.import_force:
-            import_cmd.append("--force")
-        if args.allow_title_duplicates:
-            import_cmd.append("--allow-title-duplicates")
-        steps.append(
-            Step(
-                "import finalized papers",
-                import_cmd,
-                corpus,
-                env={"ENOCH_CONTROL_TOKEN": token},
-            )
+def _import_steps(
+    args: argparse.Namespace, paths: ReleasePaths, token: str
+) -> list[Step]:
+    if not args.import_from_control_plane:
+        return []
+    _require_control_token(token, "--import-from-control-plane")
+    import_cmd = [
+        sys.executable,
+        "scripts/import_from_control_plane.py",
+        "--control-url",
+        args.control_url,
+        "--paper-status",
+        args.paper_status,
+        "--review-status",
+        args.review_status,
+    ]
+    if args.import_limit:
+        import_cmd.extend(["--limit", str(args.import_limit)])
+    if args.import_force:
+        import_cmd.append("--force")
+    if args.allow_title_duplicates:
+        import_cmd.append("--allow-title-duplicates")
+    return [
+        Step(
+            "import finalized papers",
+            import_cmd,
+            paths.corpus,
+            env={"ENOCH_CONTROL_TOKEN": token},
         )
+    ]
 
-    steps.extend(
-        [
-            Step(
-                "audit strict claim evidence",
-                [sys.executable, "scripts/audit_claim_evidence_contract.py"],
-                corpus,
-            ),
-            Step(
-                "scan corpus quality",
-                [sys.executable, "scripts/quality_scan.py"],
-                corpus,
-            ),
-            Step(
-                "build corpus index", [sys.executable, "scripts/build_index.py"], corpus
-            ),
-            Step(
-                "validate corpus trust surfaces",
-                [sys.executable, "scripts/validate_public_trust_surfaces.py"],
-                corpus,
-            ),
-            Step(
-                "generate ecosystem manifest",
-                [
-                    sys.executable,
-                    "scripts/generate_ecosystem_manifest.py",
-                    "--corpus",
-                    str(corpus),
-                    "--docs",
-                    str(docs),
-                    "--promising",
-                    str(promising),
-                    "--output",
-                    str(generated_manifest),
-                ],
-                system,
-            ),
-            Step(
-                "validate public release",
-                [
-                    sys.executable,
-                    "scripts/validate_public_release.py",
-                    "--system",
-                    str(system),
-                    "--corpus",
-                    str(corpus),
-                    "--docs",
-                    str(docs),
-                    "--promising",
-                    str(promising),
-                    "--profile",
-                    str(profile_site),
-                    "--owner-profile",
-                    str(owner_profile),
-                    "--personal-site",
-                    str(personal_site),
-                    "--generated-manifest",
-                    str(generated_manifest),
-                ],
-                system,
-            ),
-        ]
-    )
 
+def _baseline_release_steps(
+    paths: ReleasePaths, generated_manifest: Path
+) -> list[Step]:
+    return [
+        Step(
+            "audit strict claim evidence",
+            [sys.executable, "scripts/audit_claim_evidence_contract.py"],
+            paths.corpus,
+        ),
+        Step(
+            "scan corpus quality",
+            [sys.executable, "scripts/quality_scan.py"],
+            paths.corpus,
+        ),
+        Step(
+            "build corpus index",
+            [sys.executable, "scripts/build_index.py"],
+            paths.corpus,
+        ),
+        Step(
+            "validate corpus trust surfaces",
+            [sys.executable, "scripts/validate_public_trust_surfaces.py"],
+            paths.corpus,
+        ),
+        Step(
+            "generate ecosystem manifest",
+            [
+                sys.executable,
+                "scripts/generate_ecosystem_manifest.py",
+                "--corpus",
+                str(paths.corpus),
+                "--docs",
+                str(paths.docs),
+                "--promising",
+                str(paths.promising),
+                "--output",
+                str(generated_manifest),
+            ],
+            paths.system,
+        ),
+        Step(
+            "validate public release",
+            [
+                sys.executable,
+                "scripts/validate_public_release.py",
+                "--system",
+                str(paths.system),
+                "--corpus",
+                str(paths.corpus),
+                "--docs",
+                str(paths.docs),
+                "--promising",
+                str(paths.promising),
+                "--profile",
+                str(paths.profile_site),
+                "--owner-profile",
+                str(paths.owner_profile),
+                "--personal-site",
+                str(paths.personal_site),
+                "--generated-manifest",
+                str(generated_manifest),
+            ],
+            paths.system,
+        ),
+    ]
+
+
+def _hf_steps(args: argparse.Namespace, paths: ReleasePaths) -> list[Step]:
+    steps: list[Step] = []
     if args.build_hf:
         steps.append(
             Step(
                 "build Hugging Face export",
-                [sys.executable, "build_from_corpus.py", "--corpus", str(corpus)],
-                hf_export,
+                [sys.executable, "build_from_corpus.py", "--corpus", str(paths.corpus)],
+                paths.hf_export,
             )
         )
     if args.publish_hf:
@@ -180,102 +262,123 @@ def build_steps(args: argparse.Namespace) -> list[Step]:
             Step(
                 "publish Hugging Face export",
                 [sys.executable, "publish_to_huggingface.py"],
-                hf_export,
+                paths.hf_export,
             )
         )
+    return steps
 
-    if args.reconcile_control_plane:
-        if not token:
-            raise SystemExit(
-                "--reconcile-control-plane requires --token or ENOCH_CONTROL_TOKEN/ENOCH_CONTROL_PLANE_TOKEN"
-            )
-        reconcile_cmd = [
-            sys.executable,
-            "scripts/reconcile_paper_ledgers.py",
-            "--control-url",
-            args.control_url,
-            "--corpus",
-            str(corpus),
-            "--require-synced",
-            "--include-draft-candidate",
-            "--verbose",
-        ]
-        steps.append(
-            Step(
-                "reconcile control-plane papers",
-                reconcile_cmd,
-                system,
-                env={"ENOCH_CONTROL_TOKEN": token},
-            )
+
+def _reconcile_steps(
+    args: argparse.Namespace, paths: ReleasePaths, token: str
+) -> list[Step]:
+    if not args.reconcile_control_plane:
+        return []
+    _require_control_token(token, "--reconcile-control-plane")
+    reconcile_cmd = [
+        sys.executable,
+        "scripts/reconcile_paper_ledgers.py",
+        "--control-url",
+        args.control_url,
+        "--corpus",
+        str(paths.corpus),
+        "--require-synced",
+        "--include-draft-candidate",
+        "--verbose",
+    ]
+    return [
+        Step(
+            "reconcile control-plane papers",
+            reconcile_cmd,
+            paths.system,
+            env={"ENOCH_CONTROL_TOKEN": token},
         )
+    ]
 
-    if args.sync_corpus_ledger:
-        sync_cmd = [
-            sys.executable,
-            "scripts/sync_corpus_import_ledger.py",
-            "--corpus",
-            str(corpus),
-            "--prune-stale",
-        ]
-        if args.ledger_database_url:
-            sync_cmd.append("--apply")
-            steps.append(
+
+def _ledger_sync_with_database(
+    sync_cmd: list[str], args: argparse.Namespace, paths: ReleasePaths
+) -> list[Step]:
+    sync_cmd = [*sync_cmd, "--apply"]
+    db_env = {"ENOCH_SUPABASE_DATABASE_URL": args.ledger_database_url}
+    return [
+        Step("sync Supabase corpus_imports", sync_cmd, paths.system, env=db_env),
+        Step(
+            "validate Supabase corpus_imports",
+            [
+                sys.executable,
+                "scripts/validate_corpus_import_ledger.py",
+                "--corpus",
+                str(paths.corpus),
+            ],
+            paths.system,
+            env=db_env,
+        ),
+    ]
+
+
+def _ledger_sync_with_sql_file(
+    sync_cmd: list[str], args: argparse.Namespace, paths: ReleasePaths
+) -> list[Step]:
+    sql_path = Path(args.ledger_sql_output)
+    sync_cmd = [*sync_cmd, "--sql-output", str(sql_path)]
+    steps = [Step("render Supabase corpus_imports sync SQL", sync_cmd, paths.system)]
+    if args.ledger_use_linked:
+        steps.extend(
+            [
                 Step(
-                    "sync Supabase corpus_imports",
-                    sync_cmd,
-                    system,
-                    env={"ENOCH_SUPABASE_DATABASE_URL": args.ledger_database_url},
-                )
-            )
-            steps.append(
+                    "apply Supabase corpus_imports sync SQL",
+                    ["supabase", "db", "query", "--linked", "-f", str(sql_path)],
+                    paths.system,
+                ),
                 Step(
                     "validate Supabase corpus_imports",
                     [
                         sys.executable,
                         "scripts/validate_corpus_import_ledger.py",
                         "--corpus",
-                        str(corpus),
+                        str(paths.corpus),
+                        "--linked",
                     ],
-                    system,
-                    env={"ENOCH_SUPABASE_DATABASE_URL": args.ledger_database_url},
-                )
-            )
-        else:
-            sql_path = Path(args.ledger_sql_output)
-            sync_cmd.extend(["--sql-output", str(sql_path)])
-            steps.append(
-                Step("render Supabase corpus_imports sync SQL", sync_cmd, system)
-            )
-            if args.ledger_use_linked:
-                steps.append(
-                    Step(
-                        "apply Supabase corpus_imports sync SQL",
-                        ["supabase", "db", "query", "--linked", "-f", str(sql_path)],
-                        system,
-                    )
-                )
-                steps.append(
-                    Step(
-                        "validate Supabase corpus_imports",
-                        [
-                            sys.executable,
-                            "scripts/validate_corpus_import_ledger.py",
-                            "--corpus",
-                            str(corpus),
-                            "--linked",
-                        ],
-                        system,
-                    )
-                )
-            else:
-                steps.append(
-                    Step(
-                        "manual Supabase corpus_imports sync required",
-                        ["echo", f"Run: supabase db query --linked -f {sql_path}"],
-                        system,
-                    )
-                )
+                    paths.system,
+                ),
+            ]
+        )
+        return steps
+    steps.append(
+        Step(
+            "manual Supabase corpus_imports sync required",
+            ["echo", f"Run: supabase db query --linked -f {sql_path}"],
+            paths.system,
+        )
+    )
+    return steps
 
+
+def _ledger_sync_steps(args: argparse.Namespace, paths: ReleasePaths) -> list[Step]:
+    if not args.sync_corpus_ledger:
+        return []
+    sync_cmd = [
+        sys.executable,
+        "scripts/sync_corpus_import_ledger.py",
+        "--corpus",
+        str(paths.corpus),
+        "--prune-stale",
+    ]
+    if args.ledger_database_url:
+        return _ledger_sync_with_database(sync_cmd, args, paths)
+    return _ledger_sync_with_sql_file(sync_cmd, args, paths)
+
+
+def build_steps(args: argparse.Namespace) -> list[Step]:
+    paths = _release_paths(args.root)
+    generated_manifest = Path(args.generated_manifest)
+    token = _control_token(args)
+    steps: list[Step] = []
+    steps.extend(_import_steps(args, paths, token))
+    steps.extend(_baseline_release_steps(paths, generated_manifest))
+    steps.extend(_hf_steps(args, paths))
+    steps.extend(_reconcile_steps(args, paths, token))
+    steps.extend(_ledger_sync_steps(args, paths))
     return steps
 
 
@@ -286,11 +389,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--control-url",
-        default=os.environ.get("ENOCH_CONTROL_URL", "http://192.168.1.166:8787"),
+        default=default_control_url(),
     )
     parser.add_argument("--token", default="")
     parser.add_argument(
-        "--generated-manifest", default="/tmp/enoch-ecosystem.generated.json"
+        "--generated-manifest",
+        default=None,
+        help="Path for ecosystem manifest output (default: private temp file).",
     )
     parser.add_argument(
         "--import-from-control-plane",
@@ -332,7 +437,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Apply ledger sync through Supabase linked CLI when no DB URL is available.",
     )
     parser.add_argument(
-        "--ledger-sql-output", default="/tmp/enoch-sync-corpus-imports.sql"
+        "--ledger-sql-output",
+        default=_default_ledger_sql_output,
     )
     parser.add_argument(
         "--dry-run",
@@ -340,6 +446,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Print the planned commands without running them.",
     )
     args = parser.parse_args(argv)
+    if args.generated_manifest is None:
+        args.generated_manifest = str(default_generated_manifest_path())
     if args.publish_hf:
         args.build_hf = True
     return args
