@@ -50,7 +50,11 @@ def _safe_send_signal(
     active_proc = proc if proc is not None else psutil.Process(pid)
     if ProcessTracker._same_process(active_proc, tracked) is not True:
         raise ProcessLookupError(pid)
-    active_proc.send_signal(sig)
+    send_signal = getattr(active_proc, "send_signal", None)
+    if callable(send_signal):
+        send_signal(sig)
+        return
+    os.kill(pid, sig)
 
 
 class ProcessTracker:
