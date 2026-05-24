@@ -5938,6 +5938,65 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "worker_preflight stale or missing", status["dispatch_blockers"]
             )
 
+    def test_dashboard_preflight_records_named_worker_target_observation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        }
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = WorkerPreflightResponse(
+                ok=True,
+                target="http://cpu-proxmox-1:8787",
+                summary="cpu worker checked",
+                checks=[
+                    WorkerPreflightCheck(
+                        name="wake_gate_healthz", ok=True, detail="ok", data={}
+                    ),
+                    WorkerPreflightCheck(
+                        name="worker_no_live_runs",
+                        ok=True,
+                        detail="active_or_waiting=0, live=0",
+                        data={"active_or_waiting": 0, "live": 0},
+                    ),
+                ],
+            )
+
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight",
+                return_value=response,
+            ) as preflight:
+                api_response = client.post(
+                    "/control/api/preflight",
+                    headers=headers,
+                    json={"machine_target": "cpu-proxmox-1"},
+                )
+
+            self.assertEqual(api_response.status_code, 200)
+            preflight.assert_called_once()
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            global_observation = store.latest_dashboard_observation(
+                source="worker_preflight"
+            )
+            scoped = store.latest_dashboard_observation(
+                source="worker_preflight", scope="lane:http://cpu-proxmox-1:8787"
+            )
+            self.assertIsNotNone(global_observation)
+            self.assertIsNotNone(scoped)
+            self.assertEqual(scoped.payload["target"], "http://cpu-proxmox-1:8787")
+
     def test_dashboard_status_refreshes_worker_preflight_when_requested(
         self,
     ) -> None:
