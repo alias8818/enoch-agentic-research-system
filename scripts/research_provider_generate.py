@@ -301,7 +301,11 @@ def candidates_from_provider_response(
                 "decision artifact",
             ],
         )
-        row.setdefault("machine_target", default_machine)
+        # The controller chooses default_machine from the active lane-feed
+        # pressure. Provider output is untrusted for routing: if a model emits a
+        # stale or generic machine_target, honoring it starves the intended lane
+        # and can send CPU-only work back to the GB10/default lane.
+        row["machine_target"] = default_machine
         row.setdefault("model", default_model)
         row.setdefault("sandbox", default_sandbox)
         row["provider"] = provider

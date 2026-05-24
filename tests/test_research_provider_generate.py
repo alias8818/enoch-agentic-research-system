@@ -91,6 +91,33 @@ def test_provider_response_becomes_research_candidate_with_source_record() -> No
     assert row["machine_target"] == "gb10"
 
 
+def test_provider_response_enforces_requested_default_machine_target() -> None:
+    payload = _provider_payload()
+    candidate = json.loads(payload["choices"][0]["message"]["content"])["candidates"][0]
+    candidate["machine_target"] = "research-facility-node"
+    payload["choices"][0]["message"]["content"] = json.dumps(
+        {"candidates": [candidate]}
+    )
+
+    candidates = research_provider_generate.candidates_from_provider_response(
+        payload,
+        provider="synthetic.new",
+        provider_model="hf:zai-org/GLM-5.1",
+        topic="Lane feed pressure: generate bounded work for machine_target=cpu-proxmox-1",
+        temperature=0.8,
+        seed="seed-override-machine",
+        default_machine="cpu-proxmox-1",
+        default_model="gpt-5.5",
+        default_sandbox="danger-full-access",
+    )
+
+    assert candidates[0]["machine_target"] == "cpu-proxmox-1"
+    assert (
+        candidates[0]["raw_candidate_json"]["provider_candidate"]["machine_target"]
+        == "research-facility-node"
+    )
+
+
 def test_provider_response_with_zero_usable_candidates_fails_closed() -> None:
     payload = {
         "id": "cmpl-empty",
