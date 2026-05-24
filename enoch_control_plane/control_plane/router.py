@@ -31,6 +31,11 @@ from ..enoch_core.logic import (
 from ..enoch_core.store import IdempotencyConflict
 from ..models import GateCallback, utc_now
 from ..observability import current_rss_mib, peak_rss_mib
+from ..research_provider_defaults import (
+    DEFAULT_ALLOWED_RESEARCH_MODELS,
+    DEFAULT_RESEARCH_PROVIDER_BASE_URL,
+    default_research_provider_openai_base_url,
+)
 from ..timeutils import parse_utc_datetime
 from .paper_writer import write_paper_artifacts
 from .router_http_prepare_bindings_src import _HTTP_PREPARE_BINDINGS_SRC
@@ -497,7 +502,12 @@ def _resolve_research_cycle_params(
         ).rstrip("/"),
         provider_openai_base_url=os.environ.get(
             "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
-            f"{os.environ.get('ENOCH_RESEARCH_PROVIDER_BASE_URL', DEFAULT_RESEARCH_PROVIDER_BASE_URL).rstrip('/')}/openai/v1",
+            default_research_provider_openai_base_url(
+                os.environ.get(
+                    "ENOCH_RESEARCH_PROVIDER_BASE_URL",
+                    DEFAULT_RESEARCH_PROVIDER_BASE_URL,
+                )
+            ),
         ).rstrip("/"),
         generation_timeout=bounded_int("generation_timeout", 240, 10, 300),
         generation_max_tokens=bounded_int(
@@ -537,18 +547,6 @@ def _active_lane_signature(active_items: list[dict[str, Any]]) -> str:
 
 
 DASHBOARD_V2_DIST_PATH = Path(__file__).with_name("dashboard_v2")
-
-# Single source of truth for allowed research provider/models (kills S1192 duplication
-# in _resolve_research_provider_model getenv default + fallback list + provider default).
-# Update here when the allow-list changes; the resolver and any callers stay in sync.
-DEFAULT_ALLOWED_RESEARCH_MODELS: list[str] = [
-    "hf:moonshotai/Kimi-K2.6",
-    "hf:zai-org/GLM-5.1",
-]
-
-# Centralized default for the top remaining S1192 duplication (synthetic research
-# provider base URL used in getenv defaults and f-string fallbacks).
-DEFAULT_RESEARCH_PROVIDER_BASE_URL = "https://synthetic.int.exe.xyz"
 
 # Centralized reason constant for the top remaining S1192 duplication
 # (worker preflight error paths and messages in router.py).

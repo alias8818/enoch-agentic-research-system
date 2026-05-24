@@ -18,12 +18,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from enoch_control_plane.research_provider_defaults import (
+    DEFAULT_RESEARCH_PROVIDER_MODEL,
+    default_research_provider_openai_base_url,
+)
 from enoch_control_plane.url_safety import validate_http_url
 
 from scripts import research_facility_scan
 
-DEFAULT_OPENAI_BASE_URL = "https://api.synthetic.new/openai/v1"
-DEFAULT_MODEL = "hf:zai-org/GLM-5.1"
+DEFAULT_OPENAI_BASE_URL = default_research_provider_openai_base_url()
+DEFAULT_MODEL = DEFAULT_RESEARCH_PROVIDER_MODEL
 DEFAULT_MAX_TOKENS = 8000
 PROMPT_VERSION = "research_provider_generate_v2"
 

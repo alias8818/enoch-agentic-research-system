@@ -438,6 +438,35 @@ class MovementDiagnosisTests(unittest.TestCase):
         self.assertEqual(diagnosis["primary_reason"], "Queue is paused.")
         self.assertEqual(diagnosis["blockers"][0]["kind"], "queue_paused")
 
+    def test_global_pause_suppresses_lane_dispatch_actions(self) -> None:
+        diagnosis = movement_diagnosis(
+            flags={"queue_paused": True, "maintenance_mode": True},
+            worker_lanes=[
+                {
+                    "machine_target": "cpu-proxmox-1",
+                    "worker_role": "cpu_worker",
+                    "status": "idle",
+                    "queued_count": 3,
+                    "dispatch_available": True,
+                },
+                {
+                    "machine_target": "gb10",
+                    "worker_role": "gpu_worker",
+                    "status": "idle",
+                    "queued_count": 2,
+                    "dispatch_available": True,
+                },
+            ],
+            paper_pipeline={"not_writable_by_decision_gate": 10},
+            investigation_pipeline={"ranked_followup_ready": 1},
+        )
+
+        self.assertEqual(diagnosis["status"], "blocked")
+        kinds = [item["kind"] for item in diagnosis["blockers"]]
+        self.assertEqual(kinds[:2], ["maintenance_mode", "queue_paused"])
+        self.assertNotIn("dispatch_available", kinds)
+        self.assertNotIn("followup_ready", kinds)
+
     def test_open_lane_is_actionable_not_blocked(self) -> None:
         diagnosis = movement_diagnosis(
             flags={"queue_paused": False, "maintenance_mode": False},

@@ -24,6 +24,11 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
+from enoch_control_plane.research_provider_defaults import (
+    DEFAULT_RESEARCH_PROVIDER_BASE_URL,
+    DEFAULT_RESEARCH_PROVIDER_MODEL,
+    default_research_provider_openai_base_url,
+)
 from enoch_control_plane.timeutils import parse_utc_datetime
 from scripts import (
     research_facility_maintenance,
@@ -43,7 +48,7 @@ ADMISSION_DECISION_BY_STATUS = {
     "rewrite_needed": "rewrite_needed",
     "deferred": "deferred",
 }
-DEFAULT_MODEL = "hf:zai-org/GLM-5.1"
+DEFAULT_MODEL = DEFAULT_RESEARCH_PROVIDER_MODEL
 PROMPT_VERSION = "research_facility_llm_review_v1"
 SEARCH_PATH_ENOCH = "set search_path to enoch, public"
 
@@ -691,14 +696,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--provider-base-url",
         default=os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", DEFAULT_RESEARCH_PROVIDER_BASE_URL
         ),
     )
     parser.add_argument(
         "--openai-base-url",
         default=os.environ.get(
             "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
-            "https://synthetic.int.exe.xyz/openai/v1",
+            default_research_provider_openai_base_url(),
         ),
     )
     parser.add_argument(

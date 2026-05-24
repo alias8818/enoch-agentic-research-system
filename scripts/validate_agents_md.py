@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -22,6 +23,7 @@ AGENTS_MD = REPO_ROOT / "AGENTS.md"
 MAKEFILE = REPO_ROOT / "Makefile"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 CONFIG_EXAMPLE = REPO_ROOT / "config.example.json"
+BACKTICK_CONTENT_PATTERN = r"`([^`]+)`"
 
 errors: list[str] = []
 
@@ -65,7 +67,7 @@ def check_file_references(agents_content: str) -> None:
     stripped = _strip_code_blocks(agents_content)
 
     # Match backtick-quoted paths that look like project-relative references
-    for match in re.finditer(r"`([^`]+)`", stripped):
+    for match in re.finditer(BACKTICK_CONTENT_PATTERN, stripped):
         ref = match.group(1).strip()
         # Skip URLs
         if ref.startswith("http") or ref.startswith("https"):
@@ -112,7 +114,7 @@ def check_config_fields(agents_content: str) -> None:
     section_text = required_section.group(1)
 
     # Find backtick-quoted field names in the required config section
-    for match in re.finditer(r"`([^`]+)`", section_text):
+    for match in re.finditer(BACKTICK_CONTENT_PATTERN, section_text):
         field = match.group(1)
         # Strip trailing description text after the field name
         field = field.split()[0] if " " in field else field
@@ -122,13 +124,15 @@ def check_config_fields(agents_content: str) -> None:
             )
 
 
-def check_ci_workflows(agents_content: str) -> None:
+def _referenced_workflow_files(agents_content: str) -> list[str]:
+    """Return CI workflow files referenced in AGENTS.md content."""
+    return re.findall(r"\.github/workflows/([a-zA-Z0-9_-]+\.yml)", agents_content)
+
+
+def check_ci_workflows(workflow_files: Iterable[str]) -> None:
     """Verify CI workflow files referenced in AGENTS.md exist."""
     workflows_dir = REPO_ROOT / ".github" / "workflows"
-    for match in re.finditer(
-        r"\.github/workflows/([a-zA-Z0-9_-]+\.yml)", agents_content
-    ):
-        workflow_file = match.group(1)
+    for workflow_file in workflow_files:
         if not (workflows_dir / workflow_file).exists():
             errors.append(
                 f"CI workflow '.github/workflows/{workflow_file}' referenced in AGENTS.md does not exist"
@@ -154,7 +158,7 @@ def check_dependencies(agents_content: str) -> None:
 
     # Extract backtick-quoted package names from the section.
     # Handle forms like `psycopg[binary]` and `psutil` / `pynvml`.
-    for match in re.finditer(r"`([^`]+)`", section_text):
+    for match in re.finditer(BACKTICK_CONTENT_PATTERN, section_text):
         raw = match.group(1)
         # Strip extraspecifiers like [binary] and take the base package name
         base = re.split(r"[\[/\s]", raw)[0]
@@ -184,7 +188,7 @@ def main() -> int:
     check_makefile_targets(agents_content)
     check_file_references(agents_content)
     check_config_fields(agents_content)
-    check_ci_workflows(agents_content)
+    check_ci_workflows(_referenced_workflow_files(agents_content))
     check_dependencies(agents_content)
     check_markdown_links(agents_content)
 

@@ -8,7 +8,6 @@ import type {
   AutomationListRow,
   EventListRow,
   IntakeIdeasResponse,
-  IntakeIdeaProjectionRow,
   PagedRows,
   PaperListRow,
   ProjectListRow,
@@ -26,6 +25,7 @@ const pageMetaSchema = z.object({
 
 /** SQL LEFT JOINs and idle projects may send explicit null instead of omitting keys. */
 const apiString = z.string().nullish()
+const apiId = z.union([z.string(), z.number()]).nullish()
 
 function pagedRowsSchema<T extends z.ZodTypeAny>(rowSchema: T) {
   return z.object({
@@ -90,7 +90,7 @@ export const paperListRowSchema = z.object({
   paper_status: apiString,
   review_status: apiString,
   corpus_imported: z.boolean().optional(),
-  corpus_import_id: z.string().optional(),
+  corpus_import_id: apiId,
   artifact_paths_present: z.record(z.unknown()).optional(),
   updated_at: z.string().optional(),
   age_seconds: z.number().optional(),
@@ -129,27 +129,27 @@ export const automationDetailSchema = z.object({
 const topActionSchema = z.object({
   kind: z.string(),
   priority: z.number().optional(),
-  tone: z.string().optional(),
+  tone: apiString,
   title: z.string(),
-  summary: z.string().optional(),
-  action_label: z.string().optional(),
-  action_hash: z.string().optional(),
-  lane: z.string().optional(),
-  machine_target: z.string().optional(),
-  project_id: z.string().optional(),
-  feed_action: z.string().optional(),
-  blocker_kind: z.string().optional(),
-  target: z.record(z.unknown()).optional(),
+  summary: apiString,
+  action_label: apiString,
+  action_hash: apiString,
+  lane: apiString,
+  machine_target: apiString,
+  project_id: apiString,
+  feed_action: apiString,
+  blocker_kind: apiString,
+  target: z.record(z.unknown()).nullable().optional(),
 }).passthrough()
 
 const movementBlockerSchema = z.object({
   kind: z.string(),
-  lane: z.string().optional(),
-  tone: z.string().optional(),
+  lane: apiString,
+  tone: apiString,
   title: z.string(),
-  summary: z.string().optional(),
-  action_label: z.string().optional(),
-  action_hash: z.string().optional(),
+  summary: apiString,
+  action_label: apiString,
+  action_hash: apiString,
 }).passthrough()
 
 const movementDiagnosisSchema = z.object({

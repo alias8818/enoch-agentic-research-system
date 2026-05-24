@@ -3,17 +3,17 @@ export type Tone = 'good' | 'info' | 'warn' | 'bad' | 'critical' | 'muted'
 export interface TopAction {
   kind: string
   priority?: number
-  tone?: string
+  tone?: string | null
   title: string
-  summary?: string
-  action_label?: string
-  action_hash?: string
-  lane?: string
-  machine_target?: string
-  project_id?: string
-  feed_action?: string
-  blocker_kind?: string
-  target?: { project_id?: string; name?: string; [key: string]: unknown }
+  summary?: string | null
+  action_label?: string | null
+  action_hash?: string | null
+  lane?: string | null
+  machine_target?: string | null
+  project_id?: string | null
+  feed_action?: string | null
+  blocker_kind?: string | null
+  target?: { project_id?: string; name?: string; [key: string]: unknown } | null
 }
 
 export interface WorkerLane {
@@ -37,12 +37,12 @@ export interface WorkerLane {
 
 export interface MovementBlocker {
   kind: string
-  lane?: string
-  tone?: Tone
+  lane?: string | null
+  tone?: Tone | null
   title: string
-  summary?: string
-  action_label?: string
-  action_hash?: string
+  summary?: string | null
+  action_label?: string | null
+  action_hash?: string | null
 }
 
 export interface MovementDiagnosis {

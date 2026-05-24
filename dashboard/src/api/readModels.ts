@@ -66,7 +66,7 @@ export type PaperListRow = {
   paper_status?: string
   review_status?: string
   corpus_imported?: boolean
-  corpus_import_id?: string
+  corpus_import_id?: string | number | null
   artifact_paths_present?: Record<string, unknown>
   updated_at?: string
   age_seconds?: number

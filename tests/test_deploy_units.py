@@ -836,18 +836,19 @@ def test_read_models_missing_project_decision_artifact_centralized() -> None:
 def test_router_synthetic_base_url_centralized_no_s1192_duplication() -> None:
     """AGENTS.md validator for current top S1192 (router.py:280).
 
-    "https://synthetic.int.exe.xyz" (flagged in latest Sonar top duplication, 4x in
-    _resolve_research_cycle_params getenv defaults and f-string fallback)
-    must appear exactly once after const extraction.
+    The Synthetic research-provider base URL must not be duplicated in router.py;
+    it belongs in the shared research provider defaults module.
     """
-    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
-        encoding="utf-8"
-    )
+    router_src = (
+        ROOT / "enoch_control_plane" / "control_plane" / "router.py"
+    ).read_text(encoding="utf-8")
+    defaults_src = (
+        ROOT / "enoch_control_plane" / "research_provider_defaults.py"
+    ).read_text(encoding="utf-8")
     lit = "https://synthetic.int.exe.xyz"
-    count = src.count(f'"{lit}"')
-    assert count == 1, (
-        f"{lit!r} still duplicated in router (count={count}); extract to const"
-    )
+
+    assert router_src.count(f'"{lit}"') == 0
+    assert defaults_src.count(f'"{lit}"') == 1
 
 
 def test_router_worker_preflight_failed_centralized_no_s1192_duplication() -> None:

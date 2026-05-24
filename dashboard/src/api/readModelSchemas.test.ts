@@ -61,6 +61,37 @@ it('parses command-center overview, status, and readiness payloads', () => {
   expect(parseAutomationReadiness({ ok: true, label: 'Long-haul mode: READY' }).label).toBe('Long-haul mode: READY')
 })
 
+
+it('accepts explicit null lane on global primary operator blockers', () => {
+  const parsed = parseOverviewResponse({
+    ok: true,
+    primary_operator_action: {
+      kind: 'open_blocker',
+      tone: 'warn',
+      title: 'Maintenance mode is on',
+      summary: 'Automation is intentionally held until maintenance mode is cleared.',
+      action_label: 'Resume queue',
+      action_hash: '#overview',
+      blocker_kind: 'maintenance_mode',
+      lane: null,
+    },
+    movement_diagnosis: {
+      status: 'blocked',
+      primary_reason: 'maintenance_mode',
+      blockers: [{
+        kind: 'maintenance_mode',
+        lane: null,
+        tone: 'warn',
+        title: 'Maintenance mode is on',
+        summary: 'Automation is intentionally held until maintenance mode is cleared.',
+      }],
+    },
+  })
+
+  expect(parsed.primary_operator_action?.lane).toBeNull()
+  expect(parsed.movement_diagnosis?.blockers[0]?.lane).toBeNull()
+})
+
 it('parses automation detail payloads', () => {
   const parsed = parseAutomationDetail({
     item: { paper_id: 'paper-1', review_status: 'triage_ready' },
@@ -88,6 +119,19 @@ it('accepts representative fixtures through strict row schemas', () => {
   expect(overviewResponseSchema.parse(overviewFixture).ok).toBe(true)
   expect(statusResponseSchema.parse(statusFixture).worker_lanes?.length).toBe(1)
   expect(paperListRowSchema.parse(paperListFixture.rows[0]).title).toBe('Draft on oracle lane')
+})
+
+
+it('accepts numeric and null corpus import ids on paper rows', () => {
+  const parsed = parsePaperListResponse({
+    rows: [
+      { paper_id: 'paper-imported', title: 'Imported paper', paper_status: 'published', corpus_import_id: 42 },
+      { paper_id: 'paper-draft', title: 'Draft paper', review_status: null, corpus_import_id: null },
+    ],
+  })
+
+  expect(parsed.rows?.[0]?.corpus_import_id).toBe(42)
+  expect(parsed.rows?.[1]?.corpus_import_id).toBeNull()
 })
 
 it('accepts explicit nulls from SQL joins on project and paper list rows', () => {

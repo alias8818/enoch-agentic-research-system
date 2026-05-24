@@ -17,6 +17,12 @@ import sys
 import time
 from urllib import error, request
 
+from enoch_control_plane.research_provider_defaults import (
+    DEFAULT_RESEARCH_PROVIDER_BASE_URL,
+    DEFAULT_RESEARCH_PROVIDER_MODEL,
+    DEFAULT_RESEARCH_PROVIDER_MODEL_ROTATION,
+    default_research_provider_openai_base_url,
+)
 from enoch_control_plane.url_safety import secure_default_service_url
 
 # Centralized reason constant for the top remaining S1192 duplication
@@ -112,12 +118,12 @@ def _provider_model() -> str:
         item.strip()
         for item in os.environ.get(
             "ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION",
-            "hf:zai-org/GLM-5.1,hf:moonshotai/Kimi-K2.6",
+            ",".join(DEFAULT_RESEARCH_PROVIDER_MODEL_ROTATION),
         ).split(",")
         if item.strip()
     ]
     if not rotation:
-        return "hf:zai-org/GLM-5.1"
+        return DEFAULT_RESEARCH_PROVIDER_MODEL
     window_seconds = _bounded_int(
         "ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION_SECONDS", 1200, 60, 86400
     )
@@ -371,12 +377,12 @@ def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
         str(_repo_root() / "scripts" / "research_facility_llm_review.py"),
         "--provider-base-url",
         os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL", DEFAULT_RESEARCH_PROVIDER_BASE_URL
         ),
         "--openai-base-url",
         os.environ.get(
             "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
-            "https://synthetic.int.exe.xyz/openai/v1",
+            default_research_provider_openai_base_url(),
         ),
         "--model",
         _provider_model(),

@@ -14051,17 +14051,18 @@ def test_resolve_research_provider_model_no_duplicated_literals() -> None:
 
     # The individual model ID strings are duplicated across the getenv default,
     # the fallback list, and the provider_model default (Sonar S1192 CRITICAL at :192).
-    # After patch, the canonical constant is the single source; raw literals appear once.
+    # After patch, the shared defaults module is the single source; router imports
+    # the values and does not duplicate raw model literals.
     moonshot = "hf:moonshotai/Kimi-K2.6"
-    assert src.count(moonshot) == 1, (
-        f"'{moonshot}' duplicated (count={src.count(moonshot)}); must be centralized in const"
+    assert src.count(moonshot) == 0, (
+        f"'{moonshot}' duplicated in router (count={src.count(moonshot)}); "
+        "must be imported from research_provider_defaults"
     )
 
     zai = "hf:zai-org/GLM-5.1"
-    # Currently 4 (getenv + list + provider default + possibly one more site or the test itself?);
-    # patch will reduce to 1 (const only). Use <=1 post-patch as the strict guard.
-    assert src.count(zai) <= 1, (
-        f"'{zai}' over-duplicated (count={src.count(zai)}); must be 1 via const"
+    assert src.count(zai) == 0, (
+        f"'{zai}' duplicated in router (count={src.count(zai)}); "
+        "must be imported from research_provider_defaults"
     )
 
 
