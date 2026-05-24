@@ -1901,6 +1901,7 @@ def _movement_pipeline_blockers(
     *,
     paper_pipeline: Mapping[str, Any],
     investigation_pipeline: Mapping[str, Any],
+    suppress_actionable: bool = False,
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
     gate_blocked = _safe_count(paper_pipeline.get("not_writable_by_decision_gate"))
@@ -1927,7 +1928,9 @@ def _movement_pipeline_blockers(
                 "action_hash": "#automation",
             }
         )
-    if _safe_count(investigation_pipeline.get("ranked_followup_ready")):
+    if not suppress_actionable and _safe_count(
+        investigation_pipeline.get("ranked_followup_ready")
+    ):
         blockers.append(
             {
                 "kind": "followup_ready",
@@ -2003,14 +2006,24 @@ def movement_diagnosis(
     flags = _flags_payload(flags)
     lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
     blockers = _movement_flag_blockers(flags)
+    global_dispatch_blocked = bool(
+        flags.get("maintenance_mode") or flags.get("queue_paused")
+    )
     for lane in lanes:
         lane_blocker = _movement_lane_blocker(lane, label=_lane_label(lane))
-        if lane_blocker is not None:
-            blockers.append(lane_blocker)
+        if lane_blocker is None:
+            continue
+        if (
+            global_dispatch_blocked
+            and lane_blocker.get("kind") in _MOVEMENT_ACTIONABLE_KINDS
+        ):
+            continue
+        blockers.append(lane_blocker)
     blockers.extend(
         _movement_pipeline_blockers(
             paper_pipeline=paper_pipeline,
             investigation_pipeline=investigation_pipeline,
+            suppress_actionable=global_dispatch_blocked,
         )
     )
     status, primary_reason = _movement_status_and_reason(flags=flags, blockers=blockers)
