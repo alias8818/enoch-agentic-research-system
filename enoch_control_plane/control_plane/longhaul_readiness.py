@@ -111,6 +111,32 @@ def _worker_lane_metrics(
     return worker_lane_capacity, lane_conflict, open_lane_has_queued_work
 
 
+def _worker_lane_label(lane: dict[str, Any]) -> str:
+    return str(
+        lane.get("worker_role")
+        or lane.get("machine_target")
+        or lane.get("lane_key")
+        or "worker lane"
+    )
+
+
+def _active_confirmation_state(lane: dict[str, Any]) -> str:
+    confirmation = lane.get("active_confirmation")
+    if not isinstance(confirmation, dict):
+        return ""
+    return str(confirmation.get("state") or "")
+
+
+def _active_confirmation_lanes(worker_lanes: list[Any], state: str) -> list[str]:
+    return [
+        _worker_lane_label(lane)
+        for lane in worker_lanes
+        if isinstance(lane, dict)
+        and lane.get("configured", True)
+        and _active_confirmation_state(lane) == state
+    ]
+
+
 def _queued_state_consistent(
     queued: int,
     next_candidate: Any,
@@ -327,6 +353,30 @@ def _add_queue_consistency_check(
         "queued/active state inconsistent",
     )
     return active, queued
+
+
+def _add_active_worker_confirmation_check(
+    acc: _ReadinessAccumulator, state: dict[str, Any]
+) -> None:
+    worker_lanes = (
+        state.get("worker_lanes") if isinstance(state.get("worker_lanes"), list) else []
+    )
+    stale_lanes = _active_confirmation_lanes(worker_lanes, "stale_active")
+    grace_lanes = _active_confirmation_lanes(worker_lanes, "active_unconfirmed_grace")
+    acc.add(
+        check(
+            "active_worker_lanes_confirmed",
+            not stale_lanes,
+            "active worker lanes confirmed"
+            if not stale_lanes
+            else f"stale active lanes={len(stale_lanes)}",
+            data={
+                "stale_active_lanes": stale_lanes,
+                "unconfirmed_grace_lanes": grace_lanes,
+            },
+        ),
+        "stale active worker lane exists",
+    )
 
 
 def _add_paper_gate_check(acc: _ReadinessAccumulator, pipeline: dict[str, Any]) -> int:
@@ -586,6 +636,7 @@ def evaluate_longhaul_readiness(
         acc, counts, operator_counts
     )
     active, queued = _add_queue_consistency_check(acc, state, counts)
+    _add_active_worker_confirmation_check(acc, state)
     write_needed = _add_paper_gate_check(acc, pipeline)
     _add_provider_budget_check(acc, provider_budget)
     quality, quality_status = _add_research_quality_check(acc, research_quality)

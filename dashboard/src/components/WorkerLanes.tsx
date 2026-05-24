@@ -109,6 +109,10 @@ function laneConfirmationClass(lane: WorkerLane): string {
   return 'lane-confirmation'
 }
 
+function laneHasStaleActiveConfirmation(lane: WorkerLane): boolean {
+  return displayText(lane.active_confirmation?.state, '') === 'stale_active'
+}
+
 function ResultCard({ result, stale }: Readonly<{ result: CommandResult | null; stale?: boolean }>) {
   if (!result) return null
   return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
@@ -333,14 +337,15 @@ function LaneEmptyState({ error, isLoading, hasLanes }: LaneEmptyStateProps) {
 
 type LaneCardProps = Readonly<{
   lane: WorkerLane
-  busyAction: 'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | null
+  busyAction: 'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | 'reconcile' | null
   liveLaneProjectId: string
   onFeedLane: () => void
   onDispatchLane: (lane: WorkerLane) => void
   onLiveDispatchLane: (lane: WorkerLane) => void
+  onReconcileLane: (lane: WorkerLane) => void
 }>
 
-function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchLane, onLiveDispatchLane }: LaneCardProps) {
+function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchLane, onLiveDispatchLane, onReconcileLane }: LaneCardProps) {
   const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
   const canFeed = feedAction === 'generate_candidate' || feedAction === 'promote_candidate'
   const canDispatch = Boolean(lane.dispatch_available)
@@ -351,6 +356,7 @@ function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchL
   const feedReason = laneFeedReason(lane)
   const disabledReason = laneDisabledReason(lane, canFeed, canDispatch)
   const confirmationMessage = laneConfirmationMessage(lane)
+  const canReconcile = laneHasStaleActiveConfirmation(lane)
   const reasonClassName = canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'
   const label = laneLabel(lane)
 
@@ -386,6 +392,7 @@ function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchL
       <div className="lane-actions">
         <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={onFeedLane}>Feed idle lane</button>
         <button className="secondary-button" disabled={!canDispatch || busyAction !== null} onClick={() => onDispatchLane(lane)}>Check dispatch</button>
+        {canReconcile ? <button className="secondary-button" disabled={busyAction !== null} onClick={() => onReconcileLane(lane)}>Run safe reconcile</button> : null}
         <button className="primary-button" disabled={!canLiveDispatchLane || busyAction !== null} onClick={() => onLiveDispatchLane(lane)}>Dispatch lane</button>
       </div>
     </article>
@@ -401,7 +408,7 @@ type WorkerLaneCommandDeps = Readonly<{
   canLiveDispatchOpenLanes: boolean
   onRefresh: () => void
   confirm: (options: { title: string; message: string; confirmLabel: string; tone: 'warn' | 'danger' }) => Promise<boolean>
-  setBusyAction: (action: 'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | null) => void
+  setBusyAction: (action: 'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | 'reconcile' | null) => void
   setCommandResult: (result: CommandResult | null) => void
   setLiveFeedReady: (ready: boolean) => void
   setLiveFeedSignature: (signature: string) => void
@@ -529,10 +536,35 @@ async function runLiveDispatchLane(deps: WorkerLaneCommandDeps, lane: WorkerLane
   }
 }
 
+async function runSafeStaleActiveReconcile(deps: WorkerLaneCommandDeps, lane: WorkerLane): Promise<void> {
+  if (!laneHasStaleActiveConfirmation(lane)) return
+  const confirmed = await deps.confirm({
+    title: 'Run safe stale-active reconcile?',
+    message: 'This runs the queue alert reconcile path. The backend only mutates state when deterministic stale-active conditions and local decision/evidence gates pass.',
+    confirmLabel: 'Run reconcile',
+    tone: 'warn',
+  })
+  if (!confirmed) return
+  deps.setBusyAction('reconcile')
+  try {
+    const result = await apiPost<Record<string, unknown>>('/control/api/alerts/queue-check', {
+      dry_run: false,
+      requested_by: 'dashboard-v2',
+      refresh_worker: false,
+    })
+    deps.setCommandResult({ payload: result, context: { commandFamily: 'dispatch' } })
+    deps.onRefresh()
+  } catch (reconcileError) {
+    deps.setCommandResult(dispatchCommandErrorPayload(reconcileError))
+  } finally {
+    deps.setBusyAction(null)
+  }
+}
+
 
 export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Readonly<WorkerLanesProps>) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
-  const [busyAction, setBusyAction] = useState<'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | null>(null)
+  const [busyAction, setBusyAction] = useState<'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | 'reconcile' | null>(null)
   const [liveFeedReady, setLiveFeedReady] = useState(false)
   const [liveFeedSignature, setLiveFeedSignature] = useState('')
   const [liveLaneProjectId, setLiveLaneProjectId] = useState('')
@@ -608,6 +640,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Read
                 onFeedLane={() => { void runFeedLaneDryRun(commandDeps) }}
                 onDispatchLane={(targetLane) => { void runDispatchLaneDryRun(commandDeps, targetLane) }}
                 onLiveDispatchLane={(targetLane) => { void runLiveDispatchLane(commandDeps, targetLane, liveLaneProjectId) }}
+                onReconcileLane={(targetLane) => { void runSafeStaleActiveReconcile(commandDeps, targetLane) }}
               />
             ))}
           </div>

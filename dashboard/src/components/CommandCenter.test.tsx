@@ -289,6 +289,35 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
   expect(screen.getByText('Bulk lane commands').closest('details')).not.toHaveAttribute('open')
 })
 
+it('exposes stale active lane reconcile as an explicit confirmed action', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(JSON.stringify({ ok: true, auto_reconcile: [{ ok: true }] }), { status: 200 }),
+  )
+  const onRefresh = vi.fn()
+  render(<WorkerLanes lanes={[
+    {
+      lane_key: 'cpu',
+      machine_target: 'cpu-proxmox-1',
+      status: 'active',
+      queued_count: 0,
+      dispatch_available: false,
+      active_item: { project_name: 'CPU job' },
+      active_confirmation: { state: 'stale_active' },
+    },
+  ]} onRefresh={onRefresh} />)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Run safe reconcile' }))
+  expect(await screen.findByRole('dialog', { name: 'Run safe stale-active reconcile?' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Run reconcile' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/control/api/alerts/queue-check', expect.objectContaining({
+    method: 'POST',
+    body: expect.stringContaining('"dry_run":false'),
+  })))
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"requested_by":"dashboard-v2"')
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
 it('uses dialog confirmations for queue pause instead of window.confirm', async () => {
   const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))

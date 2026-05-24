@@ -321,6 +321,76 @@ def test_duplicate_active_on_same_lane_blocks_queue_count_consistency() -> None:
     assert check["data"]["lane_conflict"] is True
 
 
+def test_stale_active_worker_lane_blocks_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["state"]["counts"].update({"queued": 0, "active": 1})
+    payload["state"]["next_candidate"] = None
+    payload["state"]["worker_lanes"] = [
+        {
+            "configured": True,
+            "machine_target": "cpu-proxmox-1",
+            "status": "active",
+            "active_count": 1,
+            "queued_count": 0,
+            "active_confirmation": {
+                "state": "stale_active",
+                "matched": False,
+                "reason": "worker reports no live run for active control-plane row",
+            },
+        },
+        {
+            "configured": True,
+            "machine_target": "gb10",
+            "status": "idle",
+            "active_count": 0,
+            "queued_count": 0,
+        },
+    ]
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "stale active worker lane exists" in result["blockers"]
+    check = next(
+        item
+        for item in result["checks"]
+        if item["name"] == "active_worker_lanes_confirmed"
+    )
+    assert check["ok"] is False
+    assert check["data"]["stale_active_lanes"] == ["cpu-proxmox-1"]
+
+
+def test_recent_worker_reconcile_grace_is_reported_without_blocking() -> None:
+    payload = _ready_payload()
+    payload["state"]["counts"].update({"queued": 0, "active": 1})
+    payload["state"]["next_candidate"] = None
+    payload["state"]["worker_lanes"] = [
+        {
+            "configured": True,
+            "machine_target": "gb10",
+            "status": "active",
+            "active_count": 1,
+            "queued_count": 0,
+            "active_confirmation": {
+                "state": "active_unconfirmed_grace",
+                "matched": False,
+                "reason": "worker reports no live run, but observation is within reconcile grace",
+            },
+        }
+    ]
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is True
+    check = next(
+        item
+        for item in result["checks"]
+        if item["name"] == "active_worker_lanes_confirmed"
+    )
+    assert check["ok"] is True
+    assert check["data"]["unconfirmed_grace_lanes"] == ["gb10"]
+
+
 def test_open_lane_queued_work_requires_top_level_next_candidate() -> None:
     payload = _ready_payload()
     payload["state"]["counts"].update({"queued": 1, "active": 1})

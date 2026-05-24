@@ -1338,6 +1338,73 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotIn("api_key", response.text.lower())
             self.assertNotIn("bearer", response.text.lower())
 
+    def test_automation_readiness_blocks_stale_active_worker_lane(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "readiness-stale-active-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "readiness-stale-active",
+                            "project_name": "Readiness Stale Active",
+                            "status": "awaiting_wake",
+                            "current_run_id": "run-readiness-stale-active",
+                        }
+                    ],
+                },
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            old_worker_observation = (
+                datetime.now(timezone.utc) - timedelta(minutes=10)
+            ).isoformat()
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                observed_at=old_worker_observation,
+                ttl_seconds=3600,
+                payload={
+                    "ok": True,
+                    "checks": [
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": True,
+                            "detail": "active_or_waiting=0, live=0",
+                            "data": {"active_or_waiting": 0, "live": 0},
+                        }
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api",
+                status="ok",
+                observed_at=old_worker_observation,
+                ttl_seconds=3600,
+                payload={"ok": True},
+            )
+            with (
+                patch("scripts.research_provider_budget.fetch_json", return_value={}),
+            ):
+                response = client.get(
+                    "/control/api/v1/automation-readiness", headers=headers
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertFalse(body["ok"])
+            self.assertIn("stale active worker lane exists", body["blockers"])
+            check = next(
+                item
+                for item in body["checks"]
+                if item["name"] == "active_worker_lanes_confirmed"
+            )
+            self.assertFalse(check["ok"])
+            self.assertEqual(check["data"]["stale_active_lanes"], ["default"])
+
     def test_research_facility_api_returns_ledger_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
