@@ -8,7 +8,6 @@ import type {
   AutomationListRow,
   EventListRow,
   IntakeIdeasResponse,
-  IntakeIdeaProjectionRow,
   PagedRows,
   PaperListRow,
   ProjectListRow,

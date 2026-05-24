@@ -13,20 +13,17 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
-import sys
-from datetime import datetime, timezone, timedelta
 
 MIN_AGE_DAYS = int(os.environ.get("MIN_AGE_DAYS", "7"))
 
 
-def main() -> int:
+def main() -> None:
     # In CI, check the PR body for Dependabot metadata.
     pr_body = os.environ.get("PR_BODY", "")
     if not pr_body:
         print("No PR_BODY env var; skipping min-release-age check (not a PR)")
-        return 0
+        return
 
     # Heuristic: Dependabot PRs contain release info in the body.
     # For now, this is a documentation/policy placeholder that can be
@@ -35,7 +32,6 @@ def main() -> int:
     print(
         "This check is a policy gate. Extend with PyPI release date lookup as needed."
     )
-    return 0
 
 
 if __name__ == "__main__":

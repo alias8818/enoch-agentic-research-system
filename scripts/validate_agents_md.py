@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -122,13 +123,15 @@ def check_config_fields(agents_content: str) -> None:
             )
 
 
-def check_ci_workflows(agents_content: str) -> None:
+def _referenced_workflow_files(agents_content: str) -> list[str]:
+    """Return CI workflow files referenced in AGENTS.md content."""
+    return re.findall(r"\.github/workflows/([a-zA-Z0-9_-]+\.yml)", agents_content)
+
+
+def check_ci_workflows(workflow_files: Iterable[str]) -> None:
     """Verify CI workflow files referenced in AGENTS.md exist."""
     workflows_dir = REPO_ROOT / ".github" / "workflows"
-    for match in re.finditer(
-        r"\.github/workflows/([a-zA-Z0-9_-]+\.yml)", agents_content
-    ):
-        workflow_file = match.group(1)
+    for workflow_file in workflow_files:
         if not (workflows_dir / workflow_file).exists():
             errors.append(
                 f"CI workflow '.github/workflows/{workflow_file}' referenced in AGENTS.md does not exist"
@@ -184,7 +187,7 @@ def main() -> int:
     check_makefile_targets(agents_content)
     check_file_references(agents_content)
     check_config_fields(agents_content)
-    check_ci_workflows(agents_content)
+    check_ci_workflows(_referenced_workflow_files(agents_content))
     check_dependencies(agents_content)
     check_markdown_links(agents_content)
 

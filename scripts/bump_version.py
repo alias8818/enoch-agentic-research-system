@@ -18,8 +18,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = REPO_ROOT / "VERSION"
 PYPROJECT_FILE = REPO_ROOT / "pyproject.toml"
 CHANGELOG_FILE = REPO_ROOT / "CHANGELOG.md"
+VERSION_VALUE = r"\d+\.\d+\.\d+(?:[-+](?:[A-Za-z0-9]|\.|-)+)?"
 VERSION_ASSIGNMENT = re.compile(
-    r'^version\s*=\s*["\']?(?P<version>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)["\']?\s*$',
+    rf'^version\s*=\s*["\']?(?P<version>{VERSION_VALUE})["\']?\s*$',
     re.IGNORECASE,
 )
 
