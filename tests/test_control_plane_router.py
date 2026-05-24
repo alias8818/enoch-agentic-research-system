@@ -1468,6 +1468,48 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(check["ok"])
             self.assertEqual(check["data"]["stale_active_lanes"], ["default"])
 
+    def test_automation_readiness_does_not_refresh_worker_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={"worker_wake_gate_url": "http://worker.example"}
+            )
+            client = _client_with_config(config)
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            stale_observed_at = (
+                datetime.now(timezone.utc) - timedelta(hours=1)
+            ).isoformat()
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                observed_at=stale_observed_at,
+                ttl_seconds=1,
+                payload={"ok": True, "checks": []},
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api",
+                status="ok",
+                observed_at=stale_observed_at,
+                ttl_seconds=1,
+                payload={"ok": True},
+            )
+
+            with (
+                patch("scripts.research_provider_budget.fetch_json", return_value={}),
+                patch(
+                    "enoch_control_plane.control_plane.router.run_worker_preflight",
+                    side_effect=AssertionError(
+                        "automation readiness must not call live worker preflight"
+                    ),
+                ) as mocked_preflight,
+            ):
+                response = client.get(
+                    "/control/api/v1/automation-readiness",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            mocked_preflight.assert_not_called()
+
     def test_research_facility_api_returns_ledger_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
@@ -5507,13 +5549,81 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
             ) as preflight:
-                status = client.get("/control/api/status", headers=headers).json()
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
 
             preflight.assert_called_once()
             self.assertFalse(status["dispatch_safe"])
             self.assertIn("worker_preflight not ok", status["dispatch_blockers"])
             self.assertIn("worker_dashboard_api not ok", status["dispatch_blockers"])
             self.assertIn("worker health check failed", status["dispatch_blockers"])
+            self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
+
+    def test_dashboard_status_does_not_refresh_worker_preflight_by_default(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={"worker_wake_gate_url": "http://worker.example"}
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight",
+                side_effect=AssertionError(
+                    "dashboard status reads must not refresh workers by default"
+                ),
+            ) as preflight:
+                status = client.get("/control/api/status", headers=headers).json()
+
+            preflight.assert_not_called()
+            self.assertFalse(status["dispatch_safe"])
+            self.assertIn(
+                "worker_preflight stale or missing", status["dispatch_blockers"]
+            )
+
+    def test_dashboard_status_refreshes_worker_preflight_when_requested(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={"worker_wake_gate_url": "http://worker.example"}
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = WorkerPreflightResponse(
+                ok=True,
+                target="http://worker.example",
+                summary="worker idle",
+                checks=[
+                    WorkerPreflightCheck(
+                        name="wake_gate_healthz", ok=True, detail="ok", data={}
+                    ),
+                    WorkerPreflightCheck(
+                        name="worker_no_live_runs",
+                        ok=True,
+                        detail="active_or_waiting=0, live=0",
+                        data={"active_or_waiting": 0, "live": 0},
+                    ),
+                ],
+            )
+
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight",
+                return_value=response,
+            ) as preflight:
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
+
+            preflight.assert_called_once()
             self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
 
     def test_dashboard_status_auto_refreshes_stale_worker_evidence(self) -> None:
@@ -5588,7 +5698,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
             ) as preflight:
-                status = client.get("/control/api/status", headers=headers).json()
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
 
             preflight.assert_called_once()
             self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
@@ -5680,7 +5792,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
             ) as preflight:
-                status = client.get("/control/api/status", headers=headers).json()
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
 
             preflight.assert_called_once()
             self.assertEqual(status["warnings"], [])
@@ -5742,7 +5856,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
             ) as preflight:
-                status = client.get("/control/api/status", headers=headers).json()
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
 
             preflight.assert_called_once()
             self.assertTrue(status["dispatch_safe"])
@@ -7198,21 +7314,20 @@ class ControlPlaneRouterTests(unittest.TestCase):
         )
 
         self.assertEqual(paper_gate_only["status"], "ready")
-        self.assertTrue(
-            any(
-                item["kind"] == "paper_gate_blocked"
-                for item in paper_gate_only["blockers"]
-            )
-        )
+        self.assertFalse(paper_gate_only["blockers"])
         self.assertIn(
-            "No dispatch or automation health blocker",
+            "No deterministic blocker",
             paper_gate_only["primary_reason"],
         )
 
         evidence_missing = movement_diagnosis(
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=[],
-            paper_pipeline={"not_writable_by_decision_gate": 3, "finalize_needed": 1},
+            paper_pipeline={
+                "not_writable_by_decision_gate": 3,
+                "paper_write_blocked": 0,
+                "finalize_needed": 1,
+            },
             investigation_pipeline={},
         )
 
@@ -7224,6 +7339,24 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
         )
         self.assertIn("publication draft", evidence_missing["primary_reason"])
+
+        positive_anomaly = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[],
+            paper_pipeline={
+                "not_writable_by_decision_gate": 3,
+                "paper_write_blocked": 1,
+                "finalize_needed": 0,
+            },
+            investigation_pipeline={},
+        )
+        self.assertEqual(positive_anomaly["status"], "blocked")
+        self.assertTrue(
+            any(
+                item["kind"] == "paper_write_blocked"
+                for item in positive_anomaly["blockers"]
+            )
+        )
 
     def test_dashboard_status_does_not_call_idle_empty_lane_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

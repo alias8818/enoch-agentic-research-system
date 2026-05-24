@@ -78,7 +78,17 @@ export interface OverviewResponse {
   recent_events?: Record<string, unknown>[]
   operator_counts?: Record<string, unknown>
   operator_detail_counts?: Record<string, unknown>
-  paper_pipeline?: { write_needed?: number; finalize_needed?: number; publish_ready?: number; published_imported?: number; publication_ready_total?: number; missing_from_corpus?: number }
+  paper_pipeline?: {
+    write_needed?: number
+    finalize_needed?: number
+    publish_ready?: number
+    published_imported?: number
+    publication_ready_total?: number
+    missing_from_corpus?: number
+    paper_gate_archive_count?: number
+    paper_write_blocked?: number
+    paper_gate_archive_summary?: string
+  }
   movement_diagnosis?: MovementDiagnosis
   flags?: { queue_paused?: boolean; maintenance_mode?: boolean; [key: string]: unknown }
 }

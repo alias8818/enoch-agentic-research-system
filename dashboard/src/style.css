@@ -552,6 +552,16 @@ button:disabled { cursor: not-allowed; }
   line-height: 1.35;
   text-align: right;
 }
+.paper-gate-note {
+  border: 1px dashed rgba(244,241,234,0.13);
+  border-radius: 0.95rem;
+  background: rgba(0,0,0,0.12);
+  padding: 0.75rem;
+}
+.paper-gate-note strong { color: #d9d1c3; font-size: 0.86rem; }
+.paper-gate-note p { margin: 0.3rem 0 0; color: #9c968d; font-size: 0.8rem; line-height: 1.42; }
+.paper-gate-note--warn { border-color: rgba(226,177,91,0.48); }
+.paper-gate-note--warn strong { color: #f8d38c; }
 
 .movement-head span { border: 1px solid rgba(244,241,234,0.16); border-radius: 999px; padding: 0.4rem 0.65rem; color: #d9d1c3; font-size: 0.72rem; font-weight: 850; letter-spacing: 0.12em; text-transform: uppercase; }
 .movement-list { display: grid; gap: 0.5rem; margin-top: 1rem; }

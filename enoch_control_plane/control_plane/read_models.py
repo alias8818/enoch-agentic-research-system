@@ -1749,6 +1749,7 @@ _MOVEMENT_HARD_BLOCKER_KINDS = frozenset(
         "lane_blocked",
         "lane_conflict_active",
         "evidence_missing",
+        "paper_write_blocked",
     }
 )
 _MOVEMENT_ACTIONABLE_KINDS = frozenset({"dispatch_available", "followup_ready"})
@@ -1904,14 +1905,14 @@ def _movement_pipeline_blockers(
     suppress_actionable: bool = False,
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
-    gate_blocked = _safe_count(paper_pipeline.get("not_writable_by_decision_gate"))
-    if gate_blocked:
+    gate_attention = _safe_count(paper_pipeline.get("paper_write_blocked"))
+    if gate_attention:
         blockers.append(
             {
-                "kind": "paper_gate_blocked",
+                "kind": "paper_write_blocked",
                 "tone": "warn",
-                "title": "Paper gate is blocking candidates",
-                "summary": f"{gate_blocked} completed no-paper candidate{'s' if gate_blocked != 1 else ''} failed the deterministic paper decision gate.",
+                "title": "Paper writing needs attention",
+                "summary": f"{gate_attention} positive paper candidate{'s' if gate_attention != 1 else ''} could not be surfaced for writing.",
                 "action_label": "Open paper details",
                 "action_hash": "#papers",
             }
@@ -2447,6 +2448,7 @@ def _gated_write_candidates(
                     or candidate.get("run_id")
                     or "",
                     "decision_summary": _decision_summary_from_gate(gate),
+                    "decision_gate_state": candidate.get("decision_gate_state", ""),
                     "gate_reason": (gate or {}).get(
                         "reason", MISSING_PROJECT_DECISION_ARTIFACT_REASON
                     ),
@@ -2569,10 +2571,25 @@ def _build_paper_pipeline(
     publication_ready_total = operator_counts.get(
         OperatorLane.READY_TO_PUBLISH.value, 0
     ) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
+    positive_rejected = sum(
+        1
+        for row in gate_rejected
+        if _text(row.get("decision_gate_state")) == "positive"
+    )
+    gate_archive_count = len(gate_rejected)
+    gate_archive_noun = "run" if gate_archive_count == 1 else "runs"
+    gate_archive_verb = "is" if gate_archive_count == 1 else "are"
     return {
         "write_needed": len(write_candidates),
         "raw_completed_no_paper_candidates": len(raw_write_candidates),
-        "not_writable_by_decision_gate": len(gate_rejected),
+        "not_writable_by_decision_gate": gate_archive_count,
+        "paper_gate_archive_count": gate_archive_count,
+        "paper_gate_archive_summary": (
+            f"{gate_archive_count} completed {gate_archive_noun} "
+            f"{gate_archive_verb} intentionally not paper-writable."
+        ),
+        "paper_write_blocked": positive_rejected,
+        "positive_rejected_by_decision_gate": positive_rejected,
         "gate_rejected_sample": gate_rejected[:10],
         "next_write_candidate": draft_candidate_payload(write_candidates[0])
         if write_candidates
@@ -2590,6 +2607,9 @@ def _build_paper_pipeline(
             "write_needed": "completed runs with no live paper row that currently pass the paper-ready gate",
             "raw_completed_no_paper_candidates": "completed no-paper rows before checking local project decision artifacts",
             "not_writable_by_decision_gate": "completed no-paper rows rejected by local project decision artifacts as negative, ambiguous, or otherwise non-positive",
+            "paper_gate_archive_count": "completed no-paper rows intentionally kept out of paper writing by the deterministic gate; this is an archive metric, not actionable paper work",
+            "paper_write_blocked": "positive completed no-paper candidates that could not be surfaced as write_needed; non-zero requires investigation",
+            "positive_rejected_by_decision_gate": "same as paper_write_blocked; explicit anomaly count for CLCA checks",
             "finalize_needed": "publication drafts missing automated finalization package",
             "publish_ready": "finalized publication drafts with required evidence paths that are missing a corpus-import ledger row",
             "missing_from_corpus": "same as publish_ready; actionable corpus import work only",
