@@ -170,14 +170,11 @@ def init_sentry(*, component: str = "control_plane") -> bool:
             server_name=_env("ENOCH_SENTRY_SERVER_NAME") or None,
             send_default_pii=False,
             before_send=before_send,
-            initial_scope={
-                "tags": {
-                    "component": component,
-                    "environment": environment,
-                    "release": release,
-                }
-            },
         )
+        with sentry_sdk.configure_scope() as scope:
+            scope.set_tag("component", component)
+            scope.set_tag("environment", environment)
+            scope.set_tag("release", release)
         _sentry_initialized = True
         logger.info(
             "Sentry initialized (env=%s, release=%s, component=%s)",

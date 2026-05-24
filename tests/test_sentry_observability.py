@@ -33,7 +33,19 @@ def test_sentry_initialization_sets_release_environment_and_scrubber(
         ENOCH_SENTRY_SERVER_NAME="enoch-core-test",
     )
     init_mock = Mock(return_value=None)
+    scope = SimpleNamespace(set_tag=Mock())
+
+    class ScopeContext:
+        def __enter__(self):
+            return scope
+
+        def __exit__(self, *args):
+            return False
+
     monkeypatch.setattr(error_tracking.sentry_sdk, "init", init_mock)
+    monkeypatch.setattr(
+        error_tracking.sentry_sdk, "configure_scope", lambda: ScopeContext()
+    )
 
     assert error_tracking.init_sentry(component="control_plane") is True
 
@@ -45,7 +57,10 @@ def test_sentry_initialization_sets_release_environment_and_scrubber(
     assert kwargs["send_default_pii"] is False
     assert kwargs["server_name"] == "enoch-core-test"
     assert callable(kwargs["before_send"])
-    assert kwargs["initial_scope"]["tags"]["component"] == "control_plane"
+    assert "initial_scope" not in kwargs
+    scope.set_tag.assert_any_call("component", "control_plane")
+    scope.set_tag.assert_any_call("environment", "test-env")
+    scope.set_tag.assert_any_call("release", "abc1234")
 
 
 def test_sentry_before_send_removes_request_bodies_and_sensitive_context(
