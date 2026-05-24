@@ -212,7 +212,10 @@ class ProcessTracker:
     ) -> bool:
         if not self._process_in_project_dir(proc, project_dir):
             return False
-        cmdline = " ".join(proc.cmdline()).strip() or proc.name()
+        try:
+            cmdline = " ".join(proc.cmdline()).strip() or proc.name()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return False
         return not _is_benign_project_process(cmdline)
 
     def _scan_tracked_alive_state(
