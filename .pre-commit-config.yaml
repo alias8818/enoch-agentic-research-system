@@ -17,3 +17,12 @@ repos:
       - id: ruff
         args: ["--fix"]
       - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: validate-agents-md
+        name: validate AGENTS.md consistency
+        entry: python3 scripts/validate_agents_md.py
+        language: system
+        files: ^(AGENTS\.md|Makefile|config\.example\.json|pyproject\.toml|\.github/workflows/.*\.yml)$
+        pass_filenames: false

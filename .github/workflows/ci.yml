@@ -58,6 +58,8 @@ jobs:
       - name: Check dashboard V2 source/asset pairing
         if: github.event_name == 'pull_request'
         run: python3 scripts/check_dashboard_v2_source_asset_pair.py --base ${{ github.event.pull_request.base.sha }}
+      - name: Validate AGENTS.md consistency
+        run: python3 scripts/validate_agents_md.py
       - name: Validate dashboard V2 committed assets
         run: python3 scripts/validate_dashboard_v2_assets.py --skip-npm-ci
       - name: Run tests with timing
