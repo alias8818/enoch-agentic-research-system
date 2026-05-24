@@ -1,6 +1,6 @@
 import type { EntityLink } from '../../detailOperatorSummary'
 import { dashboardV2Href } from '../../routes'
-export function EntityLinkChips({ links }: { links: EntityLink[] }) {
+export function EntityLinkChips({ links }: Readonly<{ links: EntityLink[] }>) {
   if (!links.length) return null
   return (
     <div className="detail-entity-links" aria-label="Related entity links">

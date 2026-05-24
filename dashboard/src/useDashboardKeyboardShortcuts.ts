@@ -6,12 +6,12 @@ export function useDashboardKeyboardShortcuts({
   onToggleHelp,
   onCloseHelp,
   searchInputRef,
-}: {
+}: Readonly<{
   helpOpen: boolean
   onToggleHelp: () => void
   onCloseHelp: () => void
   searchInputRef: RefObject<HTMLInputElement | null>
-}) {
+}>) {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape' && helpOpen) {
@@ -35,7 +35,7 @@ export function useDashboardKeyboardShortcuts({
       }
     }
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    globalThis.addEventListener('keydown', onKeyDown)
+    return () => globalThis.removeEventListener('keydown', onKeyDown)
   }, [helpOpen, onCloseHelp, onToggleHelp, searchInputRef])
 }

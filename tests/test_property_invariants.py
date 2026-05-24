@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -121,7 +122,7 @@ def test_stale_worker_callback_cannot_complete_different_active_run(
     current_run_id: str, callback_run_id: str
 ) -> None:
     if current_run_id == callback_run_id:
-        return
+        raise unittest.SkipTest("hypothesis pre-filter: identical run ids")
     with TemporaryDirectory() as tmp:
         store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
         store.import_snapshot(
@@ -429,7 +430,7 @@ def test_worker_http_evidence_sync_never_writes_outside_artifact_root(
             )
 
         with patch(
-            "enoch_control_plane.control_plane.router.post_worker_json",
+            "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
             side_effect=fake_post_worker_json,
         ):
             _sync_worker_http_evidence(

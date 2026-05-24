@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
+import { fetchMockRequestBody } from '../test/fetchMockBody'
 import { ResearchPage } from './ResearchPage'
 
 function renderWithClient(ui: React.ReactElement) {
@@ -117,7 +118,7 @@ it('dry-runs internal candidate generation and enables live batch after success'
 })
 
 it('uses a dialog before running a bounded live research cycle after dry-run', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T08:10:00Z', counts: {}, rows: [] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'research_cycle_dry_run', dry_run: true }), { status: 200 }))
@@ -167,7 +168,7 @@ it('invalidates bounded-cycle live authorization when facility state changes', a
 })
 
 it('dry-runs and confirms admitted candidate promotion without dispatching', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: { admitted: 1 }, rows: [{ candidate_id: 'cand-1', status: 'admitted', admission_decision: 'admitted', admitted_idea_id: '', title: 'Candidate one' }] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, action: 'dry_run_promote_candidate', candidate_id: 'cand-1', title: 'Candidate one', reason: 'candidate can be promoted' }), { status: 200 }))
@@ -181,10 +182,12 @@ it('dry-runs and confirms admitted candidate promotion without dispatching', asy
   fireEvent.click(screen.getByRole('button', { name: 'Dry-run promote selected' }))
 
   await screen.findByText('Research dry-run passed')
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/promote-candidate', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ candidate_id: 'cand-1', dry_run: true, requested_by: 'dashboard-v2' }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/promote-candidate', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({
+    candidate_id: 'cand-1',
+    dry_run: true,
+    requested_by: 'dashboard-v2',
+  })
 
   fireEvent.click(screen.getByRole('button', { name: 'Promote selected candidate' }))
   const dialog = await screen.findByRole('dialog', { name: 'Promote admitted candidate?' })
@@ -193,10 +196,12 @@ it('dry-runs and confirms admitted candidate promotion without dispatching', asy
   fireEvent.click(screen.getByRole('button', { name: 'Promote candidate' }))
 
   await screen.findByText('Research action completed')
-  await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/research/promote-candidate', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ candidate_id: 'cand-1', dry_run: false, requested_by: 'dashboard-v2' }),
-  })))
+  await waitFor(() => expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/research/promote-candidate', expect.objectContaining({ method: 'POST' })))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 2))).toEqual({
+    candidate_id: 'cand-1',
+    dry_run: false,
+    requested_by: 'dashboard-v2',
+  })
   await screen.findByText('No research candidates returned.')
   expect(screen.getByRole('heading', { name: 'No candidate selected' })).toBeInTheDocument()
 })

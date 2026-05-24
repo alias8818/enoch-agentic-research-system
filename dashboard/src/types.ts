@@ -3,7 +3,7 @@ export type Tone = 'good' | 'info' | 'warn' | 'bad' | 'critical' | 'muted'
 export interface TopAction {
   kind: string
   priority?: number
-  tone?: Tone | string
+  tone?: string
   title: string
   summary?: string
   action_label?: string
@@ -38,7 +38,7 @@ export interface WorkerLane {
 export interface MovementBlocker {
   kind: string
   lane?: string
-  tone?: Tone | string
+  tone?: Tone
   title: string
   summary?: string
   action_label?: string

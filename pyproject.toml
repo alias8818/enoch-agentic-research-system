@@ -1,6 +1,6 @@
 [project]
 name = "enoch-control-plane"
-version = "0.3.0"
+version = "1.0.0"
 description = "Enoch Control Plane for auditable agentic research automation"
 requires-python = ">=3.11"
 dependencies = [
@@ -10,8 +10,12 @@ dependencies = [
   "psycopg[binary]>=3.2,<4.0",
   "pydantic>=2.11.0,<3.0.0",
   "pynvml>=12.0.0,<14.0.0",
+  "tenacity>=9.0.0,<10.0.0",
   "uvicorn>=0.35.0,<1.0.0",
 ]
+
+[project.optional-dependencies]
+sentry = ["sentry-sdk[fastapi]>=2.0.0,<3.0.0"]
 
 
 [build-system]
@@ -31,13 +35,18 @@ enoch_control_plane = [
 [dependency-groups]
 dev = [
     "coverage[toml]>=7.14.0",
+    "deptry>=0.23.0",
     "hypothesis>=6.108.0",
     "pre-commit>=4.2.0",
     "pyright>=1.1.408",
     "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "pytest-rerunfailures>=15.1.0",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.14.0",
     "schemathesis>=4.17.0",
     "semgrep>=1.144.0",
+    "python-semantic-release>=9.21.0",
 ]
 
 [tool.ruff]
@@ -56,6 +65,9 @@ select = ["E9", "F821", "F822", "F823"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "repo_root: touches or archives the repository working tree",
+]
 
 [tool.coverage.run]
 branch = true
@@ -79,6 +91,34 @@ exclude_lines = [
 include = ["enoch_control_plane", "scripts"]
 exclude = ["**/__pycache__", ".venv", "build", "dist"]
 pythonVersion = "3.11"
-typeCheckingMode = "basic"
+typeCheckingMode = "strict"
 reportMissingImports = "error"
 reportMissingTypeStubs = false
+# Strict mode opt-outs for existing codebase; remove each as types are added.
+reportUnknownMemberType = "warning"
+reportUnknownArgumentType = "warning"
+reportUnknownVariableType = "warning"
+reportUnknownParameterType = "warning"
+reportAny = "warning"
+reportExplicitAny = "warning"
+reportCallInDefaultInitializer = "none"
+reportUnnecessaryIsInstance = "none"
+reportUnusedClass = "warning"
+reportUnusedFunction = "warning"
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"
+reportPrivateUsage = "warning"
+reportUntypedFunctionDecorator = "warning"
+reportUntypedClassDecorator = "warning"
+reportUntypedBaseClass = "warning"
+
+[tool.deptry]
+# Scripts and deploy are standalone runners, not importable from the main package.
+ignore = ["scripts", "deploy"]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+version_variables = ["VERSION:__init__"]
+changelog_file = "CHANGELOG.md"
+commit_message = "chore(release): {version}"
+branch = "main"

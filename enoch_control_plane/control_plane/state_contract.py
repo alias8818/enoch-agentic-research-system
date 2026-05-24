@@ -82,6 +82,11 @@ RUN_STATES: Final[set[str]] = {
 }
 
 WAKE_GATE_COMPLETION_STATES: Final[set[str]] = {"wake_ready", "session_finished_ready"}
+
+# Centralized reason constant for the top remaining S1192 duplication
+# (source/provenance status only in idea_status and similar decision mappings).
+SOURCE_PROVENANCE_STATUS_ONLY_REASON = "source/provenance status only"
+
 ACTIVE_QUEUE_STATUSES: Final[set[str]] = {
     "dispatching",
     "running",
@@ -155,17 +160,27 @@ IDEA_STATUSES: Final[set[str]] = {
 }
 
 PAPER_DRAFT_NEXT_ACTION: Final[str] = "draft_paper_or_select_next_project"
+RUNS_STATE_SURFACE: Final[str] = "runs.state"
+QUEUE_ITEMS_LAST_RUN_STATE_SURFACE: Final[str] = "queue_items.last_run_state"
+RUNS_GATE_STATE_SURFACE: Final[str] = "runs.gate_state"
+PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE: Final[str] = (
+    "project_decisions.decision_gate_state"
+)
+IDEAS_IDEA_STATUS_SURFACE: Final[str] = "ideas.idea_status"
+PROJECTS_ORIGIN_IDEA_STATUS_SURFACE: Final[str] = "projects.origin_idea_status"
 
 STATE_CONTRACT: Final[dict[str, set[str]]] = {
     "queue_items.status": QUEUE_STATUSES,
-    "runs.state": RUN_STATES,
-    "queue_items.last_run_state": RUN_STATES | PROJECT_DECISION_GATE_STATES | {""},
-    "runs.gate_state": RUN_STATES | {""},
+    RUNS_STATE_SURFACE: RUN_STATES,
+    QUEUE_ITEMS_LAST_RUN_STATE_SURFACE: RUN_STATES
+    | PROJECT_DECISION_GATE_STATES
+    | {""},
+    RUNS_GATE_STATE_SURFACE: RUN_STATES | {""},
     "papers.paper_status": PAPER_STATUSES,
     "publication_automation_items.automation_status": PUBLICATION_AUTOMATION_STATUSES,
-    "project_decisions.decision_gate_state": PROJECT_DECISION_GATE_STATES,
-    "ideas.idea_status": IDEA_STATUSES,
-    "projects.origin_idea_status": IDEA_STATUSES,
+    PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE: PROJECT_DECISION_GATE_STATES,
+    IDEAS_IDEA_STATUS_SURFACE: IDEA_STATUSES,
+    PROJECTS_ORIGIN_IDEA_STATUS_SURFACE: IDEA_STATUSES,
 }
 
 STATE_SURFACE_CLASSES: Final[set[str]] = {
@@ -450,7 +465,7 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
             reason="legacy queue attention wording",
         ),
     },
-    "runs.state": {
+    RUNS_STATE_SURFACE: {
         "prepared": _decision(
             OperatorLane.RUNNING,
             "alias",
@@ -522,8 +537,8 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
             OperatorLane.HISTORICAL, "keep", reason="terminal no-action state"
         ),
     },
-    "queue_items.last_run_state": {},
-    "runs.gate_state": {},
+    QUEUE_ITEMS_LAST_RUN_STATE_SURFACE: {},
+    RUNS_GATE_STATE_SURFACE: {},
     "papers.paper_status": {
         "eligible": _decision(
             OperatorLane.WRITE_PAPER,
@@ -632,7 +647,7 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
             reason="terminal non-publication automation state",
         ),
     },
-    "project_decisions.decision_gate_state": {
+    PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE: {
         "positive": _decision(
             OperatorLane.WRITE_PAPER,
             "keep",
@@ -663,11 +678,11 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
             reason="unknown decision is not writable",
         ),
     },
-    "ideas.idea_status": {
+    IDEAS_IDEA_STATUS_SURFACE: {
         "unknown": _decision(
             OperatorLane.HISTORICAL,
             "legacy_internal",
-            reason="source/provenance status only",
+            reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON,
         ),
         "exploring": _decision(
             OperatorLane.READY_QUEUE, "keep", reason="included by default intake policy"
@@ -676,26 +691,26 @@ STATE_REDUCTION_PLAN: Final[dict[str, dict[str, dict[str, str]]]] = {
             OperatorLane.READY_QUEUE, "keep", reason="included by default intake policy"
         ),
         "validated": _decision(
-            OperatorLane.HISTORICAL, "keep", reason="source/provenance status only"
+            OperatorLane.HISTORICAL, "keep", reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON
         ),
         "discarded": _decision(
-            OperatorLane.HISTORICAL, "keep", reason="source/provenance status only"
+            OperatorLane.HISTORICAL, "keep", reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON
         ),
         "parked": _decision(
-            OperatorLane.HISTORICAL, "keep", reason="source/provenance status only"
+            OperatorLane.HISTORICAL, "keep", reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON
         ),
         "deprecated": _decision(
-            OperatorLane.HISTORICAL, "keep", reason="source/provenance status only"
+            OperatorLane.HISTORICAL, "keep", reason=SOURCE_PROVENANCE_STATUS_ONLY_REASON
         ),
     },
-    "projects.origin_idea_status": {},
+    PROJECTS_ORIGIN_IDEA_STATUS_SURFACE: {},
 }
 
-STATE_REDUCTION_PLAN["queue_items.last_run_state"] = {
+STATE_REDUCTION_PLAN[QUEUE_ITEMS_LAST_RUN_STATE_SURFACE] = {
     value: dict(
-        STATE_REDUCTION_PLAN["runs.state"].get(
+        STATE_REDUCTION_PLAN[RUNS_STATE_SURFACE].get(
             value,
-            STATE_REDUCTION_PLAN["project_decisions.decision_gate_state"].get(
+            STATE_REDUCTION_PLAN[PROJECT_DECISIONS_DECISION_GATE_STATE_SURFACE].get(
                 value,
                 _decision(
                     OperatorLane.HISTORICAL,
@@ -705,11 +720,11 @@ STATE_REDUCTION_PLAN["queue_items.last_run_state"] = {
             ),
         )
     )
-    for value in STATE_CONTRACT["queue_items.last_run_state"]
+    for value in STATE_CONTRACT[QUEUE_ITEMS_LAST_RUN_STATE_SURFACE]
 }
-STATE_REDUCTION_PLAN["runs.gate_state"] = {
+STATE_REDUCTION_PLAN[RUNS_GATE_STATE_SURFACE] = {
     value: dict(
-        STATE_REDUCTION_PLAN["runs.state"].get(
+        STATE_REDUCTION_PLAN[RUNS_STATE_SURFACE].get(
             value,
             _decision(
                 OperatorLane.HISTORICAL,
@@ -718,9 +733,9 @@ STATE_REDUCTION_PLAN["runs.gate_state"] = {
             ),
         )
     )
-    for value in STATE_CONTRACT["runs.gate_state"]
+    for value in STATE_CONTRACT[RUNS_GATE_STATE_SURFACE]
 }
-STATE_REDUCTION_PLAN["projects.origin_idea_status"] = {
-    value: dict(STATE_REDUCTION_PLAN["ideas.idea_status"][value])
-    for value in STATE_CONTRACT["projects.origin_idea_status"]
+STATE_REDUCTION_PLAN[PROJECTS_ORIGIN_IDEA_STATUS_SURFACE] = {
+    value: dict(STATE_REDUCTION_PLAN[IDEAS_IDEA_STATUS_SURFACE][value])
+    for value in STATE_CONTRACT[PROJECTS_ORIGIN_IDEA_STATUS_SURFACE]
 }

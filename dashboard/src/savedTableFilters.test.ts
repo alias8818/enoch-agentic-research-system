@@ -7,7 +7,7 @@ import {
 } from './savedTableFilters'
 
 afterEach(() => {
-  window.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
+  globalThis.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
 })
 
 it('persists queue filter presets in localStorage', () => {
@@ -37,7 +37,7 @@ it('replaces queue presets with the same name', () => {
 })
 
 it('ignores malformed queue preset payloads in localStorage', () => {
-  window.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({ queue: {} }))
+  globalThis.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({ queue: {} }))
 
   expect(loadSavedTableFilters('queue')).toEqual([])
 })

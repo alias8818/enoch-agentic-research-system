@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
 
 import enoch_control_plane.app as appmod
+from enoch_control_plane.app import ControlPlaneHttpError
 from enoch_control_plane.models import GateState, ProcessInfo, RunRecord
 
 
@@ -27,7 +27,7 @@ def test_auth_helpers_accept_header_or_dashboard_token() -> None:
     token = appmod.config.control_api_bearer_token
     appmod._require_local_bearer(f"Bearer {token}")
     appmod._require_dashboard_bearer(None, token)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ControlPlaneHttpError) as exc:
         appmod._require_local_bearer("Bearer wrong")
     assert exc.value.status_code == 401
 
@@ -37,16 +37,16 @@ def test_path_resolution_and_writes_are_safe(tmp_path: Path) -> None:
     root.mkdir()
     resolved = appmod._resolve_under_root("project/file.txt", root)
     assert resolved == (root / "project/file.txt").resolve()
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ControlPlaneHttpError) as exc:
         appmod._resolve_under_root("../escape", root)
     assert exc.value.status_code == 400
-    with pytest.raises(HTTPException) as invalid:
+    with pytest.raises(ControlPlaneHttpError) as invalid:
         appmod._resolve_under_root("bad\0path", root)
     assert invalid.value.status_code == 400
 
     target = root / "out.txt"
     appmod._write_text(target, "first", overwrite=False)
-    with pytest.raises(HTTPException) as conflict:
+    with pytest.raises(ControlPlaneHttpError) as conflict:
         appmod._write_text(target, "second", overwrite=False)
     assert conflict.value.status_code == 409
     appmod._write_text(target, "second", overwrite=True)
@@ -72,7 +72,7 @@ def test_project_metadata_prefers_enoch_and_validates_shape(
     assert workload_class == "control_plane"
 
     (project / ".enoch" / "project.json").write_text(json.dumps({"metadata": "bad"}))
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ControlPlaneHttpError) as exc:
         appmod._resolve_workload_profile_for_project_dir(project)
     assert exc.value.status_code == 500
 
@@ -102,7 +102,7 @@ def test_project_artifact_relative_paths_reject_escape(tmp_path: Path) -> None:
     good = appmod._resolve_project_relative_path(project, "paper/main.md")
     assert good == (project / "paper/main.md").resolve()
     for bad in ("", "/tmp/nope", "../escape"):
-        with pytest.raises(HTTPException):
+        with pytest.raises(ControlPlaneHttpError):
             appmod._resolve_project_relative_path(project, bad)
 
 
@@ -124,7 +124,7 @@ def test_project_metadata_access_failure_is_controlled_http_error(
 
     monkeypatch.setattr(Path, "exists", blocked_exists)
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ControlPlaneHttpError) as exc:
         appmod._load_project_metadata(project)
     assert exc.value.status_code == 500
     assert "project metadata" in str(exc.value.detail)
@@ -466,7 +466,7 @@ def test_write_text_rejects_uninspectable_target_without_raw_permission_error(
 
     monkeypatch.setattr(appmod.Path, "exists", blocked_exists)
 
-    with pytest.raises(appmod.HTTPException) as raised:
+    with pytest.raises(ControlPlaneHttpError) as raised:
         appmod._write_text(target, "new", overwrite=False)
 
     assert raised.value.status_code == 500

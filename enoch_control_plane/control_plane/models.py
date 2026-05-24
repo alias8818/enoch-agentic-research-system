@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field
 
 from ..models import utc_now
 
+DEFAULT_MACHINE_TARGET = "worker.example"
+DEFAULT_DISPATCH_MODEL = "gpt-5.5"
+
 
 class QueueStatus(str, Enum):
     QUEUED = "queued"
@@ -99,9 +102,9 @@ class NotionIntakeRequest(BaseModel):
     include_statuses: list[str] = Field(
         default_factory=lambda: ["exploring", "testing"]
     )
-    default_machine_target: str = "worker.example"
+    default_machine_target: str = DEFAULT_MACHINE_TARGET
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)
-    default_model: str = "gpt-5.5"
+    default_model: str = DEFAULT_DISPATCH_MODEL
     default_sandbox: str = "danger-full-access"
     override_existing_dispatch_metadata: bool = False
 
@@ -125,9 +128,9 @@ class IdeaIntakeRequest(BaseModel):
     include_statuses: list[str] = Field(
         default_factory=lambda: ["exploring", "testing"]
     )
-    default_machine_target: str = "worker.example"
+    default_machine_target: str = DEFAULT_MACHINE_TARGET
     workload_machine_targets: dict[str, str] = Field(default_factory=dict)
-    default_model: str = "gpt-5.5"
+    default_model: str = DEFAULT_DISPATCH_MODEL
     default_sandbox: str = "danger-full-access"
     override_existing_dispatch_metadata: bool = False
 
@@ -173,8 +176,8 @@ class QueueItemRecord(BaseModel):
     blocked_reason: str = ""
     last_error: str = ""
     last_result_summary: str = ""
-    machine_target: str = "worker.example"
-    model: str = "gpt-5.5"
+    machine_target: str = DEFAULT_MACHINE_TARGET
+    model: str = DEFAULT_DISPATCH_MODEL
     sandbox: str = "danger-full-access"
     last_dispatch_at: str | None = None
     last_callback_at: str | None = None
@@ -495,7 +498,7 @@ class DraftNextResponse(BaseModel):
 
 
 class WorkerPreflightRequest(BaseModel):
-    wake_gate_url: str = "http://worker.example:8787"
+    wake_gate_url: str = "https://worker.example:8787"
     bearer_token: str = ""
     machine_target: str = ""
     expected_callback_token_fingerprint: str = ""

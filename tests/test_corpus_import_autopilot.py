@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import tempfile
 from pathlib import Path
 from subprocess import CalledProcessError, CompletedProcess
 from unittest.mock import patch
@@ -247,3 +249,24 @@ def test_clean_noop_does_not_sync_ledger_without_opt_in(tmp_path, capsys):
 
     sync.assert_not_called()
     assert json.loads(capsys.readouterr().out)["ledger_sync"] == {}
+
+
+def test_ecosystem_manifest_path_honors_override(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    with patch.dict(
+        "os.environ", {"ENOCH_ECOSYSTEM_MANIFEST": str(manifest)}, clear=False
+    ):
+        assert autopilot._ecosystem_manifest_path() == manifest
+
+
+def test_ecosystem_manifest_path_default_uses_private_temp_file():
+    with patch.dict("os.environ", {}, clear=False):
+        os.environ.pop("ENOCH_ECOSYSTEM_MANIFEST", None)
+        path = autopilot._ecosystem_manifest_path()
+    try:
+        assert path.name.startswith("enoch-ecosystem.generated.")
+        assert path.suffix == ".json"
+        assert path.parent == Path(tempfile.gettempdir())
+        assert path.stat().st_mode & 0o777 == 0o600
+    finally:
+        path.unlink(missing_ok=True)

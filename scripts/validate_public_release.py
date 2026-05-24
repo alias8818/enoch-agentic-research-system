@@ -10,8 +10,11 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+# Centralized filename for the duplicated README.md literal (Sonar S1192 at PUBLIC_FILES).
+README_MD = "README.md"
+
 PUBLIC_FILES = [
-    "README.md",
+    README_MD,
     "site/index.html",
     "site/site.js",
     "site/ecosystem.json",
@@ -20,9 +23,9 @@ PUBLIC_FILES = [
     "docs/launch-checklist.md",
     "docs/outreach/launch-announcement.md",
 ]
-PROFILE_FILES = ["index.html", "README.md", "assets/social-card.svg"]
+PROFILE_FILES = ["index.html", README_MD, "assets/social-card.svg"]
 DOC_FILES = [
-    "README.md",
+    README_MD,
     "index.mdx",
     "introduction.mdx",
     "deployment.mdx",
@@ -30,7 +33,7 @@ DOC_FILES = [
     "configuration/paper-writer.mdx",
     "guides/paper-artifacts.mdx",
 ]
-OWNER_PROFILE_FILES = ["README.md"]
+OWNER_PROFILE_FILES = [README_MD]
 PERSONAL_SITE_FILES = [
     "index.html",
     "writing/index.html",
@@ -52,13 +55,47 @@ OF_PASS_PHRASE = re.compile(
     r"\b(\d{2,5})\s+of\s+(\d{2,5})\s+pass(?:es)?\s+(?:the\s+)?packaging(?:/| and )provenance",
     re.I,
 )
-STRICT_FAIL_PHRASE = re.compile(
-    r"\b(?:fails?|flags|rejects)\s+(\d{1,5})\s+of\s+(?:its own\s+|its\s+|the\s+)?(\d{2,5})\s+(?:canonical\s+)?outputs",
-    re.I,
+_STRICT_FAIL_VERB = r"\b(?:fail|fails|flag|flags|reject|rejects)"
+_STRICT_FAIL_COUNTS = r"\s+(\d{1,5})\s+of\s+"
+_STRICT_FAIL_OUTPUTS = r"(\d{2,5})\s+(?:canonical )?outputs"
+
+
+def _strict_fail_phrase_pattern(owner: str) -> re.Pattern[str]:
+    owner_fragment = re.escape(owner) if owner else ""
+    return re.compile(
+        f"{_STRICT_FAIL_VERB}{_STRICT_FAIL_COUNTS}{owner_fragment}{_STRICT_FAIL_OUTPUTS}",
+        re.I,
+    )
+
+
+STRICT_FAIL_PHRASES: tuple[re.Pattern[str], ...] = (
+    _strict_fail_phrase_pattern("its own "),
+    _strict_fail_phrase_pattern("its "),
+    _strict_fail_phrase_pattern("the "),
+    _strict_fail_phrase_pattern(""),
 )
-PROMISING_COUNT_PHRASE = re.compile(
-    r"\b(\d{1,5})\b(?:\s|<[^>]+>)+(?:bounded\s+)?(?:useful/scale-blocked\s+|useful\s+or\s+scale-blocked\s+|promising\s+)?(?:leads|signals)(?:\s|<[^>]+>)+(?:preserved|outside|that are not|repo|records)",
-    re.I,
+STRICT_FAIL_PHRASE = STRICT_FAIL_PHRASES[-1]
+_HTML_GAP = r"(?:\s|<[^>]+>)+"
+_PROMISING_LEADS = r"(?:leads|signals)"
+_PROMISING_TAIL = r"(?:preserved|outside|that are not|repo|records)"
+
+
+def _promising_count_regex(qualifier: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"\b(\d{{1,5}})\b{_HTML_GAP}{qualifier}{_PROMISING_LEADS}{_HTML_GAP}{_PROMISING_TAIL}",
+        re.I,
+    )
+
+
+PROMISING_COUNT_PHRASES = (
+    _promising_count_regex(r"bounded useful/scale-blocked "),
+    _promising_count_regex(r"useful/scale-blocked "),
+    _promising_count_regex(r"bounded useful or scale-blocked "),
+    _promising_count_regex(r"useful or scale-blocked "),
+    _promising_count_regex(r"bounded promising "),
+    _promising_count_regex(r"promising "),
+    _promising_count_regex(r"bounded "),
+    _promising_count_regex(r""),
 )
 FULL_AUDIT_CLAIM = re.compile(r"fully auditable|deeply auditable", re.I)
 QUALITY_WORDING = re.compile(r"quality (?:gates?|scans?|checks?)", re.I)
@@ -143,13 +180,59 @@ def check_promising_counts(
 ) -> None:
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
-        for match in PROMISING_COUNT_PHRASE.finditer(text):
+        seen_starts: set[int] = set()
+        for pattern in PROMISING_COUNT_PHRASES:
+            for match in pattern.finditer(text):
+                if match.start() in seen_starts:
+                    continue
+                seen_starts.add(match.start())
+                value = int(match.group(1))
+                if value != promising_signal_count:
+                    fail(
+                        f"promising signal count drift in {path}:{line_for(text, match.start())}: {value} != {promising_signal_count}",
+                        failures,
+                    )
+
+
+def _check_historic_stale_counts(path: Path, text: str, failures: list[str]) -> None:
+    for match in HISTORIC_STALE_COUNT.finditer(text):
+        fail(
+            f"historic stale count in {path}:{line_for(text, match.start())}: {match.group(0)}",
+            failures,
+        )
+
+
+def _check_artifact_count_phrases(
+    path: Path, text: str, artifact_count: int, failures: list[str]
+) -> None:
+    for pattern in (COUNT_PHRASE, SPLIT_SVG_COUNT_PHRASE):
+        for match in pattern.finditer(text):
             value = int(match.group(1))
-            if value != promising_signal_count:
+            if value != artifact_count:
                 fail(
-                    f"promising signal count drift in {path}:{line_for(text, match.start())}: {value} != {promising_signal_count}",
+                    f"artifact count drift in {path}:{line_for(text, match.start())}: {value} != {artifact_count}",
                     failures,
                 )
+
+
+def _check_packaging_pass_phrases(
+    path: Path, text: str, artifact_count: int, pass_count: int, failures: list[str]
+) -> None:
+    for match in PASS_PHRASE.finditer(text):
+        left, right = int(match.group(1)), int(match.group(2))
+        phrase = match.group(3).lower()
+        if "packaging" in phrase and (left, right) != (pass_count, artifact_count):
+            fail(
+                f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {pass_count}/{artifact_count}",
+                failures,
+            )
+    for match in OF_PASS_PHRASE.finditer(text):
+        left, right = int(match.group(1)), int(match.group(2))
+        if (left, right) != (pass_count, artifact_count):
+            fail(
+                f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {pass_count} of {artifact_count}",
+                failures,
+            )
 
 
 def check_counts(
@@ -157,32 +240,44 @@ def check_counts(
 ) -> None:
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
-        for match in HISTORIC_STALE_COUNT.finditer(text):
+        _check_historic_stale_counts(path, text, failures)
+        _check_artifact_count_phrases(path, text, artifact_count, failures)
+        _check_packaging_pass_phrases(path, text, artifact_count, pass_count, failures)
+
+
+def _check_strict_public_pass_phrases(
+    path: Path,
+    text: str,
+    strict_pass_count: int,
+    artifact_count: int,
+    failures: list[str],
+) -> None:
+    for match in PASS_PHRASE.finditer(text):
+        left, right = int(match.group(1)), int(match.group(2))
+        phrase = match.group(3).lower()
+        if "packaging" not in phrase and (left, right) != (
+            strict_pass_count,
+            artifact_count,
+        ):
             fail(
-                f"historic stale count in {path}:{line_for(text, match.start())}: {match.group(0)}",
+                f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}",
                 failures,
             )
-        for pattern in (COUNT_PHRASE, SPLIT_SVG_COUNT_PHRASE):
-            for match in pattern.finditer(text):
-                value = int(match.group(1))
-                if value != artifact_count:
-                    fail(
-                        f"artifact count drift in {path}:{line_for(text, match.start())}: {value} != {artifact_count}",
-                        failures,
-                    )
-        for match in PASS_PHRASE.finditer(text):
+
+
+def _check_strict_public_fail_phrases(
+    path: Path,
+    text: str,
+    strict_fail_count: int,
+    artifact_count: int,
+    failures: list[str],
+) -> None:
+    for pattern in STRICT_FAIL_PHRASES:
+        for match in pattern.finditer(text):
             left, right = int(match.group(1)), int(match.group(2))
-            phrase = match.group(3).lower()
-            if "packaging" in phrase and (left, right) != (pass_count, artifact_count):
+            if (left, right) != (strict_fail_count, artifact_count):
                 fail(
-                    f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {pass_count}/{artifact_count}",
-                    failures,
-                )
-        for match in OF_PASS_PHRASE.finditer(text):
-            left, right = int(match.group(1)), int(match.group(2))
-            if (left, right) != (pass_count, artifact_count):
-                fail(
-                    f"packaging/provenance pass count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {pass_count} of {artifact_count}",
+                    f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}",
                     failures,
                 )
 
@@ -193,24 +288,12 @@ def check_strict_public_counts(
     strict_fail_count = artifact_count - strict_pass_count
     for path in paths:
         text = path.read_text(encoding="utf-8", errors="replace")
-        for match in PASS_PHRASE.finditer(text):
-            left, right = int(match.group(1)), int(match.group(2))
-            phrase = match.group(3).lower()
-            if "packaging" not in phrase and (left, right) != (
-                strict_pass_count,
-                artifact_count,
-            ):
-                fail(
-                    f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}",
-                    failures,
-                )
-        for match in STRICT_FAIL_PHRASE.finditer(text):
-            left, right = int(match.group(1)), int(match.group(2))
-            if (left, right) != (strict_fail_count, artifact_count):
-                fail(
-                    f"strict audit fail count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_fail_count} of {artifact_count}",
-                    failures,
-                )
+        _check_strict_public_pass_phrases(
+            path, text, strict_pass_count, artifact_count, failures
+        )
+        _check_strict_public_fail_phrases(
+            path, text, strict_fail_count, artifact_count, failures
+        )
 
 
 def check_quality_scope(paths: list[Path], failures: list[str]) -> None:
@@ -242,27 +325,30 @@ def check_required_copy(paths: list[Path], failures: list[str]) -> None:
         fail("missing independent-replication caveat", failures)
 
 
-def check_manifest(
-    committed: dict, generated: dict | None, failures: list[str]
-) -> None:
-    required = [
-        "artifact_count",
-        "promising_signal_count",
-        "packaging_provenance_pass_count",
-        "gate_name",
-        "gate_version",
-        "gate_scope",
-        "validated",
-        "not_validated",
-        "warnings",
-        "strict_claim_evidence_pass_count",
-        "strict_claim_evidence_total_count",
-        "strict_claim_evidence_gate_name",
-        "strict_claim_evidence_gate_status",
-    ]
-    for key in required:
+MANIFEST_REQUIRED_KEYS = [
+    "artifact_count",
+    "promising_signal_count",
+    "packaging_provenance_pass_count",
+    "gate_name",
+    "gate_version",
+    "gate_scope",
+    "validated",
+    "not_validated",
+    "warnings",
+    "strict_claim_evidence_pass_count",
+    "strict_claim_evidence_total_count",
+    "strict_claim_evidence_gate_name",
+    "strict_claim_evidence_gate_status",
+]
+
+
+def _check_manifest_required_keys(committed: dict, failures: list[str]) -> None:
+    for key in MANIFEST_REQUIRED_KEYS:
         if key not in committed:
             fail(f"manifest missing required key: {key}", failures)
+
+
+def _check_manifest_strict_claim_evidence(committed: dict, failures: list[str]) -> None:
     if (
         committed.get("strict_claim_evidence_gate_name")
         != "strict_claim_evidence_audit"
@@ -272,9 +358,8 @@ def check_manifest(
             failures,
         )
     strict_pass_count = int(committed.get("strict_claim_evidence_pass_count") or 0)
-    if strict_pass_count < 0 or strict_pass_count > int(
-        committed.get("artifact_count") or 0
-    ):
+    artifact_count = int(committed.get("artifact_count") or 0)
+    if strict_pass_count < 0 or strict_pass_count > artifact_count:
         fail(
             "manifest strict claim/evidence pass count must be between 0 and artifact count",
             failures,
@@ -292,15 +377,23 @@ def check_manifest(
             "manifest strict audit status cannot be strict_pass unless every artifact passes",
             failures,
         )
-    if generated is None:
-        return
-    stable_keys = [key for key in required if key != "warnings"]
+
+
+def _check_manifest_stable_key_drift(
+    committed: dict, generated: dict, failures: list[str]
+) -> None:
+    stable_keys = [key for key in MANIFEST_REQUIRED_KEYS if key != "warnings"]
     for key in stable_keys:
         if committed.get(key) != generated.get(key):
             fail(
                 f"committed manifest drift for {key}: {committed.get(key)!r} != generated {generated.get(key)!r}",
                 failures,
             )
+
+
+def _check_manifest_repo_drift(
+    committed: dict, generated: dict, failures: list[str]
+) -> None:
     committed_repos = committed.get("repos") or {}
     generated_repos = generated.get("repos") or {}
     for repo_key, generated_repo in generated_repos.items():
@@ -315,6 +408,17 @@ def check_manifest(
                 f"committed manifest should not contain volatile repo commit for {repo_key}",
                 failures,
             )
+
+
+def check_manifest(
+    committed: dict, generated: dict | None, failures: list[str]
+) -> None:
+    _check_manifest_required_keys(committed, failures)
+    _check_manifest_strict_claim_evidence(committed, failures)
+    if generated is None:
+        return
+    _check_manifest_stable_key_drift(committed, generated, failures)
+    _check_manifest_repo_drift(committed, generated, failures)
 
 
 def fetch_github_repo_metadata(repo: str) -> dict:
@@ -365,6 +469,92 @@ def fetch_github_repo_metadata(repo: str) -> dict:
         return json.loads(result.stdout)
 
 
+def _check_github_metadata_counts(
+    metadata_text: str,
+    repo: str,
+    artifact_count: int,
+    failures: list[str],
+) -> None:
+    for match in HISTORIC_STALE_COUNT.finditer(metadata_text):
+        fail(
+            f"historic stale count in GitHub metadata for {repo}: {match.group(0)}",
+            failures,
+        )
+    for match in COUNT_PHRASE.finditer(metadata_text):
+        value = int(match.group(1))
+        if value != artifact_count:
+            fail(
+                f"artifact count drift in GitHub metadata for {repo}: {value} != {artifact_count}",
+                failures,
+            )
+
+
+def _check_github_corpus_repo_metadata(
+    description: str,
+    homepage: str,
+    expected_corpus_prefix: str,
+    expected_homepage: str,
+    failures: list[str],
+) -> None:
+    if not description.startswith(expected_corpus_prefix):
+        fail(
+            f"corpus GitHub description does not start with {expected_corpus_prefix!r}: {description!r}",
+            failures,
+        )
+    if homepage != expected_homepage:
+        fail(
+            f"corpus GitHub homepage drift: {homepage!r} != {expected_homepage!r}",
+            failures,
+        )
+
+
+def _check_github_promising_signals_repo_metadata(
+    description: str,
+    homepage: str,
+    expected_promising_prefix: str,
+    expected_homepage: str,
+    failures: list[str],
+) -> None:
+    if not description.startswith(expected_promising_prefix):
+        fail(
+            f"promising signals GitHub description does not start with {expected_promising_prefix!r}: {description!r}",
+            failures,
+        )
+    if homepage != expected_homepage:
+        fail(
+            f"promising signals GitHub homepage drift: {homepage!r} != {expected_homepage!r}",
+            failures,
+        )
+
+
+def _check_single_github_repo_metadata(
+    repo: str,
+    metadata: dict,
+    artifact_count: int,
+    promising_signal_count: int,
+    expected_corpus_prefix: str,
+    expected_promising_prefix: str,
+    expected_homepage: str,
+    failures: list[str],
+) -> None:
+    description = str(metadata.get("description") or "")
+    homepage = str(metadata.get("homepage") or "")
+    metadata_text = f"{description} {homepage}"
+    _check_github_metadata_counts(metadata_text, repo, artifact_count, failures)
+    if repo == "alias8818/enoch-ai-research-corpus":
+        _check_github_corpus_repo_metadata(
+            description, homepage, expected_corpus_prefix, expected_homepage, failures
+        )
+    if repo == "alias8818/enoch-promising-signals" and promising_signal_count:
+        _check_github_promising_signals_repo_metadata(
+            description,
+            homepage,
+            expected_promising_prefix,
+            expected_homepage,
+            failures,
+        )
+
+
 def check_github_metadata(
     artifact_count: int, failures: list[str], promising_signal_count: int = 0
 ) -> None:
@@ -378,51 +568,24 @@ def check_github_metadata(
     for repo in GITHUB_REPO_METADATA:
         try:
             metadata = fetch_github_repo_metadata(repo)
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as exc:
+        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
             fail(f"could not fetch GitHub repo metadata for {repo}: {exc}", failures)
             continue
-        description = str(metadata.get("description") or "")
-        homepage = str(metadata.get("homepage") or "")
-        metadata_text = f"{description} {homepage}"
-        for match in HISTORIC_STALE_COUNT.finditer(metadata_text):
-            fail(
-                f"historic stale count in GitHub metadata for {repo}: {match.group(0)}",
-                failures,
-            )
-        for match in COUNT_PHRASE.finditer(metadata_text):
-            value = int(match.group(1))
-            if value != artifact_count:
-                fail(
-                    f"artifact count drift in GitHub metadata for {repo}: {value} != {artifact_count}",
-                    failures,
-                )
-        if repo == "alias8818/enoch-ai-research-corpus":
-            if not description.startswith(expected_corpus_prefix):
-                fail(
-                    f"corpus GitHub description does not start with {expected_corpus_prefix!r}: {description!r}",
-                    failures,
-                )
-            if homepage != expected_homepage:
-                fail(
-                    f"corpus GitHub homepage drift: {homepage!r} != {expected_homepage!r}",
-                    failures,
-                )
-        if repo == "alias8818/enoch-promising-signals" and promising_signal_count:
-            if not description.startswith(expected_promising_prefix):
-                fail(
-                    f"promising signals GitHub description does not start with {expected_promising_prefix!r}: {description!r}",
-                    failures,
-                )
-            if homepage != expected_homepage:
-                fail(
-                    f"promising signals GitHub homepage drift: {homepage!r} != {expected_homepage!r}",
-                    failures,
-                )
+        _check_single_github_repo_metadata(
+            repo,
+            metadata,
+            artifact_count,
+            promising_signal_count,
+            expected_corpus_prefix,
+            expected_promising_prefix,
+            expected_homepage,
+            failures,
+        )
 
 
 def promising_signal_public_paths(promising: Path) -> list[Path]:
     roots = [
-        promising / "README.md",
+        promising / README_MD,
         promising / "docs",
         promising / "data",
         promising / "schemas",
@@ -495,12 +658,12 @@ def check_hf_export(
     hf_export: Path, artifact_count: int, strict_pass_count: int, failures: list[str]
 ) -> None:
     summary_path = hf_export / "dataset_summary.json"
-    readme_path = hf_export / "README.md"
+    readme_path = hf_export / README_MD
     if not summary_path.exists():
         fail(f"HF export missing dataset_summary.json: {summary_path}", failures)
         return
     if not readme_path.exists():
-        fail(f"HF export missing README.md: {readme_path}", failures)
+        fail(f"HF export missing {README_MD}: {readme_path}", failures)
         return
     try:
         summary = load_json(summary_path)
@@ -557,6 +720,142 @@ def check_corpus_public_trust_validator(
         )
 
 
+def _validate_manifest_alignment(
+    manifest: dict,
+    index: dict,
+    report: dict,
+    generated_manifest: dict | None,
+    promising: Path | None,
+    failures: list[str],
+) -> tuple[int, int, int]:
+    artifact_count = int(index.get("count", len(index.get("papers", []))))
+    pass_count = int(report["passed"])
+    if manifest.get("artifact_count") != artifact_count:
+        fail(
+            f"manifest artifact_count {manifest.get('artifact_count')} != corpus index count {artifact_count}",
+            failures,
+        )
+    if manifest.get("packaging_provenance_pass_count") != pass_count:
+        fail(
+            "manifest packaging_provenance_pass_count does not match quality_report passed",
+            failures,
+        )
+    promising_count = int(manifest.get("promising_signal_count") or 0)
+    if promising:
+        check_promising_signals_repo(promising, promising_count, failures)
+    if manifest.get("packaging_provenance_pass_count") != manifest.get(
+        "artifact_count"
+    ):
+        fail(
+            "manifest pass count and artifact count diverge; update public copy accordingly",
+            failures,
+        )
+    if report.get("gate_name") != "packaging_provenance_gate":
+        fail("quality_report gate_name is not packaging_provenance_gate", failures)
+    if not report.get("not_validated"):
+        fail("quality_report missing not_validated list", failures)
+    check_manifest(manifest, generated_manifest, failures)
+    return artifact_count, pass_count, promising_count
+
+
+def collect_public_validation_paths(
+    system: Path,
+    profile: Path,
+    docs: Path,
+    corpus: Path,
+    owner_profile: Path | None,
+    personal_site: Path | None,
+) -> list[Path]:
+    public_paths = (
+        existing(system, PUBLIC_FILES)
+        + existing(profile, PROFILE_FILES)
+        + existing(docs, DOC_FILES)
+    )
+    if owner_profile:
+        public_paths += existing(owner_profile, OWNER_PROFILE_FILES)
+    if personal_site:
+        public_paths += existing(personal_site, PERSONAL_SITE_FILES)
+    public_paths += existing(
+        corpus,
+        [
+            README_MD,
+            "quality/quality_report.md",
+            "quality/packaging_provenance_report.md",
+        ],
+    )
+    return public_paths
+
+
+def _run_public_surface_validation(
+    corpus: Path,
+    promising: Path | None,
+    manifest: dict,
+    public_paths: list[Path],
+    promising_count: int,
+    failures: list[str],
+    *,
+    execute_corpus_validator: bool,
+) -> None:
+    promising_paths = promising_signal_public_paths(promising) if promising else []
+    check_public_secret_tokens(
+        public_paths + corpus_artifact_public_paths(corpus) + promising_paths, failures
+    )
+    check_counts(
+        public_paths,
+        int(manifest["artifact_count"]),
+        int(manifest["packaging_provenance_pass_count"]),
+        failures,
+    )
+    check_promising_counts(public_paths + promising_paths, promising_count, failures)
+    check_strict_public_counts(
+        public_paths,
+        int(manifest["artifact_count"]),
+        int(manifest.get("strict_claim_evidence_pass_count") or 0),
+        failures,
+    )
+    check_quality_scope(public_paths, failures)
+    check_required_copy(public_paths, failures)
+    check_corpus_public_trust_validator(
+        corpus, failures, execute=execute_corpus_validator
+    )
+
+
+def _check_combined_public_strict_audit(
+    combined_public: str, manifest: dict, failures: list[str]
+) -> None:
+    if "strict claim/evidence" not in combined_public.lower():
+        fail("missing strict claim/evidence audit public framing", failures)
+    for match in FULL_AUDIT_CLAIM.finditer(combined_public):
+        if int(manifest.get("strict_claim_evidence_pass_count", 0)) < int(
+            manifest.get("artifact_count") or 0
+        ):
+            fail(
+                f"public copy implies full strict auditability while strict audit is incomplete: {match.group(0)}",
+                failures,
+            )
+
+
+def _run_optional_release_checks(
+    *,
+    skip_github_metadata: bool,
+    hf_export: Path | None,
+    manifest: dict,
+    promising_count: int,
+    failures: list[str],
+) -> None:
+    if not skip_github_metadata:
+        check_github_metadata(
+            int(manifest["artifact_count"]), failures, promising_count
+        )
+    if hf_export:
+        check_hf_export(
+            hf_export,
+            int(manifest["artifact_count"]),
+            int(manifest.get("strict_claim_evidence_pass_count") or 0),
+            failures,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Enoch public release accounting and gate wording."
@@ -606,98 +905,32 @@ def main(argv: list[str] | None = None) -> int:
     index = load_json(corpus / "papers" / "index.json")
     report = load_json(corpus / "quality" / "quality_report.json")
 
-    artifact_count = int(index.get("count", len(index.get("papers", []))))
-    pass_count = int(report["passed"])
-    if manifest.get("artifact_count") != artifact_count:
-        fail(
-            f"manifest artifact_count {manifest.get('artifact_count')} != corpus index count {artifact_count}",
-            failures,
-        )
-    if manifest.get("packaging_provenance_pass_count") != pass_count:
-        fail(
-            "manifest packaging_provenance_pass_count does not match quality_report passed",
-            failures,
-        )
-    promising_count = int(manifest.get("promising_signal_count") or 0)
-    if promising:
-        check_promising_signals_repo(promising, promising_count, failures)
-    if manifest.get("packaging_provenance_pass_count") != manifest.get(
-        "artifact_count"
-    ):
-        fail(
-            "manifest pass count and artifact count diverge; update public copy accordingly",
-            failures,
-        )
-    if report.get("gate_name") != "packaging_provenance_gate":
-        fail("quality_report gate_name is not packaging_provenance_gate", failures)
-    if not report.get("not_validated"):
-        fail("quality_report missing not_validated list", failures)
-    check_manifest(manifest, generated_manifest, failures)
-
-    public_paths = (
-        existing(system, PUBLIC_FILES)
-        + existing(profile, PROFILE_FILES)
-        + existing(docs, DOC_FILES)
+    _, _, promising_count = _validate_manifest_alignment(
+        manifest, index, report, generated_manifest, promising, failures
     )
-    if owner_profile:
-        public_paths += existing(owner_profile, OWNER_PROFILE_FILES)
-    if personal_site:
-        public_paths += existing(personal_site, PERSONAL_SITE_FILES)
-    public_paths += existing(
+    public_paths = collect_public_validation_paths(
+        system, profile, docs, corpus, owner_profile, personal_site
+    )
+    _run_public_surface_validation(
         corpus,
-        [
-            "README.md",
-            "quality/quality_report.md",
-            "quality/packaging_provenance_report.md",
-        ],
-    )
-    promising_paths = promising_signal_public_paths(promising) if promising else []
-
-    check_public_secret_tokens(
-        public_paths + corpus_artifact_public_paths(corpus) + promising_paths, failures
-    )
-    check_counts(
+        promising,
+        manifest,
         public_paths,
-        int(manifest["artifact_count"]),
-        int(manifest["packaging_provenance_pass_count"]),
+        promising_count,
         failures,
-    )
-    check_promising_counts(public_paths + promising_paths, promising_count, failures)
-    check_strict_public_counts(
-        public_paths,
-        int(manifest["artifact_count"]),
-        int(manifest.get("strict_claim_evidence_pass_count") or 0),
-        failures,
-    )
-    check_quality_scope(public_paths, failures)
-    check_required_copy(public_paths, failures)
-    check_corpus_public_trust_validator(
-        corpus, failures, execute=bool(args.execute_corpus_validator)
+        execute_corpus_validator=bool(args.execute_corpus_validator),
     )
     combined_public = "\n".join(
         path.read_text(encoding="utf-8", errors="replace") for path in public_paths
     )
-    if "strict claim/evidence" not in combined_public.lower():
-        fail("missing strict claim/evidence audit public framing", failures)
-    for match in FULL_AUDIT_CLAIM.finditer(combined_public):
-        if int(manifest.get("strict_claim_evidence_pass_count", 0)) < int(
-            manifest.get("artifact_count") or 0
-        ):
-            fail(
-                f"public copy implies full strict auditability while strict audit is incomplete: {match.group(0)}",
-                failures,
-            )
-    if not args.skip_github_metadata:
-        check_github_metadata(
-            int(manifest["artifact_count"]), failures, promising_count
-        )
-    if hf_export:
-        check_hf_export(
-            hf_export,
-            int(manifest["artifact_count"]),
-            int(manifest.get("strict_claim_evidence_pass_count") or 0),
-            failures,
-        )
+    _check_combined_public_strict_audit(combined_public, manifest, failures)
+    _run_optional_release_checks(
+        skip_github_metadata=bool(args.skip_github_metadata),
+        hf_export=hf_export,
+        manifest=manifest,
+        promising_count=promising_count,
+        failures=failures,
+    )
 
     if failures:
         for item in failures:

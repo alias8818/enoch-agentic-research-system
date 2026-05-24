@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi import HTTPException
+from enoch_control_plane.app import ControlPlaneHttpError
 
 from enoch_control_plane.app import _resolve_project_relative_path, _write_text
 
@@ -23,14 +23,14 @@ class PaperArtifactPathTests(unittest.TestCase):
             project_dir = Path(tmp).resolve()
             for unsafe in ("/tmp/paper.md", "../paper.md", "papers/../paper.md", ""):
                 with self.subTest(unsafe=unsafe):
-                    with self.assertRaises(HTTPException):
+                    with self.assertRaises(ControlPlaneHttpError):
                         _resolve_project_relative_path(project_dir, unsafe)
 
     def test_write_text_respects_overwrite_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "paper.md"
             _write_text(path, "one", overwrite=False)
-            with self.assertRaises(HTTPException):
+            with self.assertRaises(ControlPlaneHttpError):
                 _write_text(path, "two", overwrite=False)
             _write_text(path, "two", overwrite=True)
             self.assertEqual(path.read_text(), "two")
@@ -43,7 +43,7 @@ class PaperArtifactPathTests(unittest.TestCase):
             )
             _write_text(safe, "{}", overwrite=False)
             self.assertEqual(safe.read_text(), "{}")
-            with self.assertRaises(HTTPException):
+            with self.assertRaises(ControlPlaneHttpError):
                 _resolve_project_relative_path(
                     project_dir, "papers/run-1/../../secret.txt"
                 )

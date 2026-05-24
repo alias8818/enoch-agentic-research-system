@@ -110,39 +110,56 @@ def _validate_migrations() -> list[str]:
     return failures
 
 
+def _reduction_plan_coverage_failures(
+    surface: str, values: set[str], planned: dict[str, Any] | None
+) -> list[str]:
+    if planned is None:
+        return [f"state reduction plan missing surface: {surface}"]
+    failures: list[str] = []
+    missing = values - set(planned)
+    extra = set(planned) - values
+    if missing:
+        failures.append(
+            f"state reduction plan for {surface} missing values: {sorted(missing)}"
+        )
+    if extra:
+        failures.append(
+            f"state reduction plan for {surface} has values outside contract: {sorted(extra)}"
+        )
+    return failures
+
+
+def _reduction_plan_entry_failures(
+    surface: str, value: str, decision: dict[str, Any]
+) -> list[str]:
+    failures: list[str] = []
+    disposition = str(decision.get("disposition") or "")
+    lane = str(decision.get("operator_lane") or "")
+    replacement = str(decision.get("replacement") or "")
+    if disposition not in STATE_DISPOSITIONS:
+        failures.append(
+            f"state reduction plan for {surface}.{value} has invalid disposition: {disposition!r}"
+        )
+    if not lane:
+        failures.append(
+            f"state reduction plan for {surface}.{value} missing operator_lane"
+        )
+    if disposition in {"alias", "migrate_after_freeze"} and not replacement:
+        failures.append(
+            f"state reduction plan for {surface}.{value} disposition={disposition} needs replacement"
+        )
+    return failures
+
+
 def _validate_reduction_plan() -> list[str]:
     failures: list[str] = []
     for surface, values in STATE_CONTRACT.items():
         planned = STATE_REDUCTION_PLAN.get(surface)
+        failures.extend(_reduction_plan_coverage_failures(surface, values, planned))
         if planned is None:
-            failures.append(f"state reduction plan missing surface: {surface}")
             continue
-        missing = values - set(planned)
-        extra = set(planned) - values
-        if missing:
-            failures.append(
-                f"state reduction plan for {surface} missing values: {sorted(missing)}"
-            )
-        if extra:
-            failures.append(
-                f"state reduction plan for {surface} has values outside contract: {sorted(extra)}"
-            )
         for value, decision in planned.items():
-            disposition = str(decision.get("disposition") or "")
-            lane = str(decision.get("operator_lane") or "")
-            replacement = str(decision.get("replacement") or "")
-            if disposition not in STATE_DISPOSITIONS:
-                failures.append(
-                    f"state reduction plan for {surface}.{value} has invalid disposition: {disposition!r}"
-                )
-            if not lane:
-                failures.append(
-                    f"state reduction plan for {surface}.{value} missing operator_lane"
-                )
-            if disposition in {"alias", "migrate_after_freeze"} and not replacement:
-                failures.append(
-                    f"state reduction plan for {surface}.{value} disposition={disposition} needs replacement"
-                )
+            failures.extend(_reduction_plan_entry_failures(surface, value, decision))
     return failures
 
 

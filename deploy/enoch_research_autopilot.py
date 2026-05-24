@@ -17,6 +17,12 @@ import sys
 import time
 from urllib import error, request
 
+from enoch_control_plane.url_safety import secure_default_service_url
+
+# Centralized reason constant for the top remaining S1192 duplication
+# in this autopilot script.
+MISSING_DATABASE_URL_REASON = "missing database URL"
+
 
 def _load_config() -> dict:
     path = Path(
@@ -32,9 +38,8 @@ def _base_url(config: dict) -> str:
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
-    return (
-        os.environ.get("ENOCH_CONTROL_URL")
-        or f"http://{host}:{int(config.get('listen_port') or 8787)}"
+    return os.environ.get("ENOCH_CONTROL_URL") or secure_default_service_url(
+        host, int(config.get("listen_port") or 8787)
     )
 
 
@@ -62,7 +67,7 @@ def _get_json(base_url: str, path: str, token: str, *, timeout: int) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _control_plane_recovered(base_url: str, token: str) -> bool:
+def _control_plane_recovered(base_url: str) -> bool:
     """Return true when the local control API is reachable after a dropped tick.
 
     A deploy or service restart can close the long-running run-cycle request
@@ -75,7 +80,7 @@ def _control_plane_recovered(base_url: str, token: str) -> bool:
         time.sleep(2)
         try:
             health = _get_json(base_url, "/healthz", "", timeout=5)
-        except (OSError, TimeoutError, error.URLError, json.JSONDecodeError):
+        except (OSError, error.URLError, json.JSONDecodeError):
             continue
         if health.get("ok"):
             return True
@@ -201,7 +206,7 @@ def refresh_research_quality_report() -> dict:
         return {
             "ok": False,
             "action": "research_quality_refresh_skipped",
-            "reason": "missing database URL",
+            "reason": MISSING_DATABASE_URL_REASON,
         }
 
     output = Path(
@@ -283,7 +288,7 @@ def refresh_research_quality_window_comparison() -> dict:
         return {
             "ok": False,
             "action": "research_quality_window_comparison_skipped",
-            "reason": "missing database URL",
+            "reason": MISSING_DATABASE_URL_REASON,
         }
 
     output = Path(
@@ -349,29 +354,7 @@ def refresh_research_quality_window_comparison() -> dict:
     }
 
 
-def run_quota_gated_janitor_llm_review() -> dict:
-    """Run at most one Synthetic-backed janitor adjudication batch.
-
-    The script owns its own quota/cooldown gates. The timer may call this every
-    tick, but provider spend only happens when rolling and weekly budgets are
-    healthy and rewrite_suggested backlog exists.
-    """
-
-    if not _truthy("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED"):
-        return {
-            "ok": True,
-            "action": "research_janitor_llm_review_skipped",
-            "reason": "disabled",
-        }
-
-    database_url = _database_url()
-    if not database_url:
-        return {
-            "ok": False,
-            "action": "research_janitor_llm_review_skipped",
-            "reason": "missing database URL",
-        }
-
+def _janitor_llm_review_output_path() -> Path:
     output = Path(
         os.environ.get(
             "ENOCH_RESEARCH_JANITOR_LLM_REPORT_PATH",
@@ -379,11 +362,13 @@ def run_quota_gated_janitor_llm_review() -> dict:
         )
     )
     output.parent.mkdir(parents=True, exist_ok=True)
-    timeout = _bounded_int("ENOCH_RESEARCH_JANITOR_LLM_TIMEOUT_SECONDS", 180, 30, 600)
-    script = _repo_root() / "scripts" / "research_facility_llm_review.py"
+    return output
+
+
+def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
     cmd = [
         sys.executable,
-        str(script),
+        str(_repo_root() / "scripts" / "research_facility_llm_review.py"),
         "--provider-base-url",
         os.environ.get(
             "ENOCH_RESEARCH_PROVIDER_BASE_URL", "https://synthetic.int.exe.xyz"
@@ -429,7 +414,7 @@ def run_quota_gated_janitor_llm_review() -> dict:
         cmd.append("--apply")
     else:
         cmd.append("--dry-run")
-    if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY_STORED", default=True):
+    if _truthy("ENOCH_RESEARCH_JANITOR_LLM_APPLY_STORED", default="1"):
         cmd.append("--apply-stored-decisions")
         cmd.extend(
             [
@@ -441,40 +426,37 @@ def run_quota_gated_janitor_llm_review() -> dict:
                 ),
             ]
         )
-    display_cmd = [*cmd]
+    return cmd
+
+
+def _read_janitor_llm_payload(output: Path) -> dict:
+    if not output.exists():
+        return {}
     try:
-        proc = subprocess.run(
-            cmd,
-            cwd=_repo_root(),
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=timeout + 30,
-            check=False,
-            env=_database_url_env(database_url),
-        )
-    except subprocess.TimeoutExpired:
-        return {
-            "ok": False,
-            "action": "research_janitor_llm_review_failed",
-            "reason": _timeout_reason(timeout + 30),
-            "command": display_cmd,
-            "output": str(output),
-        }
-    except OSError as exc:
-        return {
-            "ok": False,
-            "action": "research_janitor_llm_review_failed",
-            "reason": f"{type(exc).__name__}: {exc}",
-            "command": display_cmd,
-            "output": str(output),
-        }
-    payload: dict = {}
-    if output.exists():
-        try:
-            payload = json.loads(output.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = {}
+        return json.loads(output.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _janitor_llm_review_subprocess_error(
+    *, reason: str, display_cmd: list, output: Path
+) -> dict:
+    return {
+        "ok": False,
+        "action": "research_janitor_llm_review_failed",
+        "reason": reason,
+        "command": display_cmd,
+        "output": str(output),
+    }
+
+
+def _janitor_llm_review_result(
+    proc: subprocess.CompletedProcess[str],
+    *,
+    output: Path,
+    payload: dict,
+    display_cmd: list,
+) -> dict:
     return {
         "ok": proc.returncode == 0 and bool(payload.get("ok", proc.returncode == 0)),
         "action": payload.get("action") or "research_janitor_llm_review",
@@ -492,6 +474,64 @@ def run_quota_gated_janitor_llm_review() -> dict:
         "stderr": proc.stderr.strip()[-2000:],
         "command": display_cmd,
     }
+
+
+def run_quota_gated_janitor_llm_review() -> dict:
+    """Run at most one Synthetic-backed janitor adjudication batch.
+
+    The script owns its own quota/cooldown gates. The timer may call this every
+    tick, but provider spend only happens when rolling and weekly budgets are
+    healthy and rewrite_suggested backlog exists.
+    """
+
+    if not _truthy("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED"):
+        return {
+            "ok": True,
+            "action": "research_janitor_llm_review_skipped",
+            "reason": "disabled",
+        }
+
+    database_url = _database_url()
+    if not database_url:
+        return {
+            "ok": False,
+            "action": "research_janitor_llm_review_skipped",
+            "reason": MISSING_DATABASE_URL_REASON,
+        }
+
+    output = _janitor_llm_review_output_path()
+    timeout = _bounded_int("ENOCH_RESEARCH_JANITOR_LLM_TIMEOUT_SECONDS", 180, 30, 600)
+    display_cmd = _janitor_llm_review_command(output, timeout)
+    try:
+        proc = subprocess.run(
+            display_cmd,
+            cwd=_repo_root(),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout + 30,
+            check=False,
+            env=_database_url_env(database_url),
+        )
+    except subprocess.TimeoutExpired:
+        return _janitor_llm_review_subprocess_error(
+            reason=_timeout_reason(timeout + 30),
+            display_cmd=display_cmd,
+            output=output,
+        )
+    except OSError as exc:
+        return _janitor_llm_review_subprocess_error(
+            reason=f"{type(exc).__name__}: {exc}",
+            display_cmd=display_cmd,
+            output=output,
+        )
+
+    return _janitor_llm_review_result(
+        proc,
+        output=output,
+        payload=_read_janitor_llm_payload(output),
+        display_cmd=display_cmd,
+    )
 
 
 def _provider_malformed_count(result: dict) -> int:
@@ -565,49 +605,69 @@ def _is_benign_skip_result(result: dict) -> bool:
     }
 
 
-def main() -> int:
-    if _truthy("ENOCH_RESEARCH_QUALITY_REFRESH_ONLY"):
-        result = refresh_research_quality_report()
-        print(json.dumps(result, sort_keys=True))
-        return 0 if result.get("ok") else 1
+def _research_autopilot_failure(reason: str) -> dict:
+    return {
+        "ok": False,
+        "action": "failed",
+        "reason": reason,
+    }
 
-    if not _truthy("ENOCH_ENABLE_RESEARCH_AUTOPILOT"):
-        print(
-            json.dumps(
-                {
-                    "ok": True,
-                    "action": "skipped",
-                    "reason": "research autopilot disabled; set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1",
-                },
-                sort_keys=True,
-            )
+
+def _main_quality_refresh_exit() -> int | None:
+    if not _truthy("ENOCH_RESEARCH_QUALITY_REFRESH_ONLY"):
+        return None
+    result = refresh_research_quality_report()
+    print(json.dumps(result, sort_keys=True))
+    return 0 if result.get("ok") else 1
+
+
+def _main_autopilot_disabled_exit() -> int | None:
+    if _truthy("ENOCH_ENABLE_RESEARCH_AUTOPILOT"):
+        return None
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "action": "skipped",
+                "reason": "research autopilot disabled; set ENOCH_ENABLE_RESEARCH_AUTOPILOT=1",
+            },
+            sort_keys=True,
         )
-        return 0
+    )
+    return 0
 
-    config = _load_config()
-    token = os.environ.get("ENOCH_CONTROL_TOKEN") or str(
+
+def _resolve_control_token(config: dict) -> str:
+    return os.environ.get("ENOCH_CONTROL_TOKEN") or str(
         config.get("control_api_bearer_token")
         or config.get("omx_inbound_bearer_token")
         or ""
     )
-    if not token:
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "action": "skipped",
-                    "reason": "missing control-plane token",
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        return 2
 
+
+def _main_missing_token_exit(token: str) -> int | None:
+    if token:
+        return None
+    print(
+        json.dumps(
+            {
+                "ok": False,
+                "action": "skipped",
+                "reason": "missing control-plane token",
+            },
+            sort_keys=True,
+        ),
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _build_research_run_cycle_payload() -> tuple[dict, int]:
     wait_for_completion = _truthy("ENOCH_RESEARCH_AUTOPILOT_WAIT", "1")
     max_wait_seconds = _bounded_int(
         "ENOCH_RESEARCH_AUTOPILOT_MAX_WAIT_SECONDS", 900, 0, 1800
     )
+    papers_enabled = _truthy("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1")
     payload = {
         "enabled": True,
         "dry_run": False,
@@ -647,12 +707,8 @@ def main() -> int:
         "poll_interval_seconds": _bounded_int(
             "ENOCH_RESEARCH_AUTOPILOT_POLL_SECONDS", 10, 2, 60
         ),
-        "max_paper_drafts_per_run": 1
-        if _truthy("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1")
-        else 0,
-        "max_publication_rewrites_per_run": 1
-        if _truthy("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1")
-        else 0,
+        "max_paper_drafts_per_run": 1 if papers_enabled else 0,
+        "max_publication_rewrites_per_run": 1 if papers_enabled else 0,
         "min_remaining_credits": float(
             os.environ.get("ENOCH_RESEARCH_AUTOPILOT_MIN_CREDITS", "5.0")
         ),
@@ -663,7 +719,41 @@ def main() -> int:
             "ENOCH_RESEARCH_AUTOPILOT_RESERVE_REQUESTS", 2, 0, 100
         ),
     }
-    base_url = _base_url(config)
+    return payload, max_wait_seconds
+
+
+def _transient_disconnect_exit(
+    exc: BaseException, base_url: str, *, phase: str
+) -> int | None:
+    if not _control_plane_recovered(base_url):
+        return None
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "action": "transient_disconnect",
+                "reason": (
+                    f"control plane {phase} during bounded research tick and recovered: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _research_autopilot_request_failure_exit(exc: BaseException) -> tuple[int, None]:
+    failure = _research_autopilot_failure(
+        f"research autopilot request failed: {type(exc).__name__}: {exc}"
+    )
+    print(json.dumps(failure, sort_keys=True), file=sys.stderr)
+    return 1, None
+
+
+def _post_research_run_cycle(
+    base_url: str, token: str, payload: dict, max_wait_seconds: int
+) -> tuple[int | None, dict | None]:
     try:
         result = _post_json(
             base_url,
@@ -673,98 +763,65 @@ def main() -> int:
             timeout=max(60, max_wait_seconds + 120),
         )
     except RemoteDisconnected as exc:
-        if _control_plane_recovered(base_url, token):
-            print(
-                json.dumps(
-                    {
-                        "ok": True,
-                        "action": "transient_disconnect",
-                        "reason": f"control plane disconnected during bounded research tick and recovered: {type(exc).__name__}: {exc}",
-                    },
-                    sort_keys=True,
-                )
-            )
-            return 0
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "action": "failed",
-                    "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}",
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        return 1
+        exit_code = _transient_disconnect_exit(exc, base_url, phase="disconnected")
+        if exit_code is not None:
+            return exit_code, None
+        return _research_autopilot_request_failure_exit(exc)
     except error.HTTPError as exc:
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "action": "failed",
-                    "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}",
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        return 1
+        return _research_autopilot_request_failure_exit(exc)
     except error.URLError as exc:
-        if _control_plane_recovered(base_url, token):
-            print(
-                json.dumps(
-                    {
-                        "ok": True,
-                        "action": "transient_disconnect",
-                        "reason": f"control plane unavailable during bounded research tick and recovered: {type(exc).__name__}: {exc}",
-                    },
-                    sort_keys=True,
-                )
-            )
-            return 0
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "action": "failed",
-                    "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}",
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        return 1
+        exit_code = _transient_disconnect_exit(exc, base_url, phase="unavailable")
+        if exit_code is not None:
+            return exit_code, None
+        return _research_autopilot_request_failure_exit(exc)
     except (TimeoutError, json.JSONDecodeError) as exc:
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "action": "failed",
-                    "reason": f"research autopilot request failed: {type(exc).__name__}: {exc}",
-                },
-                sort_keys=True,
-            ),
-            file=sys.stderr,
-        )
-        return 1
+        return _research_autopilot_request_failure_exit(exc)
+    return None, result
 
-    history_result = (
-        append_research_autopilot_history(result)
-        if isinstance(result, dict)
-        else {"ok": False, "action": "research_autopilot_history_append_skipped"}
+
+def _attach_autopilot_sidecars(result: dict) -> None:
+    history_result = append_research_autopilot_history(result)
+    result["research_autopilot_history"] = history_result
+    result["research_quality_refresh"] = refresh_research_quality_report()
+    result["research_quality_window_comparison"] = (
+        refresh_research_quality_window_comparison()
     )
-    quality_result = refresh_research_quality_report()
-    window_result = refresh_research_quality_window_comparison()
-    janitor_llm_result = run_quota_gated_janitor_llm_review()
-    if isinstance(result, dict):
-        result["research_autopilot_history"] = history_result
-        result["research_quality_refresh"] = quality_result
-        result["research_quality_window_comparison"] = window_result
-        result["research_janitor_llm_review"] = janitor_llm_result
+    result["research_janitor_llm_review"] = run_quota_gated_janitor_llm_review()
+
+
+def _finalize_autopilot_tick(result: object) -> int:
+    if not isinstance(result, dict):
+        print(json.dumps(result, sort_keys=True))
+        return 1
+    _attach_autopilot_sidecars(result)
     print(json.dumps(result, sort_keys=True))
     tick_ok = result.get("ok") or _is_benign_skip_result(result)
     return 0 if tick_ok else 1
+
+
+def main() -> int:
+    exit_code = _main_quality_refresh_exit()
+    if exit_code is not None:
+        return exit_code
+
+    exit_code = _main_autopilot_disabled_exit()
+    if exit_code is not None:
+        return exit_code
+
+    config = _load_config()
+    token = _resolve_control_token(config)
+    exit_code = _main_missing_token_exit(token)
+    if exit_code is not None:
+        return exit_code
+
+    payload, max_wait_seconds = _build_research_run_cycle_payload()
+    base_url = _base_url(config)
+    exit_code, result = _post_research_run_cycle(
+        base_url, token, payload, max_wait_seconds
+    )
+    if exit_code is not None:
+        return exit_code
+    return _finalize_autopilot_tick(result)
 
 
 if __name__ == "__main__":

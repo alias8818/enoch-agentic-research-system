@@ -1,0 +1,20 @@
+{
+    "sonarlint.connectedMode.project": {
+        "connectionId": "https-lion-nan-exe-xyz",
+        "projectKey": "alias8818_enoch-agentic-research-system_6ab334f2-c45e-42db-87ce-a99310229989"
+    },
+    "sonarlint.rules": {
+        "python:S3776": {
+            "level": "on",
+            "parameters": {
+                "threshold": 15
+            }
+        },
+        "typescript:S3776": {
+            "level": "on",
+            "parameters": {
+                "threshold": 15
+            }
+        }
+    }
+}

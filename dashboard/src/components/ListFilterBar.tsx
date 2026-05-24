@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode, type SubmitEvent } from 'react'
 import {
   deleteTableFilterPreset,
   loadSavedTableFilters,
@@ -27,7 +27,7 @@ export function ListFilterBar({
   onReset,
   page,
   savedFiltersTableId,
-}: {
+}: Readonly<{
   state: ListFilterState
   statusOptions: { label: string; value: string }[]
   statusLabel?: string
@@ -36,7 +36,7 @@ export function ListFilterBar({
   onReset: () => void
   page?: ListPageMeta
   savedFiltersTableId?: SavedTableFilterTableId
-}) {
+}>) {
   const [draft, setDraft] = useState(state)
   const [savedPresets, setSavedPresets] = useState(() => (savedFiltersTableId ? loadSavedTableFilters(savedFiltersTableId) : []))
   const [selectedPresetId, setSelectedPresetId] = useState('')
@@ -51,7 +51,7 @@ export function ListFilterBar({
     setSelectedPresetId('')
   }, [savedFiltersTableId])
 
-  function submit(event: FormEvent) {
+  function submit(event: SubmitEvent) {
     event.preventDefault()
     onApply({ ...draft, cursor: '' })
   }
@@ -89,17 +89,55 @@ export function ListFilterBar({
     setSelectedPresetId('')
   }
 
+  let savePresetControls: ReactNode
+  if (showSaveInput) {
+    savePresetControls = (
+    <div className="filter-bar-save-form">
+      <label className="filter-bar-save-label">
+        <span>Preset name</span>
+        <input value={saveName} onChange={(event) => setSaveName(event.target.value)} placeholder="Queued GB10 watch" />
+      </label>
+      <button className="secondary-button" type="button" disabled={!saveName.trim()} onClick={handleSavePreset}>Save preset</button>
+      <button className="secondary-button" type="button" onClick={() => { setShowSaveInput(false); setSaveName('') }}>Cancel</button>
+    </div>
+    )
+  } else {
+    savePresetControls = (
+      <button className="secondary-button" type="button" onClick={() => setShowSaveInput(true)}>Save current</button>
+    )
+  }
+
+  let savedFiltersPanel: ReactNode = null
+  if (savedFiltersTableId) {
+    savedFiltersPanel = (
+      <div className="filter-bar-saved">
+        <label>
+          <span>Saved filters</span>
+          <select value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}>
+            <option value="">Choose saved filter</option>
+            {savedPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+          </select>
+        </label>
+        {savePresetControls}
+        <button className="secondary-button" type="button" disabled={!selectedPresetId} onClick={handleDeletePreset}>Delete saved</button>
+      </div>
+    )
+  }
+
   return (
     <form className="filter-bar" onSubmit={submit}>
-      <label>Search
+      <label>
+        <span>Search</span>
         <input value={draft.search} onChange={(event) => setDraft({ ...draft, search: event.target.value })} placeholder="Search" />
       </label>
-      <label>{statusLabel}
+      <label>
+        <span>{statusLabel}</span>
         <select value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}>
           {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       </label>
-      <label>Size
+      <label>
+        <span>Size</span>
         <select value={draft.pageSize} onChange={(event) => setDraft({ ...draft, pageSize: event.target.value })}>
           {['25', '50', '100', '200'].map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
@@ -107,28 +145,7 @@ export function ListFilterBar({
       <button className="primary-button" type="submit">Apply filters</button>
       <button className="secondary-button" type="button" onClick={() => { setDraft({ search: '', status: '', pageSize: '50', cursor: '' }); setSelectedPresetId(''); onReset() }}>Reset</button>
       <button className="secondary-button" type="button" disabled={!page?.has_more} onClick={onNext}>Next page</button>
-      {savedFiltersTableId ? (
-        <div className="filter-bar-saved">
-          <label>Saved filters
-            <select value={selectedPresetId} onChange={(event) => applyPreset(event.target.value)}>
-              <option value="">Choose saved filter</option>
-              {savedPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
-            </select>
-          </label>
-          {showSaveInput ? (
-            <div className="filter-bar-save-form">
-              <label className="filter-bar-save-label">Preset name
-                <input value={saveName} onChange={(event) => setSaveName(event.target.value)} placeholder="Queued GB10 watch" />
-              </label>
-              <button className="secondary-button" type="button" disabled={!saveName.trim()} onClick={handleSavePreset}>Save preset</button>
-              <button className="secondary-button" type="button" onClick={() => { setShowSaveInput(false); setSaveName('') }}>Cancel</button>
-            </div>
-          ) : (
-            <button className="secondary-button" type="button" onClick={() => setShowSaveInput(true)}>Save current</button>
-          )}
-          <button className="secondary-button" type="button" disabled={!selectedPresetId} onClick={handleDeletePreset}>Delete saved</button>
-        </div>
-      ) : null}
+      {savedFiltersPanel}
       <span>Showing {page?.returned ?? 0}</span>
     </form>
   )

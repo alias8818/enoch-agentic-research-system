@@ -64,7 +64,7 @@ def _redact_url(url: str) -> str:
     if parsed.query:
         parts = []
         for item in parsed.query.split("&"):
-            key, sep, value = item.partition("=")
+            key, sep, _ = item.partition("=")
             if key.lower() in sensitive_query_keys:
                 parts.append(f"{key}{sep}***" if sep else key)
             else:
@@ -181,10 +181,7 @@ def _wait_control_plane_ready(
     )
 
 
-def cutover(args: argparse.Namespace) -> dict[str, Any]:
-    config_path = Path(args.config)
-    env_path = Path(args.env_file)
-    token_file = str(args.token_file)
+def _require_database_url(args: argparse.Namespace) -> str:
     database_url = args.database_url or os.environ.get(
         "ENOCH_SUPABASE_DATABASE_URL", ""
     )
@@ -192,64 +189,103 @@ def cutover(args: argparse.Namespace) -> dict[str, Any]:
         raise RuntimeError(
             "missing Supabase Postgres URL; pass --database-url or set ENOCH_SUPABASE_DATABASE_URL"
         )
+    return database_url
+
+
+def _require_cutover_prerequisites(
+    args: argparse.Namespace,
+    config_path: Path,
+    database_url: str,
+    token_file: str,
+) -> None:
     if not config_path.exists():
         raise RuntimeError(f"config file not found: {config_path}")
     if not args.no_systemd and hasattr(os, "geteuid") and os.geteuid() != 0:
         raise RuntimeError(
             "must run as root for systemd cutover; use --no-systemd only for local tests"
         )
-
     preflight_rc = _run_preflight(args.control_url, token_file, database_url)
     if preflight_rc != 0:
         raise RuntimeError(
             f"preflight failed before cutover with exit code {preflight_rc}"
         )
-    if args.dry_run:
-        return {
-            "ok": True,
-            "dry_run": True,
-            "database_url": _redact_url(database_url),
-            "would_set_backend": "supabase",
-        }
 
-    stamp = _timestamp()
+
+def _dry_run_cutover_result(database_url: str) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "dry_run": True,
+        "database_url": _redact_url(database_url),
+        "would_set_backend": "supabase",
+    }
+
+
+def _backup_cutover_files(
+    config_path: Path, env_path: Path, stamp: str
+) -> tuple[Path, Path | None]:
     config_backup = config_path.with_name(f"{config_path.name}.backup.{stamp}")
     shutil.copy2(config_path, config_backup)
     env_backup = None
     if env_path.exists():
         env_backup = env_path.with_name(f"{env_path.name}.backup.{stamp}")
         shutil.copy2(env_path, env_backup)
+    return config_backup, env_backup
+
+
+def _perform_cutover_switch(
+    args: argparse.Namespace,
+    *,
+    config_path: Path,
+    env_path: Path,
+    database_url: str,
+    token_file: str,
+) -> Path | None:
+    config = _load_json(config_path)
+    config["control_plane_store_backend"] = "supabase"
+    config["supabase_database_url"] = ""
+    _atomic_write_json(config_path, config)
+    _write_env_file(env_path, database_url)
     dropin = None
-    try:
-        config = _load_json(config_path)
-        config["control_plane_store_backend"] = "supabase"
-        config["supabase_database_url"] = ""
-        _atomic_write_json(config_path, config)
-        _write_env_file(env_path, database_url)
-        if not args.no_systemd:
-            dropin = _ensure_systemd_env_file(args.service, env_path)
-            _systemctl(["daemon-reload"])
-            _systemctl(["restart", args.service])
-            if not _service_active(args.service):
-                raise RuntimeError(f"service did not become active: {args.service}")
-            _wait_control_plane_ready(args.control_url, token_file)
-        post_rc = _run_preflight(args.control_url, token_file, database_url)
-        if post_rc != 0:
-            raise RuntimeError(
-                f"preflight failed after cutover with exit code {post_rc}"
-            )
-    except Exception:
-        shutil.copy2(config_backup, config_path)
-        if env_backup:
-            shutil.copy2(env_backup, env_path)
-        elif env_path.exists():
-            env_path.unlink()
-        if not args.no_systemd:
-            if dropin and dropin.exists():
-                dropin.unlink()
-            _systemctl(["daemon-reload"])
-            _systemctl(["restart", args.service])
-        raise
+    if not args.no_systemd:
+        dropin = _ensure_systemd_env_file(args.service, env_path)
+        _systemctl(["daemon-reload"])
+        _systemctl(["restart", args.service])
+        if not _service_active(args.service):
+            raise RuntimeError(f"service did not become active: {args.service}")
+        _wait_control_plane_ready(args.control_url, token_file)
+    post_rc = _run_preflight(args.control_url, token_file, database_url)
+    if post_rc != 0:
+        raise RuntimeError(f"preflight failed after cutover with exit code {post_rc}")
+    return dropin
+
+
+def _rollback_cutover_switch(
+    args: argparse.Namespace,
+    *,
+    config_path: Path,
+    env_path: Path,
+    config_backup: Path,
+    env_backup: Path | None,
+    dropin: Path | None,
+) -> None:
+    shutil.copy2(config_backup, config_path)
+    if env_backup:
+        shutil.copy2(env_backup, env_path)
+    elif env_path.exists():
+        env_path.unlink()
+    if not args.no_systemd:
+        if dropin and dropin.exists():
+            dropin.unlink()
+        _systemctl(["daemon-reload"])
+        _systemctl(["restart", args.service])
+
+
+def _cutover_success_result(
+    database_url: str,
+    config_backup: Path,
+    env_path: Path,
+    env_backup: Path | None,
+) -> dict[str, Any]:
     return {
         "ok": True,
         "dry_run": False,
@@ -259,6 +295,39 @@ def cutover(args: argparse.Namespace) -> dict[str, Any]:
         "env_backup": str(env_backup) if env_backup else "",
         "database_url": _redact_url(database_url),
     }
+
+
+def cutover(args: argparse.Namespace) -> dict[str, Any]:
+    config_path = Path(args.config)
+    env_path = Path(args.env_file)
+    token_file = str(args.token_file)
+    database_url = _require_database_url(args)
+    _require_cutover_prerequisites(args, config_path, database_url, token_file)
+    if args.dry_run:
+        return _dry_run_cutover_result(database_url)
+
+    stamp = _timestamp()
+    config_backup, env_backup = _backup_cutover_files(config_path, env_path, stamp)
+    dropin = None
+    try:
+        dropin = _perform_cutover_switch(
+            args,
+            config_path=config_path,
+            env_path=env_path,
+            database_url=database_url,
+            token_file=token_file,
+        )
+    except Exception:
+        _rollback_cutover_switch(
+            args,
+            config_path=config_path,
+            env_path=env_path,
+            config_backup=config_backup,
+            env_backup=env_backup,
+            dropin=dropin,
+        )
+        raise
+    return _cutover_success_result(database_url, config_backup, env_path, env_backup)
 
 
 def main() -> int:

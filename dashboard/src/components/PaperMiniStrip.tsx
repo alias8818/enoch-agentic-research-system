@@ -15,7 +15,7 @@ function idempotencyKey(prefix: string): string {
   return `${prefix}:dashboard-v2:${Date.now()}`
 }
 
-function ResultCard({ result, stale }: { result: CommandResult | null; stale?: boolean }) {
+function ResultCard({ result, stale }: Readonly<{ result: CommandResult | null; stale?: boolean }>) {
   if (!result) return null
   return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
 }
@@ -28,7 +28,7 @@ function finalizationDisabledReason(finalizeNeeded: number, finalizeReady: boole
   return ''
 }
 
-export function PaperMiniStrip({ pipeline, onRefresh }: { pipeline: OverviewResponse['paper_pipeline']; onRefresh?: () => void }) {
+export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: OverviewResponse['paper_pipeline']; onRefresh?: () => void }>) {
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
   const [finalizeReady, setFinalizeReady] = useState(false)

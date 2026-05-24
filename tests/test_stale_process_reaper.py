@@ -177,6 +177,10 @@ class StaleProcessReaperTests(unittest.TestCase):
             )
 
     def test_reaper_returns_only_successfully_signaled_processes(self) -> None:
+        class _LiveProcess:
+            def create_time(self) -> float:
+                return 1000.0
+
         tracker = ProcessTracker(Path("/tmp"))
         record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
         candidate = ProcessInfo(
@@ -187,6 +191,10 @@ class StaleProcessReaperTests(unittest.TestCase):
             patch(
                 "enoch_control_plane.process_tracker.os.kill",
                 side_effect=PermissionError,
+            ),
+            patch(
+                "enoch_control_plane.process_tracker.psutil.Process",
+                return_value=_LiveProcess(),
             ),
         ):
             self.assertEqual(
@@ -240,14 +248,21 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [],
             )
 
-        self.assertEqual(len(signaled), 1)
+        # Reused PID must not be signaled at TERM or SIGKILL.
+        self.assertEqual(signaled, [])
 
     def test_reaper_audits_process_that_exits_during_identity_check(self) -> None:
+        class _LiveProcess:
+            def create_time(self) -> float:
+                return 1000.0
+
         class _GoneProcess:
             pid = 123456
 
             def create_time(self) -> float:
-                raise RuntimeError("patched below")
+                import psutil
+
+                raise psutil.NoSuchProcess(123456)
 
         tracker = ProcessTracker(Path("/tmp"))
         record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
@@ -255,19 +270,12 @@ class StaleProcessReaperTests(unittest.TestCase):
             pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
         )
 
-        def _raise_no_such() -> float:
-            import psutil
-
-            raise psutil.NoSuchProcess(123456)
-
-        proc = _GoneProcess()
-        proc.create_time = _raise_no_such  # type: ignore[method-assign]
-
         with (
             patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
             patch("enoch_control_plane.process_tracker.os.kill"),
             patch(
-                "enoch_control_plane.process_tracker.psutil.Process", return_value=proc
+                "enoch_control_plane.process_tracker.psutil.Process",
+                side_effect=[_LiveProcess(), _GoneProcess()],
             ),
         ):
             self.assertEqual(

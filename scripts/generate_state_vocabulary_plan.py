@@ -22,24 +22,54 @@ ACTION_BY_DISPOSITION = {
     "legacy_internal": "retire",
 }
 
+# Centralized surface name for the duplicated IDEAS_IDEA_STATUS literal
+# (addresses S1192 in DOMAIN_TARGETS surfaces and FINAL_STATE_OVERRIDES mappings).
+IDEAS_IDEA_STATUS = "ideas.idea_status"
+
+# Centralized surface name for the duplicated QUEUE_ITEMS_STATUS literal
+# (addresses top remaining S1192, 13x in DOMAIN_TARGETS and state reduction mappings).
+QUEUE_ITEMS_STATUS = "queue_items.status"
+
+# Centralized surface name for the duplicated PROJECT_DECISIONS_DECISION_GATE_STATE literal
+# (addresses current top remaining S1192 in the same file, 7x in DOMAIN_TARGETS surfaces and mappings).
+PROJECT_DECISIONS_DECISION_GATE_STATE = "project_decisions.decision_gate_state"
+
+# Centralized surface name for the duplicated PAPERS_PAPER_STATUS literal
+# (addresses current top remaining S1192 in the same file, 10x in DOMAIN_TARGETS surfaces and mappings).
+PAPERS_PAPER_STATUS = "papers.paper_status"
+
+# Centralized surface name for the duplicated PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS literal
+# (addresses current top remaining S1192 in the same file, 12x in DOMAIN_TARGETS surfaces and mappings).
+PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS = (
+    "publication_automation_items.automation_status"
+)
+
+# Centralized surface names for duplicated Runs-domain literals (S1192).
+RUNS_STATE = "runs.state"
+QUEUE_ITEMS_LAST_RUN_STATE = "queue_items.last_run_state"
+RUNS_GATE_STATE = "runs.gate_state"
+
+# Centralized target state for duplicated historical vocabulary (S1192 ~line 81).
+STATE_HISTORICAL = "historical"
+
 DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
     {
         "Ideas": {
-            "surfaces": ["ideas.idea_status"],
+            "surfaces": [IDEAS_IDEA_STATUS],
             "states": OrderedDict(
                 {
                     "ready": "Candidate intake item that can become project work.",
                     "held": "Intentionally parked idea; no worker action.",
                     "discarded": "Rejected/deprecated idea; no worker action.",
                     "promoted": "Idea already became project/publication provenance.",
-                    "historical": "Imported or incomplete source provenance only.",
+                    STATE_HISTORICAL: "Imported or incomplete source provenance only.",
                 }
             ),
         },
         "Projects": {
             "surfaces": [
-                "queue_items.status",
-                "project_decisions.decision_gate_state",
+                QUEUE_ITEMS_STATUS,
+                PROJECT_DECISIONS_DECISION_GATE_STATE,
                 "projects.origin_idea_status",
             ],
             "states": OrderedDict(
@@ -51,12 +81,12 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
                     "done_no_paper": "Completed or non-positive project; no paper action.",
                     "paper_positive": "Decision gate says the completed work is paper-actionable.",
                     "canceled": "Terminal canceled project work.",
-                    "historical": "Source/provenance-only project field; not runtime state.",
+                    STATE_HISTORICAL: "Source/provenance-only project field; not runtime state.",
                 }
             ),
         },
         "Runs": {
-            "surfaces": ["runs.state", "queue_items.last_run_state", "runs.gate_state"],
+            "surfaces": [RUNS_STATE, QUEUE_ITEMS_LAST_RUN_STATE, RUNS_GATE_STATE],
             "states": OrderedDict(
                 {
                     "running": "Worker dispatch/callback is in progress.",
@@ -66,14 +96,14 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
                     "canceled": "Terminal canceled run.",
                     "decision_positive": "Detail-only positive decision hint; not a run lifecycle.",
                     "decision_no_paper": "Detail-only non-positive/missing/malformed decision hint.",
-                    "historical": "Imported/blank/legacy detail evidence; not active work.",
+                    STATE_HISTORICAL: "Imported/blank/legacy detail evidence; not active work.",
                 }
             ),
         },
         "Papers": {
             "surfaces": [
-                "papers.paper_status",
-                "publication_automation_items.automation_status",
+                PAPERS_PAPER_STATUS,
+                PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS,
             ],
             "states": OrderedDict(
                 {
@@ -92,81 +122,81 @@ DOMAIN_TARGETS: "OrderedDict[str, dict[str, Any]]" = OrderedDict(
 
 FINAL_STATE_OVERRIDES: dict[tuple[str, str], str] = {
     # Ideas / provenance
-    ("ideas.idea_status", "unknown"): "historical",
-    ("ideas.idea_status", "exploring"): "ready",
-    ("ideas.idea_status", "testing"): "ready",
-    ("ideas.idea_status", "validated"): "promoted",
-    ("ideas.idea_status", "discarded"): "discarded",
-    ("ideas.idea_status", "parked"): "held",
-    ("ideas.idea_status", "deprecated"): "discarded",
+    (IDEAS_IDEA_STATUS, "unknown"): STATE_HISTORICAL,
+    (IDEAS_IDEA_STATUS, "exploring"): "ready",
+    (IDEAS_IDEA_STATUS, "testing"): "ready",
+    (IDEAS_IDEA_STATUS, "validated"): "promoted",
+    (IDEAS_IDEA_STATUS, "discarded"): "discarded",
+    (IDEAS_IDEA_STATUS, "parked"): "held",
+    (IDEAS_IDEA_STATUS, "deprecated"): "discarded",
     # Project queue
-    ("queue_items.status", "queued"): "ready",
-    ("queue_items.status", "dispatching"): "running",
-    ("queue_items.status", "running"): "running",
-    ("queue_items.status", "awaiting_wake"): "running",
-    ("queue_items.status", "wake_received"): "running",
-    ("queue_items.status", "reconciling"): "running",
-    ("queue_items.status", "completed"): "done_no_paper",
-    ("queue_items.status", "paused"): "paused",
-    ("queue_items.status", "canceled"): "canceled",
-    ("queue_items.status", "dispatch_error"): "needs_attention",
-    ("queue_items.status", "blocked"): "needs_attention",
-    ("queue_items.status", "needs_review"): "needs_attention",
+    (QUEUE_ITEMS_STATUS, "queued"): "ready",
+    (QUEUE_ITEMS_STATUS, "dispatching"): "running",
+    (QUEUE_ITEMS_STATUS, "running"): "running",
+    (QUEUE_ITEMS_STATUS, "awaiting_wake"): "running",
+    (QUEUE_ITEMS_STATUS, "wake_received"): "running",
+    (QUEUE_ITEMS_STATUS, "reconciling"): "running",
+    (QUEUE_ITEMS_STATUS, "completed"): "done_no_paper",
+    (QUEUE_ITEMS_STATUS, "paused"): "paused",
+    (QUEUE_ITEMS_STATUS, "canceled"): "canceled",
+    (QUEUE_ITEMS_STATUS, "dispatch_error"): "needs_attention",
+    (QUEUE_ITEMS_STATUS, "blocked"): "needs_attention",
+    (QUEUE_ITEMS_STATUS, "needs_review"): "needs_attention",
     # Project decisions
-    ("project_decisions.decision_gate_state", "positive"): "paper_positive",
-    ("project_decisions.decision_gate_state", "negative"): "done_no_paper",
-    ("project_decisions.decision_gate_state", "needs_review"): "done_no_paper",
-    ("project_decisions.decision_gate_state", "missing"): "done_no_paper",
-    ("project_decisions.decision_gate_state", "malformed"): "done_no_paper",
-    ("project_decisions.decision_gate_state", "unknown"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "positive"): "paper_positive",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "negative"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "needs_review"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "missing"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "malformed"): "done_no_paper",
+    (PROJECT_DECISIONS_DECISION_GATE_STATE, "unknown"): "done_no_paper",
     # Runs and run/detail states
-    ("runs.state", "prepared"): "running",
-    ("runs.state", "dispatching"): "running",
-    ("runs.state", "running"): "running",
-    ("runs.state", "awaiting_wake"): "running",
-    ("runs.state", "question_pending"): "needs_attention",
-    ("runs.state", "wake_ready"): "delivered",
-    ("runs.state", "session_finished_ready"): "delivered",
-    ("runs.state", "gate_timeout"): "needs_attention",
-    ("runs.state", "gate_error"): "needs_attention",
-    ("runs.state", "reconciled"): "settled",
-    ("runs.state", "dispatch_error"): "needs_attention",
-    ("runs.state", "dispatch_accepted"): "running",
-    ("runs.state", "needs_review"): "needs_attention",
-    ("runs.state", "waiting_external_evidence"): "needs_attention",
-    ("runs.state", "unknown"): "historical",
-    ("runs.state", "cancelled"): "canceled",
-    ("runs.state", "canceled"): "canceled",
-    ("queue_items.last_run_state", "positive"): "decision_positive",
-    ("queue_items.last_run_state", "negative"): "decision_no_paper",
-    ("queue_items.last_run_state", "missing"): "decision_no_paper",
-    ("queue_items.last_run_state", "malformed"): "decision_no_paper",
-    ("queue_items.last_run_state", ""): "historical",
-    ("runs.gate_state", ""): "historical",
+    (RUNS_STATE, "prepared"): "running",
+    (RUNS_STATE, "dispatching"): "running",
+    (RUNS_STATE, "running"): "running",
+    (RUNS_STATE, "awaiting_wake"): "running",
+    (RUNS_STATE, "question_pending"): "needs_attention",
+    (RUNS_STATE, "wake_ready"): "delivered",
+    (RUNS_STATE, "session_finished_ready"): "delivered",
+    (RUNS_STATE, "gate_timeout"): "needs_attention",
+    (RUNS_STATE, "gate_error"): "needs_attention",
+    (RUNS_STATE, "reconciled"): "settled",
+    (RUNS_STATE, "dispatch_error"): "needs_attention",
+    (RUNS_STATE, "dispatch_accepted"): "running",
+    (RUNS_STATE, "needs_review"): "needs_attention",
+    (RUNS_STATE, "waiting_external_evidence"): "needs_attention",
+    (RUNS_STATE, "unknown"): STATE_HISTORICAL,
+    (RUNS_STATE, "cancelled"): "canceled",
+    (RUNS_STATE, "canceled"): "canceled",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "positive"): "decision_positive",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "negative"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "missing"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, "malformed"): "decision_no_paper",
+    (QUEUE_ITEMS_LAST_RUN_STATE, ""): STATE_HISTORICAL,
+    (RUNS_GATE_STATE, ""): STATE_HISTORICAL,
     # Papers / publication automation
-    ("papers.paper_status", "eligible"): "needed",
-    ("papers.paper_status", "draft_generating"): "drafting",
-    ("papers.paper_status", "draft_review"): "finalizing",
-    ("papers.paper_status", "publication_generating"): "finalizing",
-    ("papers.paper_status", "publication_draft"): "finalizing",
-    ("papers.paper_status", "human_review_required"): "blocked",
-    ("papers.paper_status", "archived"): "archived",
-    ("papers.paper_status", "finalized"): "ready_to_publish",
-    ("papers.paper_status", "approved_for_corpus"): "published",
-    ("publication_automation_items.automation_status", "queued"): "finalizing",
-    ("publication_automation_items.automation_status", "claimed"): "finalizing",
-    ("publication_automation_items.automation_status", "blocked"): "blocked",
-    ("publication_automation_items.automation_status", "finalized"): "ready_to_publish",
-    ("publication_automation_items.automation_status", "deferred"): "archived",
-    ("publication_automation_items.automation_status", "triage_ready"): "finalizing",
-    ("publication_automation_items.automation_status", "unreviewed"): "finalizing",
-    ("publication_automation_items.automation_status", "in_review"): "finalizing",
-    ("publication_automation_items.automation_status", "changes_requested"): "blocked",
+    (PAPERS_PAPER_STATUS, "eligible"): "needed",
+    (PAPERS_PAPER_STATUS, "draft_generating"): "drafting",
+    (PAPERS_PAPER_STATUS, "draft_review"): "finalizing",
+    (PAPERS_PAPER_STATUS, "publication_generating"): "finalizing",
+    (PAPERS_PAPER_STATUS, "publication_draft"): "finalizing",
+    (PAPERS_PAPER_STATUS, "human_review_required"): "blocked",
+    (PAPERS_PAPER_STATUS, "archived"): "archived",
+    (PAPERS_PAPER_STATUS, "finalized"): "ready_to_publish",
+    (PAPERS_PAPER_STATUS, "approved_for_corpus"): "published",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "queued"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "claimed"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "blocked"): "blocked",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "finalized"): "ready_to_publish",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "deferred"): "archived",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "triage_ready"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "unreviewed"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "in_review"): "finalizing",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "changes_requested"): "blocked",
     (
-        "publication_automation_items.automation_status",
+        PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS,
         "approved_for_finalization",
     ): "finalizing",
-    ("publication_automation_items.automation_status", "rejected"): "archived",
+    (PUBLICATION_AUTOMATION_ITEMS_AUTOMATION_STATUS, "rejected"): "archived",
 }
 
 
@@ -174,12 +204,12 @@ def final_state_for(surface: str, raw_value: str) -> str:
     if (surface, raw_value) in FINAL_STATE_OVERRIDES:
         return FINAL_STATE_OVERRIDES[(surface, raw_value)]
     if surface in {"projects.origin_idea_status"}:
-        return "historical"
+        return STATE_HISTORICAL
     if (
-        surface in {"queue_items.last_run_state", "runs.gate_state"}
-        and ("runs.state", raw_value) in FINAL_STATE_OVERRIDES
+        surface in {QUEUE_ITEMS_LAST_RUN_STATE, RUNS_GATE_STATE}
+        and (RUNS_STATE, raw_value) in FINAL_STATE_OVERRIDES
     ):
-        return FINAL_STATE_OVERRIDES[("runs.state", raw_value)]
+        return FINAL_STATE_OVERRIDES[(RUNS_STATE, raw_value)]
     raise KeyError(f"missing final state mapping for {surface}.{raw_value!r}")
 
 
@@ -200,13 +230,12 @@ def iter_mapping_rows() -> list[dict[str, str]]:
             disposition = decision["disposition"]
             action = cleanup_action(disposition)
             target = str(decision.get("replacement") or "")
-            safe = (
-                "yes"
-                if action in {"alias", "migrate"}
-                else "no"
-                if action == "retire"
-                else "n/a"
-            )
+            if action in {"alias", "migrate"}:
+                safe = "yes"
+            elif action == "retire":
+                safe = "no"
+            else:
+                safe = "n/a"
             rows.append(
                 {
                     "domain": domain,

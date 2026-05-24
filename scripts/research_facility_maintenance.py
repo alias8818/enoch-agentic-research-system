@@ -246,6 +246,180 @@ def fetch_needs_review_rows(database_url: str, *, limit: int) -> list[dict[str, 
             return [dict(row) for row in cur.fetchall()]
 
 
+def _control_event_field(existing: Any, key: str, index: int) -> str:
+    if not existing:
+        return ""
+    if isinstance(existing, dict):
+        return _as_text(existing.get(key))
+    return _as_text(existing[index])
+
+
+def _apply_promote_action(
+    cur: Any,
+    action: dict[str, Any],
+    candidate_id: str,
+    requested_by: str,
+    counters: dict[str, int],
+) -> bool:
+    cur.execute(
+        """
+        update research_candidates
+        set status = 'admitted', score_breakdown = coalesce(score_breakdown, '{}'::jsonb) || %s::jsonb, updated_at = now()
+        where candidate_id = %s and status = 'needs_review'
+        """,
+        (
+            json.dumps(
+                {"janitor_dispatch_priority": action.get("dispatch_priority") or {}}
+            ),
+            candidate_id,
+        ),
+    )
+    applied = int(cur.rowcount or 0) > 0
+    if not applied:
+        return False
+    counters["promoted"] += 1
+    admission_key = f"research-janitor:admit:{candidate_id}"
+    counters["admissions_inserted"] += _insert_research_admission(
+        cur,
+        candidate_id=candidate_id,
+        admission_decision="admitted",
+        admission_reason=str(
+            action.get("reason") or "janitor admitted needs-review candidate"
+        ),
+        score_breakdown=action.get("dispatch_priority") or {},
+        admitted_idea_id=None,
+        operator=requested_by,
+        idempotency_key=admission_key,
+    )
+    return True
+
+
+def _apply_reject_action(
+    cur: Any,
+    action: dict[str, Any],
+    candidate_id: str,
+    requested_by: str,
+    apply_rejections: bool,
+    counters: dict[str, int],
+) -> bool | None:
+    if not apply_rejections:
+        counters["skipped_rejections"] += 1
+        return None
+    cur.execute(
+        """
+        update research_candidates
+        set status = 'rejected', rejection_reason = %s, updated_at = now()
+        where candidate_id = %s and status = 'needs_review'
+        """,
+        (
+            str(action.get("reason") or "janitor rejected stale weak candidate"),
+            candidate_id,
+        ),
+    )
+    applied = int(cur.rowcount or 0) > 0
+    if not applied:
+        return False
+    counters["rejected"] += 1
+    admission_key = f"research-janitor:reject:{candidate_id}"
+    counters["admissions_inserted"] += _insert_research_admission(
+        cur,
+        candidate_id=candidate_id,
+        admission_decision="rejected",
+        admission_reason=str(
+            action.get("reason") or "janitor rejected stale weak candidate"
+        ),
+        score_breakdown=action.get("dispatch_priority") or {},
+        admitted_idea_id=None,
+        operator=requested_by,
+        idempotency_key=admission_key,
+    )
+    return True
+
+
+def _record_janitor_control_event(
+    cur: Any,
+    action: dict[str, Any],
+    candidate_id: str,
+    verb: str,
+    requested_by: str,
+    counters: dict[str, int],
+) -> None:
+    payload = {"requested_by": requested_by, "janitor_action": action}
+    payload_hash = _payload_hash(payload)
+    event_key = f"research-janitor:{verb}:{candidate_id}"
+    if verb in {"rewrite_suggested", "keep"}:
+        event_key = f"{event_key}:{payload_hash}"
+    event_type = f"research.janitor.{verb}"
+    entity_type = "research_candidate"
+    cur.execute(
+        "select event_id, event_type, entity_type, entity_id, payload_hash from control_events where idempotency_key = %s",
+        (event_key,),
+    )
+    existing = cur.fetchone()
+    existing_event_type = _control_event_field(existing, "event_type", 1)
+    existing_entity_type = _control_event_field(existing, "entity_type", 2)
+    existing_entity_id = _control_event_field(existing, "entity_id", 3)
+    existing_payload_hash = _control_event_field(existing, "payload_hash", 4)
+    if existing and (
+        existing_event_type != event_type
+        or existing_entity_type != entity_type
+        or existing_entity_id != candidate_id
+        or existing_payload_hash != payload_hash
+    ):
+        raise IdempotencyConflict(
+            f"idempotency key {event_key!r} was reused with different event identity"
+        )
+    if existing:
+        return
+    cur.execute(
+        """
+        insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
+        values (%s,%s,'research_candidate',%s,%s::jsonb,%s,%s)
+        """,
+        (
+            event_key,
+            event_type,
+            candidate_id,
+            json.dumps(payload, default=_json_default),
+            payload_hash,
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    counters["events_inserted"] += int(cur.rowcount or 0)
+
+
+def _process_janitor_action(
+    cur: Any,
+    action: dict[str, Any],
+    *,
+    requested_by: str,
+    apply_rejections: bool,
+    counters: dict[str, int],
+) -> None:
+    candidate_id = _as_text(action.get("candidate_id"))
+    verb = _as_text(action.get("action"))
+    if not candidate_id:
+        return
+
+    record_event = verb in {"rewrite_suggested", "keep"}
+    if verb == "promote":
+        record_event = _apply_promote_action(
+            cur, action, candidate_id, requested_by, counters
+        )
+    elif verb == "reject":
+        reject_result = _apply_reject_action(
+            cur, action, candidate_id, requested_by, apply_rejections, counters
+        )
+        if reject_result is None:
+            return
+        record_event = reject_result
+
+    if record_event:
+        _record_janitor_control_event(
+            cur, action, candidate_id, verb, requested_by, counters
+        )
+
+
 def apply_actions(
     database_url: str,
     actions: list[dict[str, Any]],
@@ -266,152 +440,13 @@ def apply_actions(
         with conn.cursor() as cur:
             cur.execute("set search_path to enoch, public")
             for action in actions:
-                candidate_id = _as_text(action.get("candidate_id"))
-                verb = _as_text(action.get("action"))
-                if not candidate_id:
-                    continue
-
-                record_event = verb in {"rewrite_suggested", "keep"}
-                if verb == "promote":
-                    cur.execute(
-                        """
-                        update research_candidates
-                        set status = 'admitted', score_breakdown = coalesce(score_breakdown, '{}'::jsonb) || %s::jsonb, updated_at = now()
-                        where candidate_id = %s and status = 'needs_review'
-                        """,
-                        (
-                            json.dumps(
-                                {
-                                    "janitor_dispatch_priority": action.get(
-                                        "dispatch_priority"
-                                    )
-                                    or {}
-                                }
-                            ),
-                            candidate_id,
-                        ),
-                    )
-                    applied = int(cur.rowcount or 0) > 0
-                    record_event = applied
-                    if applied:
-                        counters["promoted"] += 1
-                        admission_key = f"research-janitor:admit:{candidate_id}"
-                        counters["admissions_inserted"] += _insert_research_admission(
-                            cur,
-                            candidate_id=candidate_id,
-                            admission_decision="admitted",
-                            admission_reason=str(
-                                action.get("reason")
-                                or "janitor admitted needs-review candidate"
-                            ),
-                            score_breakdown=action.get("dispatch_priority") or {},
-                            admitted_idea_id=None,
-                            operator=requested_by,
-                            idempotency_key=admission_key,
-                        )
-                elif verb == "reject":
-                    if not apply_rejections:
-                        counters["skipped_rejections"] += 1
-                        continue
-                    cur.execute(
-                        """
-                        update research_candidates
-                        set status = 'rejected', rejection_reason = %s, updated_at = now()
-                        where candidate_id = %s and status = 'needs_review'
-                        """,
-                        (
-                            str(
-                                action.get("reason")
-                                or "janitor rejected stale weak candidate"
-                            ),
-                            candidate_id,
-                        ),
-                    )
-                    applied = int(cur.rowcount or 0) > 0
-                    record_event = applied
-                    if applied:
-                        counters["rejected"] += 1
-                        admission_key = f"research-janitor:reject:{candidate_id}"
-                        counters["admissions_inserted"] += _insert_research_admission(
-                            cur,
-                            candidate_id=candidate_id,
-                            admission_decision="rejected",
-                            admission_reason=str(
-                                action.get("reason")
-                                or "janitor rejected stale weak candidate"
-                            ),
-                            score_breakdown=action.get("dispatch_priority") or {},
-                            admitted_idea_id=None,
-                            operator=requested_by,
-                            idempotency_key=admission_key,
-                        )
-
-                if record_event:
-                    payload = {"requested_by": requested_by, "janitor_action": action}
-                    payload_hash = _payload_hash(payload)
-                    event_key = f"research-janitor:{verb}:{candidate_id}"
-                    if verb in {"rewrite_suggested", "keep"}:
-                        event_key = f"{event_key}:{payload_hash}"
-                    event_type = f"research.janitor.{verb}"
-                    entity_type = "research_candidate"
-                    cur.execute(
-                        "select event_id, event_type, entity_type, entity_id, payload_hash from control_events where idempotency_key = %s",
-                        (event_key,),
-                    )
-                    existing = cur.fetchone()
-                    existing_event_type = (
-                        existing.get("event_type")
-                        if isinstance(existing, dict)
-                        else existing[1]
-                        if existing
-                        else ""
-                    )
-                    existing_entity_type = (
-                        existing.get("entity_type")
-                        if isinstance(existing, dict)
-                        else existing[2]
-                        if existing
-                        else ""
-                    )
-                    existing_entity_id = (
-                        existing.get("entity_id")
-                        if isinstance(existing, dict)
-                        else existing[3]
-                        if existing
-                        else ""
-                    )
-                    existing_payload_hash = (
-                        existing.get("payload_hash")
-                        if isinstance(existing, dict)
-                        else existing[4]
-                        if existing
-                        else ""
-                    )
-                    if existing and (
-                        existing_event_type != event_type
-                        or existing_entity_type != entity_type
-                        or existing_entity_id != candidate_id
-                        or existing_payload_hash != payload_hash
-                    ):
-                        raise IdempotencyConflict(
-                            f"idempotency key {event_key!r} was reused with different event identity"
-                        )
-                    if not existing:
-                        cur.execute(
-                            """
-                            insert into control_events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at)
-                            values (%s,%s,'research_candidate',%s,%s::jsonb,%s,%s)
-                            """,
-                            (
-                                event_key,
-                                event_type,
-                                candidate_id,
-                                json.dumps(payload, default=_json_default),
-                                payload_hash,
-                                datetime.now(timezone.utc).isoformat(),
-                            ),
-                        )
-                        counters["events_inserted"] += int(cur.rowcount or 0)
+                _process_janitor_action(
+                    cur,
+                    action,
+                    requested_by=requested_by,
+                    apply_rejections=apply_rejections,
+                    counters=counters,
+                )
     return counters
 
 

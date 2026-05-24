@@ -166,9 +166,9 @@ export async function openDashboardWithToken(
 ): Promise<void> {
   await installDashboardApiMocks(page)
   if (options?.afterMocks) await options.afterMocks(page)
-  await page.addInitScript((storageKey, savedFiltersKey) => {
-    window.localStorage.setItem(storageKey, 'playwright-token')
-    window.localStorage.removeItem(savedFiltersKey)
-  }, TOKEN_STORAGE_KEY, SAVED_TABLE_FILTERS_STORAGE_KEY)
+  await page.addInitScript(({ storageKey, savedFiltersKey }) => {
+    globalThis.localStorage.setItem(storageKey, 'playwright-token')
+    globalThis.localStorage.removeItem(savedFiltersKey)
+  }, { storageKey: TOKEN_STORAGE_KEY, savedFiltersKey: SAVED_TABLE_FILTERS_STORAGE_KEY })
   await page.goto(`/control/dashboard-v2/${hash}`)
 }

@@ -5,20 +5,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.validate_public_release import (
-    PUBLIC_FILES,
-    PROFILE_FILES,
     DOC_FILES,
     OWNER_PROFILE_FILES,
     PERSONAL_SITE_FILES,
+    PROFILE_FILES,
+    PUBLIC_FILES,
+    STRICT_FAIL_PHRASES,
 )
 
 DEDUPE_BASELINE = 376
@@ -249,17 +252,15 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     for pattern, replacement in strict_patterns:
         text = pattern.sub(replacement, text)
 
-    text = re.sub(
-        r"\b(?:fails?|flags|rejects)\s+\d{1,5}\s+of\s+(?:its own\s+|its\s+|the\s+)?\d{2,5}\s+(?:canonical\s+)?outputs",
-        lambda m: re.sub(
-            r"\d{1,5}\s+of\s+(?:its own\s+|its\s+|the\s+)?\d{2,5}",
-            f"{sf} of {n}",
-            m.group(0),
-            count=1,
-        ),
-        text,
-        flags=re.I,
-    )
+    for pattern in STRICT_FAIL_PHRASES:
+        text = pattern.sub(
+            lambda m: (
+                m.group(0)
+                .replace(m.group(1), str(sf), 1)
+                .replace(m.group(2), str(n), 1)
+            ),
+            text,
+        )
     text = re.sub(
         r"\b(?:fails?|rejects)\s+\d{1,5}\s+of\s+them\b",
         lambda m: re.sub(r"\d{1,5}", str(sf), m.group(0), count=1),
@@ -308,6 +309,15 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     return text
 
 
+def default_generated_manifest_path() -> Path:
+    fd, path = tempfile.mkstemp(
+        prefix="enoch-ecosystem.generated.",
+        suffix=".json",
+    )
+    os.close(fd)
+    return Path(path)
+
+
 def public_files(root: Path) -> list[Path]:
     return (
         existing(root / "enoch-agentic-research-system", PUBLIC_FILES)
@@ -334,7 +344,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--generated-manifest",
         type=Path,
-        default=Path("/tmp/enoch-ecosystem.generated.json"),
+        default=None,
+        help=(
+            "Staging path for a freshly generated ecosystem manifest; "
+            "defaults to a private mkstemp file under the system temp directory"
+        ),
     )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
@@ -345,7 +359,10 @@ def main(argv: list[str] | None = None) -> int:
             f"strict total {stats['strict_total']} != artifact count {stats['artifact_count']}"
         )
     if not args.dry_run:
-        generate_manifest(root, args.generated_manifest)
+        generated_manifest = args.generated_manifest
+        if generated_manifest is None:
+            generated_manifest = default_generated_manifest_path()
+        generate_manifest(root, generated_manifest)
     changed: list[str] = []
     for path in public_files(root):
         old = path.read_text(encoding="utf-8", errors="replace")

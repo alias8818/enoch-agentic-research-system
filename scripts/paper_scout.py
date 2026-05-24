@@ -73,6 +73,80 @@ def _metric_count(*values: str) -> int:
     )
 
 
+def _hard_blockers(payload: dict[str, Any], decision: str, outcome: str) -> list[str]:
+    blockers: list[str] = []
+    if decision != "finalize_negative":
+        blockers.append("not a finalize_negative decision")
+    if outcome != "useful_signal":
+        blockers.append("not a useful_signal result")
+    if _truthy(payload.get("bounded_paper_ready")):
+        blockers.append("already bounded_paper_ready")
+    if _truthy(payload.get("compute_scale_blocked")):
+        blockers.append("compute-scale blocked")
+    return blockers
+
+
+def _score_hypothesis(hyp: str) -> tuple[int, str | None, str | None]:
+    if hyp == "supported":
+        return 30, "supported hypothesis", None
+    if hyp == "mixed":
+        return 18, "mixed but partially supported hypothesis", None
+    return 0, None, f"hypothesis_status={hyp or 'missing'}"
+
+
+def _score_evidence(evidence: str) -> tuple[int, str | None, str | None]:
+    if evidence == "strong":
+        return 24, "strong evidence", None
+    if evidence == "moderate":
+        return 14, "moderate evidence", None
+    return 0, None, f"evidence_strength={evidence or 'missing'}"
+
+
+def _score_text_length(
+    text: str, min_len: int, reason_ok: str, blocker_msg: str
+) -> tuple[int, str | None, str | None]:
+    if len(text) >= min_len:
+        return 14, reason_ok, None
+    return 0, None, blocker_msg
+
+
+def _score_metrics(
+    summary: str, claim_scope: str
+) -> tuple[int, str | None, str | None]:
+    metrics = _metric_count(summary, claim_scope)
+    if metrics >= 4:
+        return 12, "numeric metrics present", None
+    if metrics >= 2:
+        return 6, "some numeric metrics present", None
+    return 0, None, "insufficient numeric metrics"
+
+
+def _score_marker(
+    combined: str,
+    markers: tuple[str, ...],
+    points: int,
+    reason_ok: str,
+    blocker_msg: str | None,
+) -> tuple[int, str | None, str | None]:
+    if any(marker in combined for marker in markers):
+        return points, reason_ok, None
+    return 0, None, blocker_msg
+
+
+def _apply_criterion(
+    score: int,
+    reasons: list[str],
+    blockers: list[str],
+    criterion: tuple[int, str | None, str | None],
+) -> int:
+    delta, reason, blocker = criterion
+    if reason:
+        reasons.append(reason)
+    if blocker:
+        blockers.append(blocker)
+    return score + delta
+
+
 def score_payload(payload: dict[str, Any]) -> tuple[int, list[str], list[str]]:
     decision = _text(payload.get("project_decision"))
     outcome = _text(payload.get("research_outcome"))
@@ -86,89 +160,75 @@ def score_payload(payload: dict[str, Any]) -> tuple[int, list[str], list[str]]:
     combined = "\n".join(
         [claim_scope, scale_limits, summary, stop, next_action]
     ).lower()
-    blockers: list[str] = []
+    blockers = _hard_blockers(payload, decision, outcome)
     reasons: list[str] = []
     score = 0
 
-    if decision != "finalize_negative":
-        blockers.append("not a finalize_negative decision")
-    if outcome != "useful_signal":
-        blockers.append("not a useful_signal result")
-    if _truthy(payload.get("bounded_paper_ready")):
-        blockers.append("already bounded_paper_ready")
-    if _truthy(payload.get("compute_scale_blocked")):
-        blockers.append("compute-scale blocked")
-    if hyp == "supported":
-        score += 30
-        reasons.append("supported hypothesis")
-    elif hyp == "mixed":
-        score += 18
-        reasons.append("mixed but partially supported hypothesis")
-    else:
-        blockers.append(f"hypothesis_status={hyp or 'missing'}")
-    if evidence == "strong":
-        score += 24
-        reasons.append("strong evidence")
-    elif evidence == "moderate":
-        score += 14
-        reasons.append("moderate evidence")
-    else:
-        blockers.append(f"evidence_strength={evidence or 'missing'}")
-    if len(claim_scope) >= 80:
-        score += 14
-        reasons.append("explicit scoped claim")
-    else:
-        blockers.append("claim_scope too thin")
-    if len(scale_limits) >= 80:
-        score += 14
-        reasons.append("explicit scale limits")
-    else:
-        blockers.append("scale_limits too thin")
-    metrics = _metric_count(summary, claim_scope)
-    if metrics >= 4:
-        score += 12
-        reasons.append("numeric metrics present")
-    elif metrics >= 2:
-        score += 6
-        reasons.append("some numeric metrics present")
-    else:
-        blockers.append("insufficient numeric metrics")
-    if any(
-        marker in combined
-        for marker in ("baseline", "control", "ablation", "versus", "compared")
-    ):
-        score += 8
-        reasons.append("baseline/control language present")
-    else:
-        blockers.append("baseline/control evidence unclear")
-    if any(
-        marker in combined
-        for marker in (
-            "not paper-ready",
-            "no-paper",
-            "publication-grade",
-            "paper",
-            "scoped",
-        )
-    ):
-        score += 6
-        reasons.append("paper limits are explicit")
-    else:
-        blockers.append("paper-limit rationale unclear")
-    if any(
-        marker in combined
-        for marker in (
-            "real",
-            "gpt-2",
-            "distilgpt2",
-            "wikitext",
-            "cifar",
-            "wall-clock",
-            "kv-cache",
-        )
-    ):
-        score += 4
-        reasons.append("direct/local target evidence marker present")
+    score = _apply_criterion(score, reasons, blockers, _score_hypothesis(hyp))
+    score = _apply_criterion(score, reasons, blockers, _score_evidence(evidence))
+    score = _apply_criterion(
+        score,
+        reasons,
+        blockers,
+        _score_text_length(
+            claim_scope, 80, "explicit scoped claim", "claim_scope too thin"
+        ),
+    )
+    score = _apply_criterion(
+        score,
+        reasons,
+        blockers,
+        _score_text_length(
+            scale_limits, 80, "explicit scale limits", "scale_limits too thin"
+        ),
+    )
+    score = _apply_criterion(
+        score, reasons, blockers, _score_metrics(summary, claim_scope)
+    )
+    score = _apply_criterion(
+        score,
+        reasons,
+        blockers,
+        _score_marker(
+            combined,
+            ("baseline", "control", "ablation", "versus", "compared"),
+            8,
+            "baseline/control language present",
+            "baseline/control evidence unclear",
+        ),
+    )
+    score = _apply_criterion(
+        score,
+        reasons,
+        blockers,
+        _score_marker(
+            combined,
+            ("not paper-ready", "no-paper", "publication-grade", "paper", "scoped"),
+            6,
+            "paper limits are explicit",
+            "paper-limit rationale unclear",
+        ),
+    )
+    score = _apply_criterion(
+        score,
+        reasons,
+        blockers,
+        _score_marker(
+            combined,
+            (
+                "real",
+                "gpt-2",
+                "distilgpt2",
+                "wikitext",
+                "cifar",
+                "wall-clock",
+                "kv-cache",
+            ),
+            4,
+            "direct/local target evidence marker present",
+            None,
+        ),
+    )
 
     return score, reasons, blockers
 

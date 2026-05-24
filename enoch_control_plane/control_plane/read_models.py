@@ -6,7 +6,7 @@ import hashlib
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, NamedTuple, Sequence
 from urllib.parse import quote
 
 from enoch_control_plane.enoch_core.logic import (
@@ -35,6 +35,14 @@ from .state_contract import (
     OperatorLane,
     WAKE_GATE_COMPLETION_STATES,
 )
+
+# Centralized reason constant for the top remaining S1192 duplication
+# in this file (decision gates and mappings).
+MISSING_PROJECT_DECISION_ARTIFACT_REASON = "missing project decision artifact"
+
+ACTION_HASH_OVERVIEW = "#overview"
+ACTION_HASH_QUEUE_QUEUED = "#queue:queued"
+ACTION_HASH_RESEARCH = "#research"
 
 READY_REVIEW_STATUSES = PUBLICATION_READY_AUTOMATION_STATUSES
 # Paper review rows are an automation lane, not an operator-approval lane.
@@ -79,6 +87,13 @@ OPERATOR_DETAIL_LABELS: dict[str, str] = {
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _first_non_empty(row: Mapping[str, Any], *keys: str) -> str:
+    for key in keys:
+        if text := _text(row.get(key)):
+            return text
+    return ""
 
 
 def paper_source_fingerprint(paper_id: str) -> str:
@@ -223,16 +238,12 @@ def _paper_finalization_package_present(row: dict[str, Any]) -> bool:
     return False
 
 
-def _stage(
-    detail_label: str,
-    *,
-    lane: OperatorLane,
-    tone: str,
-    attention: bool,
-    next_step: str,
-    explanation: str,
-    **extra: Any,
-) -> dict[str, Any]:
+def _stage(detail_label: str, /, **fields: Any) -> dict[str, Any]:
+    lane = fields.pop("lane")
+    tone = fields.pop("tone")
+    attention = fields.pop("attention")
+    next_step = fields.pop("next_step")
+    explanation = fields.pop("explanation")
     stage = {
         "operator_stage": lane.value,
         "operator_stage_label": OPERATOR_LANE_LABELS.get(
@@ -248,7 +259,7 @@ def _stage(
         "operator_next_step": next_step,
         "operator_explanation": explanation,
     }
-    stage.update({key: value for key, value in extra.items() if value is not None})
+    stage.update({key: value for key, value in fields.items() if value is not None})
     return stage
 
 
@@ -271,18 +282,23 @@ def _expanduser_or_none(value: str) -> Path | None:
         return None
 
 
-def _project_dir_candidates(project_dir: str) -> list[Path]:
-    raw = _expanduser_or_none(project_dir)
-    if raw is None:
-        return []
-    candidates = [raw]
-    if not raw.is_absolute():
-        configured_root = _configured_project_root()
-        if configured_root:
-            root = _expanduser_or_none(configured_root)
-            if root is not None:
-                candidates.append(root / raw)
-        candidates.append(Path("/var/lib/enoch-control-plane/projects") / raw)
+def _configured_project_root_path() -> Path | None:
+    configured_root = _configured_project_root()
+    if not configured_root:
+        return None
+    return _expanduser_or_none(configured_root)
+
+
+def _project_dir_relative_candidates(raw: Path) -> list[Path]:
+    candidates: list[Path] = []
+    root = _configured_project_root_path()
+    if root is not None:
+        candidates.append(root / raw)
+    candidates.append(Path("/var/lib/enoch-control-plane/projects") / raw)
+    return candidates
+
+
+def _dedupe_paths(candidates: list[Path]) -> list[Path]:
     deduped: list[Path] = []
     seen: set[str] = set()
     for candidate in candidates:
@@ -293,6 +309,16 @@ def _project_dir_candidates(project_dir: str) -> list[Path]:
     return deduped
 
 
+def _project_dir_candidates(project_dir: str) -> list[Path]:
+    raw = _expanduser_or_none(project_dir)
+    if raw is None:
+        return []
+    candidates = [raw]
+    if not raw.is_absolute():
+        candidates.extend(_project_dir_relative_candidates(raw))
+    return _dedupe_paths(candidates)
+
+
 def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
     project_dir = _text(row.get("project_dir"))
     if not project_dir:
@@ -300,7 +326,7 @@ def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
     if not project_dir:
         return {
             "eligible": False,
-            "reason": "missing project decision artifact",
+            "reason": MISSING_PROJECT_DECISION_ARTIFACT_REASON,
             "values": [],
             "project_dir": "",
         }
@@ -320,7 +346,10 @@ def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
         if isinstance(values, list):
             gate = {**gate, "values": values[:8]}
         gate = {**gate, "project_dir": str(candidate)}
-        if values or _text(gate.get("reason")) != "missing project decision artifact":
+        if (
+            values
+            or _text(gate.get("reason")) != MISSING_PROJECT_DECISION_ARTIFACT_REASON
+        ):
             return gate
         last_gate = gate
     return last_gate
@@ -550,7 +579,7 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
     reason_by_state = {
         "negative": "project decision is not positive",
         "needs_review": "project decision is not positive",
-        "missing": "missing project decision artifact",
+        "missing": MISSING_PROJECT_DECISION_ARTIFACT_REASON,
         "malformed": "project decision artifact could not be read",
         "unknown": "project decision lacks positive draft signal",
     }
@@ -565,249 +594,7 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
     }
 
 
-def operator_stage_for_record(row: dict[str, Any]) -> dict[str, Any]:
-    """Translate raw control-plane state into a deterministic operator stage.
-
-    Raw queue/run/paper/review values remain available for detail/debugging, but
-    the dashboard should lead with this normalized stage. `wake_ready` and
-    `session_finished_ready` are worker-delivery callbacks, not publication
-    polarity; paper polarity is decided by artifacts/review state.
-    """
-
-    queue_status = _normal(row.get("status") or row.get("queue_status"))
-    last_run_state = _normal(
-        row.get("last_run_state") or row.get("state") or row.get("gate_state")
-    )
-    next_action = _normal(row.get("next_action_hint"))
-    paper_status = _normal(row.get("paper_status") or row.get("related_paper_status"))
-    review_status = _normal(
-        row.get("review_status") or row.get("related_review_status")
-    )
-    has_paper = bool(
-        _text(row.get("paper_id") or row.get("related_paper_id")) or paper_status
-    )
-    manual_review = _truthy(row.get("manual_review_required"))
-
-    if queue_status == QueueStatus.CANCELED.value and not manual_review:
-        return _stage(
-            "historical",
-            lane=OperatorLane.HISTORICAL,
-            tone="muted",
-            attention=False,
-            next_step="No action is needed for this terminal queue record.",
-            explanation="Canceled queue work is terminal historical evidence, not current operator work.",
-        )
-    if queue_status in ATTENTION_QUEUE_STATUSES or manual_review:
-        return _stage(
-            "blocked_needs_operator",
-            lane=OperatorLane.NEEDS_OPERATOR,
-            tone="bad",
-            attention=True,
-            next_step="Open the item and resolve the blocker or worker question.",
-            explanation="Queue status or manual-action flag requires operator action.",
-        )
-    if queue_status == QueueStatus.PAUSED.value:
-        return _stage(
-            "paused_work",
-            lane=OperatorLane.PAUSED,
-            tone="muted",
-            attention=False,
-            next_step="Resume only when maintenance policy says this project should re-enter the queue.",
-            explanation="Paused work is tracked separately from operator blockers.",
-        )
-    if review_status == "rejected" or paper_status == "archived":
-        return _stage(
-            "run_complete_no_paper",
-            lane=OperatorLane.COMPLETE_NO_PAPER,
-            tone="muted",
-            attention=False,
-            next_step="No paper publication action is needed for this record.",
-            explanation="The paper/review record is rejected or archived.",
-        )
-    if queue_status in ACTIVE_QUEUE_STATUSES or last_run_state in ACTIVE_QUEUE_STATUSES:
-        return _stage(
-            "running",
-            lane=OperatorLane.RUNNING,
-            tone="info",
-            attention=False,
-            next_step="Wait for worker callback or gate completion.",
-            explanation="The worker lane is active or awaiting wake callback.",
-        )
-    if has_paper and _paper_imported(row):
-        return _stage(
-            "published",
-            lane=OperatorLane.PUBLISHED,
-            tone="good",
-            attention=False,
-            next_step="No corpus-import action is needed; this paper is already represented by the import ledger.",
-            explanation="The corpus import ledger contains this paper, so it is public/imported rather than publish work.",
-        )
-    if (
-        paper_status
-        in {PaperStatus.PUBLICATION_DRAFT.value, PaperStatus.DRAFT_REVIEW.value}
-        and review_status in READY_REVIEW_STATUSES
-        and _paper_finalization_package_present(row)
-        and _paper_publication_artifacts_present(row)
-    ):
-        return _stage(
-            "ready_to_publish",
-            lane=OperatorLane.READY_TO_PUBLISH,
-            tone="good",
-            attention=False,
-            next_step="Import this finalized publication draft into the public corpus.",
-            explanation="Publication artifacts have required evidence paths, a finalized automation package, and no corpus-import ledger row is visible.",
-        )
-    if paper_status == PaperStatus.PUBLICATION_DRAFT.value:
-        return _stage(
-            "finalization_needed",
-            lane=OperatorLane.AUTOMATE_PUBLICATION,
-            tone="warn",
-            attention=False,
-            next_step="Run automated rewrite/finalization; no human approval is required.",
-            explanation="Publication draft exists and should move through the automated finalization lane without operator approval.",
-        )
-    if paper_status in DRAFT_PAPER_STATUSES or (has_paper and paper_status):
-        return _stage(
-            "draft_created",
-            lane=OperatorLane.AUTOMATE_PUBLICATION,
-            tone="info",
-            attention=False,
-            next_step="Continue automated rewrite/finalization or inspect artifacts if automation failed.",
-            explanation="A paper record exists, but it is not yet a finalized publication draft.",
-        )
-    if queue_status == "queued":
-        return _stage(
-            "idea_queued",
-            lane=OperatorLane.READY_QUEUE,
-            tone="info",
-            attention=False,
-            next_step="Dispatch when the lane is available.",
-            explanation="The idea is queued and not currently running.",
-        )
-    if (
-        queue_status == "completed"
-        and last_run_state in WAKE_GATE_COMPLETION_STATES
-        and next_action == PAPER_DRAFT_NEXT_ACTION
-    ):
-        gate = _paper_draft_gate_from_row_decision(row) or _paper_draft_gate_for_row(
-            row
-        )
-        decision_summary = _decision_summary_from_gate(gate)
-        if gate is None or not bool(gate.get("eligible")):
-            if _is_useful_signal(row):
-                signal = _useful_signal_from_row(row)
-                if signal["compute_scale_blocked"]:
-                    return _stage(
-                        "compute_scale_blocked",
-                        lane=OperatorLane.COMPUTE_SCALE_BLOCKED,
-                        tone="info",
-                        attention=False,
-                        next_step="Park as promising-if-scaled unless a cheaper bounded test is defined.",
-                        explanation=f"Worker delivery found a useful signal, but the remaining validation appears to exceed local compute/time limits: {decision_summary or 'not paper-ready'}.",
-                        paper_draft_eligible=False if gate is not None else None,
-                        project_decision_summary=decision_summary,
-                        project_decision_gate=gate,
-                        **signal,
-                    )
-            if _is_followup_candidate(row):
-                followup = _followup_from_row(row)
-                return _stage(
-                    "followup_candidate",
-                    lane=OperatorLane.FOLLOWUP_INVESTIGATION,
-                    tone="info",
-                    attention=False,
-                    next_step="Launch a bounded follow-up investigation if this adjacent test is still worth spending worker time on.",
-                    explanation=f"Worker delivery is complete and not paper-positive ({decision_summary or 'not eligible'}), but the decision artifact recommends a specific next investigation.",
-                    paper_draft_eligible=False if gate is not None else None,
-                    project_decision_summary=decision_summary,
-                    project_decision_gate=gate,
-                    **followup,
-                )
-            if _is_useful_signal(row):
-                signal = _useful_signal_from_row(row)
-                return _stage(
-                    "useful_signal",
-                    lane=OperatorLane.USEFUL_SIGNAL,
-                    tone="info",
-                    attention=False,
-                    next_step="Prefer one bounded deepen run if it is cheap; otherwise keep the scoped useful signal as no-paper evidence.",
-                    explanation=f"Worker delivery found a useful local signal, but it is not yet paper-positive: {decision_summary or 'not paper-ready'}.",
-                    paper_draft_eligible=False if gate is not None else None,
-                    project_decision_summary=decision_summary,
-                    project_decision_gate=gate,
-                    **signal,
-                )
-            return _stage(
-                "run_complete_no_paper",
-                lane=OperatorLane.COMPLETE_NO_PAPER,
-                tone="muted",
-                attention=False,
-                next_step="No paper draft is needed; select the next project.",
-                explanation=f"Worker delivery is complete, but the project decision is not a positive paper signal: {decision_summary or 'not eligible'}.",
-                paper_draft_eligible=False if gate is not None else None,
-                project_decision_summary=decision_summary,
-                project_decision_gate=gate,
-            )
-        return _stage(
-            "run_complete_draft_needed",
-            lane=OperatorLane.WRITE_PAPER,
-            tone="warn",
-            attention=False,
-            next_step="Run draft-next because the decision artifacts are positive.",
-            explanation="Worker delivery is complete and the project decision artifacts indicate a positive paper signal.",
-            paper_draft_eligible=True if gate is not None else None,
-            project_decision_summary=decision_summary,
-            project_decision_gate=gate,
-        )
-    if queue_status == "completed" or last_run_state in WAKE_GATE_COMPLETION_STATES:
-        if not has_paper and _is_useful_signal(row):
-            signal = _useful_signal_from_row(row)
-            if signal["compute_scale_blocked"]:
-                return _stage(
-                    "compute_scale_blocked",
-                    lane=OperatorLane.COMPUTE_SCALE_BLOCKED,
-                    tone="info",
-                    attention=False,
-                    next_step="Park as promising-if-scaled unless a cheaper bounded test is defined.",
-                    explanation="The prior run found a useful signal, but remaining validation exceeds local compute/time limits.",
-                    **signal,
-                )
-            return _stage(
-                "useful_signal",
-                lane=OperatorLane.USEFUL_SIGNAL,
-                tone="info",
-                attention=False,
-                next_step="Prefer one bounded deepen run if it is cheap; otherwise keep the scoped useful signal as no-paper evidence.",
-                explanation="The prior run found a bounded useful signal but no current paper-draft signal is visible.",
-                **signal,
-            )
-        if not has_paper and _is_followup_candidate(row):
-            followup = _followup_from_row(row)
-            return _stage(
-                "followup_candidate",
-                lane=OperatorLane.FOLLOWUP_INVESTIGATION,
-                tone="info",
-                attention=False,
-                next_step="Launch a bounded follow-up investigation if this adjacent test is still worth spending worker time on.",
-                explanation="The prior run is complete and no-paper, but its decision artifact recommends a specific next investigation.",
-                **followup,
-            )
-        return _stage(
-            "run_complete_no_paper",
-            lane=OperatorLane.COMPLETE_NO_PAPER,
-            tone="muted",
-            attention=False,
-            next_step="Select the next project unless separate paper evidence appears.",
-            explanation="The worker run is complete; no current draft-needed signal is visible in this row.",
-        )
-    return _stage(
-        "blocked_needs_operator",
-        lane=OperatorLane.NEEDS_OPERATOR,
-        tone="warn",
-        attention=True,
-        next_step="Inspect raw state because this row does not match a known operator lifecycle stage.",
-        explanation="Unknown or inconsistent raw state.",
-    )
+from .operator_stage import operator_stage_for_record
 
 
 def with_operator_stage(row: dict[str, Any]) -> dict[str, Any]:
@@ -878,10 +665,9 @@ def paper_links(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def summarize_project_row(row: dict[str, Any]) -> dict[str, Any]:
-    project_id = str(row.get("project_id") or "")
+def _project_row_stage_source(row: dict[str, Any]) -> dict[str, Any]:
     queue_status = row.get("queue_status") or row.get("status") or ""
-    stage_source = {
+    return {
         **row,
         "status": queue_status,
         "current_run_id": row.get("current_run_id") or row.get("latest_run_id") or "",
@@ -895,38 +681,39 @@ def summarize_project_row(row: dict[str, Any]) -> dict[str, Any]:
         or row.get("updated_at")
         or "",
     }
+
+
+def summarize_project_row(row: dict[str, Any]) -> dict[str, Any]:
+    project_id = str(row.get("project_id") or "")
+    stage_source = _project_row_stage_source(row)
+    queue_status = stage_source["status"]
+    staged = with_operator_stage(stage_source)
+    operator_fields = {
+        key: value for key, value in staged.items() if key.startswith("operator_")
+    }
     return _drop_related_artifact_paths(
-        with_operator_stage(
-            {
-                "project_id": project_id,
-                "project_name": row.get("project_name", ""),
-                "origin_idea_status": row.get("origin_idea_status", ""),
-                "queue_status": queue_status,
-                "current_run_id": stage_source["current_run_id"],
-                "latest_run_id": row.get("latest_run_id", ""),
-                "latest_run_state": row.get("latest_run_state", ""),
-                "related_paper_id": stage_source["related_paper_id"],
-                "related_paper_status": stage_source["related_paper_status"],
-                "created_at": row.get("project_created_at")
-                or row.get("created_at", ""),
-                "updated_at": row.get("project_updated_at")
-                or row.get("updated_at", ""),
-                "age_seconds": row_age_seconds(
-                    {
-                        "updated_at": row.get("project_updated_at")
-                        or row.get("updated_at", ""),
-                        "created_at": row.get("project_created_at")
-                        or row.get("created_at", ""),
-                    }
-                ),
-                "links": project_links(stage_source),
-                **{
-                    key: value
-                    for key, value in with_operator_stage(stage_source).items()
-                    if key.startswith("operator_")
-                },
-            }
-        )
+        {
+            "project_id": project_id,
+            "project_name": row.get("project_name", ""),
+            "origin_idea_status": row.get("origin_idea_status", ""),
+            "queue_status": queue_status,
+            "current_run_id": stage_source["current_run_id"],
+            "latest_run_id": row.get("latest_run_id", ""),
+            "latest_run_state": row.get("latest_run_state", ""),
+            "related_paper_id": stage_source["related_paper_id"],
+            "related_paper_status": stage_source["related_paper_status"],
+            "created_at": row.get("project_created_at") or row.get("created_at", ""),
+            "updated_at": stage_source["project_updated_at"],
+            "age_seconds": row_age_seconds(
+                {
+                    "updated_at": stage_source["project_updated_at"],
+                    "created_at": row.get("project_created_at")
+                    or row.get("created_at", ""),
+                }
+            ),
+            "links": project_links(stage_source),
+            **operator_fields,
+        }
     )
 
 
@@ -1003,34 +790,42 @@ def _idea_has_queue_context(row: dict[str, Any]) -> bool:
     return bool(_text(row.get("last_run_state")))
 
 
+_IDEA_WORKBENCH_FIELD_SOURCES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("project_id", ("project_id", "idea_id")),
+    ("project_name", ("title",)),
+    ("status", ("queue_status", "status")),
+    ("queue_status", ("queue_status",)),
+    ("origin_idea_status", ("idea_status",)),
+    ("paper_status", ("paper_status",)),
+    ("related_paper_status", ("paper_status",)),
+    ("paper_id", ("paper_id",)),
+    ("related_paper_id", ("paper_id",)),
+    ("current_run_id", ("current_run_id",)),
+    ("last_run_state", ("last_run_state",)),
+    ("next_action_hint", ("next_action_hint",)),
+    ("blocked_reason", ("blocked_reason",)),
+    ("last_error", ("last_error",)),
+    ("machine_target", ("machine_target",)),
+    ("updated_at", ("queue_updated_at", "updated_at")),
+)
+
+
+def _idea_workbench_stage_source(row: dict[str, Any]) -> dict[str, Any]:
+    staged = dict(row)
+    for target, sources in _IDEA_WORKBENCH_FIELD_SOURCES:
+        staged[target] = _first_non_empty(row, *sources)
+    staged["manual_review_required"] = row.get("manual_review_required", False)
+    return staged
+
+
 def summarize_idea_workbench_row(row: dict[str, Any]) -> dict[str, Any]:
     if not _idea_has_queue_context(row):
         return dict(row)
-    stage_source = {
-        **row,
-        "project_id": row.get("project_id") or row.get("idea_id") or "",
-        "project_name": row.get("title") or "",
-        "status": row.get("queue_status") or row.get("status") or "",
-        "queue_status": row.get("queue_status") or "",
-        "origin_idea_status": row.get("idea_status") or "",
-        "paper_status": row.get("paper_status") or "",
-        "related_paper_status": row.get("paper_status") or "",
-        "paper_id": row.get("paper_id") or "",
-        "related_paper_id": row.get("paper_id") or "",
-        "current_run_id": row.get("current_run_id") or "",
-        "last_run_state": row.get("last_run_state") or "",
-        "next_action_hint": row.get("next_action_hint") or "",
-        "manual_review_required": row.get("manual_review_required", False),
-        "blocked_reason": row.get("blocked_reason") or "",
-        "last_error": row.get("last_error") or "",
-        "machine_target": row.get("machine_target") or "",
-        "updated_at": row.get("queue_updated_at") or row.get("updated_at") or "",
+    staged = with_operator_stage(_idea_workbench_stage_source(row))
+    operator_fields = {
+        key: value for key, value in staged.items() if key.startswith("operator_")
     }
-    staged = with_operator_stage(stage_source)
-    return {
-        **row,
-        **{key: value for key, value in staged.items() if key.startswith("operator_")},
-    }
+    return {**row, **operator_fields}
 
 
 def _count_value(counts: dict[str, int] | None, *keys: str) -> int:
@@ -1051,6 +846,53 @@ def _intake_sync_status(latest_sync: Any) -> str:
     return ""
 
 
+def _summarize_intake_empty_projection(
+    *, sync_status: str, sync_ok: bool, skipped_total: int
+) -> str:
+    if sync_status and not sync_ok:
+        return (
+            f"Intake projection is empty and the latest sync reported {sync_status}; "
+            "refresh after fixing intake sync."
+        )
+    if skipped_total:
+        return (
+            f"No ideas in the bounded intake projection; {skipped_total} row(s) "
+            "were skipped on the last sync."
+        )
+    return (
+        "No ideas in the bounded intake projection; intake may be caught up "
+        "or waiting on the next sync."
+    )
+
+
+def _summarize_intake_queued_projection(
+    *,
+    headline: int,
+    skipped_total: int,
+    sync_status: str,
+    sync_ok: bool,
+) -> str:
+    if skipped_total and sync_status and not sync_ok:
+        return (
+            f"{headline} idea(s) queued for review; {skipped_total} row(s) skipped "
+            f"and the latest sync reported {sync_status}."
+        )
+    if skipped_total:
+        return (
+            f"{headline} idea(s) queued for operator review; {skipped_total} row(s) "
+            "skipped on the last sync."
+        )
+    if sync_status and not sync_ok:
+        return (
+            f"{headline} idea(s) queued for review, but the latest intake sync "
+            f"reported {sync_status}."
+        )
+    return (
+        f"{headline} idea(s) queued for operator review; promote or dispatch "
+        "from the table below."
+    )
+
+
 def summarize_intake_workbench(
     *,
     projection_counts: dict[str, int] | None,
@@ -1068,20 +910,17 @@ def summarize_intake_workbench(
     sync_ok = sync_status in {"", "ok", "success", "succeeded"}
 
     if visible == 0 and queued == 0:
-        if sync_status and not sync_ok:
-            return f"Intake projection is empty and the latest sync reported {sync_status}; refresh after fixing intake sync."
-        if skipped_total:
-            return f"No ideas in the bounded intake projection; {skipped_total} row(s) were skipped on the last sync."
-        return "No ideas in the bounded intake projection; intake may be caught up or waiting on the next sync."
-
-    headline = visible or queued
-    if skipped_total and sync_status and not sync_ok:
-        return f"{headline} idea(s) queued for review; {skipped_total} row(s) skipped and the latest sync reported {sync_status}."
-    if skipped_total:
-        return f"{headline} idea(s) queued for operator review; {skipped_total} row(s) skipped on the last sync."
-    if sync_status and not sync_ok:
-        return f"{headline} idea(s) queued for review, but the latest intake sync reported {sync_status}."
-    return f"{headline} idea(s) queued for operator review; promote or dispatch from the table below."
+        return _summarize_intake_empty_projection(
+            sync_status=sync_status,
+            sync_ok=sync_ok,
+            skipped_total=skipped_total,
+        )
+    return _summarize_intake_queued_projection(
+        headline=visible or queued,
+        skipped_total=skipped_total,
+        sync_status=sync_status,
+        sync_ok=sync_ok,
+    )
 
 
 def summarize_research_facility_workbench(
@@ -1091,21 +930,83 @@ def summarize_research_facility_workbench(
     admitted = _count_value(counts, "admitted")
     needs_review = _count_value(counts, "needs_review")
     total = sum(int(value or 0) for value in counts.values())
-
+    message = ""
     if total == 0 and returned_rows == 0:
-        return "Research facility ledger is empty; generate candidates or run a bounded dry-run cycle first."
+        message = (
+            "Research facility ledger is empty; generate candidates or run a "
+            "bounded dry-run cycle first."
+        )
+    else:
+        parts: list[str] = []
+        if admitted:
+            parts.append(f"{admitted} admitted candidate(s) ready to promote")
+        if needs_review:
+            parts.append(f"{needs_review} need review before promotion")
+        if parts:
+            message = "; ".join(parts) + "."
+        elif returned_rows:
+            message = (
+                f"{returned_rows} candidate row(s) visible in this slice; select "
+                "one to dry-run promotion."
+            )
+        else:
+            message = (
+                "Research facility has ledger rows but no admitted or "
+                "needs-review candidates in the current counts."
+            )
+    return message
 
-    parts: list[str] = []
-    if admitted:
-        parts.append(f"{admitted} admitted candidate(s) ready to promote")
-    if needs_review:
-        parts.append(f"{needs_review} need review before promotion")
-    if parts:
-        return "; ".join(parts) + "."
 
-    if returned_rows:
-        return f"{returned_rows} candidate row(s) visible in this slice; select one to dry-run promotion."
-    return "Research facility has ledger rows but no admitted or needs-review candidates in the current counts."
+def _summarize_automation_workbench_message(
+    *,
+    total: int,
+    page_returned: int,
+    triage_ready: int,
+    queued: int,
+    blocked: int,
+    filtered: bool,
+) -> str:
+    message = ""
+    if page_returned == 0 and total == 0:
+        message = (
+            "No publication automation rows in the ledger; backfill or wait "
+            "for publication drafts."
+        )
+    elif filtered and page_returned == 0:
+        message = (
+            "No publication automation rows match the current filters; widen "
+            "review status or clear search."
+        )
+    elif triage_ready:
+        if total:
+            message = (
+                f"{total} publication draft(s) in automation; {triage_ready} "
+                "triage-ready for rewrite or finalization."
+            )
+        else:
+            message = (
+                f"{triage_ready} publication draft(s) triage-ready for rewrite or "
+                "finalization in the current slice."
+            )
+    else:
+        headline = total or page_returned
+        if blocked:
+            message = (
+                f"{headline} publication draft(s) tracked; {blocked} blocked and "
+                "need checklist or rewrite attention."
+            )
+        elif queued:
+            message = (
+                f"{headline} publication draft(s) in automation; {queued} queued "
+                "for the next operator pass."
+            )
+        else:
+            visible = page_returned or total
+            message = (
+                f"{visible} publication draft(s) in this slice; select a row to "
+                "dry-run rewrite or finalization."
+            )
+    return message
 
 
 def summarize_automation_workbench(
@@ -1118,32 +1019,14 @@ def summarize_automation_workbench(
 ) -> str:
     counts = counts or {}
     total = _count_value(counts, "all") or page_total
-    triage_ready = _count_value(counts, "triage_ready")
-    queued = _count_value(counts, "queued")
-    blocked = _count_value(counts, "blocked")
-    filtered = bool(_text(review_status) or _text(search))
-
-    if page_returned == 0 and total == 0:
-        return "No publication automation rows in the ledger; backfill or wait for publication drafts."
-
-    if filtered and page_returned == 0:
-        return "No publication automation rows match the current filters; widen review status or clear search."
-
-    if triage_ready:
-        if total:
-            return f"{total} publication draft(s) in automation; {triage_ready} triage-ready for rewrite or finalization."
-        return f"{triage_ready} publication draft(s) triage-ready for rewrite or finalization in the current slice."
-
-    if blocked:
-        headline = total or page_returned
-        return f"{headline} publication draft(s) tracked; {blocked} blocked and need checklist or rewrite attention."
-
-    if queued:
-        headline = total or page_returned
-        return f"{headline} publication draft(s) in automation; {queued} queued for the next operator pass."
-
-    visible = page_returned or total
-    return f"{visible} publication draft(s) in this slice; select a row to dry-run rewrite or finalization."
+    return _summarize_automation_workbench_message(
+        total=total,
+        page_returned=page_returned,
+        triage_ready=_count_value(counts, "triage_ready"),
+        queued=_count_value(counts, "queued"),
+        blocked=_count_value(counts, "blocked"),
+        filtered=bool(_text(review_status) or _text(search)),
+    )
 
 
 def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -1345,31 +1228,38 @@ OPERATOR_LANE_PRECEDENCE = {
 }
 
 
-def _typed_lifecycle_key(row: dict[str, Any]) -> str:
-    paper_id = _text(row.get("paper_id"))
+def _paper_typed_lifecycle_key(row: dict[str, Any], paper_id: str) -> str:
+    run_id = _text(row.get("run_id") or row.get("current_run_id"))
+    paper_type = _text(row.get("paper_type")) or "arxiv_draft"
     project_id = _text(row.get("project_id"))
-    if paper_id:
-        run_id = _text(row.get("run_id") or row.get("current_run_id"))
-        paper_type = _text(row.get("paper_type")) or "arxiv_draft"
-        if project_id and run_id:
-            return f"paper_identity:{project_id}:{run_id}:{paper_type}"
-        return f"paper:{paper_id}"
-    if project_id:
-        if bool(row.get("operator_attention")):
-            run_id = _text(row.get("run_id") or row.get("current_run_id"))
-            status = _text(
-                row.get("status")
-                or row.get("queue_status")
-                or row.get("last_run_state")
-                or row.get("state")
-                or row.get("gate_state")
-            )
-            return f"queue_attention:{project_id}:{run_id or status}"
+    if project_id and run_id:
+        return f"paper_identity:{project_id}:{run_id}:{paper_type}"
+    return f"paper:{paper_id}"
+
+
+def _queue_typed_lifecycle_key(row: dict[str, Any], project_id: str) -> str:
+    if not bool(row.get("operator_attention")):
         return f"queue:{project_id}"
     run_id = _text(row.get("run_id") or row.get("current_run_id"))
-    if run_id:
-        return f"run:{run_id}"
-    return ""
+    status = _text(
+        row.get("status")
+        or row.get("queue_status")
+        or row.get("last_run_state")
+        or row.get("state")
+        or row.get("gate_state")
+    )
+    return f"queue_attention:{project_id}:{run_id or status}"
+
+
+def _typed_lifecycle_key(row: dict[str, Any]) -> str:
+    paper_id = _text(row.get("paper_id"))
+    if paper_id:
+        return _paper_typed_lifecycle_key(row, paper_id)
+    project_id = _text(row.get("project_id"))
+    if project_id:
+        return _queue_typed_lifecycle_key(row, project_id)
+    run_id = _text(row.get("run_id") or row.get("current_run_id"))
+    return f"run:{run_id}" if run_id else ""
 
 
 def _operator_row_is_active(row: dict[str, Any]) -> bool:
@@ -1441,88 +1331,156 @@ def _queue_is_superseded_by_paper(
     return False
 
 
-def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    staged_rows = [with_operator_stage(row) for row in rows]
-    paper_run_keys = {
+def _paper_run_keys_from_staged(
+    staged_rows: Sequence[dict[str, Any]],
+) -> set[tuple[str, str]]:
+    return {
         (_text(row.get("project_id")), _text(row.get("run_id")))
         for row in staged_rows
         if _text(row.get("paper_id"))
         and _text(row.get("project_id"))
         and _text(row.get("run_id"))
     }
-    paper_ids = {
+
+
+def _paper_ids_from_staged(staged_rows: Sequence[dict[str, Any]]) -> set[str]:
+    return {
         _text(row.get("paper_id")) for row in staged_rows if _text(row.get("paper_id"))
     }
+
+
+def _staged_queue_row_for_reconcile(
+    staged: dict[str, Any],
+    *,
+    paper_ids: set[str],
+) -> tuple[dict[str, Any], str]:
+    related_paper_id = _text(staged.get("related_paper_id"))
+    is_queue_row = not _text(staged.get("paper_id"))
+    if (
+        is_queue_row
+        and _has_related_paper_projection(staged)
+        and (not related_paper_id or related_paper_id not in paper_ids)
+    ):
+        staged = _strip_related_paper_projection(staged)
+        related_paper_id = ""
+    return staged, related_paper_id
+
+
+class _QueueReconcileFlags(NamedTuple):
+    related_paper_id: str
+    paper_ids: set[str]
+    paper_run_keys: set[tuple[str, str]]
+    is_queue_row: bool
+    is_active_row: bool
+    needs_attention: bool
+
+
+def _reconciled_queue_row_should_drop(
+    staged: dict[str, Any], flags: _QueueReconcileFlags
+) -> bool:
+    if (
+        flags.is_queue_row
+        and flags.related_paper_id
+        and flags.related_paper_id in flags.paper_ids
+        and not flags.is_active_row
+        and not flags.needs_attention
+    ):
+        return True
+    return bool(
+        flags.is_queue_row
+        and not flags.is_active_row
+        and not flags.needs_attention
+        and _queue_is_superseded_by_paper(staged, flags.paper_run_keys)
+    )
+
+
+def _operator_row_precedence(row: dict[str, Any]) -> int:
+    detail_stage = _text(row.get("operator_detail_stage"))
+    lane = _text(row.get("operator_lane") or row.get("operator_stage"))
+    return max(
+        OPERATOR_STAGE_PRECEDENCE.get(detail_stage, 0),
+        OPERATOR_LANE_PRECEDENCE.get(lane, 0),
+    )
+
+
+def _reconciled_published_lane_merge(
+    current: dict[str, Any] | None,
+    staged: dict[str, Any],
+) -> str | None:
+    lane = _text(staged.get("operator_lane") or staged.get("operator_stage"))
+    current_lane = _text(
+        (current or {}).get("operator_lane") or (current or {}).get("operator_stage")
+    )
+    if (
+        current is not None
+        and current_lane == OperatorLane.PUBLISHED.value
+        and lane != OperatorLane.NEEDS_OPERATOR.value
+    ):
+        return "skip"
+    if (
+        current is not None
+        and lane == OperatorLane.PUBLISHED.value
+        and current_lane != OperatorLane.NEEDS_OPERATOR.value
+    ):
+        return "replace"
+    return None
+
+
+def _merge_reconciled_operator_key(
+    by_key: dict[str, dict[str, Any]],
+    key: str,
+    staged: dict[str, Any],
+) -> None:
+    current = by_key.get(key)
+    is_active_row = _operator_row_is_active(staged)
+    current_is_active = _operator_row_is_active(current or {})
+    if current is not None and current_is_active and not is_active_row:
+        return
+    if current is not None and is_active_row and not current_is_active:
+        by_key[key] = staged
+        return
+    published_merge = _reconciled_published_lane_merge(current, staged)
+    if published_merge == "skip":
+        return
+    if published_merge == "replace":
+        by_key[key] = staged
+        return
+    if current is None or _operator_row_precedence(staged) > _operator_row_precedence(
+        current or {}
+    ):
+        by_key[key] = staged
+
+
+def _reconciled_operator_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    staged_rows = [with_operator_stage(row) for row in rows]
+    paper_run_keys = _paper_run_keys_from_staged(staged_rows)
+    paper_ids = _paper_ids_from_staged(staged_rows)
     by_key: dict[str, dict[str, Any]] = {}
     anonymous: list[dict[str, Any]] = []
     for staged in staged_rows:
-        related_paper_id = _text(staged.get("related_paper_id"))
+        staged, related_paper_id = _staged_queue_row_for_reconcile(
+            staged, paper_ids=paper_ids
+        )
         is_queue_row = not _text(staged.get("paper_id"))
         is_active_row = _operator_row_is_active(staged)
         needs_attention = bool(staged.get("operator_attention"))
-        if (
-            is_queue_row
-            and _has_related_paper_projection(staged)
-            and (not related_paper_id or related_paper_id not in paper_ids)
-        ):
-            staged = _strip_related_paper_projection(staged)
-            related_paper_id = ""
-        if (
-            is_queue_row
-            and related_paper_id
-            and related_paper_id in paper_ids
-            and not is_active_row
-            and not needs_attention
-        ):
-            continue
-        if (
-            is_queue_row
-            and not is_active_row
-            and not needs_attention
-            and _queue_is_superseded_by_paper(staged, paper_run_keys)
+        if _reconciled_queue_row_should_drop(
+            staged,
+            _QueueReconcileFlags(
+                related_paper_id=related_paper_id,
+                paper_ids=paper_ids,
+                paper_run_keys=paper_run_keys,
+                is_queue_row=is_queue_row,
+                is_active_row=is_active_row,
+                needs_attention=needs_attention,
+            ),
         ):
             continue
         key = _typed_lifecycle_key(staged)
         if not key:
             anonymous.append(staged)
             continue
-        current = by_key.get(key)
-        current_is_active = _operator_row_is_active(current or {})
-        if current is not None and current_is_active and not is_active_row:
-            continue
-        if current is not None and is_active_row and not current_is_active:
-            by_key[key] = staged
-            continue
-        detail_stage = _text(staged.get("operator_detail_stage"))
-        current_detail_stage = _text((current or {}).get("operator_detail_stage"))
-        lane = _text(staged.get("operator_lane") or staged.get("operator_stage"))
-        current_lane = _text(
-            (current or {}).get("operator_lane")
-            or (current or {}).get("operator_stage")
-        )
-        if (
-            current is not None
-            and current_lane == OperatorLane.PUBLISHED.value
-            and lane != OperatorLane.NEEDS_OPERATOR.value
-        ):
-            continue
-        if (
-            current is not None
-            and lane == OperatorLane.PUBLISHED.value
-            and current_lane != OperatorLane.NEEDS_OPERATOR.value
-        ):
-            by_key[key] = staged
-            continue
-        precedence = max(
-            OPERATOR_STAGE_PRECEDENCE.get(detail_stage, 0),
-            OPERATOR_LANE_PRECEDENCE.get(lane, 0),
-        )
-        current_precedence = max(
-            OPERATOR_STAGE_PRECEDENCE.get(current_detail_stage, 0),
-            OPERATOR_LANE_PRECEDENCE.get(current_lane, 0),
-        )
-        if current is None or precedence > current_precedence:
-            by_key[key] = staged
+        _merge_reconciled_operator_key(by_key, key, staged)
     return [*by_key.values(), *anonymous]
 
 
@@ -1591,6 +1549,14 @@ _OVERVIEW_BATCH_KEYS = {
 }
 
 
+def _overview_batch_row_lists_valid(value: Mapping[str, Any]) -> bool:
+    for rows_key in ("active_items", "raw_queue_rows", "raw_paper_rows"):
+        rows = value.get(rows_key)
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            return False
+    return True
+
+
 def _valid_overview_batch(value: Any) -> Mapping[str, Any] | None:
     """Return a usable optimized overview batch or None to use canonical reads.
 
@@ -1599,22 +1565,18 @@ def _valid_overview_batch(value: Any) -> Mapping[str, Any] | None:
     dashboard; canonical read methods remain the source of truth fallback.
     """
 
-    if not isinstance(value, Mapping):
-        return None
-    if not _OVERVIEW_BATCH_KEYS.issubset(value.keys()):
-        return None
-    events_page = value.get("events_page")
-    if not isinstance(events_page, tuple) or len(events_page) != 3:
-        return None
-    for rows_key in ("active_items", "raw_queue_rows", "raw_paper_rows"):
-        rows = value.get(rows_key)
-        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
-            return None
-    if not isinstance(value.get("counts"), dict) or not isinstance(
-        value.get("paper_counts"), dict
+    events_page = value.get("events_page") if isinstance(value, Mapping) else None
+    if (
+        isinstance(value, Mapping)
+        and _OVERVIEW_BATCH_KEYS.issubset(value.keys())
+        and isinstance(events_page, tuple)
+        and len(events_page) == 3
+        and _overview_batch_row_lists_valid(value)
+        and isinstance(value.get("counts"), dict)
+        and isinstance(value.get("paper_counts"), dict)
     ):
-        return None
-    return value
+        return value
+    return None
 
 
 def _candidate_label(candidate: Mapping[str, Any] | None) -> str:
@@ -1650,6 +1612,63 @@ def _candidate_target(candidate: Mapping[str, Any] | None) -> dict[str, str]:
     return target
 
 
+def _normalize_safe_count_default(default: Any) -> int:
+    if isinstance(default, bool):
+        parsed = 0
+    elif isinstance(default, int):
+        parsed = default
+    else:
+        try:
+            parsed = int(default)
+        except (TypeError, ValueError):
+            parsed = 0
+    if parsed < 0:
+        return 0
+    return parsed
+
+
+def _clamp_non_negative_count(value: int) -> int:
+    return value if value >= 0 else 0
+
+
+def _parse_count_string(stripped: str) -> int | None:
+    try:
+        return int(stripped)
+    except ValueError:
+        try:
+            return int(float(stripped))
+        except (TypeError, ValueError):
+            return None
+
+
+def _coerce_safe_count_from_float(value: float) -> int | None:
+    if math.isnan(value) or value in (float("inf"), float("-inf")):
+        return None
+    return int(value)
+
+
+def _coerce_safe_count_from_string(value: str) -> int | None:
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return _parse_count_string(stripped)
+
+
+def _coerce_safe_count(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return _coerce_safe_count_from_float(value)
+    if isinstance(value, str):
+        return _coerce_safe_count_from_string(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _safe_count(value: Any, default: int = 0) -> int:
     """Defensively coerce an arbitrary value into a non-negative count.
 
@@ -1671,48 +1690,24 @@ def _safe_count(value: Any, default: int = 0) -> int:
     into the projection.
     """
 
-    if isinstance(default, bool):
-        default_int = 0
-    elif not isinstance(default, int):
-        try:
-            default_int = int(default)
-        except (TypeError, ValueError):
-            default_int = 0
-    else:
-        default_int = default
-    if default_int < 0:
-        default_int = 0
+    default_int = _normalize_safe_count_default(default)
+    parsed = _coerce_safe_count(value)
+    if parsed is None:
+        return default_int
+    return _clamp_non_negative_count(parsed)
 
-    if value is None:
-        return default_int
-    if isinstance(value, bool):
-        return default_int
-    if isinstance(value, int):
-        return value if value >= 0 else 0
-    if isinstance(value, float):
-        if math.isnan(value) or value in (
-            float("inf"),
-            float("-inf"),
-        ):  # NaN / inf guard
-            return default_int
-        return int(value) if value >= 0 else 0
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return default_int
-        try:
-            parsed = int(stripped)
-        except ValueError:
-            try:
-                parsed = int(float(stripped))
-            except (TypeError, ValueError):
-                return default_int
-        return parsed if parsed >= 0 else 0
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default_int
-    return parsed if parsed >= 0 else 0
+
+def _lane_label(lane: Mapping[str, Any]) -> str:
+    machine = str(lane.get("machine_target") or "").strip()
+    role = str(lane.get("worker_role") or "").strip().lower()
+    lower_machine = machine.lower()
+    if "cpu" in lower_machine or "cpu" in role:
+        return "CPU lane"
+    if "gb10" in lower_machine or "gpu" in role:
+        return "GB10 lane"
+    if machine:
+        return f"{machine} lane"
+    return "default lane"
 
 
 def _open_lane_labels(worker_lanes: Sequence[Mapping[str, Any]] | None) -> list[str]:
@@ -1725,35 +1720,11 @@ def _open_lane_labels(worker_lanes: Sequence[Mapping[str, Any]] | None) -> list[
 
     if not worker_lanes:
         return []
-    labels: list[str] = []
-    for lane in worker_lanes:
-        if not isinstance(lane, Mapping):
-            continue
-        if not bool(lane.get("dispatch_available")):
-            continue
-        machine = str(lane.get("machine_target") or "").strip()
-        role = str(lane.get("worker_role") or "").strip().lower()
-        lower_machine = machine.lower()
-        if "cpu" in lower_machine or "cpu" in role:
-            labels.append("CPU lane")
-        elif "gb10" in lower_machine or "gpu" in role:
-            labels.append("GB10 lane")
-        elif machine:
-            labels.append(f"{machine} lane")
-        else:
-            labels.append("default lane")
-    return labels
-
-
-def _lane_label(lane: Mapping[str, Any]) -> str:
-    machine = str(lane.get("machine_target") or "").strip()
-    role = str(lane.get("worker_role") or "").strip().lower()
-    lower_machine = machine.lower()
-    if "cpu" in lower_machine or "cpu" in role:
-        return "CPU lane"
-    if "gb10" in lower_machine or "gpu" in role:
-        return "GB10 lane"
-    return f"{machine} lane" if machine else "default lane"
+    return [
+        _lane_label(lane)
+        for lane in worker_lanes
+        if isinstance(lane, Mapping) and bool(lane.get("dispatch_available"))
+    ]
 
 
 def _flags_payload(flags: Mapping[str, Any] | Any | None) -> dict[str, Any]:
@@ -1768,23 +1739,23 @@ def _flags_payload(flags: Mapping[str, Any] | Any | None) -> dict[str, Any]:
     return {}
 
 
-def movement_diagnosis(
-    *,
-    flags: Mapping[str, Any] | None,
-    worker_lanes: Sequence[Mapping[str, Any]] | None,
-    paper_pipeline: Mapping[str, Any],
-    investigation_pipeline: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Explain, deterministically, why work is or is not moving.
+_MOVEMENT_HARD_BLOCKER_KINDS = frozenset(
+    {
+        "maintenance_mode",
+        "queue_paused",
+        "no_matching_machine_target",
+        "lane_queue_empty",
+        "no_admitted_candidates",
+        "lane_blocked",
+        "lane_conflict_active",
+        "evidence_missing",
+    }
+)
+_MOVEMENT_ACTIONABLE_KINDS = frozenset({"dispatch_available", "followup_ready"})
 
-    This is an operator read model. The frontend renders it; it does not infer
-    truth from loose queue counts.
-    """
 
-    flags = _flags_payload(flags)
-    lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
+def _movement_flag_blockers(flags: Mapping[str, Any]) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
-
     if flags.get("maintenance_mode"):
         blockers.append(
             {
@@ -1793,7 +1764,7 @@ def movement_diagnosis(
                 "title": "Maintenance mode is on",
                 "summary": "Automation is intentionally held until maintenance mode is cleared.",
                 "action_label": "Resume queue",
-                "action_hash": "#overview",
+                "action_hash": ACTION_HASH_OVERVIEW,
             }
         )
     if flags.get("queue_paused"):
@@ -1804,109 +1775,134 @@ def movement_diagnosis(
                 "title": "Queue is paused",
                 "summary": "Queued work will not dispatch until the queue is resumed.",
                 "action_label": "Resume queue",
-                "action_hash": "#overview",
+                "action_hash": ACTION_HASH_OVERVIEW,
             }
         )
+    return blockers
 
-    for lane in lanes:
-        label = _lane_label(lane)
+
+def _movement_lane_blocker_active(
+    lane: Mapping[str, Any],
+    *,
+    label: str,
+    active: Mapping[str, Any],
+) -> dict[str, Any]:
+    active_count = _safe_count(lane.get("active_count"))
+    if active_count > 1:
+        return {
+            "kind": "lane_conflict_active",
+            "lane": label,
+            "tone": "warn",
+            "title": f"{label} has duplicate active work",
+            "summary": f"{label} reports {active_count} active runs, which violates the single-active-run lane invariant.",
+            "action_label": "Open active work",
+            "action_hash": "#queue:active",
+        }
+    return {
+        "kind": "lane_active",
+        "lane": label,
+        "tone": "info",
+        "title": f"{label} is running",
+        "summary": f"{label} is occupied by {active.get('project_name') or active.get('project_id') or 'active work'}.",
+        "action_label": "Open active work",
+        "action_hash": "#queue:active",
+    }
+
+
+def _movement_lane_blocker_idle(
+    lane: Mapping[str, Any],
+    *,
+    label: str,
+    feed: Mapping[str, Any],
+    feed_action: str,
+    queued_count: int,
+) -> dict[str, Any] | None:
+    if queued_count and not bool(lane.get("configured", True)):
+        return {
+            "kind": "no_matching_machine_target",
+            "lane": label,
+            "tone": "warn",
+            "title": f"{label} is not configured",
+            "summary": "Queued work targets a worker lane that is not in the configured worker-target set.",
+            "action_label": "Open queue",
+            "action_hash": ACTION_HASH_QUEUE_QUEUED,
+        }
+    if feed_action == "promote_candidate":
+        return {
+            "kind": "lane_queue_empty",
+            "lane": label,
+            "tone": "warn",
+            "title": f"{label} needs a queued candidate",
+            "summary": str(
+                feed.get("operator_summary")
+                or f"{label} has admitted candidates that should be promoted."
+            ),
+            "action_label": "Feed idle lane",
+            "action_hash": ACTION_HASH_RESEARCH,
+        }
+    if feed_action == "generate_candidate":
+        return {
+            "kind": "no_admitted_candidates",
+            "lane": label,
+            "tone": "warn",
+            "title": f"{label} has no admitted candidate",
+            "summary": str(
+                feed.get("operator_summary")
+                or f"{label} needs generated/admitted work before dispatch can happen."
+            ),
+            "action_label": "Open research facility",
+            "action_hash": ACTION_HASH_RESEARCH,
+        }
+    if str(lane.get("dispatch_blocker") or ""):
+        return {
+            "kind": "lane_blocked",
+            "lane": label,
+            "tone": "warn",
+            "title": f"{label} cannot dispatch",
+            "summary": str(lane.get("dispatch_blocker")),
+            "action_label": "Open queue",
+            "action_hash": ACTION_HASH_QUEUE_QUEUED,
+        }
+    return None
+
+
+def _movement_lane_blocker(
+    lane: Mapping[str, Any],
+    *,
+    label: str,
+) -> dict[str, Any] | None:
+    if bool(lane.get("dispatch_available")):
+        return {
+            "kind": "dispatch_available",
+            "lane": label,
+            "tone": "good",
+            "title": f"{label} can dispatch",
+            "summary": f"{label} can dispatch queued work.",
+            "action_label": "Dispatch this lane",
+            "action_hash": ACTION_HASH_QUEUE_QUEUED,
+        }
+    if str(lane.get("status") or "") == "active":
         active = lane.get("active_item") or {}
-        feed = lane.get("feed_pressure") or {}
-        feed_action = str(feed.get("next_autopilot_action") or "")
-        queued_count = _safe_count(lane.get("queued_count"))
-        if bool(lane.get("dispatch_available")):
-            blockers.append(
-                {
-                    "kind": "dispatch_available",
-                    "lane": label,
-                    "tone": "good",
-                    "title": f"{label} can dispatch",
-                    "summary": f"{label} can dispatch queued work.",
-                    "action_label": "Dispatch this lane",
-                    "action_hash": "#queue:queued",
-                }
-            )
-        elif str(lane.get("status") or "") == "active":
-            active_count = _safe_count(lane.get("active_count"))
-            if active_count > 1:
-                blockers.append(
-                    {
-                        "kind": "lane_conflict_active",
-                        "lane": label,
-                        "tone": "warn",
-                        "title": f"{label} has duplicate active work",
-                        "summary": f"{label} reports {active_count} active runs, which violates the single-active-run lane invariant.",
-                        "action_label": "Open active work",
-                        "action_hash": "#queue:active",
-                    }
-                )
-                continue
-            blockers.append(
-                {
-                    "kind": "lane_active",
-                    "lane": label,
-                    "tone": "info",
-                    "title": f"{label} is running",
-                    "summary": f"{label} is occupied by {active.get('project_name') or active.get('project_id') or 'active work'}.",
-                    "action_label": "Open active work",
-                    "action_hash": "#queue:active",
-                }
-            )
-        elif queued_count and not bool(lane.get("configured", True)):
-            blockers.append(
-                {
-                    "kind": "no_matching_machine_target",
-                    "lane": label,
-                    "tone": "warn",
-                    "title": f"{label} is not configured",
-                    "summary": "Queued work targets a worker lane that is not in the configured worker-target set.",
-                    "action_label": "Open queue",
-                    "action_hash": "#queue:queued",
-                }
-            )
-        elif feed_action == "promote_candidate":
-            blockers.append(
-                {
-                    "kind": "lane_queue_empty",
-                    "lane": label,
-                    "tone": "warn",
-                    "title": f"{label} needs a queued candidate",
-                    "summary": str(
-                        feed.get("operator_summary")
-                        or f"{label} has admitted candidates that should be promoted."
-                    ),
-                    "action_label": "Feed idle lane",
-                    "action_hash": "#research",
-                }
-            )
-        elif feed_action == "generate_candidate":
-            blockers.append(
-                {
-                    "kind": "no_admitted_candidates",
-                    "lane": label,
-                    "tone": "warn",
-                    "title": f"{label} has no admitted candidate",
-                    "summary": str(
-                        feed.get("operator_summary")
-                        or f"{label} needs generated/admitted work before dispatch can happen."
-                    ),
-                    "action_label": "Open research facility",
-                    "action_hash": "#research",
-                }
-            )
-        elif str(lane.get("dispatch_blocker") or ""):
-            blockers.append(
-                {
-                    "kind": "lane_blocked",
-                    "lane": label,
-                    "tone": "warn",
-                    "title": f"{label} cannot dispatch",
-                    "summary": str(lane.get("dispatch_blocker")),
-                    "action_label": "Open queue",
-                    "action_hash": "#queue:queued",
-                }
-            )
+        return _movement_lane_blocker_active(
+            lane, label=label, active=active if isinstance(active, Mapping) else {}
+        )
+    feed = lane.get("feed_pressure") or {}
+    feed_mapping = feed if isinstance(feed, Mapping) else {}
+    return _movement_lane_blocker_idle(
+        lane,
+        label=label,
+        feed=feed_mapping,
+        feed_action=str(feed_mapping.get("next_autopilot_action") or ""),
+        queued_count=_safe_count(lane.get("queued_count")),
+    )
 
+
+def _movement_pipeline_blockers(
+    *,
+    paper_pipeline: Mapping[str, Any],
+    investigation_pipeline: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
     gate_blocked = _safe_count(paper_pipeline.get("not_writable_by_decision_gate"))
     if gate_blocked:
         blockers.append(
@@ -1939,65 +1935,234 @@ def movement_diagnosis(
                 "title": "Bounded follow-up is ready",
                 "summary": "A preserved signal has enough bounded evidence to queue the next investigation.",
                 "action_label": "Queue follow-up",
-                "action_hash": "#research",
+                "action_hash": ACTION_HASH_RESEARCH,
             }
         )
+    return blockers
 
+
+def _movement_status_from_blockers(
+    blockers: Sequence[Mapping[str, Any]],
+) -> tuple[str, str]:
     primary = blockers[0] if blockers else None
     actionable = next(
-        (
-            item
-            for item in blockers
-            if item["kind"] in {"dispatch_available", "followup_ready"}
-        ),
+        (item for item in blockers if item["kind"] in _MOVEMENT_ACTIONABLE_KINDS),
         None,
     )
-    hard_blocker_kinds = {
-        "maintenance_mode",
-        "queue_paused",
-        "no_matching_machine_target",
-        "lane_queue_empty",
-        "no_admitted_candidates",
-        "lane_blocked",
-        "lane_conflict_active",
-        "evidence_missing",
-    }
     hard_blocker = next(
-        (item for item in blockers if item["kind"] in hard_blocker_kinds), None
+        (item for item in blockers if item["kind"] in _MOVEMENT_HARD_BLOCKER_KINDS),
+        None,
     )
     active_lanes = [item for item in blockers if item["kind"] == "lane_active"]
-    if flags.get("maintenance_mode"):
-        status = "blocked"
-        primary_reason = "Maintenance mode is on."
-    elif flags.get("queue_paused"):
-        status = "blocked"
-        primary_reason = "Queue is paused."
-    elif actionable:
-        status = "actionable"
-        primary_reason = actionable["summary"]
-    elif hard_blocker:
-        status = "blocked"
-        primary_reason = str(hard_blocker["summary"])
-    elif active_lanes:
-        status = "ready"
+    if actionable:
+        return "actionable", str(actionable["summary"])
+    if hard_blocker:
+        return "blocked", str(hard_blocker["summary"])
+    if active_lanes:
         if len(active_lanes) > 1:
-            primary_reason = "Configured worker lanes are occupied by active runs; this is normal while queued backlog waits."
+            reason = "Configured worker lanes are occupied by active runs; this is normal while queued backlog waits."
         else:
-            primary_reason = (
+            reason = (
                 str(active_lanes[0]["summary"])
                 + " This is normal active work, not a health blocker."
             )
-    elif primary:
-        status = "ready"
-        primary_reason = "No dispatch or automation health blocker is preventing unattended operation."
-    else:
-        status = "ready"
-        primary_reason = "No deterministic blocker is preventing movement."
+        return "ready", reason
+    reason = (
+        "No dispatch or automation health blocker is preventing unattended operation."
+        if primary
+        else "No deterministic blocker is preventing movement."
+    )
+    return "ready", reason
 
+
+def _movement_status_and_reason(
+    *,
+    flags: Mapping[str, Any],
+    blockers: Sequence[Mapping[str, Any]],
+) -> tuple[str, str]:
+    if flags.get("maintenance_mode"):
+        return "blocked", "Maintenance mode is on."
+    if flags.get("queue_paused"):
+        return "blocked", "Queue is paused."
+    return _movement_status_from_blockers(blockers)
+
+
+def movement_diagnosis(
+    *,
+    flags: Mapping[str, Any] | None,
+    worker_lanes: Sequence[Mapping[str, Any]] | None,
+    paper_pipeline: Mapping[str, Any],
+    investigation_pipeline: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Explain, deterministically, why work is or is not moving.
+
+    This is an operator read model. The frontend renders it; it does not infer
+    truth from loose queue counts.
+    """
+
+    flags = _flags_payload(flags)
+    lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
+    blockers = _movement_flag_blockers(flags)
+    for lane in lanes:
+        lane_blocker = _movement_lane_blocker(lane, label=_lane_label(lane))
+        if lane_blocker is not None:
+            blockers.append(lane_blocker)
+    blockers.extend(
+        _movement_pipeline_blockers(
+            paper_pipeline=paper_pipeline,
+            investigation_pipeline=investigation_pipeline,
+        )
+    )
+    status, primary_reason = _movement_status_and_reason(flags=flags, blockers=blockers)
     return {
         "status": status,
         "primary_reason": primary_reason,
         "blockers": blockers[:8],
+    }
+
+
+def _top_action_needs_attention(
+    *,
+    operator_counts: Mapping[str, Any],
+    counts: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    needs_attention_value = operator_counts.get("needs_attention")
+    needs_attention = _safe_count(needs_attention_value)
+    if needs_attention == 0 and needs_attention_value in (None, ""):
+        needs_attention = _safe_count(counts.get("blocked"))
+    if needs_attention <= 0:
+        return None
+    return {
+        "kind": "needs_attention",
+        "tone": "warn",
+        "title": "Resolve operator attention items",
+        "summary": (
+            f"{needs_attention} item{'s' if needs_attention != 1 else ''} flagged for operator action."
+        ),
+        "count": needs_attention,
+        "action_label": "Open attention queue",
+        "action_hash": "#queue:blocked",
+    }
+
+
+def _top_action_write_paper(
+    paper_pipeline: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    write_needed = _safe_count(paper_pipeline.get("write_needed"))
+    if write_needed <= 0:
+        return None
+    next_write = paper_pipeline.get("next_write_candidate") or {}
+    next_label = _candidate_label(next_write) or "next paper-ready run"
+    return {
+        "kind": "write_paper",
+        "tone": "warn",
+        "title": "Draft the next paper",
+        "summary": (
+            f"{write_needed} paper-ready run{'s' if write_needed != 1 else ''} need a first draft. "
+            f"Next: {next_label}."
+        ),
+        "count": write_needed,
+        "action_label": "Open draft lane",
+        "action_hash": "#papers?status=publication_draft",
+        "target": _candidate_target(next_write) or None,
+    }
+
+
+def _top_action_finalize_paper(
+    paper_pipeline: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    finalize_needed = _safe_count(paper_pipeline.get("finalize_needed"))
+    if finalize_needed <= 0:
+        return None
+    return {
+        "kind": "finalize_paper",
+        "tone": "warn",
+        "title": "Finalize publication drafts",
+        "summary": (
+            f"{finalize_needed} publication draft{'s' if finalize_needed != 1 else ''} "
+            "missing automated finalization package."
+        ),
+        "count": finalize_needed,
+        "action_label": "Open automation queue",
+        "action_hash": "#automation",
+    }
+
+
+def _top_action_publish_paper(
+    paper_pipeline: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    publish_ready = _safe_count(paper_pipeline.get("publish_ready"))
+    if publish_ready <= 0:
+        return None
+    next_publish = paper_pipeline.get("next_publish_candidate") or {}
+    next_label = _candidate_label(next_publish) or "the next finalized draft"
+    return {
+        "kind": "publish_paper",
+        "tone": "warn",
+        "title": "Import finalized drafts",
+        "summary": (
+            f"{publish_ready} finalized draft{'s' if publish_ready != 1 else ''} missing a "
+            f"corpus-import ledger row. Next: {next_label}."
+        ),
+        "count": publish_ready,
+        "action_label": "Open corpus import",
+        "action_hash": "#corpus",
+        "target": _candidate_target(next_publish) or None,
+    }
+
+
+def _top_action_investigate_followup(
+    investigation_pipeline: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    followup_ready = _safe_count(investigation_pipeline.get("ranked_followup_ready"))
+    if followup_ready <= 0:
+        return None
+    next_followup = (
+        investigation_pipeline.get("next_ranked_followup_candidate")
+        or investigation_pipeline.get("next_followup_candidate")
+        or {}
+    )
+    next_label = _candidate_label(next_followup) or "the top ranked candidate"
+    return {
+        "kind": "investigate_followup",
+        "tone": "info",
+        "title": "Queue a follow-up investigation",
+        "summary": (
+            f"{followup_ready} ranked follow-up{'s' if followup_ready != 1 else ''} ready for a bounded "
+            f"adjacent investigation. Next: {next_label}."
+        ),
+        "count": followup_ready,
+        "action_label": "Queue follow-up",
+        "action_hash": ACTION_HASH_RESEARCH,
+        "target": _candidate_target(next_followup) or None,
+    }
+
+
+def _top_action_dispatch_next(
+    *,
+    worker_lanes: Sequence[Mapping[str, Any]] | None,
+    candidates: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    open_lanes = _open_lane_labels(worker_lanes) if not candidates else []
+    if not open_lanes:
+        return None
+    lane_summary = ", ".join(open_lanes)
+    queued_for_lanes = 0
+    for lane in worker_lanes or ():
+        if isinstance(lane, Mapping) and bool(lane.get("dispatch_available")):
+            queued_for_lanes += _safe_count(lane.get("queued_count"))
+    return {
+        "kind": "dispatch_next",
+        "tone": "info",
+        "title": "Dispatch the next queued item",
+        "summary": (
+            f"{lane_summary} {'is' if len(open_lanes) == 1 else 'are'} idle with "
+            f"{queued_for_lanes} queued candidate{'s' if queued_for_lanes != 1 else ''} "
+            "ready to dispatch."
+        ),
+        "count": queued_for_lanes,
+        "action_label": "Open ready queue",
+        "action_hash": ACTION_HASH_QUEUE_QUEUED,
     }
 
 
@@ -2033,137 +2198,16 @@ def top_operator_actions(
     if safe_limit > 5:
         safe_limit = 5
     candidates: list[dict[str, Any]] = []
-
-    needs_attention_value = operator_counts.get("needs_attention")
-    needs_attention = _safe_count(needs_attention_value)
-    if needs_attention == 0 and needs_attention_value in (None, ""):
-        needs_attention = _safe_count(counts.get("blocked"))
-    if needs_attention > 0:
-        candidates.append(
-            {
-                "kind": "needs_attention",
-                "tone": "warn",
-                "title": "Resolve operator attention items",
-                "summary": (
-                    f"{needs_attention} item{'s' if needs_attention != 1 else ''} flagged for operator action."
-                ),
-                "count": needs_attention,
-                "action_label": "Open attention queue",
-                "action_hash": "#queue:blocked",
-            }
-        )
-
-    write_needed = _safe_count(paper_pipeline.get("write_needed"))
-    if write_needed > 0:
-        next_write = paper_pipeline.get("next_write_candidate") or {}
-        next_label = _candidate_label(next_write) or "next paper-ready run"
-        candidates.append(
-            {
-                "kind": "write_paper",
-                "tone": "warn",
-                "title": "Draft the next paper",
-                "summary": (
-                    f"{write_needed} paper-ready run{'s' if write_needed != 1 else ''} need a first draft. "
-                    f"Next: {next_label}."
-                ),
-                "count": write_needed,
-                "action_label": "Open draft lane",
-                "action_hash": "#papers?status=publication_draft",
-                "target": _candidate_target(next_write) or None,
-            }
-        )
-
-    finalize_needed = _safe_count(paper_pipeline.get("finalize_needed"))
-    if finalize_needed > 0:
-        candidates.append(
-            {
-                "kind": "finalize_paper",
-                "tone": "warn",
-                "title": "Finalize publication drafts",
-                "summary": (
-                    f"{finalize_needed} publication draft{'s' if finalize_needed != 1 else ''} "
-                    "missing automated finalization package."
-                ),
-                "count": finalize_needed,
-                "action_label": "Open automation queue",
-                "action_hash": "#automation",
-            }
-        )
-
-    publish_ready = _safe_count(paper_pipeline.get("publish_ready"))
-    if publish_ready > 0:
-        next_publish = paper_pipeline.get("next_publish_candidate") or {}
-        next_label = _candidate_label(next_publish) or "the next finalized draft"
-        candidates.append(
-            {
-                "kind": "publish_paper",
-                "tone": "warn",
-                "title": "Import finalized drafts",
-                "summary": (
-                    f"{publish_ready} finalized draft{'s' if publish_ready != 1 else ''} missing a "
-                    f"corpus-import ledger row. Next: {next_label}."
-                ),
-                "count": publish_ready,
-                "action_label": "Open corpus import",
-                "action_hash": "#corpus",
-                "target": _candidate_target(next_publish) or None,
-            }
-        )
-
-    followup_ready = _safe_count(investigation_pipeline.get("ranked_followup_ready"))
-    if followup_ready > 0:
-        next_followup = (
-            investigation_pipeline.get("next_ranked_followup_candidate")
-            or investigation_pipeline.get("next_followup_candidate")
-            or {}
-        )
-        next_label = _candidate_label(next_followup) or "the top ranked candidate"
-        candidates.append(
-            {
-                "kind": "investigate_followup",
-                "tone": "info",
-                "title": "Queue a follow-up investigation",
-                "summary": (
-                    f"{followup_ready} ranked follow-up{'s' if followup_ready != 1 else ''} ready for a bounded "
-                    f"adjacent investigation. Next: {next_label}."
-                ),
-                "count": followup_ready,
-                "action_label": "Queue follow-up",
-                "action_hash": "#research",
-                "target": _candidate_target(next_followup) or None,
-            }
-        )
-
-    # dispatch_next is intentionally lane-aware. We never use the aggregate
-    # `counts.active` / `counts.queued` to imply lane dispatch truth, because
-    # the system has CPU + GB10 lanes that can dispatch independently. If the
-    # caller does not pass `worker_lanes`, we omit the dispatch_next card
-    # entirely rather than guess. With lanes, we surface dispatch_next only
-    # when at least one lane is open AND the lane has a queued candidate (the
-    # `dispatch_available` flag from `_worker_lane_capacity` already enforces
-    # both conditions).
-    open_lanes = _open_lane_labels(worker_lanes) if not candidates else []
-    if open_lanes:
-        lane_summary = ", ".join(open_lanes)
-        queued_for_lanes = 0
-        for lane in worker_lanes or ():
-            if isinstance(lane, Mapping) and bool(lane.get("dispatch_available")):
-                queued_for_lanes += _safe_count(lane.get("queued_count"))
-        candidates.append(
-            {
-                "kind": "dispatch_next",
-                "tone": "info",
-                "title": "Dispatch the next queued item",
-                "summary": (
-                    f"{lane_summary} {'is' if len(open_lanes) == 1 else 'are'} idle with "
-                    f"{queued_for_lanes} queued candidate{'s' if queued_for_lanes != 1 else ''} "
-                    "ready to dispatch."
-                ),
-                "count": queued_for_lanes,
-                "action_label": "Open ready queue",
-                "action_hash": "#queue:queued",
-            }
-        )
+    for action in (
+        _top_action_needs_attention(operator_counts=operator_counts, counts=counts),
+        _top_action_write_paper(paper_pipeline),
+        _top_action_finalize_paper(paper_pipeline),
+        _top_action_publish_paper(paper_pipeline),
+        _top_action_investigate_followup(investigation_pipeline),
+        _top_action_dispatch_next(worker_lanes=worker_lanes, candidates=candidates),
+    ):
+        if action is not None:
+            candidates.append(action)
 
     ranked = candidates[:safe_limit]
     for index, item in enumerate(ranked, start=1):
@@ -2172,6 +2216,91 @@ def top_operator_actions(
 
 
 _FEED_ACTIONS = frozenset({"generate_candidate", "promote_candidate"})
+
+
+def _primary_action_for_blocked_movement(
+    movement: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    blockers = movement.get("blockers") or []
+    if not blockers:
+        return None
+    primary = blockers[0] if isinstance(blockers[0], Mapping) else {}
+    return {
+        "kind": "open_blocker",
+        "tone": primary.get("tone", "warn"),
+        "title": str(primary.get("title") or "Resolve blocker"),
+        "summary": str(primary.get("summary") or movement.get("primary_reason") or ""),
+        "action_label": str(primary.get("action_label") or "Open details"),
+        "action_hash": str(primary.get("action_hash") or ACTION_HASH_OVERVIEW),
+        "blocker_kind": primary.get("kind"),
+        "lane": primary.get("lane"),
+    }
+
+
+def _primary_action_for_dispatch_lane(
+    lane: Mapping[str, Any],
+) -> dict[str, Any]:
+    label = _lane_label(lane)
+    next_candidate = lane.get("next_candidate") or {}
+    next_label = _candidate_label(next_candidate) or "queued work"
+    project_id = str(next_candidate.get("project_id") or "").strip()
+    payload: dict[str, Any] = {
+        "kind": "dispatch_next",
+        "tone": "info",
+        "title": f"Dispatch {label}",
+        "summary": f"{label} is idle with queued work ready to dispatch. Next: {next_label}.",
+        "action_label": "Check dispatch",
+        "action_hash": ACTION_HASH_QUEUE_QUEUED,
+        "lane": label,
+        "machine_target": lane.get("machine_target"),
+    }
+    if project_id:
+        payload["project_id"] = project_id
+        payload["target"] = _candidate_target(next_candidate) or {
+            "project_id": project_id
+        }
+    return payload
+
+
+def _primary_action_for_feed_lane(lane: Mapping[str, Any]) -> dict[str, Any]:
+    feed = lane.get("feed_pressure") or {}
+    feed_action = str(feed.get("next_autopilot_action") or "")
+    label = _lane_label(lane)
+    return {
+        "kind": "feed_lanes",
+        "tone": "warn",
+        "title": f"Feed {label}",
+        "summary": str(
+            feed.get("operator_summary")
+            or f"{label} needs backlog before dispatch can happen."
+        ),
+        "action_label": "Feed idle lanes",
+        "action_hash": ACTION_HASH_RESEARCH,
+        "lane": label,
+        "machine_target": lane.get("machine_target"),
+        "feed_action": feed_action,
+    }
+
+
+def _primary_action_for_open_dispatch(
+    lanes: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    for lane in lanes:
+        if bool(lane.get("dispatch_available")):
+            return _primary_action_for_dispatch_lane(lane)
+    return None
+
+
+def _primary_action_for_feed_lanes(
+    lanes: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    for lane in lanes:
+        feed_action = str(
+            (lane.get("feed_pressure") or {}).get("next_autopilot_action") or ""
+        )
+        if feed_action in _FEED_ACTIONS:
+            return _primary_action_for_feed_lane(lane)
+    return None
 
 
 def primary_operator_action(
@@ -2192,118 +2321,104 @@ def primary_operator_action(
     """
 
     lanes = [lane for lane in (worker_lanes or []) if isinstance(lane, Mapping)]
-    status = str(movement.get("status") or "")
-    blockers = movement.get("blockers") or []
-    if status == "blocked" and blockers:
-        primary = blockers[0] if isinstance(blockers[0], Mapping) else {}
-        return {
-            "kind": "open_blocker",
-            "tone": primary.get("tone", "warn"),
-            "title": str(primary.get("title") or "Resolve blocker"),
-            "summary": str(
-                primary.get("summary") or movement.get("primary_reason") or ""
-            ),
-            "action_label": str(primary.get("action_label") or "Open details"),
-            "action_hash": str(primary.get("action_hash") or "#overview"),
-            "blocker_kind": primary.get("kind"),
-            "lane": primary.get("lane"),
-        }
-
-    for lane in lanes:
-        if not bool(lane.get("dispatch_available")):
-            continue
-        label = _lane_label(lane)
-        next_candidate = lane.get("next_candidate") or {}
-        next_label = _candidate_label(next_candidate) or "queued work"
-        project_id = str(next_candidate.get("project_id") or "").strip()
-        payload: dict[str, Any] = {
-            "kind": "dispatch_next",
-            "tone": "info",
-            "title": f"Dispatch {label}",
-            "summary": f"{label} is idle with queued work ready to dispatch. Next: {next_label}.",
-            "action_label": "Check dispatch",
-            "action_hash": "#queue:queued",
-            "lane": label,
-            "machine_target": lane.get("machine_target"),
-        }
-        if project_id:
-            payload["project_id"] = project_id
-            payload["target"] = _candidate_target(next_candidate) or {
-                "project_id": project_id
-            }
-        return payload
-
-    for lane in lanes:
-        feed = lane.get("feed_pressure") or {}
-        feed_action = str(feed.get("next_autopilot_action") or "")
-        if feed_action not in _FEED_ACTIONS:
-            continue
-        label = _lane_label(lane)
-        return {
-            "kind": "feed_lanes",
-            "tone": "warn",
-            "title": f"Feed {label}",
-            "summary": str(
-                feed.get("operator_summary")
-                or f"{label} needs backlog before dispatch can happen."
-            ),
-            "action_label": "Feed idle lanes",
-            "action_hash": "#research",
-            "lane": label,
-            "machine_target": lane.get("machine_target"),
-            "feed_action": feed_action,
-        }
-
-    return None
+    if str(movement.get("status") or "") == "blocked":
+        blocked = _primary_action_for_blocked_movement(movement)
+        if blocked is not None:
+            return blocked
+    dispatch = _primary_action_for_open_dispatch(lanes)
+    if dispatch is not None:
+        return dispatch
+    return _primary_action_for_feed_lanes(lanes)
 
 
-def overview(
+def _try_overview_batch(
     store: ControlPlaneStore,
     *,
-    active_limit: int = 5,
-    event_limit: int = 10,
-    worker_lanes: Sequence[Mapping[str, Any]] | None = None,
-    flags: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    batched_parts = None
+    active_limit: int,
+    event_limit: int,
+) -> Mapping[str, Any] | None:
     batched_reader = getattr(store, "overview_read_model_parts", None)
-    if callable(batched_reader):
-        batched_parts = _valid_overview_batch(
-            batched_reader(active_limit=active_limit, event_limit=event_limit)
-        )
+    if not callable(batched_reader):
+        return None
+    return _valid_overview_batch(
+        batched_reader(active_limit=active_limit, event_limit=event_limit)
+    )
 
-    if batched_parts is not None:
-        counts = batched_parts["counts"]
-        paper_counts = batched_parts["paper_counts"]
-        active = [summarize_queue_row(row) for row in batched_parts["active_items"]]
-        next_candidate = batched_parts["next_candidate"]
-        raw_queue_rows = batched_parts["raw_queue_rows"]
-        raw_paper_rows = batched_parts["raw_paper_rows"]
-    else:
-        counts = store.queue_counts_sql()
-        paper_counts = store.paper_counts_sql()
-        active = [
+
+def _overview_row_sources_from_batch(
+    batched_parts: Mapping[str, Any],
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+    Any,
+    list[Any],
+    list[Any],
+    Mapping[str, Any],
+]:
+    return (
+        batched_parts["counts"],
+        batched_parts["paper_counts"],
+        [summarize_queue_row(row) for row in batched_parts["active_items"]],
+        batched_parts["next_candidate"],
+        batched_parts["raw_queue_rows"],
+        batched_parts["raw_paper_rows"],
+        batched_parts,
+    )
+
+
+def _overview_row_sources_canonical(
+    store: ControlPlaneStore,
+    *,
+    active_limit: int,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+    Any,
+    list[Any],
+    list[Any],
+    None,
+]:
+    return (
+        store.queue_counts_sql(),
+        store.paper_counts_sql(),
+        [
             summarize_queue_row(row)
             for row in store.active_items_sql(limit=active_limit)
-        ]
-        next_candidate = store.next_candidate_sql()
-        raw_queue_rows = store.operator_queue_rows_sql()
-        raw_paper_rows = store.operator_paper_rows_sql()
-    queue_rows = [summarize_queue_row(row) for row in raw_queue_rows]
-    paper_rows = [summarize_paper_row(row) for row in raw_paper_rows]
-    # Supabase batched overview intentionally trims raw_queue_rows to keep the
-    # dashboard cheap. Active rows are fetched separately for the running-work
-    # card, so include them in reconciled operator counts as well. The
-    # reconciler deduplicates when an adapter returns the same active row in
-    # both surfaces.
-    operator_queue_rows = [*queue_rows, *active]
-    operator_counts = operator_counts_from_rows([*operator_queue_rows, *paper_rows])
-    operator_detail_counts = operator_detail_counts_from_rows(
-        [*operator_queue_rows, *paper_rows]
+        ],
+        store.next_candidate_sql(),
+        store.operator_queue_rows_sql(),
+        store.operator_paper_rows_sql(),
+        None,
     )
-    raw_write_candidates = eligible_paper_draft_candidates(
-        raw_queue_rows, raw_paper_rows
+
+
+def _overview_row_sources(
+    store: ControlPlaneStore,
+    *,
+    active_limit: int,
+    event_limit: int,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+    Any,
+    list[Any],
+    list[Any],
+    Mapping[str, Any] | None,
+]:
+    batched_parts = _try_overview_batch(
+        store, active_limit=active_limit, event_limit=event_limit
     )
+    if batched_parts is not None:
+        return _overview_row_sources_from_batch(batched_parts)
+    return _overview_row_sources_canonical(store, active_limit=active_limit)
+
+
+def _gated_write_candidates(
+    raw_write_candidates: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     write_candidates: list[dict[str, Any]] = []
     gate_rejected: list[dict[str, Any]] = []
     for candidate in raw_write_candidates:
@@ -2320,12 +2435,20 @@ def overview(
                     or "",
                     "decision_summary": _decision_summary_from_gate(gate),
                     "gate_reason": (gate or {}).get(
-                        "reason", "missing project decision artifact"
+                        "reason", MISSING_PROJECT_DECISION_ARTIFACT_REASON
                     ),
                 }
             )
             continue
         write_candidates.append(candidate)
+    return write_candidates, gate_rejected
+
+
+def _sync_write_paper_operator_counts(
+    operator_counts: dict[str, int],
+    operator_detail_counts: dict[str, int],
+    write_candidates: Sequence[Mapping[str, Any]],
+) -> None:
     # Operator counts are the high-level read model used by cards and alerts.
     # `write_paper` must stay decision-gated here too; otherwise completed
     # no-paper rows with missing/negative/unknown decisions leak into the
@@ -2335,8 +2458,12 @@ def overview(
         operator_detail_counts["run_complete_draft_needed"] = len(write_candidates)
     else:
         operator_detail_counts.pop("run_complete_draft_needed", None)
-    reconciled_queue_rows = _reconciled_operator_rows(queue_rows)
-    raw_reconciled_queue_rows = _reconciled_operator_rows(raw_queue_rows)
+
+
+def _build_investigation_pipeline(
+    reconciled_queue_rows: Sequence[Mapping[str, Any]],
+    raw_reconciled_queue_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
     followup_rows = [
         row
         for row in reconciled_queue_rows
@@ -2366,20 +2493,7 @@ def overview(
         for row in reconciled_queue_rows
         if _text(row.get("operator_lane")) == OperatorLane.COMPUTE_SCALE_BLOCKED.value
     ]
-    publish_candidates = [
-        row
-        for row in paper_rows
-        if _text(row.get("operator_stage")) == "ready_to_publish"
-    ]
-    imported_candidates = [row for row in paper_rows if _paper_imported(row)]
-    imported_candidates.sort(
-        key=lambda row: _text(row.get("corpus_imported_at") or row.get("updated_at")),
-        reverse=True,
-    )
-    publication_ready_total = operator_counts.get(
-        OperatorLane.READY_TO_PUBLISH.value, 0
-    ) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
-    investigation_pipeline = {
+    return {
         "followup_needed": len(followup_rows),
         "useful_signals": len(useful_signal_rows),
         "compute_scale_blocked": len(compute_scale_blocked_rows),
@@ -2418,7 +2532,31 @@ def overview(
             "max_followup_depth": "default safety cap for bounded research-campaign follow-up creation",
         },
     }
-    paper_pipeline = {
+
+
+def _build_paper_pipeline(
+    *,
+    write_candidates: Sequence[Mapping[str, Any]],
+    gate_rejected: Sequence[Mapping[str, Any]],
+    raw_write_candidates: Sequence[Mapping[str, Any]],
+    operator_counts: Mapping[str, int],
+    operator_detail_counts: Mapping[str, int],
+    paper_rows: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    publish_candidates = [
+        row
+        for row in paper_rows
+        if _text(row.get("operator_stage")) == "ready_to_publish"
+    ]
+    imported_candidates = [row for row in paper_rows if _paper_imported(row)]
+    imported_candidates.sort(
+        key=lambda row: _text(row.get("corpus_imported_at") or row.get("updated_at")),
+        reverse=True,
+    )
+    publication_ready_total = operator_counts.get(
+        OperatorLane.READY_TO_PUBLISH.value, 0
+    ) + operator_counts.get(OperatorLane.PUBLISHED.value, 0)
+    return {
         "write_needed": len(write_candidates),
         "raw_completed_no_paper_candidates": len(raw_write_candidates),
         "not_writable_by_decision_gate": len(gate_rejected),
@@ -2446,12 +2584,77 @@ def overview(
             "publication_ready_total": "finalized publication drafts with required evidence paths, whether already imported or still missing corpus import",
         },
     }
+
+
+def _overview_events_page(
+    store: ControlPlaneStore,
+    batched_parts: Mapping[str, Any] | None,
+    *,
+    event_limit: int,
+) -> tuple[list[Any], str, bool]:
     if batched_parts is not None:
-        events, next_cursor, has_more = batched_parts["events_page"]
-    else:
-        events, next_cursor, has_more = store.event_page(
-            page_size=event_limit, include_payload=False
-        )
+        return batched_parts["events_page"]
+    return store.event_page(page_size=event_limit, include_payload=False)
+
+
+def _overview_next_candidate(next_candidate: Any) -> dict[str, Any] | None:
+    if not next_candidate:
+        return None
+    return summarize_queue_row(next_candidate)
+
+
+def overview(
+    store: ControlPlaneStore,
+    *,
+    active_limit: int = 5,
+    event_limit: int = 10,
+    worker_lanes: Sequence[Mapping[str, Any]] | None = None,
+    flags: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    (
+        counts,
+        paper_counts,
+        active,
+        next_candidate,
+        raw_queue_rows,
+        raw_paper_rows,
+        batched_parts,
+    ) = _overview_row_sources(store, active_limit=active_limit, event_limit=event_limit)
+    queue_rows = [summarize_queue_row(row) for row in raw_queue_rows]
+    paper_rows = [summarize_paper_row(row) for row in raw_paper_rows]
+    # Supabase batched overview intentionally trims raw_queue_rows to keep the
+    # dashboard cheap. Active rows are fetched separately for the running-work
+    # card, so include them in reconciled operator counts as well. The
+    # reconciler deduplicates when an adapter returns the same active row in
+    # both surfaces.
+    operator_queue_rows = [*queue_rows, *active]
+    operator_counts = operator_counts_from_rows([*operator_queue_rows, *paper_rows])
+    operator_detail_counts = operator_detail_counts_from_rows(
+        [*operator_queue_rows, *paper_rows]
+    )
+    raw_write_candidates = eligible_paper_draft_candidates(
+        raw_queue_rows, raw_paper_rows
+    )
+    write_candidates, gate_rejected = _gated_write_candidates(raw_write_candidates)
+    _sync_write_paper_operator_counts(
+        operator_counts, operator_detail_counts, write_candidates
+    )
+    reconciled_queue_rows = _reconciled_operator_rows(queue_rows)
+    raw_reconciled_queue_rows = _reconciled_operator_rows(raw_queue_rows)
+    investigation_pipeline = _build_investigation_pipeline(
+        reconciled_queue_rows, raw_reconciled_queue_rows
+    )
+    paper_pipeline = _build_paper_pipeline(
+        write_candidates=write_candidates,
+        gate_rejected=gate_rejected,
+        raw_write_candidates=raw_write_candidates,
+        operator_counts=operator_counts,
+        operator_detail_counts=operator_detail_counts,
+        paper_rows=paper_rows,
+    )
+    events, next_cursor, has_more = _overview_events_page(
+        store, batched_parts, event_limit=event_limit
+    )
     top_actions = top_operator_actions(
         operator_counts=operator_counts,
         paper_pipeline=paper_pipeline,
@@ -2488,9 +2691,7 @@ def overview(
         "primary_operator_action": primary_action,
         "movement_diagnosis": movement,
         "active_items": active,
-        "next_candidate": summarize_queue_row(next_candidate)
-        if next_candidate
-        else None,
+        "next_candidate": _overview_next_candidate(next_candidate),
         "recent_events": events,
         "recent_events_page": page_response(
             rows=events,
