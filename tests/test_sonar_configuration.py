@@ -88,7 +88,7 @@ def test_sonar_workflow_isolates_coverage_from_secret_bearing_scan_and_uses_node
     assert workflow.index("actions/download-artifact") < sonar_index
     assert "actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3" in workflow
     assert (
-        "SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9"
+        "SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995"
         in workflow
     )
 

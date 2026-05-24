@@ -34,9 +34,22 @@ jobs:
         run: uv run python scripts/generate_openapi_schema.py
       - name: Run semantic release
         id: semantic-release
-        run: uv run semantic-release version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          uv run semantic-release version
+          # python-semantic-release writes $GITHUB_OUTPUT when the GitHub HVCS client
+          # is active; fall back so the publish step always sees `released`.
+          if [ -n "${GITHUB_OUTPUT:-}" ] && ! grep -qE '^released=' "${GITHUB_OUTPUT}"; then
+            if git describe --exact-match --tags HEAD >/dev/null 2>&1; then
+              echo "released=true" >> "${GITHUB_OUTPUT}"
+              echo "tag=$(git describe --exact-match --tags HEAD)" >> "${GITHUB_OUTPUT}"
+            else
+              echo "released=false" >> "${GITHUB_OUTPUT}"
+            fi
+          fi
       - name: Publish release
         if: steps.semantic-release.outputs.released == 'true'
         run: uv run semantic-release publish

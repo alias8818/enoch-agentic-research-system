@@ -18,10 +18,25 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = REPO_ROOT / "VERSION"
 PYPROJECT_FILE = REPO_ROOT / "pyproject.toml"
 CHANGELOG_FILE = REPO_ROOT / "CHANGELOG.md"
+VERSION_ASSIGNMENT = re.compile(
+    r'^version\s*=\s*["\']?(?P<version>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)["\']?\s*$',
+    re.IGNORECASE,
+)
+
+
+def read_version_file_text(raw: str) -> str:
+    text = raw.strip()
+    if match := VERSION_ASSIGNMENT.match(text):
+        return match.group("version")
+    return text
+
+
+def format_version_file(version: str) -> str:
+    return f'version = "{version}"\n'
 
 
 def current_version() -> str:
-    return VERSION_FILE.read_text().strip()
+    return read_version_file_text(VERSION_FILE.read_text(encoding="utf-8"))
 
 
 def bump_version(current: str, part: str) -> str:
@@ -37,7 +52,7 @@ def bump_version(current: str, part: str) -> str:
 
 
 def update_version_file(new_version: str) -> None:
-    VERSION_FILE.write_text(new_version + "\n")
+    VERSION_FILE.write_text(format_version_file(new_version), encoding="utf-8")
 
 
 def update_pyproject(new_version: str, old_version: str) -> None:

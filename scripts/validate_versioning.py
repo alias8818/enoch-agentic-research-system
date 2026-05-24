@@ -10,6 +10,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SEMVER = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+VERSION_ASSIGNMENT = re.compile(
+    r'^version\s*=\s*["\']?(?P<version>\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)["\']?\s*$',
+    re.IGNORECASE,
+)
+
+
+def read_version_file_text(raw: str) -> str:
+    text = raw.strip()
+    if match := VERSION_ASSIGNMENT.match(text):
+        return match.group("version")
+    return text
 
 
 def main() -> int:
@@ -19,7 +30,7 @@ def main() -> int:
     failures: list[str] = []
 
     version = (
-        version_path.read_text(encoding="utf-8").strip()
+        read_version_file_text(version_path.read_text(encoding="utf-8"))
         if version_path.exists()
         else ""
     )

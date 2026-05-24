@@ -8,7 +8,7 @@ def test_public_release_integrity_scopes_supabase_secret_to_trusted_push() -> No
 
     assert "env:\n  ENOCH_SUPABASE_DATABASE_URL:" not in workflow
     assert "github.event_name == 'push' && github.ref == 'refs/heads/main'" in workflow
-    assert "supabase/setup-cli@a4d563a017eb7e7da097c40c441f85dbdcc4411f" in workflow
+    assert "supabase/setup-cli@3c2f5e2ae34c34e428e8e206e2c4d21fa2d20fbf" in workflow
     assert (
         "ENOCH_SUPABASE_DATABASE_URL: ${{ secrets.ENOCH_SUPABASE_DATABASE_URL }}"
         in workflow
