@@ -545,7 +545,7 @@ def _verify_append_event_idempotency(
 
 def _run_write_smoke(
     write_store: SupabaseControlPlaneStore, failures: list[str]
-) -> None:
+) -> tuple[bool, int, int, int]:
     paused_flags, pause_event_id = write_store.pause(
         reason="validator pause",
         paused_by="validator",
@@ -612,7 +612,7 @@ def _run_write_smoke(
         "upsert_paper did not persist",
         failures,
     )
-    import_snapshot_result = write_store.import_snapshot(
+    return write_store.import_snapshot(
         ImportSnapshotRequest(
             idempotency_key="write-smoke-import",
             source="validator",
@@ -635,17 +635,22 @@ def _run_write_smoke(
             ],
         )
     )
-    _, _, _, _ = import_snapshot_result
-    _assert_ok(
-        import_snapshot_result[0] and import_snapshot_result[1:] == (1, 1, 1),
-        "import_snapshot counts mismatch",
-        failures,
-    )
 
 
 def _run_more_write_operations(
-    write_store: SupabaseControlPlaneStore, failures: list[str]
+    write_store: SupabaseControlPlaneStore,
+    failures: list[str],
+    *,
+    inserted_snapshot: bool,
+    projects: int,
+    queue_items: int,
+    papers: int,
 ) -> None:
+    _assert_ok(
+        inserted_snapshot and (projects, queue_items, papers) == (1, 1, 1),
+        "import_snapshot counts mismatch",
+        failures,
+    )
     _assert_ok(
         write_store.queue_row("proj-import") is not None
         and write_store.paper_row("paper-import") is not None,
@@ -945,8 +950,17 @@ def main() -> int:
             )
             _verify_readonly_rejects_pause(pg_store, failures)
             _verify_append_event_idempotency(write_store, failures)
-            _run_write_smoke(write_store, failures)
-            _run_more_write_operations(write_store, failures)
+            inserted_snapshot, projects, queue_items, papers = _run_write_smoke(
+                write_store, failures
+            )
+            _run_more_write_operations(
+                write_store,
+                failures,
+                inserted_snapshot=inserted_snapshot,
+                projects=projects,
+                queue_items=queue_items,
+                papers=papers,
+            )
             _verify_final_queue_counts(write_store, failures)
             notion_project_id = _run_notion_intake_smoke(write_store, failures)
             _run_paper_review_smoke(write_store, notion_project_id, tmp, failures)
