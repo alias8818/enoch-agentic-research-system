@@ -22,7 +22,7 @@ export function OverviewPage() {
   const [secondaryOpen, setSecondaryOpen] = useState(false)
   const [readinessRequested, setReadinessRequested] = useState(false)
   const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<unknown>('/control/api/v1/overview?active_limit=8&event_limit=6').then(parseOverviewResponse), refetchInterval: 30_000 })
-  const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<unknown>('/control/api/status').then(parseStatusResponse), refetchInterval: 30_000 })
+  const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<unknown>('/control/api/status?refresh_worker=true').then(parseStatusResponse), refetchInterval: 30_000 })
   const readiness = useQuery({
     queryKey: ['automation-readiness'],
     queryFn: () => apiGet<unknown>('/control/api/v1/automation-readiness').then(parseAutomationReadiness),

@@ -35,6 +35,43 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(5))
 })
 
+
+it('requests live worker refresh for overview lane status', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 1, queued: 4 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'blocked', primary_reason: 'Worker lane state is being verified.', blockers: [] },
+      flags: {},
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      generated_at: '2026-05-20T12:00:05Z',
+      worker_lanes: [
+        {
+          lane_key: 'gb10',
+          label: 'GB10 lane',
+          machine_target: 'gb10',
+          status: 'active',
+          queued_count: 4,
+          dispatch_available: false,
+          active_confirmation: { state: 'active_confirmed', matched: true, reason: 'matched worker run/session marker' },
+        },
+      ],
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+  expect(fetchMockCallUrl(vi.mocked(globalThis.fetch), 1)).toBe('/control/api/status?refresh_worker=true')
+  expect(screen.getByText('Worker confirmed active run.')).toBeInTheDocument()
+  expect(screen.queryByText('Stale active: worker reports no matching live run.')).not.toBeInTheDocument()
+})
+
 it('surfaces the movement diagnosis before lane and action controls', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
