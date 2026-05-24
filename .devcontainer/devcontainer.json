@@ -1,0 +1,29 @@
+{
+  "name": "Enoch Control Plane",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/astral-sh/devcontainer-features/uv:latest": {}
+  },
+  "forwardPorts": [8787, 5432],
+  "postCreateCommand": "uv sync --all-extras --dev && pre-commit install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "SonarSource.sonarlint-vscode"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspaces/enoch-agentic-research-system/.venv/bin/python",
+        "ruff.lint.args": ["--config=pyproject.toml"],
+        "ruff.format.args": ["--config=pyproject.toml"]
+      }
+    }
+  },
+  "remoteEnv": {
+    "ENOCH_CONFIG": "/workspaces/enoch-agentic-research-system/.local/config/config.json"
+  }
+}

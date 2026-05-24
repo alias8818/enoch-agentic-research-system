@@ -25,6 +25,8 @@ from .config import GateConfig
 from .enoch_core.router import create_enoch_core_router
 from .gate import WakeGate
 from .observability import RouteObservationMiddleware
+from .observability import ProfilingMiddleware, init_sentry
+from .observability.error_tracking import capture_exception
 from .timeutils import parse_utc_datetime
 from .enoch_core.logic import split_numbered_list_text
 from .models import (
@@ -186,6 +188,8 @@ sender = CallbackSender(config)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global reconcile_task
+    # Initialize error tracking if SENTRY_DSN is configured.
+    init_sentry()
     # startup logic (replaces deprecated @app.on_event("startup"))
     if reconcile_task is None or reconcile_task.done():
         reconcile_task = asyncio.create_task(_reconcile_missing_idle_loop())
@@ -218,6 +222,17 @@ if config.route_observability_enabled:
         observation_path=route_observation_path,
         slow_ms=config.route_observability_slow_ms,
         memory_warn_rss_mib=config.route_observability_memory_warn_rss_mib,
+    )
+
+# Profiling middleware: logs cProfile snapshots for requests exceeding 2s.
+# Enabled via ENOCH_PROFILING_ENABLED=1 environment variable.
+if os.environ.get("ENOCH_PROFILING_ENABLED", "").strip() in ("1", "true"):
+    app.add_middleware(
+        ProfilingMiddleware,
+        profile_threshold_ms=int(
+            os.environ.get("ENOCH_PROFILING_THRESHOLD_MS", "2000")
+        ),
+        enabled=True,
     )
 evaluation_tasks: dict[str, asyncio.Task] = {}
 reconcile_task: asyncio.Task | None = None
