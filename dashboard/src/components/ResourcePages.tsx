@@ -56,7 +56,7 @@ import {
 } from './ui'
 import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummary'
 
-type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null }
+type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null; sentry_enabled?: boolean; sentry_configured?: boolean; sentry_environment?: string; sentry_release?: string }
 type ObservabilityMemory = { generated_at?: string; rss_mib?: number | null; peak_rss_mib?: number | null; warn_threshold_mib?: number | null; memory_warn?: boolean; route_observability_enabled?: boolean }
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
@@ -99,6 +99,12 @@ function memoryHeadline(memoryWarn: boolean | undefined): string {
 function routeObservabilityHeadline(enabled: boolean | undefined): string {
   if (enabled) return 'Route logging enabled'
   return 'Route logging disabled'
+}
+
+function sentryHeadline(enabled: boolean | undefined, configured: boolean | undefined): string {
+  if (enabled) return 'Sentry exception capture enabled'
+  if (configured) return 'Sentry configured but SDK is not active'
+  return 'Sentry exception capture disabled'
 }
 
 function ResourceErrorCard({ endpoint, error, onRetry, retryLabel }: Readonly<{ endpoint: Parameters<typeof deriveResourceErrorCopy>[0]; error: unknown; onRetry: () => void; retryLabel?: string }>) {
@@ -673,6 +679,16 @@ export function ObservabilityPage() {
           <div className="detail-field"><dt>memory sampled</dt><dd>{memoryData.generated_at || '—'}</dd></div>
         </dl>
         <RawJsonDetails summary="Latest route observation" payload={healthData.latest_route_observation} />
+      </section>
+      <section className="detail-summary">
+        <p className="eyebrow">Sentry</p>
+        <h2>{sentryHeadline(healthData.sentry_enabled, healthData.sentry_configured)}</h2>
+        <dl className="detail-field-grid">
+          <div className="detail-field"><dt>configured</dt><dd>{boolText(healthData.sentry_configured)}</dd></div>
+          <div className="detail-field"><dt>enabled</dt><dd>{boolText(healthData.sentry_enabled)}</dd></div>
+          <div className="detail-field"><dt>environment</dt><dd>{healthData.sentry_environment || '—'}</dd></div>
+          <div className="detail-field"><dt>release</dt><dd>{healthData.sentry_release || '—'}</dd></div>
+        </dl>
       </section>
     </PageShell>
   )

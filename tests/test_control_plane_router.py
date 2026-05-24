@@ -83,6 +83,69 @@ def _client_with_config(config: GateConfig) -> TestClient:
     return TestClient(app)
 
 
+def test_observability_health_exposes_sentry_status_without_dsn(monkeypatch) -> None:
+    monkeypatch.delenv("SENTRY_DSN", raising=False)
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.router.is_sentry_enabled",
+        lambda: False,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        response = client.get(
+            "/control/api/v1/observability/health",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sentry_configured"] is False
+    assert body["sentry_enabled"] is False
+    assert body["sentry_environment"]
+    assert body["sentry_release"]
+
+
+def test_observability_sentry_smoke_is_authenticated_and_reports_safe_exception() -> (
+    None
+):
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        with patch(
+            "enoch_control_plane.control_plane.router.capture_exception",
+            return_value="event-smoke-123",
+        ) as capture:
+            response = client.post(
+                "/control/api/v1/observability/sentry-smoke",
+                headers=headers,
+            )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["event_id"] == "event-smoke-123"
+    capture.assert_called_once()
+    _, kwargs = capture.call_args
+    assert kwargs["component"] == "control_plane"
+    assert kwargs["operation"] == "sentry_smoke"
+    assert "payload" not in kwargs
+    assert "prompt" not in kwargs
+
+
+def test_observability_sentry_smoke_requires_authentication() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        app = FastAPI()
+        config = _config(tmp)
+
+        def require(auth: str | None) -> None:
+            if auth != f"Bearer {TOKEN}":
+                raise HTTPException(status_code=401, detail="invalid bearer token")
+
+        app.include_router(create_control_plane_router(config, require))
+        response = TestClient(app).post("/control/api/v1/observability/sentry-smoke")
+
+    assert response.status_code == 401
+
+
 def _write_publication_artifacts(
     project_dir: Path, *, evidence_path: str, claim_path: str, manifest_path: str
 ) -> None:

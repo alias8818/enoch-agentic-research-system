@@ -692,6 +692,7 @@ def test_control_plane_service_has_bounded_shutdown_for_deploy_restarts() -> Non
     assert "TimeoutStopSec=10" in service
     assert "KillMode=mixed" in service
     assert "FinalKillSignal=SIGKILL" in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/sentry.env" in service
 
 
 def test_source_lineage_check_unit_is_post_cutover_guard() -> None:

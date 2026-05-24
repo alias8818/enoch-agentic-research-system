@@ -39,6 +39,18 @@ see [`current-runtime-snapshot.md`](current-runtime-snapshot.md).
 | `queue_pump_followup_launch_enabled` | Optional flag for letting the queue pump dry-run and launch one bounded follow-up investigation when the lane is safe and no queued candidate exists; defaults off. |
 | `queue_pump_paper_draft_enabled` | Optional compatibility flag for drafting/rewrite-kicking one eligible paper before dispatch; defaults off so execution-only queues are not starved by paper production. |
 
+## Sentry observability fields
+
+Sentry exception capture is configured through host environment variables, not committed JSON config. See [Sentry observability](sentry-observability.md).
+
+| Environment variable | Purpose |
+| --- | --- |
+| `SENTRY_DSN` | Enables Sentry SDK exception capture when present. Keep out of git. |
+| `ENOCH_SENTRY_ENV` | Sentry environment label. |
+| `ENOCH_SENTRY_RELEASE` | Release identifier, preferably the deployed git SHA. |
+| `ENOCH_SENTRY_SERVER_NAME` | Host label for the running control-plane process. |
+| `ENOCH_SENTRY_TRACES_SAMPLE_RATE` | Low traces sample rate; default `0.02`. |
+
 ## Route observability fields
 
 These fields are for private operator diagnostics. Keep them disabled by default unless collecting a memory or latency baseline.

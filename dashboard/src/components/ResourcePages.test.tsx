@@ -539,7 +539,7 @@ it('shows raw event detail without inventing a missing event endpoint', async ()
 
 it('loads observability health and memory from backed V1 endpoints', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
-    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:00Z', route_observability_enabled: true, route_observability_log_configured: false, latest_route_observation: '{"route":"/control/api/status","status":200}' }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:00Z', route_observability_enabled: true, route_observability_log_configured: false, sentry_enabled: true, sentry_configured: true, sentry_environment: 'production', sentry_release: 'abc1234', latest_route_observation: '{"route":"/control/api/status","status":200}' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:01Z', rss_mib: 128.25, peak_rss_mib: 256.5, warn_threshold_mib: 1024, memory_warn: false, route_observability_enabled: true }), { status: 200 }))
 
   renderWithClient(<ObservabilityPage />)
@@ -547,6 +547,9 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   expect(await screen.findByRole('heading', { name: 'Memory is inside configured threshold' })).toBeInTheDocument()
   expect(screen.getByText('128.3 MiB')).toBeInTheDocument()
   expect(screen.getByText('Route logging enabled')).toBeInTheDocument()
+  expect(screen.getByText('Sentry exception capture enabled')).toBeInTheDocument()
+  expect(screen.getByText('production')).toBeInTheDocument()
+  expect(screen.getByText('abc1234')).toBeInTheDocument()
   expect(screen.getByText((content) => content.includes('/control/api/status'))).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/observability/health', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/observability/memory', expect.any(Object))

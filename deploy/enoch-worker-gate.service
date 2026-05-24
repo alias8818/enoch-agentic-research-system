@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/enoch-control-plane
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
+EnvironmentFile=-/etc/enoch-control-plane/sentry.env
 ExecStart=/opt/enoch-control-plane/.venv/bin/python -m uvicorn enoch_control_plane.app:app --host 0.0.0.0 --port 8787
 Restart=on-failure
 RestartSec=3
