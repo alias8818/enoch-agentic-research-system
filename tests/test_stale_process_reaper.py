@@ -8,6 +8,7 @@ import time
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+import psutil
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.gate import WakeGate
@@ -250,6 +251,38 @@ class StaleProcessReaperTests(unittest.TestCase):
 
         # Reused PID must not be signaled at TERM or SIGKILL.
         self.assertEqual(signaled, [])
+
+
+    def test_reaper_ignores_process_that_exits_before_term_signal(self) -> None:
+        class _GoneOnLookupProcess:
+            def create_time(self) -> float:
+                return 1000.0
+
+        tracker = ProcessTracker(Path("/tmp"))
+        record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
+        candidate = ProcessInfo(
+            pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
+        )
+
+        with (
+            patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
+            patch("enoch_control_plane.process_tracker.os.kill") as kill_mock,
+            patch(
+                "enoch_control_plane.process_tracker.psutil.Process",
+                side_effect=[_GoneOnLookupProcess(), psutil.NoSuchProcess(123456)],
+            ),
+        ):
+            self.assertEqual(
+                tracker.reap_stale_project_processes(
+                    record,
+                    stale_after_sec=0,
+                    command_markers=["python"],
+                    term_grace_sec=0,
+                ),
+                [],
+            )
+
+        kill_mock.assert_not_called()
 
     def test_reaper_audits_process_that_exits_during_identity_check(self) -> None:
         class _LiveProcess:
