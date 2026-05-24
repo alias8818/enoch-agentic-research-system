@@ -52,6 +52,20 @@ def test_looks_like_external_source_reference_rejects_non_external(
     assert looks_like_external_source_reference(value) is False
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "http://[",
+        "http://[::1",
+        "http://exa[mple.com",
+    ],
+)
+def test_looks_like_external_source_reference_rejects_malformed_urls(
+    value: str,
+) -> None:
+    assert looks_like_external_source_reference(value) is False
+
+
 def test_validate_http_url_accepts_http_and_https() -> None:
     assert (
         validate_http_url("http://127.0.0.1:8787/path") == "http://127.0.0.1:8787/path"
