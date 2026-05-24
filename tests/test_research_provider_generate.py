@@ -159,7 +159,9 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     assert "Pure simulations" in prompt
 
 
-def test_provider_generate_omits_authorization_for_proxy_default_even_with_key() -> None:
+def test_provider_generate_omits_authorization_for_proxy_default_even_with_key() -> (
+    None
+):
     class FakeResponse:
         def __enter__(self):
             return self
