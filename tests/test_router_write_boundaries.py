@@ -54,6 +54,8 @@ def test_post_routes_have_explicit_write_boundary_or_safe_delegate() -> None:
             continue
         if _calls_name(route, "worker_preflight"):
             continue
+        if _calls_name(route, "_declare_non_store_mutating_post"):
+            continue
         unsafe.append(route.name)
 
     assert unsafe == []

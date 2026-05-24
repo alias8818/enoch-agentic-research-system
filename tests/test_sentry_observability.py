@@ -98,7 +98,10 @@ def test_sentry_before_send_removes_request_bodies_and_sensitive_context(
     assert cleaned["request"]["data"] == "[Filtered]"
     assert cleaned["request"]["cookies"] == "[Filtered]"
     assert cleaned["request"]["query_string"] == "[Filtered]"
-    assert cleaned["request"]["url"] == "https://control.example/control/api/v1/overview?token=%5BFiltered%5D"
+    assert (
+        cleaned["request"]["url"]
+        == "https://control.example/control/api/v1/overview?token=%5BFiltered%5D"
+    )
     assert cleaned["request"]["headers"]["Authorization"] == "[Filtered]"
     assert cleaned["request"]["headers"]["Cookie"] == "[Filtered]"
     assert cleaned["request"]["headers"]["X-Request-ID"] == "req-1"
