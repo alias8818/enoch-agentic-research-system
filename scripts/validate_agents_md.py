@@ -23,6 +23,7 @@ AGENTS_MD = REPO_ROOT / "AGENTS.md"
 MAKEFILE = REPO_ROOT / "Makefile"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 CONFIG_EXAMPLE = REPO_ROOT / "config.example.json"
+BACKTICK_CONTENT_PATTERN = r"`([^`]+)`"
 
 errors: list[str] = []
 
@@ -66,7 +67,7 @@ def check_file_references(agents_content: str) -> None:
     stripped = _strip_code_blocks(agents_content)
 
     # Match backtick-quoted paths that look like project-relative references
-    for match in re.finditer(r"`([^`]+)`", stripped):
+    for match in re.finditer(BACKTICK_CONTENT_PATTERN, stripped):
         ref = match.group(1).strip()
         # Skip URLs
         if ref.startswith("http") or ref.startswith("https"):
@@ -113,7 +114,7 @@ def check_config_fields(agents_content: str) -> None:
     section_text = required_section.group(1)
 
     # Find backtick-quoted field names in the required config section
-    for match in re.finditer(r"`([^`]+)`", section_text):
+    for match in re.finditer(BACKTICK_CONTENT_PATTERN, section_text):
         field = match.group(1)
         # Strip trailing description text after the field name
         field = field.split()[0] if " " in field else field
@@ -157,7 +158,7 @@ def check_dependencies(agents_content: str) -> None:
 
     # Extract backtick-quoted package names from the section.
     # Handle forms like `psycopg[binary]` and `psutil` / `pynvml`.
-    for match in re.finditer(r"`([^`]+)`", section_text):
+    for match in re.finditer(BACKTICK_CONTENT_PATTERN, section_text):
         raw = match.group(1)
         # Strip extraspecifiers like [binary] and take the base package name
         base = re.split(r"[\[/\s]", raw)[0]

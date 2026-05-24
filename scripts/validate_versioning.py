@@ -9,10 +9,10 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION_VALUE = r"\d+\.\d+\.\d+(?:[-+](?:[A-Za-z0-9]|\.|-)+)?"
+VERSION_VALUE = r"\d+\.\d+\.\d+(?:(?:-|\+)(?:[A-Za-z0-9]|\.|-)+)?"
 SEMVER = re.compile(rf"^{VERSION_VALUE}$")
 VERSION_ASSIGNMENT = re.compile(
-    rf'^version\s*=\s*["\']?(?P<version>{VERSION_VALUE})["\']?\s*$',
+    rf"^version\s*=\s*(?:\"|')?(?P<version>{VERSION_VALUE})(?:\"|')?\s*$",
     re.IGNORECASE,
 )
 

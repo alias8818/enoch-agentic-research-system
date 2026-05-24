@@ -10,6 +10,8 @@ def test_version_assignment_regex_avoids_sonar_duplicate_character_class(
     module,
 ) -> None:
     assert "[0-9A-Za-z.-]" not in module.VERSION_ASSIGNMENT.pattern
+    assert "[-+]" not in module.VERSION_ASSIGNMENT.pattern
+    assert r"[\"\']" not in module.VERSION_ASSIGNMENT.pattern
 
 
 @pytest.mark.parametrize("module", [bump_version, validate_versioning])

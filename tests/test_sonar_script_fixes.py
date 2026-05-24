@@ -3,6 +3,14 @@ from __future__ import annotations
 from scripts import check_min_release_age, validate_agents_md
 
 
+def test_validate_agents_md_reuses_backtick_pattern_constant() -> None:
+    source = validate_agents_md.Path(validate_agents_md.__file__).read_text(
+        encoding="utf-8"
+    )
+
+    assert source.count(r"`([^`]+)`") == 1
+
+
 def test_check_ci_workflows_validates_extracted_workflow_references(
     tmp_path, monkeypatch
 ) -> None:
