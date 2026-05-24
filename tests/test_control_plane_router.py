@@ -1468,6 +1468,48 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(check["ok"])
             self.assertEqual(check["data"]["stale_active_lanes"], ["default"])
 
+    def test_automation_readiness_does_not_refresh_worker_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={"worker_wake_gate_url": "http://worker.example"}
+            )
+            client = _client_with_config(config)
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            stale_observed_at = (
+                datetime.now(timezone.utc) - timedelta(hours=1)
+            ).isoformat()
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                observed_at=stale_observed_at,
+                ttl_seconds=1,
+                payload={"ok": True, "checks": []},
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api",
+                status="ok",
+                observed_at=stale_observed_at,
+                ttl_seconds=1,
+                payload={"ok": True},
+            )
+
+            with (
+                patch("scripts.research_provider_budget.fetch_json", return_value={}),
+                patch(
+                    "enoch_control_plane.control_plane.router.run_worker_preflight",
+                    side_effect=AssertionError(
+                        "automation readiness must not call live worker preflight"
+                    ),
+                ) as mocked_preflight,
+            ):
+                response = client.get(
+                    "/control/api/v1/automation-readiness",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            mocked_preflight.assert_not_called()
+
     def test_research_facility_api_returns_ledger_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
