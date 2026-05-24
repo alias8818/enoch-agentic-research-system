@@ -279,6 +279,135 @@ def followup_candidate_from_decision_payload(payload: dict[str, Any]) -> dict[st
     }
 
 
+def _paper_decision_primary_rows(
+    values: list[tuple[str, str, str]],
+) -> list[tuple[str, str, str]]:
+    return [
+        (source, field, _normal(value))
+        for source, field, value in values
+        if field in PAPER_PRIMARY_DECISION_FIELDS
+    ]
+
+
+def _paper_draft_gate_blocked_primary(
+    *,
+    source: str,
+    field: str,
+    value: str,
+    payload: dict[str, Any],
+    values: list[tuple[str, str, str]],
+) -> dict[str, Any]:
+    if _bounded_useful_signal_ready(payload):
+        return {
+            "eligible": True,
+            "reason": "bounded useful signal is paper-scoped",
+            "source": source,
+            "field": field,
+            "decision": value,
+            "values": values,
+            "research_outcome": text(payload.get("research_outcome")),
+            "claim_scope": text(payload.get("claim_scope")),
+            "scale_limits": text(payload.get("scale_limits")),
+        }
+    return {
+        "eligible": False,
+        "reason": "project decision is not positive",
+        "source": source,
+        "field": field,
+        "decision": value,
+        "values": values,
+    }
+
+
+def _paper_draft_gate_positive_primary(
+    *,
+    source: str,
+    field: str,
+    value: str,
+    payload: dict[str, Any],
+    values: list[tuple[str, str, str]],
+) -> dict[str, Any]:
+    if _normal(
+        payload.get("research_outcome")
+    ) == "useful_signal" and not _bounded_useful_signal_ready(payload):
+        return {
+            "eligible": False,
+            "reason": "useful signal is not bounded paper-ready",
+            "source": source,
+            "field": field,
+            "decision": value,
+            "values": values,
+            "research_outcome": text(payload.get("research_outcome")),
+            "bounded_paper_ready": truthy(payload.get("bounded_paper_ready")),
+        }
+    return {
+        "eligible": True,
+        "reason": "project decision is positive",
+        "source": source,
+        "field": field,
+        "decision": value,
+        "values": values,
+    }
+
+
+def _paper_draft_gate_scan_primary_blocked(
+    primary: list[tuple[str, str, str]],
+    payload_by_source: dict[str, dict[str, Any]],
+    values: list[tuple[str, str, str]],
+) -> dict[str, Any] | None:
+    for source, field, value in primary:
+        if not _has_decision_token(value, PAPER_DRAFT_BLOCKED_DECISION_TOKENS):
+            continue
+        payload = payload_by_source.get(source) or {}
+        return _paper_draft_gate_blocked_primary(
+            source=source,
+            field=field,
+            value=value,
+            payload=payload,
+            values=values,
+        )
+    return None
+
+
+def _paper_draft_gate_scan_primary_positive(
+    primary: list[tuple[str, str, str]],
+    payload_by_source: dict[str, dict[str, Any]],
+    values: list[tuple[str, str, str]],
+) -> dict[str, Any] | None:
+    for source, field, value in primary:
+        if not _has_decision_token(value, PAPER_DRAFT_POSITIVE_DECISION_TOKENS):
+            continue
+        payload = payload_by_source.get(source) or {}
+        return _paper_draft_gate_positive_primary(
+            source=source,
+            field=field,
+            value=value,
+            payload=payload,
+            values=values,
+        )
+    return None
+
+
+def _paper_draft_gate_continue_primary(
+    primary: list[tuple[str, str, str]],
+    values: list[tuple[str, str, str]],
+) -> dict[str, Any] | None:
+    if not any(value == "continue" for _, _, value in primary):
+        return None
+    source, field, value = next(
+        (item for item in primary if item[2] == "continue"),
+        primary[0],
+    )
+    return {
+        "eligible": False,
+        "reason": "continue decision is not paper-positive",
+        "source": source,
+        "field": field,
+        "decision": value,
+        "values": values,
+    }
+
+
 def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     """Return whether local project decision artifacts support paper drafting.
 
@@ -297,78 +426,18 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
         }
 
     payload_by_source = dict(_paper_decision_json_payloads(artifact_root))
-    primary = [
-        (source, field, _normal(value))
-        for source, field, value in values
-        if field in PAPER_PRIMARY_DECISION_FIELDS
-    ]
-    supporting = [
-        (source, field, _normal(value))
-        for source, field, value in values
-        if field in PAPER_SUPPORTING_DECISION_FIELDS
-    ]
+    primary = _paper_decision_primary_rows(values)
 
-    for source, field, value in primary:
-        if _has_decision_token(value, PAPER_DRAFT_BLOCKED_DECISION_TOKENS):
-            payload = payload_by_source.get(source) or {}
-            if _bounded_useful_signal_ready(payload):
-                return {
-                    "eligible": True,
-                    "reason": "bounded useful signal is paper-scoped",
-                    "source": source,
-                    "field": field,
-                    "decision": value,
-                    "values": values,
-                    "research_outcome": text(payload.get("research_outcome")),
-                    "claim_scope": text(payload.get("claim_scope")),
-                    "scale_limits": text(payload.get("scale_limits")),
-                }
-            return {
-                "eligible": False,
-                "reason": "project decision is not positive",
-                "source": source,
-                "field": field,
-                "decision": value,
-                "values": values,
-            }
-
-    for source, field, value in primary:
-        if _has_decision_token(value, PAPER_DRAFT_POSITIVE_DECISION_TOKENS):
-            payload = payload_by_source.get(source) or {}
-            if _normal(
-                payload.get("research_outcome")
-            ) == "useful_signal" and not _bounded_useful_signal_ready(payload):
-                return {
-                    "eligible": False,
-                    "reason": "useful signal is not bounded paper-ready",
-                    "source": source,
-                    "field": field,
-                    "decision": value,
-                    "values": values,
-                    "research_outcome": text(payload.get("research_outcome")),
-                    "bounded_paper_ready": truthy(payload.get("bounded_paper_ready")),
-                }
-            return {
-                "eligible": True,
-                "reason": "project decision is positive",
-                "source": source,
-                "field": field,
-                "decision": value,
-                "values": values,
-            }
-
-    if any(value == "continue" for _, _, value in primary):
-        source, field, value = next(
-            (item for item in primary if item[2] == "continue"), primary[0]
-        )
-        return {
-            "eligible": False,
-            "reason": "continue decision is not paper-positive",
-            "source": source,
-            "field": field,
-            "decision": value,
-            "values": values,
-        }
+    if blocked := _paper_draft_gate_scan_primary_blocked(
+        primary, payload_by_source, values
+    ):
+        return blocked
+    if positive := _paper_draft_gate_scan_primary_positive(
+        primary, payload_by_source, values
+    ):
+        return positive
+    if continue_result := _paper_draft_gate_continue_primary(primary, values):
+        return continue_result
 
     return {
         "eligible": False,

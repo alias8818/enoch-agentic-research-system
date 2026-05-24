@@ -2,7 +2,7 @@ function formatCountLabel(key: string): string {
   return key.replaceAll('_', ' ')
 }
 
-export function WorkbenchOperatorSummary({ summary }: { summary?: string | null }) {
+export function WorkbenchOperatorSummary({ summary }: Readonly<{ summary?: string | null }>) {
   const text = String(summary || '').trim()
   if (!text) return null
   return (
@@ -15,10 +15,10 @@ export function WorkbenchOperatorSummary({ summary }: { summary?: string | null 
 export function WorkbenchCountsFold({
   counts,
   label = 'Ledger counts',
-}: {
-  counts?: Record<string, number | unknown> | null
+}: Readonly<{
+  counts?: Record<string, unknown> | null
   label?: string
-}) {
+}>) {
   const entries = Object.entries(counts || {})
     .filter(([, value]) => Number(value || 0) > 0)
     .sort(([left], [right]) => left.localeCompare(right))

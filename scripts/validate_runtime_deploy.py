@@ -70,29 +70,104 @@ def _git_status_porcelain(repo: Path) -> str:
     ).stdout.strip()
 
 
+def _raise_if_unsafe_relative_path(raw: str, rel: Path) -> None:
+    if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
+        raise ValueError(f"unsafe relative path: {raw}")
+
+
+def _deploy_file_excluded(file_rel: Path, path: Path) -> bool:
+    if any(part in EXCLUDED_PARTS for part in file_rel.parts):
+        return True
+    return path.suffix in EXCLUDED_SUFFIXES
+
+
+def _relative_files_in_directory(root: Path, directory: Path) -> set[str]:
+    files: set[str] = set()
+    for path in directory.rglob("*"):
+        if not path.is_file():
+            continue
+        file_rel = path.relative_to(root)
+        if _deploy_file_excluded(file_rel, path):
+            continue
+        files.add(file_rel.as_posix())
+    return files
+
+
 def _iter_relative_files(root: Path, selected_paths: Sequence[str]) -> list[str]:
     files: set[str] = set()
     for raw in selected_paths:
         rel = Path(raw)
-        if rel.is_absolute() or any(part in {"", ".", ".."} for part in rel.parts):
-            raise ValueError(f"unsafe relative path: {raw}")
+        _raise_if_unsafe_relative_path(raw, rel)
         candidate = root / rel
         if candidate.is_file():
             files.add(rel.as_posix())
-            continue
-        if candidate.is_dir():
-            for path in candidate.rglob("*"):
-                if not path.is_file():
-                    continue
-                file_rel = path.relative_to(root)
-                if any(part in EXCLUDED_PARTS for part in file_rel.parts):
-                    continue
-                if path.suffix in EXCLUDED_SUFFIXES:
-                    continue
-                files.add(file_rel.as_posix())
-            continue
-        files.add(rel.as_posix())
+        elif candidate.is_dir():
+            files.update(_relative_files_in_directory(root, candidate))
+        else:
+            files.add(rel.as_posix())
     return sorted(files)
+
+
+def _validate_expected_commit(
+    source: Path, expected_commit: str
+) -> tuple[str, str, list[str]]:
+    failures: list[str] = []
+    try:
+        source_commit = _git_rev_parse(source, "HEAD")
+        resolved_expected_commit = _git_rev_parse(source, expected_commit)
+        dirty_status = _git_status_porcelain(source)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        failures.append(f"git commit check failed: {type(exc).__name__}: {exc}")
+        return "", "", failures
+
+    if source_commit != resolved_expected_commit:
+        failures.append(
+            "source commit drift: HEAD "
+            f"{source_commit} != {expected_commit} {resolved_expected_commit}"
+        )
+    if dirty_status:
+        failures.append("source checkout is dirty")
+    return source_commit, resolved_expected_commit, failures
+
+
+def _validate_deploy_file(
+    source: Path, runtime: Path, rel: str
+) -> tuple[dict[str, Any], list[str]]:
+    failures: list[str] = []
+    source_path = source / rel
+    runtime_path = runtime / rel
+    if not source_path.exists():
+        failures.append(f"missing source file: {rel}")
+        return {"path": rel, "ok": False, "reason": "missing_source"}, failures
+    if not runtime_path.exists():
+        failures.append(f"missing runtime file: {rel}")
+        return (
+            {
+                "path": rel,
+                "ok": False,
+                "reason": "missing_runtime",
+                "source_sha256": _sha256(source_path),
+            },
+            failures,
+        )
+    if not runtime_path.is_file():
+        failures.append(f"runtime path is not a file: {rel}")
+        return {"path": rel, "ok": False, "reason": "runtime_not_file"}, failures
+
+    source_hash = _sha256(source_path)
+    runtime_hash = _sha256(runtime_path)
+    ok = source_hash == runtime_hash
+    if not ok:
+        failures.append(f"hash drift: {rel}")
+    return (
+        {
+            "path": rel,
+            "ok": ok,
+            "source_sha256": source_hash,
+            "runtime_sha256": runtime_hash,
+        },
+        failures,
+    )
 
 
 def validate_runtime(
@@ -111,19 +186,10 @@ def validate_runtime(
     resolved_expected_commit = ""
 
     if expected_commit:
-        try:
-            source_commit = _git_rev_parse(source, "HEAD")
-            resolved_expected_commit = _git_rev_parse(source, expected_commit)
-            dirty_status = _git_status_porcelain(source)
-        except (OSError, subprocess.CalledProcessError) as exc:
-            failures.append(f"git commit check failed: {type(exc).__name__}: {exc}")
-        else:
-            if source_commit != resolved_expected_commit:
-                failures.append(
-                    f"source commit drift: HEAD {source_commit} != {expected_commit} {resolved_expected_commit}"
-                )
-            if dirty_status:
-                failures.append("source checkout is dirty")
+        source_commit, resolved_expected_commit, commit_failures = (
+            _validate_expected_commit(source, expected_commit)
+        )
+        failures.extend(commit_failures)
 
     try:
         relative_files = _iter_relative_files(source, selected_paths)
@@ -132,40 +198,9 @@ def validate_runtime(
         failures.append(str(exc))
 
     for rel in relative_files:
-        source_path = source / rel
-        runtime_path = runtime / rel
-        if not source_path.exists():
-            failures.append(f"missing source file: {rel}")
-            files.append({"path": rel, "ok": False, "reason": "missing_source"})
-            continue
-        if not runtime_path.exists():
-            failures.append(f"missing runtime file: {rel}")
-            files.append(
-                {
-                    "path": rel,
-                    "ok": False,
-                    "reason": "missing_runtime",
-                    "source_sha256": _sha256(source_path),
-                }
-            )
-            continue
-        if not runtime_path.is_file():
-            failures.append(f"runtime path is not a file: {rel}")
-            files.append({"path": rel, "ok": False, "reason": "runtime_not_file"})
-            continue
-        source_hash = _sha256(source_path)
-        runtime_hash = _sha256(runtime_path)
-        ok = source_hash == runtime_hash
-        if not ok:
-            failures.append(f"hash drift: {rel}")
-        files.append(
-            {
-                "path": rel,
-                "ok": ok,
-                "source_sha256": source_hash,
-                "runtime_sha256": runtime_hash,
-            }
-        )
+        entry, file_failures = _validate_deploy_file(source, runtime, rel)
+        files.append(entry)
+        failures.extend(file_failures)
 
     return {
         "ok": not failures,

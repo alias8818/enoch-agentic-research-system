@@ -54,6 +54,67 @@ def _problem_fingerprint(report: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def _blocked_with_problems(report: dict[str, Any]) -> bool:
+    return (
+        report.get("status") == "blocked"
+        and int((report.get("counts") or {}).get("problems") or 0) > 0
+    )
+
+
+def _default_alert() -> dict[str, Any]:
+    return {
+        "sent": False,
+        "attempted": False,
+        "suppressed_by_fingerprint": False,
+        "detail": "no alert required",
+    }
+
+
+def _read_previous_fingerprint(fingerprint_path: Path) -> str:
+    if not fingerprint_path.exists():
+        return ""
+    return fingerprint_path.read_text(encoding="utf-8").strip()
+
+
+def _notify_for_blocked(
+    config: GateConfig | Any,
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    if getattr(config, "pushover_alerts_enabled", False):
+        return _send_alert(config, report)
+    return {
+        "attempted": False,
+        "ok": False,
+        "detail": "pushover alerts disabled",
+    }
+
+
+def _blocked_alert(
+    config: GateConfig | Any,
+    report: dict[str, Any],
+    state_dir: Path,
+) -> dict[str, Any]:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    fingerprint = _problem_fingerprint(report)
+    fingerprint_path = state_dir / "last-alert-fingerprint"
+    if _read_previous_fingerprint(fingerprint_path) == fingerprint:
+        return {
+            "sent": False,
+            "attempted": False,
+            "suppressed_by_fingerprint": True,
+            "fingerprint": fingerprint,
+        }
+
+    notification = _notify_for_blocked(config, report)
+    if notification.get("ok") or not getattr(config, "pushover_alerts_enabled", False):
+        fingerprint_path.write_text(fingerprint + "\n", encoding="utf-8")
+    return {
+        "sent": bool(notification.get("ok")),
+        "fingerprint": fingerprint,
+        **notification,
+    }
+
+
 def _send_alert(config: GateConfig, report: dict[str, Any]) -> dict[str, Any]:
     counts = report.get("counts") or {}
     problem_counts = report.get("problem_counts") or {}
@@ -88,50 +149,11 @@ def run_check(
 ) -> dict[str, Any]:
     report = _build_report(database_url, created_after)
     write_report(report, output)
-    alert = {
-        "sent": False,
-        "attempted": False,
-        "suppressed_by_fingerprint": False,
-        "detail": "no alert required",
-    }
-    if (
-        report.get("status") == "blocked"
-        and int((report.get("counts") or {}).get("problems") or 0) > 0
-    ):
-        state_dir.mkdir(parents=True, exist_ok=True)
-        fingerprint = _problem_fingerprint(report)
-        fingerprint_path = state_dir / "last-alert-fingerprint"
-        previous = (
-            fingerprint_path.read_text(encoding="utf-8").strip()
-            if fingerprint_path.exists()
-            else ""
-        )
-        if previous == fingerprint:
-            alert = {
-                "sent": False,
-                "attempted": False,
-                "suppressed_by_fingerprint": True,
-                "fingerprint": fingerprint,
-            }
-        else:
-            notification = (
-                _send_alert(config, report)
-                if getattr(config, "pushover_alerts_enabled", False)
-                else {
-                    "attempted": False,
-                    "ok": False,
-                    "detail": "pushover alerts disabled",
-                }
-            )
-            if notification.get("ok") or not getattr(
-                config, "pushover_alerts_enabled", False
-            ):
-                fingerprint_path.write_text(fingerprint + "\n", encoding="utf-8")
-            alert = {
-                "sent": bool(notification.get("ok")),
-                "fingerprint": fingerprint,
-                **notification,
-            }
+    alert = (
+        _blocked_alert(config, report, state_dir)
+        if _blocked_with_problems(report)
+        else _default_alert()
+    )
     return {
         "ok": report.get("status") != "blocked",
         "report_path": str(output),

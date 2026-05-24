@@ -8,6 +8,10 @@ from typing import Any
 
 DEFAULT_REPORT_PATH = "/var/lib/enoch-control-plane/source-lineage/latest-report.json"
 
+SOURCE_LINEAGE_LABEL_BLOCKED = "Source lineage: BLOCKED"
+SOURCE_LINEAGE_LABEL_CLEAN = "Source lineage: clean"
+SOURCE_LINEAGE_LABEL_WARNINGS = "Source lineage: warnings"
+
 SOURCE_PROBLEM_TOKENS = (
     "missing_source",
     "missing_parent_run_source",
@@ -63,7 +67,7 @@ def classify_source_lineage_report(
         return {
             "ok": False,
             "status": "blocked",
-            "label": "Source lineage: BLOCKED",
+            "label": SOURCE_LINEAGE_LABEL_BLOCKED,
             "report_path": report_path,
             "report_mtime": report_mtime,
             "report_generated_at": report.get("checked_at")
@@ -96,9 +100,9 @@ def classify_source_lineage_report(
     if problem_total and status == "clean":
         status = "blocked"
     label = {
-        "clean": "Source lineage: clean",
-        "warnings": "Source lineage: warnings",
-        "blocked": "Source lineage: BLOCKED",
+        "clean": SOURCE_LINEAGE_LABEL_CLEAN,
+        "warnings": SOURCE_LINEAGE_LABEL_WARNINGS,
+        "blocked": SOURCE_LINEAGE_LABEL_BLOCKED,
     }[status]
     return {
         "ok": status != "blocked",
@@ -133,7 +137,7 @@ def load_latest_source_lineage_status(
         return {
             "ok": False,
             "status": "blocked",
-            "label": "Source lineage: BLOCKED",
+            "label": SOURCE_LINEAGE_LABEL_BLOCKED,
             "report_path": report_path,
             "report_mtime": "",
             "report_generated_at": "",

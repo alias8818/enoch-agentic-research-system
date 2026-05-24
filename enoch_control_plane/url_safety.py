@@ -2,6 +2,28 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+_LOCAL_HTTP_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_EXTERNAL_SOURCE_ID_PREFIXES = ("arxiv:", "doi:")
+
+
+def secure_default_service_url(host: str, port: int, *, path: str = "") -> str:
+    """Return a placeholder service URL defaulting to HTTPS except on loopback."""
+    normalized_host = host.strip().lower()
+    scheme = "http" if normalized_host in _LOCAL_HTTP_HOSTS else "https"
+    normalized_path = path if not path or path.startswith("/") else f"/{path}"
+    return f"{scheme}://{host.strip()}:{port}{normalized_path}"
+
+
+def looks_like_external_source_reference(value: str) -> bool:
+    """Return True when a persisted source id or URL points outside local-only artifacts."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    if text.startswith(_EXTERNAL_SOURCE_ID_PREFIXES):
+        return True
+    parsed = urlparse(text)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
 
 def validate_http_url(url: str, *, field_name: str = "url") -> str:
     """Return a stripped URL only when it targets HTTP(S).

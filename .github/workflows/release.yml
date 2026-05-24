@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "site/**"
+      - "*.md"
+      - "VERSION"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: semantic release
+    if: "!contains(github.event.head_commit.message, 'chore(release)')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+      - name: Run tests before release
+        run: |
+          uv run pytest -q -n auto -m "not repo_root" --durations=10
+      - name: Generate OpenAPI schema
+        run: uv run python scripts/generate_openapi_schema.py
+      - name: Run semantic release
+        id: semantic-release
+        run: uv run semantic-release version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish release
+        if: steps.semantic-release.outputs.released == 'true'
+        run: uv run semantic-release publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

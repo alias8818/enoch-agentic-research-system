@@ -74,35 +74,45 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _append_parsed_list_item(items: list[Any], item: Any) -> None:
+    if not isinstance(item, str):
+        if _text(item):
+            items.append(item)
+        return
+    text = _text(item)
+    if not text:
+        return
+    items.extend(_split_numbered_list_text(text))
+
+
+def _as_list_from_sequence(value: Iterable[Any]) -> list[Any]:
+    items: list[Any] = []
+    for item in value:
+        _append_parsed_list_item(items, item)
+    return items
+
+
+def _as_list_from_str(value: str) -> list[Any]:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return _split_numbered_list_text(value)
+    if isinstance(decoded, list):
+        return _as_list(decoded)
+    return _split_numbered_list_text(value)
+
+
 def _as_list(value: Any) -> list[Any]:
     if value is None or value == "":
         return []
     if isinstance(value, list):
-        items: list[Any] = []
-        for item in value:
-            if not isinstance(item, str):
-                if _text(item):
-                    items.append(item)
-                continue
-            text = _text(item)
-            if not text:
-                continue
-            items.extend(_split_numbered_list_text(text))
-        return items
+        return _as_list_from_sequence(value)
     if isinstance(value, tuple):
         return list(value)
     if isinstance(value, dict):
         return list(value)
     if isinstance(value, str):
-        try:
-            decoded = json.loads(value)
-        except json.JSONDecodeError:
-            return _split_numbered_list_text(value)
-        return (
-            _as_list(decoded)
-            if isinstance(decoded, list)
-            else _split_numbered_list_text(value)
-        )
+        return _as_list_from_str(value)
     return [value]
 
 
@@ -359,42 +369,79 @@ Reflection pattern seeds:
 """.strip()
 
 
-def validate_synthesized_candidate(candidate: dict[str, Any]) -> list[str]:
+def _validate_synthesized_artifacts(candidate: dict[str, Any]) -> list[str]:
     problems: list[str] = []
     artifacts = {_text(item) for item in _as_list(candidate.get("expected_artifacts"))}
     for artifact in sorted(REQUIRED_ORACLE_ARTIFACTS):
         if artifact not in artifacts:
             problems.append(f"missing expected artifact {artifact}")
+    return problems
+
+
+def _validate_synthesized_standard_fields(candidate: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
     for key in REQUIRED_STANDARD_TEXT_FIELDS:
         if not _text(candidate.get(key)):
             problems.append(f"missing {key}")
     for key in REQUIRED_STANDARD_ARRAY_FIELDS:
         if not _as_list(candidate.get(key)):
             problems.append(f"missing {key}")
+    return problems
+
+
+def _validate_synthesized_score(
+    score_key: str, candidate: dict[str, Any]
+) -> str | None:
+    try:
+        score = float(candidate.get(score_key))
+    except (TypeError, ValueError):
+        return f"{score_key} must be a 0-10 number"
+    if score < 0.0 or score > 10.0:
+        return f"{score_key} must be a 0-10 number"
+    return None
+
+
+def _validate_synthesized_scores(candidate: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
     for key in REQUIRED_SCORE_FIELDS:
-        try:
-            score = float(candidate.get(key))
-        except (TypeError, ValueError):
-            problems.append(f"{key} must be a 0-10 number")
-            continue
-        if score < 0.0 or score > 10.0:
-            problems.append(f"{key} must be a 0-10 number")
+        message = _validate_synthesized_score(key, candidate)
+        if message:
+            problems.append(message)
+    return problems
+
+
+def _validate_synthesized_numeric_thresholds(candidate: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
     for key in ("success_threshold", "kill_condition"):
         if not re.search(r"\d", _text(candidate.get(key))):
             problems.append(f"{key} must include at least one numeric threshold")
-    if (
-        "oracle"
-        not in " ".join(
-            [
-                _text(candidate.get("title")),
-                _text(candidate.get("implementation")),
-                _text(candidate.get("mechanism")),
-            ]
-        ).lower()
-    ):
-        problems.append(
+    return problems
+
+
+def _validate_synthesized_oracle_meta_experiment(
+    candidate: dict[str, Any],
+) -> list[str]:
+    oracle_text = " ".join(
+        [
+            _text(candidate.get("title")),
+            _text(candidate.get("implementation")),
+            _text(candidate.get("mechanism")),
+        ]
+    ).lower()
+    if "oracle" not in oracle_text:
+        return [
             "synthesized candidate must explicitly describe an oracle/meta-experiment"
-        )
+        ]
+    return []
+
+
+def validate_synthesized_candidate(candidate: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
+    problems.extend(_validate_synthesized_artifacts(candidate))
+    problems.extend(_validate_synthesized_standard_fields(candidate))
+    problems.extend(_validate_synthesized_scores(candidate))
+    problems.extend(_validate_synthesized_numeric_thresholds(candidate))
+    problems.extend(_validate_synthesized_oracle_meta_experiment(candidate))
     return problems
 
 
@@ -447,6 +494,49 @@ def enrich_synthesized_candidate(
     return row
 
 
+def _single_provider_candidate(response: Any) -> dict[str, Any] | None:
+    candidates = response.get("candidates") if isinstance(response, dict) else None
+    if (
+        not isinstance(candidates, list)
+        or len(candidates) != 1
+        or not isinstance(candidates[0], dict)
+    ):
+        return None
+    return candidates[0]
+
+
+def _synthesize_cluster_candidate(
+    cluster: dict[str, Any],
+    *,
+    reflection_patterns: list[dict[str, Any]],
+    provider: Callable[[str], dict[str, Any]],
+    requested_by: str,
+    prompt: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    cluster_key = cluster.get("cluster_key")
+    try:
+        response = provider(prompt)
+    except Exception as exc:  # pragma: no cover - defensive CLI path
+        return None, {"cluster_key": cluster_key, "error": str(exc)}
+    raw_candidate = _single_provider_candidate(response)
+    if raw_candidate is None:
+        return None, {
+            "cluster_key": cluster_key,
+            "error": "provider must return exactly one candidate",
+        }
+    candidate = enrich_synthesized_candidate(
+        raw_candidate, cluster, reflection_patterns, requested_by=requested_by
+    )
+    problems = validate_synthesized_candidate(candidate)
+    if problems:
+        return None, {
+            "cluster_key": cluster_key,
+            "candidate_id": candidate.get("candidate_id"),
+            "problems": problems,
+        }
+    return candidate, None
+
+
 def synthesize_clusters(
     clusters: list[dict[str, Any]],
     *,
@@ -460,38 +550,15 @@ def synthesize_clusters(
     for cluster in clusters:
         prompt = build_synthesis_prompt(cluster, reflection_patterns)
         prompts.append({"cluster_key": cluster.get("cluster_key"), "prompt": prompt})
-        try:
-            response = provider(prompt)
-        except Exception as exc:  # pragma: no cover - defensive CLI path
-            failures.append(
-                {"cluster_key": cluster.get("cluster_key"), "error": str(exc)}
-            )
-            continue
-        candidates = response.get("candidates") if isinstance(response, dict) else None
-        if (
-            not isinstance(candidates, list)
-            or len(candidates) != 1
-            or not isinstance(candidates[0], dict)
-        ):
-            failures.append(
-                {
-                    "cluster_key": cluster.get("cluster_key"),
-                    "error": "provider must return exactly one candidate",
-                }
-            )
-            continue
-        candidate = enrich_synthesized_candidate(
-            candidates[0], cluster, reflection_patterns, requested_by=requested_by
+        candidate, failure = _synthesize_cluster_candidate(
+            cluster,
+            reflection_patterns=reflection_patterns,
+            provider=provider,
+            requested_by=requested_by,
+            prompt=prompt,
         )
-        problems = validate_synthesized_candidate(candidate)
-        if problems:
-            failures.append(
-                {
-                    "cluster_key": cluster.get("cluster_key"),
-                    "candidate_id": candidate.get("candidate_id"),
-                    "problems": problems,
-                }
-            )
+        if failure is not None:
+            failures.append(failure)
             continue
         synthesized.append(candidate)
     return {
@@ -512,12 +579,7 @@ def synthesize_clusters(
     }
 
 
-def emit_synthesis_sql(
-    report: dict[str, Any], *, requested_by: str, queue_synthesized: bool
-) -> str:
-    candidates = [
-        row for row in report.get("synthesized_candidates", []) if isinstance(row, dict)
-    ]
+def _synthesis_admission_plans(candidates: list[dict[str, Any]]) -> list[Any]:
     args = argparse.Namespace(
         default_machine="gb10",
         default_model="gpt-5.5",
@@ -536,53 +598,109 @@ def emit_synthesis_sql(
         raise ValueError(
             f"synthesized candidates must pass admission before SQL emission: {summary}"
         )
-    sql = research_facility.emit_sql(
-        plans, requested_by=requested_by, queue_admitted=queue_synthesized
-    )
+    return plans
+
+
+def _sql_lines_without_trailing_commit(sql: str) -> list[str]:
     sql_lines = sql.rstrip().splitlines()
     if sql_lines and sql_lines[-1].strip().lower() == "commit;":
         sql_lines = sql_lines[:-1]
-    lines = [*sql_lines, ""]
-    for cluster, candidate in zip(report.get("clusters", []), candidates, strict=False):
-        synthesized_id = _text(candidate.get("candidate_id"))
-        if not synthesized_id:
+    return [*sql_lines, ""]
+
+
+def _branch_supersede_update_sql(
+    *, branch_id: str, synthesized_id: str, cluster: dict[str, Any]
+) -> str:
+    return (
+        "update enoch.research_candidates "
+        "set status = 'deferred_pending_oracle', updated_at = now(), "
+        "raw_candidate_json = coalesce(raw_candidate_json, '{}'::jsonb) || "
+        f"{research_facility.sql_json({'superseded_by': synthesized_id, 'synthesis_reason': cluster.get('reason', '')})} "
+        f"where candidate_id = {research_facility.sql_literal(branch_id)} "
+        "and status in ('generated','needs_review','admitted');"
+    )
+
+
+def _candidate_lineage_insert_sql(
+    *,
+    source_id: str,
+    synthesized_id: str,
+    relation: str,
+    cluster_key: Any,
+    requested_by: str,
+) -> str:
+    return (
+        "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+        f"('candidate', {research_facility.sql_literal(source_id)}, 'candidate', {research_facility.sql_literal(synthesized_id)}, {research_facility.sql_literal(relation)}, "
+        f"{research_facility.sql_json({'cluster_key': cluster_key, 'requested_by': requested_by})}) "
+        "on conflict do nothing;"
+    )
+
+
+def _synthesis_cluster_sql_lines(
+    cluster: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    requested_by: str,
+    reflection_patterns: Iterable[Any],
+) -> list[str]:
+    synthesized_id = _text(candidate.get("candidate_id"))
+    if not synthesized_id:
+        return []
+    lines: list[str] = []
+    cluster_key = cluster.get("cluster_key")
+    for branch in cluster.get("candidates", []):
+        branch_id = _text(branch.get("candidate_id"))
+        if not branch_id:
             continue
-        for branch in cluster.get("candidates", []):
-            branch_id = _text(branch.get("candidate_id"))
-            if not branch_id:
-                continue
-            lines.append(
-                "update enoch.research_candidates "
-                "set status = 'deferred_pending_oracle', updated_at = now(), "
-                "raw_candidate_json = coalesce(raw_candidate_json, '{}'::jsonb) || "
-                f"{research_facility.sql_json({'superseded_by': synthesized_id, 'synthesis_reason': cluster.get('reason', '')})} "
-                f"where candidate_id = {research_facility.sql_literal(branch_id)} "
-                "and status in ('generated','needs_review','admitted');"
+        lines.append(
+            _branch_supersede_update_sql(
+                branch_id=branch_id,
+                synthesized_id=synthesized_id,
+                cluster=cluster,
             )
-            for source_type, source_id, target_type, target_id, relation in (
-                (
-                    "candidate",
-                    branch_id,
-                    "candidate",
-                    synthesized_id,
-                    "synthesized_from",
-                ),
-                ("candidate", branch_id, "candidate", synthesized_id, "superseded_by"),
-            ):
-                lines.append(
-                    "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                    f"({research_facility.sql_literal(source_type)}, {research_facility.sql_literal(source_id)}, {research_facility.sql_literal(target_type)}, {research_facility.sql_literal(target_id)}, {research_facility.sql_literal(relation)}, "
-                    f"{research_facility.sql_json({'cluster_key': cluster.get('cluster_key'), 'requested_by': requested_by})}) "
-                    "on conflict do nothing;"
+        )
+        for relation in ("synthesized_from", "superseded_by"):
+            lines.append(
+                _candidate_lineage_insert_sql(
+                    source_id=branch_id,
+                    synthesized_id=synthesized_id,
+                    relation=relation,
+                    cluster_key=cluster_key,
+                    requested_by=requested_by,
                 )
-        for pattern in report.get("reflection_patterns", []):
-            source_id = _text(pattern.get("project_id"))
-            if source_id:
-                lines.append(
-                    "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-                    f"('project', {research_facility.sql_literal(source_id)}, 'candidate', {research_facility.sql_literal(synthesized_id)}, 'inspired_by_success', {research_facility.sql_json({'not_system_truth': True})}) "
-                    "on conflict do nothing;"
-                )
+            )
+    for pattern in reflection_patterns:
+        source_id = _text(pattern.get("project_id"))
+        if source_id:
+            lines.append(
+                "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+                f"('project', {research_facility.sql_literal(source_id)}, 'candidate', {research_facility.sql_literal(synthesized_id)}, 'inspired_by_success', {research_facility.sql_json({'not_system_truth': True})}) "
+                "on conflict do nothing;"
+            )
+    return lines
+
+
+def emit_synthesis_sql(
+    report: dict[str, Any], *, requested_by: str, queue_synthesized: bool
+) -> str:
+    candidates = [
+        row for row in report.get("synthesized_candidates", []) if isinstance(row, dict)
+    ]
+    plans = _synthesis_admission_plans(candidates)
+    sql = research_facility.emit_sql(
+        plans, requested_by=requested_by, queue_admitted=queue_synthesized
+    )
+    lines = _sql_lines_without_trailing_commit(sql)
+    for cluster, candidate in zip(report.get("clusters", []), candidates, strict=False):
+        lines.extend(
+            _synthesis_cluster_sql_lines(
+                cluster,
+                candidate,
+                requested_by=requested_by,
+                reflection_patterns=report.get("reflection_patterns", []),
+            )
+        )
     lines.extend(["commit;", ""])
     return "\n".join(lines)
 

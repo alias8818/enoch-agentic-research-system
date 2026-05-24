@@ -16,20 +16,31 @@ from ..url_safety import validate_http_url
 from .models import PaperRecord
 
 
-EVIDENCE_TEXT_EXTENSIONS = {".md", ".txt", ".json", ".jsonl", ".csv", ".log", ".py"}
+JSON_FILE_SUFFIX = ".json"
+EVIDENCE_TEXT_EXTENSIONS = {
+    ".md",
+    ".txt",
+    JSON_FILE_SUFFIX,
+    ".jsonl",
+    ".csv",
+    ".log",
+    ".py",
+}
 EVIDENCE_PUBLIC_DIR = "evidence"
+PAPER_PATH_LABEL = "paper path"
 MAX_EVIDENCE_FILES = 80
 MAX_PUBLIC_EVIDENCE_BYTES = 80_000
 MAX_METRIC_FILES = 40
 MAX_SECRET_TOKEN_LENGTH = 12_000
 SECRET_REDACTION_PATTERNS = [
-    re.compile(r"(?i)(Authorization\s*:\s*Bearer\s+)([A-Za-z0-9._\-]{16,})"),
+    re.compile(r"(?i)(Authorization\s*:\s*Bearer\s+)([-\w.]{16,})"),
     re.compile(
-        r"(?i)((?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)?[_-]?(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"
+        r"(?i)((?:OPENAI|ANTHROPIC|SYNTHETIC|GITHUB|HF|HUGGINGFACE|SUPABASE)[_-](?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"
     ),
+    re.compile(r"(?i)((?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)\s*[=:]\s*)([^\s'\"]{12,})"),
     re.compile(r"\b(sk-(?:proj-)?[A-Za-z0-9_-]{20,})\b"),
     re.compile(r"\b(syn_[A-Za-z0-9]{20,})\b"),
-    re.compile(r"\b(gh[pousr]_[A-Za-z0-9_]{20,})\b"),
+    re.compile(r"\b(gh[pousr]_\w{20,})\b"),
 ]
 
 
@@ -96,48 +107,74 @@ def _resolve_project_dir(config: GateConfig, candidate: dict[str, Any]) -> Path:
     return project_dir
 
 
-def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> None:
+def _resolved_project_dir_for_write(project_dir: Path) -> Path:
     try:
-        project_dir = project_dir.resolve()
+        return project_dir.resolve()
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=400, detail="project_dir could not be resolved"
         ) from exc
-    for rel_path, content in files.items():
-        raw_rel_path = str(rel_path or "").strip()
-        try:
-            target = (project_dir / raw_rel_path).resolve()
-            target.relative_to(project_dir)
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=400, detail=f"paper path escapes project dir: {rel_path}"
-            ) from exc
-        if (
-            not raw_rel_path
-            or target == project_dir
-            or (
-                _path_exists_for_paper(target, label="paper path")
-                and _path_is_dir_for_paper(target, label="paper path")
-            )
-        ):
-            raise HTTPException(
-                status_code=400, detail=f"paper path is not a file target: {rel_path}"
-            )
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if _path_exists_for_paper(target, label="paper path") and not force:
-            continue
-        tmp_path = target.with_name(
-            f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp"
+
+
+def _paper_write_target(project_dir: Path, rel_path: Any) -> tuple[Path, str]:
+    raw_rel_path = str(rel_path or "").strip()
+    try:
+        target = (project_dir / raw_rel_path).resolve()
+        target.relative_to(project_dir)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail=f"paper path escapes project dir: {rel_path}"
+        ) from exc
+    return target, raw_rel_path
+
+
+def _paper_path_not_file_target_detail(rel_path: Any) -> str:
+    return f"paper path is not a file target: {rel_path}"
+
+
+def _reject_directory_or_empty_paper_target(
+    target: Path, project_dir: Path, rel_path: Any, raw_rel_path: str
+) -> None:
+    if not raw_rel_path or target == project_dir:
+        raise HTTPException(
+            status_code=400, detail=_paper_path_not_file_target_detail(rel_path)
         )
+    if _path_exists_for_paper(
+        target, label=PAPER_PATH_LABEL
+    ) and _path_is_dir_for_paper(target, label=PAPER_PATH_LABEL):
+        raise HTTPException(
+            status_code=400, detail=_paper_path_not_file_target_detail(rel_path)
+        )
+
+
+def _atomic_write_text_file(target: Path, content: str) -> None:
+    tmp_path = target.with_name(f".{target.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        tmp_path.write_text(content, encoding="utf-8")
+        os.replace(tmp_path, target)
+    finally:
         try:
-            tmp_path.write_text(content, encoding="utf-8")
-            os.replace(tmp_path, target)
-        finally:
-            try:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-            except OSError:
-                pass
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+
+
+def _write_single_paper_file(
+    project_dir: Path, rel_path: Any, content: str, *, force: bool
+) -> None:
+    target, raw_rel_path = _paper_write_target(project_dir, rel_path)
+    _reject_directory_or_empty_paper_target(target, project_dir, rel_path, raw_rel_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if _path_exists_for_paper(target, label=PAPER_PATH_LABEL) and not force:
+        return
+    _atomic_write_text_file(target, content)
+
+
+def _write_files(project_dir: Path, files: dict[str, str], *, force: bool) -> None:
+    project_dir = _resolved_project_dir_for_write(project_dir)
+    for rel_path, content in files.items():
+        _write_single_paper_file(project_dir, rel_path, content, force=force)
 
 
 def _blocked_empty_claim_ledger(paper: PaperRecord, *, provider_note: Any) -> str:
@@ -259,61 +296,66 @@ def _dedupe_public_evidence_path(
     )
 
 
-def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
-    """Collect unique evidence files for the paper writer.
+_EXPLICIT_SOURCE_EVIDENCE_RELS = (
+    "run_notes.md",
+    ".enoch/project_decision.json",
+    ".enoch/metrics.json",
+    ".omx/project_decision.json",
+    ".omx/metrics.json",
+)
 
-    Refactored for lower complexity (was C901=14). Logic split into small focused helpers.
-    """
-    candidates: list[Path] = []
 
-    def _add_explicit() -> None:
-        for rel in [
-            "run_notes.md",
-            ".enoch/project_decision.json",
-            ".enoch/metrics.json",
-            ".omx/project_decision.json",
-            ".omx/metrics.json",
-        ]:
-            path = project_dir / rel
-            if _path_exists_for_paper(
-                path, label="source evidence path", status_code=424
-            ) and _path_is_file_for_paper(
-                path, label="source evidence path", status_code=424
-            ):
-                candidates.append(path)
-
-    def _scan_dir(rel_dir: str) -> None:
-        root = project_dir / rel_dir
-        if not _path_exists_for_paper(
-            root, label="source evidence directory", status_code=424
+def _collect_explicit_source_evidence(project_dir: Path) -> list[Path]:
+    found: list[Path] = []
+    for rel in _EXPLICIT_SOURCE_EVIDENCE_RELS:
+        path = project_dir / rel
+        if _path_exists_for_paper(
+            path, label="source evidence path", status_code=424
+        ) and _path_is_file_for_paper(
+            path, label="source evidence path", status_code=424
         ):
-            return
-        if not _path_is_dir_for_paper(
-            root, label="source evidence directory", status_code=424
+            found.append(path)
+    return found
+
+
+def _is_scannable_source_evidence_file(path: Path) -> bool:
+    if "__pycache__" in path.parts or path.suffix == ".pyc":
+        return False
+    return path.suffix.lower() in EVIDENCE_TEXT_EXTENSIONS
+
+
+def _scan_source_evidence_directory(project_dir: Path, rel_dir: str) -> list[Path]:
+    root = project_dir / rel_dir
+    if not _path_exists_for_paper(
+        root, label="source evidence directory", status_code=424
+    ):
+        return []
+    if not _path_is_dir_for_paper(
+        root, label="source evidence directory", status_code=424
+    ):
+        return []
+    try:
+        paths = sorted(root.rglob("*"))
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=424,
+            detail=f"source evidence directory could not be scanned: {rel_dir}",
+        ) from exc
+    found: list[Path] = []
+    for path in paths:
+        if not _path_is_file_for_paper(
+            path, label="source evidence file", status_code=424
         ):
-            return
-        try:
-            paths = sorted(root.rglob("*"))
-        except (OSError, RuntimeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=424,
-                detail=f"source evidence directory could not be scanned: {rel_dir}",
-            ) from exc
-        for path in paths:
-            if not _path_is_file_for_paper(
-                path, label="source evidence file", status_code=424
-            ):
-                continue
-            if "__pycache__" in path.parts or path.suffix == ".pyc":
-                continue
-            if path.suffix.lower() not in EVIDENCE_TEXT_EXTENSIONS:
-                continue
-            candidates.append(path)
+            continue
+        if not _is_scannable_source_evidence_file(path):
+            continue
+        found.append(path)
+    return found
 
-    _add_explicit()
-    _scan_dir("results")
 
-    # Dedup + limit (preserve order of first discovery)
+def _dedupe_resolved_source_evidence(
+    candidates: list[Path], project_dir: Path
+) -> list[Path]:
     unique: list[Path] = []
     seen: set[Path] = set()
     for path in candidates:
@@ -332,35 +374,80 @@ def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
     return unique[:MAX_EVIDENCE_FILES]
 
 
+def _iter_source_evidence_files(project_dir: Path) -> list[Path]:
+    """Collect unique evidence files for the paper writer."""
+    candidates = _collect_explicit_source_evidence(project_dir)
+    candidates.extend(_scan_source_evidence_directory(project_dir, "results"))
+    return _dedupe_resolved_source_evidence(candidates, project_dir)
+
+
+def _metrics_at_limit(out: dict[str, Any], limit: int) -> bool:
+    return len(out) >= limit
+
+
+def _is_scalar_metric_value(value: Any) -> bool:
+    return isinstance(value, (int, float, str, bool)) or value is None
+
+
+def _is_simple_primitive_list(value: list[Any]) -> bool:
+    return bool(value) and all(
+        isinstance(item, (int, float, str, bool)) or item is None for item in value[:20]
+    )
+
+
+def _flatten_dict_metrics(
+    value: dict[Any, Any],
+    *,
+    prefix: str,
+    out: dict[str, Any],
+    limit: int,
+) -> None:
+    for key, child in value.items():
+        if _metrics_at_limit(out, limit):
+            break
+        next_prefix = f"{prefix}.{key}" if prefix else str(key)
+        _flatten_json_metrics(child, prefix=next_prefix, out=out, limit=limit)
+
+
+def _flatten_list_metrics(
+    value: list[Any],
+    *,
+    prefix: str,
+    out: dict[str, Any],
+    limit: int,
+) -> None:
+    if _is_simple_primitive_list(value):
+        out[prefix or "list"] = value[:20]
+        return
+    for idx, child in enumerate(value[:12]):
+        if _metrics_at_limit(out, limit):
+            break
+        _flatten_json_metrics(child, prefix=f"{prefix}[{idx}]", out=out, limit=limit)
+
+
+def _flatten_scalar_metric(
+    value: Any,
+    *,
+    prefix: str,
+    out: dict[str, Any],
+) -> None:
+    if prefix:
+        out[prefix] = value
+
+
 def _flatten_json_metrics(
     value: Any, *, prefix: str = "", out: dict[str, Any] | None = None, limit: int = 120
 ) -> dict[str, Any]:
     if out is None:
         out = {}
-    if len(out) >= limit:
+    if _metrics_at_limit(out, limit):
         return out
     if isinstance(value, dict):
-        for key, child in value.items():
-            if len(out) >= limit:
-                break
-            next_prefix = f"{prefix}.{key}" if prefix else str(key)
-            _flatten_json_metrics(child, prefix=next_prefix, out=out, limit=limit)
+        _flatten_dict_metrics(value, prefix=prefix, out=out, limit=limit)
     elif isinstance(value, list):
-        if value and all(
-            isinstance(item, (int, float, str, bool)) or item is None
-            for item in value[:20]
-        ):
-            out[prefix or "list"] = value[:20]
-        else:
-            for idx, child in enumerate(value[:12]):
-                if len(out) >= limit:
-                    break
-                _flatten_json_metrics(
-                    child, prefix=f"{prefix}[{idx}]", out=out, limit=limit
-                )
-    elif isinstance(value, (int, float, str, bool)) or value is None:
-        if prefix:
-            out[prefix] = value
+        _flatten_list_metrics(value, prefix=prefix, out=out, limit=limit)
+    elif _is_scalar_metric_value(value):
+        _flatten_scalar_metric(value, prefix=prefix, out=out)
     return out
 
 
@@ -369,7 +456,7 @@ def _metric_summary_for_file(
 ) -> dict[str, Any] | None:
     suffix = path.suffix.lower()
     try:
-        if suffix == ".json":
+        if suffix == JSON_FILE_SUFFIX:
             data = json.loads(text)
             metrics = _flatten_json_metrics(data)
             return {"source_path": rel_path, "format": "json", "metrics": metrics}
@@ -475,13 +562,27 @@ def _build_evidence_bundle_data(
     }
 
 
+def _markdown_body_without_fences_and_headers(markdown: str) -> str:
+    """Drop fenced code blocks and ATX headings without backtracking-prone regex."""
+    kept: list[str] = []
+    in_fence = False
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence or stripped.startswith("#"):
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
 def _sentence_claims(markdown: str) -> list[str]:
     """Extract candidate claim sentences from markdown.
 
     Uses safe (non-regex-backtracking) detection for signal keywords to avoid ReDoS.
     """
-    body = re.sub(r"```.*?```", " ", markdown, flags=re.S)
-    body = re.sub(r"^#+\s+.*$", " ", body, flags=re.M)
+    body = _markdown_body_without_fences_and_headers(markdown)
     raw_sentences = re.split(r"(?<=[.!?])\s+", body)
     claims: list[str] = []
 
@@ -545,58 +646,107 @@ def _tokenize(value: str) -> set[str]:
     return {tok.lower() for tok in re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]{2,}", value)}
 
 
+def _first_matching_quote(text: str, claim_tokens: set[str]) -> str:
+    for line in text.splitlines():
+        if len(line.strip()) < 20:
+            continue
+        if _tokenize(line) & claim_tokens:
+            return line.strip()[:500]
+    return ""
+
+
+def _claim_token_overlap_score(
+    claim_tokens: set[str], evidence_tokens: set[str]
+) -> float:
+    if not evidence_tokens:
+        return 0.0
+    overlap = claim_tokens & evidence_tokens
+    return len(overlap) / max(1, len(claim_tokens))
+
+
+def _evidence_ref_dict(
+    item: dict[str, Any],
+    *,
+    match_score: float,
+    quote: str,
+    support_level: str | None = None,
+) -> dict[str, Any]:
+    ref: dict[str, Any] = {
+        "path": str(item.get("path") or ""),
+        "source_path": str(item.get("source_path") or ""),
+        "sha256": str(item.get("sha256") or ""),
+        "match_score": round(match_score, 4) if match_score > 0 else 0.0,
+        "quote": quote,
+    }
+    if support_level is not None:
+        ref["support_level"] = support_level
+    return ref
+
+
+def _score_public_file_match(
+    claim_tokens: set[str], item: dict[str, Any]
+) -> tuple[float, str] | None:
+    text = str(item.get("content") or "")
+    haystack = f"{item.get('source_path')} {text[:20000]}"
+    score = _claim_token_overlap_score(claim_tokens, _tokenize(haystack))
+    if score <= 0:
+        return None
+    return score, _first_matching_quote(text, claim_tokens)
+
+
+def _weak_context_evidence_fallback(
+    public_files: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    fallback: list[dict[str, Any]] = []
+    for item in public_files[:2]:
+        content = str(item.get("content") or "")
+        lines = content.splitlines()
+        quote = lines[0][:500] if lines else ""
+        fallback.append(
+            _evidence_ref_dict(
+                item,
+                match_score=0.0,
+                quote=quote,
+                support_level="weak_context",
+            )
+        )
+    return fallback
+
+
 def _claim_evidence_matches(
     claim: str, public_files: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     claim_tokens = _tokenize(claim)
     scored: list[tuple[float, dict[str, Any]]] = []
     for item in public_files:
-        text = str(item.get("content") or "")
-        haystack = f"{item.get('source_path')} {text[:20000]}"
-        evidence_tokens = _tokenize(haystack)
-        if not evidence_tokens:
+        match = _score_public_file_match(claim_tokens, item)
+        if match is None:
             continue
-        overlap = claim_tokens & evidence_tokens
-        score = len(overlap) / max(1, len(claim_tokens))
-        if score <= 0:
-            continue
-        quote = ""
-        for line in text.splitlines():
-            if len(line.strip()) < 20:
-                continue
-            if _tokenize(line) & claim_tokens:
-                quote = line.strip()[:500]
-                break
-        scored.append(
-            (
-                score,
-                {
-                    "path": str(item.get("path") or ""),
-                    "source_path": str(item.get("source_path") or ""),
-                    "sha256": str(item.get("sha256") or ""),
-                    "match_score": round(score, 4),
-                    "quote": quote,
-                },
-            )
-        )
+        score, quote = match
+        scored.append((score, _evidence_ref_dict(item, match_score=score, quote=quote)))
     scored.sort(key=lambda pair: pair[0], reverse=True)
     if scored:
         return [entry for _, entry in scored[:3]]
-    fallback: list[dict[str, Any]] = []
-    for item in public_files[:2]:
-        fallback.append(
-            {
-                "path": str(item.get("path") or ""),
-                "source_path": str(item.get("source_path") or ""),
-                "sha256": str(item.get("sha256") or ""),
-                "match_score": 0.0,
-                "quote": str(item.get("content") or "").splitlines()[0][:500]
-                if str(item.get("content") or "").splitlines()
-                else "",
-                "support_level": "weak_context",
-            }
+    return _weak_context_evidence_fallback(public_files)
+
+
+def _claim_support_metadata(
+    strong: bool, refs: list[dict[str, Any]]
+) -> tuple[str, str]:
+    if strong:
+        return (
+            "supported",
+            "Matched by lexical overlap against synced worker artifacts.",
         )
-    return fallback
+    if refs:
+        return (
+            "weakly_supported",
+            "Linked to synced worker context, but no lexical metric/key match was found.",
+        )
+    return (
+        "unsupported",
+        "No matching synced source artifact found; claim requires manual review.",
+    )
 
 
 def _build_claim_ledger_data(
@@ -615,27 +765,23 @@ def _build_claim_ledger_data(
     for idx, claim in enumerate(_sentence_claims(markdown), start=1):
         refs = _claim_evidence_matches(claim, public_files)
         strong = any(float(ref.get("match_score") or 0) > 0 for ref in refs)
+        support_status, notes = _claim_support_metadata(strong, refs)
         claims.append(
             {
                 "id": f"C{idx}",
                 "claim": claim,
-                "support_status": "supported"
-                if strong
-                else ("weakly_supported" if refs else "unsupported"),
+                "support_status": support_status,
                 "evidence_refs": refs,
-                "notes": "Matched by lexical overlap against synced worker artifacts."
-                if strong
-                else (
-                    "Linked to synced worker context, but no lexical metric/key match was found."
-                    if refs
-                    else "No matching synced source artifact found; claim requires manual review."
-                ),
+                "notes": notes,
             }
         )
+    all_supported = claims and all(
+        item["support_status"] == "supported" for item in claims
+    )
     return {
         "schema_version": "claim_ledger.v2",
         "ledger_status": "claims_reference_evidence"
-        if claims and all(item["support_status"] == "supported" for item in claims)
+        if all_supported
         else "claims_require_review",
         "paper_id": paper.paper_id,
         "project_id": paper.project_id,
@@ -711,96 +857,142 @@ def deterministic_paper_files(
     }
 
 
+_PROJECT_LEVEL_EVIDENCE_RELS = (
+    "run_notes.md",
+    ".enoch/project_decision.json",
+    ".enoch/metrics.json",
+    ".omx/project_decision.json",
+    ".omx/metrics.json",
+    "logs/main_run.log",
+)
+_PREFERRED_PAPER_ARTIFACT_NAMES = frozenset(
+    {
+        "evidence_bundle.json",
+        "claim_ledger.json",
+        "paper.md",
+        "paper_manifest.json",
+        "README.md",
+    }
+)
+_RESULT_SUMMARY_JSON_NAMES = frozenset(
+    {"hot_cold_sim_results.json", "smoke.json", "hotcold_probe.json"}
+)
+
+
+def _try_append_context_snippet(
+    project_dir: Path,
+    rel: str | Path,
+    *,
+    seen: set[Path],
+    snippets: list[str],
+    limit: int = 16000,
+) -> None:
+    path = (project_dir / rel).resolve()
+    try:
+        display = path.relative_to(project_dir)
+    except ValueError:
+        return
+    if path in seen or not _path_exists_quiet(path) or not _path_is_file_quiet(path):
+        return
+    seen.add(path)
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")[:limit]
+    except (OSError, RuntimeError, ValueError):
+        return
+    snippets.append(f"## {display}\n{_redact_public_evidence_text(text)}")
+
+
+def _append_project_level_evidence(
+    project_dir: Path, *, seen: set[Path], snippets: list[str]
+) -> None:
+    for rel in _PROJECT_LEVEL_EVIDENCE_RELS:
+        _try_append_context_snippet(
+            project_dir, rel, seen=seen, snippets=snippets, limit=24000
+        )
+
+
+def _append_paper_artifacts(
+    project_dir: Path, *, seen: set[Path], snippets: list[str]
+) -> None:
+    papers_dir = project_dir / "papers"
+    if not _path_exists_quiet(papers_dir):
+        return
+    try:
+        for p in sorted(papers_dir.rglob("*")):
+            if _path_is_file_quiet(p) and p.name in _PREFERRED_PAPER_ARTIFACT_NAMES:
+                _try_append_context_snippet(
+                    project_dir,
+                    p.relative_to(project_dir),
+                    seen=seen,
+                    snippets=snippets,
+                    limit=22000,
+                )
+    except (OSError, RuntimeError, ValueError):
+        pass
+
+
+def _is_result_summary_candidate(path: Path) -> bool:
+    name = path.name.lower()
+    if name.endswith(".log") or "trace" in name:
+        return False
+    if name.endswith(("summary.csv", "summary.json")):
+        return True
+    if name in _RESULT_SUMMARY_JSON_NAMES:
+        return True
+    return "sweep" in name and name.endswith(JSON_FILE_SUFFIX)
+
+
+def _append_result_summaries(
+    project_dir: Path, *, seen: set[Path], snippets: list[str]
+) -> None:
+    results_dir = project_dir / "results"
+    if not _path_exists_quiet(results_dir):
+        return
+    try:
+        for p in sorted(results_dir.rglob("*")):
+            if not _path_is_file_quiet(p) or not _is_result_summary_candidate(p):
+                continue
+            _try_append_context_snippet(
+                project_dir,
+                p.relative_to(project_dir),
+                seen=seen,
+                snippets=snippets,
+                limit=18000,
+            )
+    except (OSError, RuntimeError, ValueError):
+        pass
+
+
 def _candidate_context(
     config: GateConfig, candidate: dict[str, Any], paper: PaperRecord
 ) -> str:
-    """Gather compact, high-signal local evidence for the paper writer.
-
-    Refactored for lower complexity (was C901=16). Evidence is collected in
-    three focused helpers so the orchestrator stays small and readable.
-    """
+    """Gather compact, high-signal local evidence for the paper writer."""
     project_dir = _resolve_project_dir(config, candidate)
     snippets: list[str] = []
     seen: set[Path] = set()
-
-    def add_file(rel: str | Path, *, limit: int = 16000) -> None:
-        path = (project_dir / rel).resolve()
-        try:
-            display = path.relative_to(project_dir)
-        except ValueError:
-            return
-        if (
-            path in seen
-            or not _path_exists_quiet(path)
-            or not _path_is_file_quiet(path)
-        ):
-            return
-        seen.add(path)
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")[:limit]
-        except (OSError, RuntimeError, ValueError):
-            return
-        snippets.append(f"## {display}\n{_redact_public_evidence_text(text)}")
-
-    def _add_project_level_evidence() -> None:
-        for rel in (
-            "run_notes.md",
-            ".enoch/project_decision.json",
-            ".enoch/metrics.json",
-            ".omx/project_decision.json",
-            ".omx/metrics.json",
-            "logs/main_run.log",
-        ):
-            add_file(rel, limit=24000)
-
-    def _add_paper_artifacts() -> None:
-        papers_dir = project_dir / "papers"
-        if not _path_exists_quiet(papers_dir):
-            return
-        preferred = {
-            "evidence_bundle.json",
-            "claim_ledger.json",
-            "paper.md",
-            "paper_manifest.json",
-            "README.md",
-        }
-        try:
-            for p in sorted(papers_dir.rglob("*")):
-                if _path_is_file_quiet(p) and p.name in preferred:
-                    add_file(p.relative_to(project_dir), limit=22000)
-        except (OSError, RuntimeError, ValueError):
-            pass
-
-    def _add_result_summaries() -> None:
-        results_dir = project_dir / "results"
-        if not _path_exists_quiet(results_dir):
-            return
-        try:
-            for p in sorted(results_dir.rglob("*")):
-                if not _path_is_file_quiet(p):
-                    continue
-                name = p.name.lower()
-                if name.endswith(".log") or "trace" in name:
-                    continue
-                if (
-                    name.endswith("summary.csv")
-                    or name.endswith("summary.json")
-                    or name
-                    in {"hot_cold_sim_results.json", "smoke.json", "hotcold_probe.json"}
-                    or ("sweep" in name and name.endswith(".json"))
-                ):
-                    add_file(p.relative_to(project_dir), limit=18000)
-        except (OSError, RuntimeError, ValueError):
-            pass
-
-    _add_project_level_evidence()
-    _add_paper_artifacts()
-    _add_result_summaries()
-
+    _append_project_level_evidence(project_dir, seen=seen, snippets=snippets)
+    _append_paper_artifacts(project_dir, seen=seen, snippets=snippets)
+    _append_result_summaries(project_dir, seen=seen, snippets=snippets)
     return (
         "\n\n".join(snippets)
         or "No local run artifacts were found; write a cautious review-required draft from the queue metadata only."
     )
+
+
+def _text_from_content_part(item: Any) -> str | None:
+    if not isinstance(item, dict):
+        return None
+    text = item.get("text") or item.get("content")
+    return text.strip() if isinstance(text, str) else None
+
+
+def _text_from_message_content(content: Any) -> str | None:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return None
+    parts = [part for item in content if (part := _text_from_content_part(item))]
+    return "\n".join(parts).strip() if parts else None
 
 
 def _extract_chat_content(response: dict[str, Any]) -> str:
@@ -810,17 +1002,9 @@ def _extract_chat_content(response: dict[str, Any]) -> str:
     first = choices[0]
     message = first.get("message") if isinstance(first, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        parts = []
-        for item in content:
-            if isinstance(item, dict):
-                text = item.get("text") or item.get("content")
-                if isinstance(text, str):
-                    parts.append(text)
-        if parts:
-            return "\n".join(parts).strip()
+    text = _text_from_message_content(content)
+    if text:
+        return text
     raise ValueError("missing text content in model response")
 
 
@@ -830,7 +1014,6 @@ def synthetic_glm_markdown(
     api_key = config.paper_writer_api_key or os.environ.get("SYNTHETIC_API_KEY", "")
     if not api_key:
         raise RuntimeError("Synthetic.new API key is not configured")
-    title = str(candidate.get("project_name") or paper.project_id).strip()
     prompt = f"""Write a publication-quality technical paper draft in Markdown for this research result.
 
 Requirements:
@@ -964,8 +1147,6 @@ def write_paper_artifacts(
             status_code=400,
             detail=f"unsupported paper_writer_provider: {config.paper_writer_provider}",
         )
-    if provider in {"deterministic", "template"}:
-        pass
     markdown = files.get(paper.draft_markdown_path, "")
     evidence_bundle = _build_evidence_bundle_data(
         project_dir, candidate, paper, writer_provider=meta
@@ -1009,15 +1190,7 @@ def write_paper_artifacts(
     return meta
 
 
-def backfill_paper_evidence_artifacts(
-    config: GateConfig,
-    candidate: dict[str, Any],
-    paper: PaperRecord,
-    *,
-    force: bool,
-    writer_note: str = "evidence_backfill",
-) -> dict[str, Any]:
-    project_dir = _resolve_project_dir(config, candidate)
+def _read_paper_markdown_for_backfill(project_dir: Path, paper: PaperRecord) -> str:
     try:
         paper_path = (project_dir / paper.draft_markdown_path).resolve()
         paper_path.relative_to(project_dir)
@@ -1032,12 +1205,53 @@ def backfill_paper_evidence_artifacts(
             detail=f"paper markdown not found: {paper.draft_markdown_path}",
         )
     try:
-        markdown = paper_path.read_text(encoding="utf-8", errors="replace")
+        return paper_path.read_text(encoding="utf-8", errors="replace")
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(
             status_code=400,
             detail=f"paper markdown could not be read: {paper.draft_markdown_path}",
         ) from exc
+
+
+def _load_paper_manifest_for_backfill(
+    project_dir: Path, paper: PaperRecord
+) -> dict[str, Any]:
+    manifest: dict[str, Any] = {}
+    try:
+        manifest_path = (project_dir / paper.manifest_path).resolve()
+        manifest_path.relative_to(project_dir)
+        if _path_exists_for_paper(manifest_path, label="paper manifest"):
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                manifest = {}
+            except (OSError, RuntimeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"paper manifest could not be read: {paper.manifest_path}",
+                ) from exc
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"paper path escapes project dir: {paper.manifest_path}",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        manifest = {}
+    return manifest
+
+
+def backfill_paper_evidence_artifacts(
+    config: GateConfig,
+    candidate: dict[str, Any],
+    paper: PaperRecord,
+    *,
+    force: bool,
+    writer_note: str = "evidence_backfill",
+) -> dict[str, Any]:
+    project_dir = _resolve_project_dir(config, candidate)
+    markdown = _read_paper_markdown_for_backfill(project_dir, paper)
     provider_meta = {
         "provider": writer_note,
         "model": "deterministic_evidence_extractor_v1",
@@ -1067,29 +1281,7 @@ def backfill_paper_evidence_artifacts(
         paper.claim_ledger_path: json.dumps(claim_ledger, indent=2, sort_keys=True)
         + "\n",
     }
-    manifest: dict[str, Any] = {}
-    try:
-        manifest_path = (project_dir / paper.manifest_path).resolve()
-        manifest_path.relative_to(project_dir)
-        if _path_exists_for_paper(manifest_path, label="paper manifest"):
-            try:
-                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                manifest = {}
-            except (OSError, RuntimeError, ValueError) as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"paper manifest could not be read: {paper.manifest_path}",
-                ) from exc
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"paper path escapes project dir: {paper.manifest_path}",
-        ) from exc
-    except HTTPException:
-        raise
-    except Exception:
-        manifest = {}
+    manifest = _load_paper_manifest_for_backfill(project_dir, paper)
     manifest.update(
         {
             "paper_id": paper.paper_id,

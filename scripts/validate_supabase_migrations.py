@@ -159,7 +159,7 @@ def seed_native_ideas_backfill_fixture(container: str) -> None:
     )
 
 
-def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
+def _ensure_supabase_roles(container: str) -> None:
     psql(
         container,
         """
@@ -177,11 +177,16 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         end $$;
         """,
     )
+
+
+def _apply_migrations(container: str, migrations: list[Path]) -> None:
     for migration in migrations:
         if migration.name.endswith("_enoch_native_ideas.sql"):
             seed_native_ideas_backfill_fixture(container)
         psql_file(container, migration)
 
+
+def _seed_post_migration_fixtures(container: str) -> None:
     psql(
         container,
         """
@@ -254,7 +259,9 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         """,
     )
 
-    checks = fetch_json(
+
+def _fetch_validation_checks(container: str) -> dict[str, Any]:
+    return fetch_json(
         container,
         """
         select jsonb_build_object(
@@ -404,14 +411,15 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         """,
     )
 
-    state_contract = validate_state_contract()
-    checks["state_contract"] = state_contract
 
-    failures: list[str] = []
+def _check_state_contract(failures: list[str], state_contract: dict[str, Any]) -> None:
     if not state_contract.get("ok"):
         failures.append(
             f"state contract validation failed: {state_contract.get('failures')}"
         )
+
+
+def _check_schema_counts(failures: list[str], checks: dict[str, Any]) -> None:
     if checks["enoch_base_tables"] < 15:
         failures.append(
             "expected at least 15 enoch base tables including Enoch core Supabase tables"
@@ -422,7 +430,11 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         )
     if checks["public_base_tables"] != 0:
         failures.append("expected 0 public base tables")
-    dashboard_counts = checks["operator_dashboard_counts"]
+
+
+def _check_dashboard_counts(
+    failures: list[str], dashboard_counts: dict[str, Any]
+) -> None:
     if dashboard_counts["write_needed"] != 1:
         failures.append("expected fixture write_needed count to be 1")
     if dashboard_counts["raw_completed_no_paper_candidates"] != 2:
@@ -437,6 +449,9 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append("expected fixture publication-ready total count to be 1")
     if dashboard_counts["corpus_imported"] != 1:
         failures.append("expected fixture corpus-imported count to be 1")
+
+
+def _check_rls_and_search_path(failures: list[str], checks: dict[str, Any]) -> None:
     if checks["rls_disabled_tables"]:
         failures.append(f"RLS disabled tables: {checks['rls_disabled_tables']}")
     if checks["rls_tables_without_policies"]:
@@ -445,7 +460,11 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         )
     if "search_path=enoch, pg_temp" not in (checks["set_updated_at_search_path"] or []):
         failures.append("set_updated_at must pin search_path to enoch, pg_temp")
-    native_ideas = checks["native_ideas_contract"]
+
+
+def _check_native_ideas_contract(
+    failures: list[str], native_ideas: dict[str, Any]
+) -> None:
     rich_idea = native_ideas["rich_idea"] or {}
     project_snapshot = native_ideas["project_snapshot"] or {}
     if rich_idea.get("title") != "Fixture Rich Idea":
@@ -464,7 +483,9 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append("native ideas migration did not backfill project-only rows")
     if native_ideas.get("workbench_rows") != 2:
         failures.append("idea_workbench must expose both native ideas fixture rows")
-    enoch_core = checks["enoch_core_contract"] or {}
+
+
+def _check_enoch_core_contract(failures: list[str], enoch_core: dict[str, Any]) -> None:
     if enoch_core.get("event_count") != 1 or enoch_core.get("snapshot_count") != 1:
         failures.append(
             "Enoch core Supabase tables must accept one shadow event and one snapshot"
@@ -473,7 +494,11 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         failures.append(
             "Enoch core Supabase snapshot payload did not preserve queue rows"
         )
-    research_facility = checks.get("research_facility_contract") or {}
+
+
+def _check_research_facility_contract(
+    failures: list[str], research_facility: dict[str, Any]
+) -> None:
     if research_facility.get("source_tables_present") != 4:
         failures.append("Research Facility must create all four ledgers")
     if not research_facility.get("workbench_present"):
@@ -508,6 +533,32 @@ def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
         )
     if not research_facility.get("security_invoker"):
         failures.append("Research Facility workbench must use security_invoker")
+
+
+def _collect_validation_failures(
+    checks: dict[str, Any], state_contract: dict[str, Any]
+) -> list[str]:
+    failures: list[str] = []
+    _check_state_contract(failures, state_contract)
+    _check_schema_counts(failures, checks)
+    _check_dashboard_counts(failures, checks["operator_dashboard_counts"])
+    _check_rls_and_search_path(failures, checks)
+    _check_native_ideas_contract(failures, checks["native_ideas_contract"])
+    _check_enoch_core_contract(failures, checks["enoch_core_contract"] or {})
+    _check_research_facility_contract(
+        failures, checks.get("research_facility_contract") or {}
+    )
+    return failures
+
+
+def validate(container: str, migrations: list[Path]) -> dict[str, Any]:
+    _ensure_supabase_roles(container)
+    _apply_migrations(container, migrations)
+    _seed_post_migration_fixtures(container)
+    checks = _fetch_validation_checks(container)
+    state_contract = validate_state_contract()
+    checks["state_contract"] = state_contract
+    failures = _collect_validation_failures(checks, state_contract)
 
     return {
         "ok": not failures,

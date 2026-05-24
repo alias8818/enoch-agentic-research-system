@@ -1,3 +1,4 @@
+import { displayText } from './displayText'
 import { dashboardV2Href } from './routes'
 
 export type TableColumnKind = 'primary' | 'id' | 'text' | 'age' | 'status' | 'link'
@@ -12,7 +13,7 @@ export type TableColumnSpec = {
 function text(value: unknown): string {
   if (value === null || value === undefined || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  return String(value)
+  return displayText(value, '—')
 }
 
 function firstValue(...values: unknown[]): unknown {
@@ -39,7 +40,7 @@ export function formatAgeLabel(row: Record<string, unknown>): string {
 }
 
 export function queueDispatchReadiness(row: Record<string, unknown>): { label: string; tone: 'ready' | 'blocked' | 'neutral' } {
-  const status = String(row.status || row.queue_status || '').toLowerCase()
+  const status = displayText(firstValue(row.status, row.queue_status)).toLowerCase()
   const blocked = text(firstValue(row.blocked_reason, row.decision_summary))
   if (row.manual_review_required === true) return { label: 'Needs operator review', tone: 'blocked' }
   if (blocked !== '—') return { label: blocked, tone: 'blocked' }
@@ -74,7 +75,7 @@ export function paperPipelineStatus(row: Record<string, unknown>): string {
 }
 
 export function eventEntityLink(row: Record<string, unknown>): { label: string; href?: string } {
-  const entityType = String(row.entity_type || '').toLowerCase()
+  const entityType = displayText(row.entity_type).toLowerCase()
   const projectId = text(firstValue(row.project_id, entityType.includes('project') ? row.entity_id : null))
   const runId = text(firstValue(row.run_id, entityType.includes('run') ? row.entity_id : null))
   const paperId = text(firstValue(row.paper_id, entityType.includes('paper') ? row.entity_id : null))
@@ -176,27 +177,39 @@ export function simpleTableColumns(keys: string[], overrides: Partial<Record<str
   }))
 }
 
+type DashboardEntity = 'project' | 'run' | 'paper'
+
+function entityDashboardHref(entity: DashboardEntity, id: unknown): string | undefined {
+  if (!id) return undefined
+  return dashboardV2Href(`#${entity}:${encodeURIComponent(displayText(id))}`)
+}
+
+const columnKeyEntityField: Partial<
+  Record<string, { field: 'project_id' | 'run_id' | 'paper_id'; entity: DashboardEntity }>
+> = {
+  project_id: { field: 'project_id', entity: 'project' },
+  run_id: { field: 'run_id', entity: 'run' },
+  paper_id: { field: 'paper_id', entity: 'paper' },
+}
+
+function idColumnLinkHref(row: Record<string, unknown>, columnKey: string): string | undefined {
+  const mapping = columnKeyEntityField[columnKey]
+  if (!mapping) return undefined
+  return entityDashboardHref(mapping.entity, firstValue(row[mapping.field]))
+}
+
+function primaryColumnLinkHref(row: Record<string, unknown>): string | undefined {
+  return (
+    entityDashboardHref('project', firstValue(row.project_id))
+    ?? entityDashboardHref('run', firstValue(row.run_id))
+    ?? entityDashboardHref('paper', firstValue(row.paper_id))
+  )
+}
+
 export function columnLinkHref(row: Record<string, unknown>, column: TableColumnSpec): string | undefined {
   if (column.key === 'entity_link') return eventEntityLink(row).href
-  if (column.key === 'project_id') {
-    const id = firstValue(row.project_id)
-    return id ? dashboardV2Href(`#project:${encodeURIComponent(String(id))}`) : undefined
-  }
-  if (column.key === 'run_id') {
-    const id = firstValue(row.run_id)
-    return id ? dashboardV2Href(`#run:${encodeURIComponent(String(id))}`) : undefined
-  }
-  if (column.key === 'paper_id') {
-    const id = firstValue(row.paper_id)
-    return id ? dashboardV2Href(`#paper:${encodeURIComponent(String(id))}`) : undefined
-  }
-  if (column.key === 'primary' || column.kind === 'primary') {
-    const projectId = firstValue(row.project_id)
-    const runId = firstValue(row.run_id)
-    const paperId = firstValue(row.paper_id)
-    if (projectId) return dashboardV2Href(`#project:${encodeURIComponent(String(projectId))}`)
-    if (runId) return dashboardV2Href(`#run:${encodeURIComponent(String(runId))}`)
-    if (paperId) return dashboardV2Href(`#paper:${encodeURIComponent(String(paperId))}`)
-  }
+  const idHref = idColumnLinkHref(row, column.key)
+  if (idHref) return idHref
+  if (column.key === 'primary' || column.kind === 'primary') return primaryColumnLinkHref(row)
   return undefined
 }

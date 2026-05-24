@@ -761,3 +761,516 @@ def test_research_default_machine_is_consistent_and_no_longer_hardcoded_ip() -> 
     assert "ENOCH_RESEARCH_DEFAULT_MACHINE', '192.168.1.77'" not in router_source
     # The new canonical placeholder must be present in the research paths
     assert router_source.count("research-facility-node") >= 6
+
+
+def test_deploy_queue_alert_check_reasons_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md deterministic validator for top CRITICAL S1192 duplication in deploy scripts.
+
+    The repeated "reason" string literals in enoch_queue_alert_check.py must be
+    defined exactly once (as module constants) after extraction. This directly
+    targets the current top duplication findings (multiple occurrences of the
+    same alert/dispatch/active reasons).
+    """
+    script_source = (ROOT / "deploy" / "enoch_queue_alert_check.py").read_text(
+        encoding="utf-8"
+    )
+
+    # Each of these reasons currently appears 3+ times; must be 1 after const extraction
+    for reason in [
+        "alert findings present; operator reconciliation required first",
+        "dispatch not safe",
+        "active worker lane present",
+    ]:
+        count = script_source.count(f'"{reason}"')
+        assert count == 1, (
+            f"reason {reason!r} still duplicated (count={count}); extract to const"
+        )
+
+
+def test_deploy_research_autopilot_missing_database_url_centralized() -> None:
+    """AGENTS.md validator for current top S1192 (enoch_research_autopilot.py:204).
+
+    "missing database URL" (flagged in latest Sonar top duplication) must appear
+    exactly once after const extraction.
+    """
+    script_source = (ROOT / "deploy" / "enoch_research_autopilot.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "missing database URL"
+    count = script_source.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in autopilot (count={count}); extract to const"
+    )
+
+
+def test_app_py_project_directory_label_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top S1192 (enoch_control_plane/app.py:2182).
+
+    The literal "project directory" (used as label in _checked_exists/_checked_is_dir)
+    is duplicated 7 times per Sonar. Must be 1 after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "app.py").read_text(encoding="utf-8")
+    lit = "project directory"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in app.py (count={count}); extract to const"
+    )
+
+
+def test_read_models_missing_project_decision_artifact_centralized() -> None:
+    """AGENTS.md validator for current top S1192 (read_models.py:303).
+
+    "missing project decision artifact" (flagged in latest Sonar top duplication, 4x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "read_models.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "missing project decision artifact"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in read_models (count={count}); extract to const"
+    )
+
+
+def test_router_synthetic_base_url_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top S1192 (router.py:280).
+
+    "https://synthetic.int.exe.xyz" (flagged in latest Sonar top duplication, 4x in
+    _resolve_research_cycle_params getenv defaults and f-string fallback)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "https://synthetic.int.exe.xyz"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
+def test_router_worker_preflight_failed_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top S1192 in router.py (line 2365).
+
+    "worker preflight failed" (flagged in latest Sonar top duplication, 3x in
+    error reasons and messages) must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "worker preflight failed"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
+def test_router_research_facility_ledger_supabase_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (router.py:146).
+
+    "Research Facility ledger writes require the Supabase control-plane store"
+    (3x in _HTTP_501_SUPABASE_LEDGER and HTTPException detail paths) must appear
+    exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "Research Facility ledger writes require the Supabase control-plane store"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
+def test_router_paper_review_draft_rewritten_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top remaining S1192 in router.py (line 5092).
+
+    "paper_review.draft_rewritten" (flagged in latest Sonar top duplication, 3x in
+    comparisons and event_type strings) must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "paper_review.draft_rewritten"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
+def test_router_control_plane_db_worker_preflight_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 in router.py (~4922).
+
+    "control_plane_db+worker_preflight" (5x in DashboardFinding source fields and
+    conflict checks) must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "control_plane_db+worker_preflight"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
+def test_router_supabase_native_ideas_workbench_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 in router.py (ideas workbench authority).
+
+    "Supabase-native ideas workbench" (3x in authority and db_freshness paths) must
+    appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "Supabase-native ideas workbench"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
+def test_router_publication_automation_item_not_found_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 in router.py (line 845).
+
+    "publication automation item not found" (5x in PublicationAutomationNotFoundError
+    and HTTPException detail paths) must appear exactly once after const extraction.
+    """
+    src = (ROOT / "enoch_control_plane" / "control_plane" / "router.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "publication automation item not found"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in router (count={count}); extract to const"
+    )
+
+
+def test_state_contract_source_provenance_status_only_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (state_contract.py:670).
+
+    "source/provenance status only" (flagged in latest Sonar top duplication, 5x)
+    must appear exactly once after const extraction.
+    """
+    src = (
+        ROOT / "enoch_control_plane" / "control_plane" / "state_contract.py"
+    ).read_text(encoding="utf-8")
+    lit = "source/provenance status only"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in state_contract (count={count}); extract to const"
+    )
+
+
+def test_supabase_store_sql_status_count_query_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (supabase_store.py:744).
+
+    The SQL literal "select status, count(*) as count from queue_items group by status"
+    (flagged in latest Sonar top duplication, 3x) must appear exactly once after const extraction.
+    """
+    src = (
+        ROOT / "enoch_control_plane" / "control_plane" / "supabase_store.py"
+    ).read_text(encoding="utf-8")
+    lit = "select status, count(*) as count from queue_items group by status"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in supabase_store (count={count}); extract to const"
+    )
+
+
+def test_supabase_store_queue_status_equals_param_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 (supabase_store.py:1598, issue 4dc0fd65).
+
+    "q.status = %s" (flagged 5x) must appear exactly once after const extraction.
+    """
+    src = (
+        ROOT / "enoch_control_plane" / "control_plane" / "supabase_store.py"
+    ).read_text(encoding="utf-8")
+    lit = "q.status = %s"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in supabase_store (count={count}); extract to const"
+    )
+
+
+def test_backfill_project_decision_json_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for current top S1192 (backfill_control_plane_to_supabase.py:289).
+
+    "project_decision.json" (flagged in latest Sonar top duplication, 5x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "backfill_control_plane_to_supabase.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "project_decision.json"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in backfill (count={count}); extract to const"
+    )
+
+
+def test_generate_state_vocabulary_plan_queue_items_status_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (generate_state_vocabulary_plan.py:41).
+
+    "queue_items.status" (flagged in latest Sonar top duplication, 13x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "generate_state_vocabulary_plan.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "queue_items.status"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
+    )
+
+
+def test_generate_state_vocabulary_plan_project_decisions_decision_gate_state_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in generate_state_vocabulary_plan.py (line 46).
+
+    "project_decisions.decision_gate_state" (flagged in latest Sonar top duplication, 7x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "generate_state_vocabulary_plan.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "project_decisions.decision_gate_state"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
+    )
+
+
+def test_generate_state_vocabulary_plan_runs_state_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in generate_state_vocabulary_plan.py (line 81).
+
+    "runs.state" (flagged in latest Sonar top duplication, ~20x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "generate_state_vocabulary_plan.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "runs.state"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
+    )
+
+
+def test_generate_state_vocabulary_plan_papers_paper_status_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in generate_state_vocabulary_plan.py (line 83).
+
+    "papers.paper_status" (flagged in latest Sonar top duplication, 10x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "generate_state_vocabulary_plan.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "papers.paper_status"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
+    )
+
+
+def test_generate_state_vocabulary_plan_publication_automation_items_automation_status_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in generate_state_vocabulary_plan.py (line 88).
+
+    "publication_automation_items.automation_status" (flagged in latest Sonar top duplication, 12x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "generate_state_vocabulary_plan.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "publication_automation_items.automation_status"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
+    )
+
+
+def test_generate_state_vocabulary_plan_state_historical_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in generate_state_vocabulary_plan.py (line 81).
+
+    "historical" target state (flagged in latest Sonar top duplication, 8x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "generate_state_vocabulary_plan.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "historical"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in vocabulary plan (count={count}); extract to const"
+    )
+
+
+def test_push_public_release_bundle_public_release_integrity_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (push_public_release_bundle.py:457).
+
+    "Public release integrity" (flagged in latest Sonar top duplication, 4x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "push_public_release_bundle.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "Public release integrity"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in push_public_release_bundle (count={count}); extract to const"
+    )
+
+
+def test_validate_supabase_readonly_adapter_draft_md_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top S1192 (validate_supabase_readonly_adapter.py:228).
+
+    "draft.md" (flagged in latest Sonar top duplication, 3x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "validate_supabase_readonly_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "draft.md"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
+    )
+
+
+def test_validate_supabase_readonly_adapter_draft_tex_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in validate_supabase_readonly_adapter.py (line 233).
+
+    "draft.tex" (flagged in latest Sonar top duplication, 3x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "validate_supabase_readonly_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "draft.tex"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
+    )
+
+
+def test_validate_supabase_readonly_adapter_evidence_json_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in validate_supabase_readonly_adapter.py (line 234).
+
+    "evidence.json" (flagged in latest Sonar top duplication, 3x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "validate_supabase_readonly_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "evidence.json"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
+    )
+
+
+def test_validate_supabase_readonly_adapter_claims_json_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in validate_supabase_readonly_adapter.py (line 235).
+
+    "claims.json" (flagged in latest Sonar top duplication, 3x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "validate_supabase_readonly_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "claims.json"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
+    )
+
+
+def test_validate_supabase_readonly_adapter_manifest_json_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for current top remaining S1192 in validate_supabase_readonly_adapter.py (line 236).
+
+    "manifest.json" (flagged in latest Sonar top duplication, 3x)
+    must appear exactly once after const extraction.
+    """
+    src = (ROOT / "scripts" / "validate_supabase_readonly_adapter.py").read_text(
+        encoding="utf-8"
+    )
+    lit = "manifest.json"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in validate_supabase_readonly_adapter (count={count}); extract to const"
+    )
+
+
+def test_research_facility_sql_guard_select_centralized_no_s1192_duplication() -> None:
+    """AGENTS.md validator for S1192 (research_facility.py:792).
+
+    "    select 1" (sql_raise_if_exists guard fragment in emit_sql) must appear
+    exactly once after const extraction to _SQL_GUARD_EXISTS_SELECT.
+    """
+    src = (ROOT / "scripts" / "research_facility.py").read_text(encoding="utf-8")
+    lit = "    select 1"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in research_facility (count={count}); extract to const"
+    )
+    assert src.count("_SQL_GUARD_EXISTS_SELECT") >= 7, (
+        "emit_sql guards must reference _SQL_GUARD_EXISTS_SELECT"
+    )
+
+
+def test_research_facility_sql_guard_and_close_centralized_no_s1192_duplication() -> (
+    None
+):
+    """AGENTS.md validator for S1192 (de91349f, research_facility.py emit_sql).
+
+    "      )" (closing paren for identity-conflict guards) must appear exactly
+    once after const extraction to _SQL_GUARD_AND_CLOSE.
+    """
+    src = (ROOT / "scripts" / "research_facility.py").read_text(encoding="utf-8")
+    lit = "      )"
+    count = src.count(f'"{lit}"')
+    assert count == 1, (
+        f"{lit!r} still duplicated in research_facility (count={count}); extract to const"
+    )
+    assert src.count("_SQL_GUARD_AND_CLOSE") >= 7, (
+        "emit_sql guards must reference _SQL_GUARD_AND_CLOSE"
+    )

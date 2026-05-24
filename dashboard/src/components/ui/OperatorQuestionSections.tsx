@@ -1,5 +1,5 @@
 import type { DetailOperatorSummary } from '../../detailOperatorSummary'
-export function OperatorQuestionSections({ sections, recentActivity, actionNeeded }: { sections: DetailOperatorSummary['sections']; recentActivity: string | null; actionNeeded: string | null }) {
+export function OperatorQuestionSections({ sections, recentActivity, actionNeeded }: Readonly<{ sections: DetailOperatorSummary['sections']; recentActivity: string | null; actionNeeded: string | null }>) {
   if (!sections.length && !recentActivity && !actionNeeded) return null
   return (
     <section className="detail-operator-questions" aria-label="Operator questions">

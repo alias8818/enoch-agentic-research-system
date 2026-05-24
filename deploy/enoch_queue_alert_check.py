@@ -10,6 +10,15 @@ import sys
 from urllib.parse import quote
 from urllib import error, request
 
+# Centralized skip reasons (eliminates S1192 string duplication across the
+# alert/dispatch decision dicts at module and runtime level).
+ALERT_FINDINGS_PRESENT_REASON = (
+    "alert findings present; operator reconciliation required first"
+)
+DISPATCH_NOT_SAFE_REASON = "dispatch not safe"
+ACTIVE_WORKER_LANE_PRESENT_REASON = "active worker lane present"
+QUEUE_PUMP_DISABLED_REASON = "queue pump disabled"
+
 
 def _load_config() -> dict:
     path = Path(
@@ -25,7 +34,7 @@ def _base_url(config: dict) -> str:
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
-    return f"http://{host}:{int(config.get('listen_port') or 8787)}"
+    return f"https://{host}:{int(config.get('listen_port') or 8787)}"
 
 
 def _get_json(base_url: str, path: str, token: str) -> dict:
@@ -77,6 +86,231 @@ def _only_no_candidate_blocker(status: dict) -> bool:
     return blockers == ["no queued dispatch candidate"]
 
 
+def _skipped(reason: str, **extra: object) -> dict:
+    return {"action": "skipped", "reason": reason, **extra}
+
+
+def _skip_dispatch_followup_bundle(
+    reason: str, *, blockers: list | None = None
+) -> tuple[dict, dict, dict]:
+    extra = {"blockers": blockers} if blockers is not None else {}
+    dispatch = _skipped(reason, **extra)
+    followup_dry_run = _skipped(reason, **extra)
+    followup_launch = _skipped(reason, **extra)
+    return dispatch, followup_dry_run, followup_launch
+
+
+def _run_paper_draft_step(
+    base_url: str, token: str, paper_draft_before_dispatch_enabled: bool
+) -> dict:
+    if not paper_draft_before_dispatch_enabled:
+        return _skipped("queue pump paper drafting disabled")
+    try:
+        return _post_json(
+            base_url,
+            "/control/papers/draft-next",
+            token,
+            {
+                "dry_run": False,
+                "requested_by": "systemd:queue-pump-before-dispatch",
+            },
+        )
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        return {
+            "action": "error",
+            "reason": f"paper draft-next failed before dispatch: {type(exc).__name__}: {exc}",
+        }
+
+
+def _publication_rewrite_after_draft(
+    base_url: str, token: str, paper_draft: dict
+) -> tuple[dict, dict]:
+    paper_id = str((paper_draft.get("paper") or {}).get("paper_id") or "")
+    publication_rewrite = _post_json(
+        base_url,
+        f"/control/api/publication-automation/{quote(paper_id, safe='')}/rewrite-draft",
+        token,
+        {
+            "idempotency_key": f"paper-publication-pipeline:{paper_id or 'unknown'}",
+            "requested_by": "systemd:queue-pump-before-dispatch",
+            "force": True,
+        },
+        timeout=int(os.environ.get("ENOCH_PAPER_REWRITE_TIMEOUT_SEC", "900")),
+    )
+    dispatch = _skipped("paper drafted before dispatch")
+    return publication_rewrite, dispatch
+
+
+def _run_followup_launch_chain(base_url: str, token: str) -> tuple[dict, dict, dict]:
+    followup_dry_run = _post_json(
+        base_url,
+        "/control/api/v1/followups/launch-next",
+        token,
+        {
+            "dry_run": True,
+            "requested_by": "systemd:queue-pump-followup",
+            "max_followup_depth": 4,
+        },
+    )
+    if followup_dry_run.get("action") != "dry_run_followup":
+        followup_launch = _skipped(
+            "no follow-up candidate selected by dry-run",
+            dry_run_action=followup_dry_run.get("action"),
+        )
+        dispatch = _skipped(
+            "no queued candidate and no follow-up candidate",
+            followup_action=followup_dry_run.get("action"),
+        )
+        return dispatch, followup_dry_run, followup_launch
+
+    followup_launch = _post_json(
+        base_url,
+        "/control/api/v1/followups/launch-next",
+        token,
+        {
+            "dry_run": False,
+            "requested_by": "systemd:queue-pump-followup",
+            "max_followup_depth": 4,
+        },
+    )
+    if followup_launch.get("action") == "followup_queued":
+        dispatch = _post_json(
+            base_url,
+            "/control/dispatch-next",
+            token,
+            {
+                "dry_run": False,
+                "requested_by": "systemd:queue-pump",
+                "force_preflight": True,
+            },
+        )
+    else:
+        dispatch = _skipped(
+            "no queued candidate and no follow-up queued",
+            followup_action=followup_launch.get("action"),
+        )
+    return dispatch, followup_dry_run, followup_launch
+
+
+def _pump_when_no_next_candidate(
+    base_url: str,
+    token: str,
+    status: dict,
+    *,
+    followup_launch_enabled: bool,
+) -> tuple[dict, dict, dict]:
+    if status.get("active_items"):
+        return _skip_dispatch_followup_bundle(ACTIVE_WORKER_LANE_PRESENT_REASON)
+    if not followup_launch_enabled:
+        return (
+            _skipped("no queued candidate"),
+            _skipped("queue pump follow-up launch disabled"),
+            _skipped("queue pump follow-up launch disabled"),
+        )
+    return _run_followup_launch_chain(base_url, token)
+
+
+def _pump_when_candidate_present(base_url: str, token: str) -> tuple[dict, dict, dict]:
+    followup_dry_run = _skipped("queued candidate already present")
+    followup_launch = _skipped("queued candidate already present")
+    dispatch = _post_json(
+        base_url,
+        "/control/dispatch-next",
+        token,
+        {
+            "dry_run": False,
+            "requested_by": "systemd:queue-pump",
+            "force_preflight": True,
+        },
+    )
+    return dispatch, followup_dry_run, followup_launch
+
+
+def _execute_queue_pump(
+    *,
+    base_url: str,
+    token: str,
+    status: dict,
+    alert: dict,
+    paper_draft_before_dispatch_enabled: bool,
+    followup_launch_enabled: bool,
+) -> tuple[dict, dict, dict, dict, dict]:
+    """Run enabled queue-pump actions (extracted from main for S3776)."""
+    pump_disabled = _skipped(QUEUE_PUMP_DISABLED_REASON)
+    publication_rewrite = _skipped("no paper drafted")
+    paper_draft = pump_disabled
+
+    if alert.get("should_alert"):
+        dispatch, followup_dry_run, followup_launch = _skip_dispatch_followup_bundle(
+            ALERT_FINDINGS_PRESENT_REASON
+        )
+        return (
+            dispatch,
+            paper_draft,
+            followup_dry_run,
+            followup_launch,
+            publication_rewrite,
+        )
+
+    if not status.get("dispatch_safe") and not _only_no_candidate_blocker(status):
+        blockers = status.get("dispatch_blockers") or []
+        dispatch, followup_dry_run, followup_launch = _skip_dispatch_followup_bundle(
+            DISPATCH_NOT_SAFE_REASON, blockers=blockers
+        )
+        return (
+            dispatch,
+            paper_draft,
+            followup_dry_run,
+            followup_launch,
+            publication_rewrite,
+        )
+
+    paper_draft = _run_paper_draft_step(
+        base_url, token, paper_draft_before_dispatch_enabled
+    )
+    if paper_draft.get("action") == "drafted":
+        publication_rewrite, dispatch = _publication_rewrite_after_draft(
+            base_url, token, paper_draft
+        )
+        return (
+            dispatch,
+            paper_draft,
+            pump_disabled,
+            pump_disabled,
+            publication_rewrite,
+        )
+
+    if not status.get("next_candidate"):
+        dispatch, followup_dry_run, followup_launch = _pump_when_no_next_candidate(
+            base_url,
+            token,
+            status,
+            followup_launch_enabled=followup_launch_enabled,
+        )
+        return (
+            dispatch,
+            paper_draft,
+            followup_dry_run,
+            followup_launch,
+            publication_rewrite,
+        )
+
+    dispatch, followup_dry_run, followup_launch = _pump_when_candidate_present(
+        base_url, token
+    )
+    return dispatch, paper_draft, followup_dry_run, followup_launch, publication_rewrite
+
+
+def _exit_code_for_alert(alert: dict) -> int:
+    if not alert.get("should_alert"):
+        return 0
+    if alert.get("sent") or alert.get("suppressed_by_cooldown"):
+        return 0
+    if not alert.get("alerts_enabled"):
+        return 0
+    return 1
+
+
 def main() -> int:
     config = _load_config()
     token = str(
@@ -90,7 +324,7 @@ def main() -> int:
     base_url = _base_url(config)
     preflight_payload = {
         "wake_gate_url": config.get("worker_wake_gate_url")
-        or "http://worker.example:8787",
+        or "https://worker.example:8787",
         "bearer_token": config.get("worker_wake_gate_bearer_token") or "",
         "require_paused": False,
         "strict": False,
@@ -120,176 +354,26 @@ def main() -> int:
     followup_launch_enabled = bool(
         config.get("queue_pump_followup_launch_enabled", False)
     )
-    dispatch = {"action": "skipped", "reason": "queue pump disabled"}
-    paper_draft = {"action": "skipped", "reason": "queue pump disabled"}
-    followup_dry_run = {"action": "skipped", "reason": "queue pump disabled"}
-    followup_launch = {"action": "skipped", "reason": "queue pump disabled"}
-    publication_rewrite = {"action": "skipped", "reason": "no paper drafted"}
+    dispatch = _skipped(QUEUE_PUMP_DISABLED_REASON)
+    paper_draft = _skipped(QUEUE_PUMP_DISABLED_REASON)
+    followup_dry_run = _skipped(QUEUE_PUMP_DISABLED_REASON)
+    followup_launch = _skipped(QUEUE_PUMP_DISABLED_REASON)
+    publication_rewrite = _skipped("no paper drafted")
     if queue_pump_enabled:
-        only_no_candidate_blocker = _only_no_candidate_blocker(status)
-        if alert.get("should_alert"):
-            dispatch = {
-                "action": "skipped",
-                "reason": "alert findings present; operator reconciliation required first",
-            }
-            followup_dry_run = {
-                "action": "skipped",
-                "reason": "alert findings present; operator reconciliation required first",
-            }
-            followup_launch = {
-                "action": "skipped",
-                "reason": "alert findings present; operator reconciliation required first",
-            }
-        elif not status.get("dispatch_safe") and not only_no_candidate_blocker:
-            dispatch = {
-                "action": "skipped",
-                "reason": "dispatch not safe",
-                "blockers": status.get("dispatch_blockers") or [],
-            }
-            followup_dry_run = {
-                "action": "skipped",
-                "reason": "dispatch not safe",
-                "blockers": status.get("dispatch_blockers") or [],
-            }
-            followup_launch = {
-                "action": "skipped",
-                "reason": "dispatch not safe",
-                "blockers": status.get("dispatch_blockers") or [],
-            }
-        else:
-            if not paper_draft_before_dispatch_enabled:
-                paper_draft = {
-                    "action": "skipped",
-                    "reason": "queue pump paper drafting disabled",
-                }
-            else:
-                try:
-                    paper_draft = _post_json(
-                        base_url,
-                        "/control/papers/draft-next",
-                        token,
-                        {
-                            "dry_run": False,
-                            "requested_by": "systemd:queue-pump-before-dispatch",
-                        },
-                    )
-                except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-                    paper_draft = {
-                        "action": "error",
-                        "reason": f"paper draft-next failed before dispatch: {type(exc).__name__}: {exc}",
-                    }
-            if paper_draft.get("action") == "drafted":
-                paper_id = str((paper_draft.get("paper") or {}).get("paper_id") or "")
-                publication_rewrite = _post_json(
-                    base_url,
-                    f"/control/api/publication-automation/{quote(paper_id, safe='')}/rewrite-draft",
-                    token,
-                    {
-                        "idempotency_key": f"paper-publication-pipeline:{paper_id or 'unknown'}",
-                        "requested_by": "systemd:queue-pump-before-dispatch",
-                        "force": True,
-                    },
-                    timeout=int(
-                        os.environ.get("ENOCH_PAPER_REWRITE_TIMEOUT_SEC", "900")
-                    ),
-                )
-                dispatch = {
-                    "action": "skipped",
-                    "reason": "paper drafted before dispatch",
-                }
-            elif not status.get("next_candidate"):
-                if status.get("active_items"):
-                    followup_dry_run = {
-                        "action": "skipped",
-                        "reason": "active worker lane present",
-                    }
-                    followup_launch = {
-                        "action": "skipped",
-                        "reason": "active worker lane present",
-                    }
-                    dispatch = {
-                        "action": "skipped",
-                        "reason": "active worker lane present",
-                    }
-                elif not followup_launch_enabled:
-                    followup_dry_run = {
-                        "action": "skipped",
-                        "reason": "queue pump follow-up launch disabled",
-                    }
-                    followup_launch = {
-                        "action": "skipped",
-                        "reason": "queue pump follow-up launch disabled",
-                    }
-                    dispatch = {"action": "skipped", "reason": "no queued candidate"}
-                else:
-                    followup_dry_run = _post_json(
-                        base_url,
-                        "/control/api/v1/followups/launch-next",
-                        token,
-                        {
-                            "dry_run": True,
-                            "requested_by": "systemd:queue-pump-followup",
-                            "max_followup_depth": 4,
-                        },
-                    )
-                    if followup_dry_run.get("action") != "dry_run_followup":
-                        followup_launch = {
-                            "action": "skipped",
-                            "reason": "no follow-up candidate selected by dry-run",
-                            "dry_run_action": followup_dry_run.get("action"),
-                        }
-                        dispatch = {
-                            "action": "skipped",
-                            "reason": "no queued candidate and no follow-up candidate",
-                            "followup_action": followup_dry_run.get("action"),
-                        }
-                    else:
-                        followup_launch = _post_json(
-                            base_url,
-                            "/control/api/v1/followups/launch-next",
-                            token,
-                            {
-                                "dry_run": False,
-                                "requested_by": "systemd:queue-pump-followup",
-                                "max_followup_depth": 4,
-                            },
-                        )
-                        if followup_launch.get("action") == "followup_queued":
-                            dispatch = _post_json(
-                                base_url,
-                                "/control/dispatch-next",
-                                token,
-                                {
-                                    "dry_run": False,
-                                    "requested_by": "systemd:queue-pump",
-                                    "force_preflight": True,
-                                },
-                            )
-                        else:
-                            dispatch = {
-                                "action": "skipped",
-                                "reason": "no queued candidate and no follow-up queued",
-                                "followup_action": followup_launch.get("action"),
-                            }
-            else:
-                followup_dry_run = {
-                    "action": "skipped",
-                    "reason": "queued candidate already present",
-                }
-                followup_launch = {
-                    "action": "skipped",
-                    "reason": "queued candidate already present",
-                }
-                dispatch = _post_json(
-                    base_url,
-                    "/control/dispatch-next",
-                    token,
-                    {
-                        "dry_run": False,
-                        "requested_by": "systemd:queue-pump",
-                        "force_preflight": True,
-                    },
-                )
+        (
+            dispatch,
+            paper_draft,
+            followup_dry_run,
+            followup_launch,
+            publication_rewrite,
+        ) = _execute_queue_pump(
+            base_url=base_url,
+            token=token,
+            status=status,
+            alert=alert,
+            paper_draft_before_dispatch_enabled=paper_draft_before_dispatch_enabled,
+            followup_launch_enabled=followup_launch_enabled,
+        )
     status_summary = {
         "dispatch_safe": status.get("dispatch_safe"),
         "dispatch_blockers": status.get("dispatch_blockers"),
@@ -307,16 +391,7 @@ def main() -> int:
         "dispatch": dispatch,
     }
     print(json.dumps(output, sort_keys=True))
-    return (
-        1
-        if alert.get("should_alert")
-        and not (
-            alert.get("sent")
-            or alert.get("suppressed_by_cooldown")
-            or not alert.get("alerts_enabled")
-        )
-        else 0
-    )
+    return _exit_code_for_alert(alert)
 
 
 if __name__ == "__main__":

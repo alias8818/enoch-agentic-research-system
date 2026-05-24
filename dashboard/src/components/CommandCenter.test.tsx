@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
+import { fetchMockRequestBody } from '../test/fetchMockBody'
 import { CommandHero } from './CommandHero'
 import { MovementDiagnosis } from './MovementDiagnosis'
 import { PaperMiniStrip } from './PaperMiniStrip'
@@ -64,7 +65,7 @@ it('explains why the primary live action is disabled before preflight', () => {
 })
 
 it('dispatches the top dispatch action only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'live dispatch accepted selected candidate' }), { status: 200 }))
@@ -83,14 +84,10 @@ it('dispatches the top dispatch action only after dry-run and dialog confirmatio
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await screen.findByText('live dispatch accepted selected candidate')
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-next', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-next', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -103,6 +100,7 @@ it('invalidates primary action live dispatch when the top action changes', async
 
   fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
   await screen.findByText('dry-run dispatch selected candidate')
+  expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(screen.getByRole('button', { name: 'Dispatch work' })).toBeEnabled()
 
   rerender(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch CPU lane', summary: 'A different queued candidate now matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued&lane=cpu' }} onRefresh={onRefresh} />)
@@ -125,13 +123,13 @@ it('runs follow-up primary actions as safe dry-runs instead of only linking away
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"max_followup_depth":4')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"max_followup_depth":4')
   expect(screen.getByText('Follow-up dry-run passed')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
 it('launches the top follow-up action only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_followup', reason: 'would queue bounded follow-up', followup: { idea_id: 'follow-1', title: 'Follow-up test' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'followup_queued', reason: 'follow-up queued without dispatch', followup: { idea_id: 'follow-1' } }), { status: 200 }))
@@ -150,14 +148,10 @@ it('launches the top follow-up action only after dry-run and dialog confirmation
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await screen.findByText('follow-up queued without dispatch')
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/followups/launch-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', max_followup_depth: 4 }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/followups/launch-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', max_followup_depth: 4 }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/followups/launch-next', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/followups/launch-next', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ dry_run: true, requested_by: 'dashboard-v2', max_followup_depth: 4 })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ dry_run: false, requested_by: 'dashboard-v2', max_followup_depth: 4 })
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -175,14 +169,14 @@ it('runs write-paper primary actions as safe dry-runs instead of only linking aw
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"force":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"force":true')
   expect(screen.getByText('Paper draft dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('eligible paper-ready candidate found')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
 it('drafts the top write-paper action only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_draft', reason: 'eligible paper-ready candidate found', paper: { paper_id: 'paper-1' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'draft_created', reason: 'draft written for paper-ready candidate', paper: { paper_id: 'paper-1' } }), { status: 200 }))
@@ -201,14 +195,10 @@ it('drafts the top write-paper action only after dry-run and dialog confirmation
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await screen.findByText('draft written for paper-ready candidate')
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/papers/draft-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: true, requested_by: 'dashboard-v2', force: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/papers/draft-next', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ dry_run: false, requested_by: 'dashboard-v2', force: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/papers/draft-next', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/papers/draft-next', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ dry_run: true, requested_by: 'dashboard-v2', force: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ dry_run: false, requested_by: 'dashboard-v2', force: true })
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -226,15 +216,15 @@ it('runs finalize-paper primary actions as safe dry-runs instead of only linking
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"paper_status":"publication_draft"')
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"skip_rewritten":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"paper_status":"publication_draft"')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"skip_rewritten":true')
   expect(screen.getByText('Paper finalize dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('would finalize 2 publication drafts')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
 it('finalizes the top paper action only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 2, processed: 2, reason: 'would finalize 2 publication drafts' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: false, rewritten: 2, failed: 0, reason: 'finalized 2 publication drafts' }), { status: 200 }))
@@ -257,16 +247,16 @@ it('finalizes the top paper action only after dry-run and dialog confirmation', 
     method: 'POST',
     body: expect.stringContaining('"idempotency_key":"primary-action-rewrite-batch:dashboard-v2:'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"paper_status":"publication_draft"')
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"skip_rewritten":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"dry_run":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"paper_status":"publication_draft"')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"skip_rewritten":true')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"idempotency_key":"primary-action-rewrite-batch-live:dashboard-v2:'),
   }))
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"dry_run":false')
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"force":true')
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"paper_status":"publication_draft"')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"dry_run":false')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"force":true')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"paper_status":"publication_draft"')
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -288,7 +278,7 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
 })
 
 it('uses dialog confirmations for queue pause instead of window.confirm', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
   const onRefresh = vi.fn()
 
@@ -302,7 +292,7 @@ it('uses dialog confirmations for queue pause instead of window.confirm', async 
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/control/pause', expect.objectContaining({ method: 'POST' })))
   const pauseCall = fetchMock.mock.calls.find(([path]) => path === '/control/pause')
-  expect(JSON.parse(String(pauseCall?.[1]?.body))).toEqual({
+  expect(JSON.parse(fetchMockRequestBody({ mock: { calls: pauseCall ? [pauseCall] : [] } }, 0))).toEqual({
     reason: 'dashboard operator pause',
     paused_by: 'dashboard-v2',
     maintenance_mode: true,
@@ -311,8 +301,8 @@ it('uses dialog confirmations for queue pause instead of window.confirm', async 
 })
 
 it('dry-runs dispatch from lane buttons without starting live dispatch', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
-  const alertSpy = vi.spyOn(window, 'alert')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
+  const alertSpy = vi.spyOn(globalThis, 'alert')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch selected candidate', candidate: { project_name: 'GB10 job' } }), { status: 200 }))
   const onRefresh = vi.fn()
@@ -359,7 +349,7 @@ it('requires an open-lanes dry-run before live dispatch is enabled', async () =>
 })
 
 it('uses a dialog before live dispatching open lanes', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch', reason: 'dry-run dispatch accepted queued work' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dispatch_started', reason: 'live dispatch accepted queued work' }), { status: 200 }))
@@ -404,8 +394,8 @@ it('dry-runs feed actions without spending provider requests or promoting work',
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"enabled":false')
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"max_dispatches_per_run":0')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"enabled":false')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"max_dispatches_per_run":0')
   expect(screen.getByText('Research action blocked')).toBeInTheDocument()
   expect(screen.getByText('provider budget passed; no provider request spent')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -428,7 +418,7 @@ it('keeps live feed disabled after a blocked feed dry-run', async () => {
 })
 
 it('runs a confirmed live feed cycle only after a feed dry-run', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_dry_run', dry_run: true, reason: 'would generate one candidate' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_live', dry_run: false, reason: 'generated one candidate without dispatch' }), { status: 200 }))
@@ -452,18 +442,18 @@ it('runs a confirmed live feed cycle only after a feed dry-run', async () => {
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"enabled":false')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"enabled":false')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/research/run-cycle', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"dry_run":false'),
   }))
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"enabled":true')
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"max_dispatches_per_run":0')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"enabled":true')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"max_dispatches_per_run":0')
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
 it('invalidates live feed authorization when feed-eligible lanes change', async () => {
-  const fetchMock = vi.spyOn(globalThis, 'fetch')
+  vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'research_cycle_dry_run', dry_run: true, reason: 'would generate one candidate' }), { status: 200 }))
   const onRefresh = vi.fn()
 
@@ -494,12 +484,12 @@ it('uses dispatch-one for lane-card dispatch checks so the selected lane candida
     method: 'POST',
     body: expect.stringContaining('"project_id":"gb10-project"'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"dry_run":true')
   expect(screen.getByText('Dispatch dry-run passed')).toBeInTheDocument()
 })
 
 it('live-dispatches a lane candidate only after exact lane dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'dry_run_dispatch_one', reason: 'dry-run selected explicit queued candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ action: 'live_dispatch_one', reason: 'live dispatch started exact GB10 candidate', candidate: { project_id: 'gb10-project' } }), { status: 200 }))
@@ -518,14 +508,10 @@ it('live-dispatches a lane candidate only after exact lane dry-run and dialog co
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await screen.findByText('live dispatch started exact GB10 candidate')
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
@@ -558,14 +544,14 @@ it('runs paper finalize strip actions as dry-runs without rewriting drafts live'
     method: 'POST',
     body: expect.stringContaining('"dry_run":true'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"limit":10')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"limit":10')
   expect(screen.getByText('Paper finalize dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('would rewrite one publication draft')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
 it('finalizes paper strip drafts only after dry-run and dialog confirmation', async () => {
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, processed: 1, reason: 'would rewrite one publication draft' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: false, rewritten: 1, failed: 0, reason: 'rewrote one publication draft' }), { status: 200 }))
@@ -588,18 +574,18 @@ it('finalizes paper strip drafts only after dry-run and dialog confirmation', as
     method: 'POST',
     body: expect.stringContaining('"idempotency_key":"paper-strip-rewrite-batch:dashboard-v2:'),
   }))
-  expect(String(fetchMock.mock.calls[0][1]?.body)).toContain('"dry_run":true')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"dry_run":true')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/paper-reviews/rewrite-batch', expect.objectContaining({
     method: 'POST',
     body: expect.stringContaining('"idempotency_key":"paper-strip-rewrite-batch-live:dashboard-v2:'),
   }))
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"dry_run":false')
-  expect(String(fetchMock.mock.calls[1][1]?.body)).toContain('"force":true')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"dry_run":false')
+  expect(fetchMockRequestBody(fetchMock, 1)).toContain('"force":true')
   expect(onRefresh).toHaveBeenCalledTimes(2)
 })
 
 it('invalidates paper strip live finalization when pipeline state changes', async () => {
-  const fetchMock = vi.spyOn(globalThis, 'fetch')
+  vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ dry_run: true, matched: 1, processed: 1, reason: 'would rewrite one publication draft' }), { status: 200 }))
   const onRefresh = vi.fn()
 
@@ -630,14 +616,10 @@ it('checks every open lane candidate with dispatch-one instead of aggregate disp
   fireEvent.click(screen.getByRole('button', { name: 'Check open lanes' }))
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
   expect(screen.getByText('Dispatch dry-run passed')).toBeInTheDocument()
   expect(screen.getByText('checked 2 lane candidates')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
@@ -684,22 +666,14 @@ it('live-dispatches every open lane candidate with dispatch-one after confirmati
   fireEvent.click(dialog.querySelectorAll('button')[1])
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
-  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'cpu-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
-  expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/dispatch-one', expect.objectContaining({
-    method: 'POST',
-    body: JSON.stringify({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
-  }))
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/dispatch-one', expect.objectContaining({ method: 'POST' }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({ project_id: 'cpu-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 1))).toEqual({ project_id: 'gb10-project', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 2))).toEqual({ project_id: 'cpu-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 3))).toEqual({ project_id: 'gb10-project', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true })
   expect(screen.getByText('Dispatch completed')).toBeInTheDocument()
   expect(screen.getByText('dispatched 2 lane candidates')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(2)

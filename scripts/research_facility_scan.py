@@ -132,6 +132,14 @@ class SourceRecord:
         )
 
 
+def atom_namespace(root: ET.Element) -> dict[str, str]:
+    """Return Atom prefix map from the feed root (namespace URI is not a fetch URL)."""
+    if root.tag.startswith("{"):
+        uri = root.tag[1 : root.tag.index("}")]
+        return {"atom": uri}
+    raise ValueError(f"Unexpected arXiv Atom root tag: {root.tag!r}")
+
+
 def fetch_text(url: str, *, timeout: int = 20) -> str:
     request = urllib.request.Request(
         url,
@@ -156,7 +164,7 @@ def scan_arxiv(query: str, *, max_results: int, timeout: int) -> list[SourceReco
     url = f"https://export.arxiv.org/api/query?{params}"
     xml_text = fetch_text(url, timeout=timeout)
     root = ET.fromstring(xml_text)
-    ns = {"atom": "http://www.w3.org/2005/Atom"}
+    ns = atom_namespace(root)
     records: list[SourceRecord] = []
     for entry in root.findall("atom:entry", ns):
         title = clean_text(entry.findtext("atom:title", default="", namespaces=ns))

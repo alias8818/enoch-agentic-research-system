@@ -6,10 +6,10 @@ function variantClass(variant: StateCardVariant, compact?: boolean): string {
   if (compact) classes.push('state-card--compact')
   return classes.join(' ')
 }
-export function StateCard({ children, variant = 'default', compact, ariaLive }: { children: ReactNode; variant?: StateCardVariant; compact?: boolean; ariaLive?: 'polite' | 'assertive' | 'off' }) {
+export function StateCard({ children, variant = 'default', compact, ariaLive }: Readonly<{ children: ReactNode; variant?: StateCardVariant; compact?: boolean; ariaLive?: 'polite' | 'assertive' | 'off' }>) {
   return <div className={variantClass(variant, compact)} aria-live={ariaLive}>{children}</div>
 }
-export function LoadingStateCard({ label }: { label: string }) { return <StateCard>Loading {label}…</StateCard> }
-export function InlineErrorStateCard({ prefix, message }: { prefix: string; message: string }) {
+export function LoadingStateCard({ label }: Readonly<{ label: string }>) { return <StateCard>Loading {label}…</StateCard> }
+export function InlineErrorStateCard({ prefix, message }: Readonly<{ prefix: string; message: string }>) {
   return <StateCard variant="error">{prefix}: {message}</StateCard>
 }

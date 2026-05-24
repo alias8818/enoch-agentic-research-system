@@ -53,87 +53,100 @@ def _candidate_from_mapping(row: dict[str, Any]) -> CandidateRow:
     )
 
 
+def _project_decision_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("payload_json")
+    if not isinstance(payload, dict):
+        return {}
+    nested = payload.get("project_decision")
+    if isinstance(nested, dict):
+        return nested
+    return payload
+
+
+def _coalesce_text(
+    row: dict[str, Any],
+    project_decision: dict[str, Any],
+    row_key: str,
+    *,
+    payload_key: str | None = None,
+    default: str = "",
+    prefer_payload: bool = False,
+) -> str:
+    payload_key = payload_key if payload_key is not None else row_key
+    row_value = row.get(row_key)
+    payload_value = project_decision.get(payload_key)
+    if prefer_payload:
+        raw = payload_value or row_value or default
+    else:
+        raw = row_value or payload_value or default
+    return as_text(raw)
+
+
+def _coalesce_bool(
+    row: dict[str, Any], project_decision: dict[str, Any], key: str
+) -> bool:
+    row_value = row.get(key)
+    source = row_value if row_value is not None else project_decision.get(key)
+    return as_bool(source)
+
+
 def _decision_from_mapping(row: dict[str, Any]) -> DecisionRow:
-    payload = (
-        row.get("payload_json") if isinstance(row.get("payload_json"), dict) else {}
-    )
-    project_decision = (
-        payload.get("project_decision")
-        if isinstance(payload.get("project_decision"), dict)
-        else payload
-    )
+    project_decision = _project_decision_from_row(row)
     return DecisionRow(
         project_id=as_text(row.get("project_id")),
         project_name=as_text(row.get("project_name")),
         run_id=as_text(row.get("run_id")),
-        decision=as_text(
-            row.get("decision") or project_decision.get("project_decision") or "unknown"
+        decision=_coalesce_text(
+            row,
+            project_decision,
+            "decision",
+            payload_key="project_decision",
+            default="unknown",
         ),
-        hypothesis_status=as_text(
-            row.get("hypothesis_status")
-            or project_decision.get("hypothesis_status")
-            or "unknown"
+        hypothesis_status=_coalesce_text(
+            row, project_decision, "hypothesis_status", default="unknown"
         ),
-        evidence_strength=as_text(
-            row.get("evidence_strength")
-            or project_decision.get("evidence_strength")
-            or "unknown"
+        evidence_strength=_coalesce_text(
+            row, project_decision, "evidence_strength", default="unknown"
         ),
-        confidence=as_text(
-            row.get("confidence") or project_decision.get("confidence") or "unknown"
+        confidence=_coalesce_text(
+            row, project_decision, "confidence", default="unknown"
         ),
-        research_outcome=as_text(
-            row.get("research_outcome") or project_decision.get("research_outcome")
+        research_outcome=_coalesce_text(row, project_decision, "research_outcome"),
+        claim_scope=_coalesce_text(row, project_decision, "claim_scope"),
+        scale_limits=_coalesce_text(row, project_decision, "scale_limits"),
+        bounded_paper_ready=_coalesce_bool(
+            row, project_decision, "bounded_paper_ready"
         ),
-        claim_scope=as_text(
-            row.get("claim_scope") or project_decision.get("claim_scope")
+        compute_scale_blocked=_coalesce_bool(
+            row, project_decision, "compute_scale_blocked"
         ),
-        scale_limits=as_text(
-            row.get("scale_limits") or project_decision.get("scale_limits")
+        followup_recommended=_coalesce_bool(
+            row, project_decision, "followup_recommended"
         ),
-        bounded_paper_ready=as_bool(
-            row.get("bounded_paper_ready")
-            if row.get("bounded_paper_ready") is not None
-            else project_decision.get("bounded_paper_ready")
-        ),
-        compute_scale_blocked=as_bool(
-            row.get("compute_scale_blocked")
-            if row.get("compute_scale_blocked") is not None
-            else project_decision.get("compute_scale_blocked")
-        ),
-        followup_recommended=as_bool(
-            row.get("followup_recommended")
-            if row.get("followup_recommended") is not None
-            else project_decision.get("followup_recommended")
-        ),
-        followup_type=as_text(
-            row.get("followup_type") or project_decision.get("followup_type")
-        ),
-        followup_title=as_text(
-            row.get("followup_title") or project_decision.get("followup_title")
-        ),
-        followup_hypothesis=as_text(
-            row.get("followup_hypothesis")
-            or project_decision.get("followup_hypothesis")
+        followup_type=_coalesce_text(row, project_decision, "followup_type"),
+        followup_title=_coalesce_text(row, project_decision, "followup_title"),
+        followup_hypothesis=_coalesce_text(
+            row, project_decision, "followup_hypothesis"
         ),
         followup_required_evidence_count=_json_len(
             row.get("followup_required_evidence")
             or project_decision.get("followup_required_evidence")
         ),
-        followup_success_threshold=as_text(
-            row.get("followup_success_threshold")
-            or project_decision.get("followup_success_threshold")
+        followup_success_threshold=_coalesce_text(
+            row, project_decision, "followup_success_threshold"
         ),
-        followup_stop_condition=as_text(
-            row.get("followup_stop_condition")
-            or project_decision.get("followup_stop_condition")
+        followup_stop_condition=_coalesce_text(
+            row, project_decision, "followup_stop_condition"
         ),
-        recommended_next_action=as_text(
-            project_decision.get("recommended_next_action")
-            or row.get("recommended_next_action")
+        recommended_next_action=_coalesce_text(
+            row,
+            project_decision,
+            "recommended_next_action",
+            prefer_payload=True,
         ),
-        stop_reason=as_text(
-            project_decision.get("stop_reason") or row.get("stop_reason")
+        stop_reason=_coalesce_text(
+            row, project_decision, "stop_reason", prefer_payload=True
         ),
         created_at=as_text(row.get("created_at") or row.get("decided_at")),
     )

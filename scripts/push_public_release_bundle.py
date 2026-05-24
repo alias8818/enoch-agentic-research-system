@@ -38,6 +38,10 @@ PROJECT_PYTHON = ["uv", "run", "python"]
 DEFAULT_SOURCE_LINEAGE_CREATED_AFTER = "2026-05-19T17:51:00Z"
 DEFAULT_PROMISING_SIGNALS_SOURCE_CUTOFF = "2026-05-19T17:51:00Z"
 
+# Centralized workflow name for the duplicated PUBLIC_RELEASE_INTEGRITY_WORKFLOW literal
+# (addresses top remaining S1192 in Repo definitions and workflow calls).
+PUBLIC_RELEASE_INTEGRITY_WORKFLOW = "Public release integrity"
+
 
 def printable_cmd(cmd: list[str]) -> str:
     redacted: list[str] = []
@@ -454,19 +458,21 @@ def main() -> int:
     system = Repo(
         "system",
         root / "enoch-agentic-research-system",
-        workflow="Public release integrity",
+        workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW,
     )
     docs = Repo("docs", root / "enoch-docs")
     owner_profile = Repo("owner_profile", root / "alias8818")
     profile_site = Repo("profile_site", root / "alias8818.github.io")
     personal_site = Repo("personal_site", root / "jeremyblankenship.dev")
     corpus = Repo(
-        "corpus", root / "enoch-ai-research-corpus", workflow="Public release integrity"
+        "corpus",
+        root / "enoch-ai-research-corpus",
+        workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW,
     )
     promising = Repo(
         "promising",
         root / "enoch-promising-signals",
-        workflow="Public release integrity",
+        workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW,
     )
     ordered_dependencies = [
         system,
@@ -503,21 +509,20 @@ def main() -> int:
     )
     if not args.push:
         print("preflight complete; rerun with --push to publish in this order")
-        return 0
+    else:
+        for repo in ordered_dependencies:
+            push_and_verify(repo, push=True, timeout=args.remote_timeout)
 
-    for repo in ordered_dependencies:
-        push_and_verify(repo, push=True, timeout=args.remote_timeout)
+        # The corpus public-release workflow reads the sibling repos from remote main;
+        # only push corpus after every sibling remote has been verified above.
+        push_and_verify(corpus, push=True, timeout=args.remote_timeout)
 
-    # The corpus public-release workflow reads the sibling repos from remote main;
-    # only push corpus after every sibling remote has been verified above.
-    push_and_verify(corpus, push=True, timeout=args.remote_timeout)
+        if args.watch:
+            watch_latest_workflow(
+                corpus, workflow=PUBLIC_RELEASE_INTEGRITY_WORKFLOW, commit=head(corpus)
+            )
 
-    if args.watch:
-        watch_latest_workflow(
-            corpus, workflow="Public release integrity", commit=head(corpus)
-        )
-
-    print("public release bundle push complete")
+        print("public release bundle push complete")
     return 0
 
 

@@ -13,20 +13,23 @@ from enoch_control_plane.control_plane.models import (
     PaperRecord,
     PaperStatus,
 )
-from enoch_control_plane.control_plane.store import QueueStatus
+from enoch_control_plane.control_plane.store import (
+    QueueStatus,
+    _default_supabase_finalization_root,
+)
 
 
 def test_record_project_decision_gate_is_decided_at_guarded() -> None:
-    source = inspect.getsource(s.SupabaseControlPlaneStore.record_project_decision_gate)
-
     assert (
         "where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at"
-        in source
+        in s._PROJECT_DECISION_UPSERT_SQL
     )
 
 
 def test_supabase_project_upserts_preserve_existing_origin_status_on_replay() -> None:
-    source = inspect.getsource(s.SupabaseControlPlaneStore)
+    source = inspect.getsource(s.SupabaseControlPlaneStore) + inspect.getsource(
+        s._persist_idea_intake_candidate
+    )
 
     assert (
         "origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status)"
@@ -1345,6 +1348,24 @@ def test_supabase_launch_followup_append_failure_does_not_queue_followup(
     assert ideas == set()
     assert projects == set()
     assert queue_items == set()
+
+
+def test_supabase_finalization_manifest_default_root_is_user_private(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("ENOCH_SUPABASE_FINALIZATION_ROOT", raising=False)
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    package_path = store._finalization_manifest_path(
+        "paper:run:draft", "package-default-root"
+    )
+    expected_root = _default_supabase_finalization_root()
+    assert package_path == (
+        expected_root
+        / "paper-run-draft"
+        / "package-default-root"
+        / "finalization_manifest.json"
+    )
+    assert "/tmp/" not in package_path.as_posix()
 
 
 def test_supabase_prepare_finalization_event_failure_restores_manifest(
@@ -3030,7 +3051,9 @@ def test_supabase_worker_callback_append_failure_does_not_mutate_runtime_state(
 
 
 def test_supabase_worker_callback_upserts_missing_run_row_like_sqlite() -> None:
-    source = inspect.getsource(s.SupabaseControlPlaneStore.record_worker_callback)
+    source = inspect.getsource(
+        s.SupabaseControlPlaneStore._persist_applied_worker_callback
+    )
 
     assert "insert into runs" in source.lower()
     assert "on conflict (run_id) do update set" in source.lower()
@@ -4114,3 +4137,26 @@ def test_supabase_store_validate_checklist_item_update_rules() -> None:
         SupabaseControlPlaneStore._validate_checklist_item_update(
             item, "not_applicable", "", "foo"
         )
+
+
+def test_validate_checklist_item_update_is_staticmethod() -> None:
+    """AGENTS.md deterministic validator for S5720 CRITICAL (top issue after dup fixes).
+
+    The extracted pure helper must be decorated @staticmethod so it can be
+    called via ClassName or instance without signature errors. This was the
+    root cause of the S5720 "Rename item to self" flag.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.find_spec("enoch_control_plane.control_plane.supabase_store")
+    src_path = Path(spec.origin)
+    src = src_path.read_text(encoding="utf-8")
+
+    # Must have @staticmethod on the line(s) immediately preceding this specific def
+    def_idx = src.find("    def _validate_checklist_item_update(")
+    assert def_idx != -1
+    preceding = src[max(0, def_idx - 50) : def_idx]
+    assert "@staticmethod" in preceding, (
+        "@staticmethod decorator missing immediately before _validate_checklist_item_update (S5720 root cause)"
+    )

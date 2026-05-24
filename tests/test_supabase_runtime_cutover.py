@@ -9,6 +9,7 @@ from enoch_control_plane.control_plane.supabase_store import (
     SupabaseControlPlaneStore,
     _decision_gate_state,
     _decision_summary,
+    _persist_notion_intake_candidate,
 )
 
 
@@ -221,6 +222,7 @@ def test_supabase_runtime_store_reuses_connection_for_dashboard_reads() -> None:
 
 def test_supabase_legacy_notion_intake_preserves_runtime_project_dir() -> None:
     source = inspect.getsource(SupabaseControlPlaneStore.ingest_notion_ideas)
+    source += inspect.getsource(_persist_notion_intake_candidate)
 
     assert "project_dir=projects.project_dir" in source
     assert (

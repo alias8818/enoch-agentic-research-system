@@ -477,6 +477,10 @@ def test_reaper_sends_sigkill_when_term_does_not_exit(
     tracker = ProcessTracker(Path("/tmp"))
     candidate = SimpleNamespace(pid=123, create_time=1.0, cmdline="python smoke.py")
     signals: list[int] = []
+
+    def _record_signal(pid: int, sig: int) -> None:
+        signals.append(sig)
+
     monkeypatch.setattr(
         tracker, "stale_reap_candidates", lambda *args, **kwargs: [candidate]
     )
@@ -485,7 +489,7 @@ def test_reaper_sends_sigkill_when_term_does_not_exit(
     )
     monkeypatch.setattr(
         "enoch_control_plane.process_tracker.os.kill",
-        lambda _pid, sig: signals.append(sig),
+        _record_signal,
     )
     monkeypatch.setattr(
         "enoch_control_plane.process_tracker.psutil.Process",

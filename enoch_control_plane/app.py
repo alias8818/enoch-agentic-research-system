@@ -13,10 +13,10 @@ import os
 import subprocess
 from pathlib import Path
 import time
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import callback_outbox
 from .callbacks import CallbackSender
@@ -25,6 +25,8 @@ from .config import GateConfig
 from .enoch_core.router import create_enoch_core_router
 from .gate import WakeGate
 from .observability import RouteObservationMiddleware
+from .observability import ProfilingMiddleware, init_sentry
+from .observability.error_tracking import capture_exception
 from .timeutils import parse_utc_datetime
 from .enoch_core.logic import split_numbered_list_text
 from .models import (
@@ -44,6 +46,123 @@ from .models import (
 from .process_tracker import ProcessTracker
 from .state_store import StateStore
 from .telemetry import TelemetryCollector
+
+# Centralized label for project directory checks (eliminates S1192 duplication
+# of the literal across multiple _checked_exists / _checked_is_dir calls and
+# error messages in the dashboard API handlers).
+PROJECT_DIRECTORY_LABEL = "project directory"
+PROJECT_JSON_FILENAME = "project.json"
+ENOCH_PROJECT_DIRNAME = ".enoch"
+
+
+class ControlPlaneHttpError(Exception):
+    """HTTP error from app helpers; converted to a response by the app exception handler."""
+
+    def __init__(self, status_code: int, detail: str | dict[str, object]) -> None:
+        super().__init__(detail if isinstance(detail, str) else str(detail))
+        self.status_code = status_code
+        self.detail = detail
+
+
+def _http_responses(
+    *parts: dict[int, dict[str, str]],
+) -> dict[int, dict[str, str]]:
+    merged: dict[int, dict[str, str]] = {}
+    for part in parts:
+        merged.update(part)
+    return merged
+
+
+_HTTP_401_INVALID_BEARER: dict[int, dict[str, str]] = {
+    401: {"description": "Invalid or missing control API bearer token"},
+}
+_HTTP_400_INVALID_REQUEST: dict[int, dict[str, str]] = {
+    400: {
+        "description": (
+            "Invalid path, metadata, workload class, or project resolution"
+        ),
+    },
+}
+_HTTP_403_FORBIDDEN_READ: dict[int, dict[str, str]] = {
+    403: {
+        "description": "Project directory or paper artifact is not readable",
+    },
+}
+_HTTP_404_NOT_FOUND: dict[int, dict[str, str]] = {
+    404: {"description": "Project directory, paper artifact, or run not found"},
+}
+_HTTP_409_FILE_EXISTS: dict[int, dict[str, str]] = {
+    409: {"description": "Refusing to overwrite an existing file"},
+}
+_HTTP_413_PAYLOAD_TOO_LARGE: dict[int, dict[str, str]] = {
+    413: {"description": "Paper artifact exceeds the allowed byte limit"},
+}
+_HTTP_415_UNSUPPORTED_MEDIA: dict[int, dict[str, str]] = {
+    415: {"description": "Paper artifact is not UTF-8 text"},
+}
+_HTTP_500_INTERNAL: dict[int, dict[str, str]] = {
+    500: {
+        "description": (
+            "Project metadata, path inspection, or dispatch configuration failure"
+        ),
+    },
+}
+_HTTP_502_BAD_GATEWAY: dict[int, dict[str, str]] = {
+    502: {
+        "description": "Dispatch subprocess failed or returned non-JSON output",
+    },
+}
+_HTTP_504_GATEWAY_TIMEOUT: dict[int, dict[str, str]] = {
+    504: {"description": "Dispatch subprocess timed out"},
+}
+
+_DASHBOARD_SNAPSHOT_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_409_FILE_EXISTS,
+)
+_DASHBOARD_PAPER_ARTIFACT_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_403_FORBIDDEN_READ,
+    _HTTP_404_NOT_FOUND,
+    _HTTP_413_PAYLOAD_TOO_LARGE,
+    _HTTP_415_UNSUPPORTED_MEDIA,
+)
+_DASHBOARD_API_RUN_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_404_NOT_FOUND,
+)
+_PROJECT_STATUS_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_403_FORBIDDEN_READ,
+)
+_PREPARE_PROJECT_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_409_FILE_EXISTS,
+)
+_READ_PROJECT_PAPER_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_403_FORBIDDEN_READ,
+    _HTTP_404_NOT_FOUND,
+    _HTTP_413_PAYLOAD_TOO_LARGE,
+    _HTTP_415_UNSUPPORTED_MEDIA,
+)
+_WRITE_PROJECT_PAPER_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_404_NOT_FOUND,
+    _HTTP_413_PAYLOAD_TOO_LARGE,
+)
+_DISPATCH_RESPONSES = _http_responses(
+    _HTTP_401_INVALID_BEARER,
+    _HTTP_400_INVALID_REQUEST,
+    _HTTP_500_INTERNAL,
+    _HTTP_502_BAD_GATEWAY,
+    _HTTP_504_GATEWAY_TIMEOUT,
+)
 
 
 def load_config(path: Path | None = None) -> GateConfig:
@@ -69,6 +188,8 @@ sender = CallbackSender(config)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global reconcile_task
+    # Initialize error tracking if SENTRY_DSN is configured.
+    init_sentry()
     # startup logic (replaces deprecated @app.on_event("startup"))
     if reconcile_task is None or reconcile_task.done():
         reconcile_task = asyncio.create_task(_reconcile_missing_idle_loop())
@@ -76,14 +197,20 @@ async def lifespan(app: FastAPI):
     # shutdown logic (replaces deprecated @app.on_event("shutdown"))
     if reconcile_task is not None:
         reconcile_task.cancel()
-        try:
-            await reconcile_task
-        except asyncio.CancelledError:
-            raise
+        await reconcile_task
         reconcile_task = None
 
 
 app = FastAPI(title="enoch_worker_gate", version="0.1.0", lifespan=lifespan)
+
+
+@app.exception_handler(ControlPlaneHttpError)
+async def _control_plane_http_error_handler(
+    _request: object, exc: ControlPlaneHttpError
+) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
 if config.route_observability_enabled:
     route_observation_path = (
         Path(config.route_observability_log_path).expanduser()
@@ -95,6 +222,17 @@ if config.route_observability_enabled:
         observation_path=route_observation_path,
         slow_ms=config.route_observability_slow_ms,
         memory_warn_rss_mib=config.route_observability_memory_warn_rss_mib,
+    )
+
+# Profiling middleware: logs cProfile snapshots for requests exceeding 2s.
+# Enabled via ENOCH_PROFILING_ENABLED=1 environment variable.
+if os.environ.get("ENOCH_PROFILING_ENABLED", "").strip() in ("1", "true"):
+    app.add_middleware(
+        ProfilingMiddleware,
+        profile_threshold_ms=int(
+            os.environ.get("ENOCH_PROFILING_THRESHOLD_MS", "2000")
+        ),
+        enabled=True,
     )
 evaluation_tasks: dict[str, asyncio.Task] = {}
 reconcile_task: asyncio.Task | None = None
@@ -891,7 +1029,7 @@ def healthz() -> dict:
 def _require_local_bearer(authorization: str | None) -> None:
     expected = f"Bearer {config.control_api_bearer_token}"
     if authorization != expected:
-        raise HTTPException(status_code=401, detail="invalid bearer token")
+        raise ControlPlaneHttpError(status_code=401, detail="invalid bearer token")
 
 
 def _require_dashboard_bearer(
@@ -910,7 +1048,7 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
     try:
         raw = Path(path_str).expanduser()
     except RuntimeError as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"path contains an unexpandable user home: {path_str}",
         ) from exc
@@ -919,14 +1057,14 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
         resolved = candidate.resolve()
         root_resolved = root.expanduser().resolve()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"path could not be resolved under configured project root: {path_str}",
         ) from exc
     try:
         resolved.relative_to(root_resolved)
     except ValueError as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400, detail=f"path escapes configured project root: {path_str}"
         ) from exc
     return resolved
@@ -935,7 +1073,7 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
 def _write_text(path: Path, text: str, overwrite: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if _checked_exists(path, label="file target") and not overwrite:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=409, detail=f"refusing to overwrite existing file: {path}"
         )
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
@@ -962,7 +1100,7 @@ def _checked_exists(path: Path, *, label: str, status_code: int = 500) -> bool:
     try:
         return path.exists()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=status_code, detail=f"{label} could not be inspected: {path}"
         ) from exc
 
@@ -971,7 +1109,7 @@ def _checked_is_dir(path: Path, *, label: str, status_code: int = 500) -> bool:
     try:
         return path.is_dir()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=status_code, detail=f"{label} could not be inspected: {path}"
         ) from exc
 
@@ -983,30 +1121,30 @@ def _normalize_prepare_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
             normalized.get("workload_class")
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise ControlPlaneHttpError(status_code=400, detail=str(exc)) from exc
     normalized["workload_class"] = workload_class
     return normalized
 
 
 def _load_project_metadata(project_dir: Path) -> dict[str, Any]:
-    path = project_dir / ".enoch" / "project.json"
+    path = project_dir / ENOCH_PROJECT_DIRNAME / PROJECT_JSON_FILENAME
     if not _checked_exists(path, label="project metadata"):
-        legacy_path = project_dir / ".omx" / "project.json"
+        legacy_path = project_dir / ".omx" / PROJECT_JSON_FILENAME
         if not _checked_exists(legacy_path, label="project metadata"):
             return {}
         path = legacy_path
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, RuntimeError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=500, detail=f"project metadata could not be read: {path}"
         ) from exc
     except json.JSONDecodeError as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=500, detail=f"invalid project metadata JSON: {path}"
         ) from exc
     if not isinstance(payload, dict):
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=500, detail=f"project metadata must be a JSON object: {path}"
         )
     return payload
@@ -1016,14 +1154,14 @@ def _resolve_workload_profile_for_project_dir(project_dir: Path) -> tuple[str, A
     payload = _load_project_metadata(project_dir)
     metadata = payload.get("metadata")
     if metadata is not None and not isinstance(metadata, dict):
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=500,
-            detail=f"project metadata 'metadata' field must be an object: {project_dir / '.enoch' / 'project.json'}",
+            detail=f"project metadata 'metadata' field must be an object: {project_dir / ENOCH_PROJECT_DIRNAME / PROJECT_JSON_FILENAME}",
         )
     try:
         return config.resolve_workload_profile((metadata or {}).get("workload_class"))
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise ControlPlaneHttpError(status_code=400, detail=str(exc)) from exc
 
 
 def _assign_record_workload_profile(record: RunRecord) -> RunRecord:
@@ -1036,14 +1174,14 @@ def _assign_record_workload_profile(record: RunRecord) -> RunRecord:
             project_dir = _resolve_under_root(
                 record.project_dir, config.expanded_project_root
             )
-        except HTTPException:
+        except ControlPlaneHttpError:
             project_dir = None
     elif record.project_id:
         try:
             project_dir = _resolve_under_root(
                 record.project_id, config.expanded_project_root
             )
-        except HTTPException:
+        except ControlPlaneHttpError:
             project_dir = None
 
     if project_dir is not None:
@@ -1077,16 +1215,16 @@ def _wake_decision_profile_evidence(record: RunRecord) -> dict[str, Any]:
 def _resolve_project_relative_path(project_dir: Path, relative_path: str) -> Path:
     raw = Path(relative_path)
     if raw.is_absolute():
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"paper artifact path must be relative: {relative_path}",
         )
     if not relative_path.strip():
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400, detail="paper artifact path cannot be empty"
         )
     if any(part in {"", ".", ".."} for part in raw.parts):
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"paper artifact path contains unsafe segment: {relative_path}",
         )
@@ -1095,18 +1233,79 @@ def _resolve_project_relative_path(project_dir: Path, relative_path: str) -> Pat
         resolved = (project_dir / raw).resolve()
         project_root = project_dir.resolve()
     except (OSError, RuntimeError, ValueError) as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
             detail=f"paper artifact path could not be resolved: {relative_path}",
         ) from exc
     try:
         resolved.relative_to(project_root)
     except ValueError as exc:
-        raise HTTPException(
+        raise ControlPlaneHttpError(
             status_code=400,
-            detail=f"paper artifact path escapes project directory: {relative_path}",
+            detail=f"paper artifact path escapes {PROJECT_DIRECTORY_LABEL}: {relative_path}",
         ) from exc
     return resolved
+
+
+def _read_project_paper_artifact_entry(
+    project_dir: Path,
+    relative_path: str,
+    *,
+    max_bytes: int,
+    too_large_detail: str | None = None,
+) -> dict[str, Any]:
+    path = _resolve_project_relative_path(project_dir, relative_path)
+    try:
+        artifact_exists = path.exists() and path.is_file()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"paper artifact is not readable: {relative_path}",
+        ) from exc
+    if not artifact_exists:
+        raise HTTPException(
+            status_code=404, detail=f"paper artifact not found: {relative_path}"
+        )
+    try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"paper artifact is not readable: {relative_path}",
+        ) from exc
+    if size > max_bytes:
+        detail = too_large_detail or (
+            f"paper artifact too large to read: {relative_path}"
+        )
+        raise HTTPException(status_code=413, detail=detail)
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(
+            status_code=403,
+            detail=f"paper artifact is not readable: {relative_path}",
+        ) from exc
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=415,
+            detail=f"paper artifact is not UTF-8 text: {relative_path}",
+        ) from exc
+    return {
+        "path": path.relative_to(project_dir).as_posix(),
+        "bytes": size,
+        "content": content,
+    }
+
+
+def _validate_paper_artifact_read_request(request: PaperArtifactReadRequest) -> None:
+    if len(request.paths) > 20:
+        raise HTTPException(
+            status_code=400, detail="too many paper artifact paths; max 20"
+        )
+    if request.max_bytes_per_file < 1 or request.max_bytes_per_file > 2_000_000:
+        raise HTTPException(
+            status_code=400, detail="max_bytes_per_file must be between 1 and 2000000"
+        )
 
 
 def _find_run_record(project_id: str, run_id: str | None = None) -> RunRecord | None:
@@ -1148,53 +1347,77 @@ def _safe_read_json(path: Path) -> dict[str, Any]:
         raise ValueError(f"invalid JSON in decision file: {path}") from exc
 
 
-def _coerce_project_decision(
-    raw: dict[str, Any], source: str, source_path: Path | None = None
-) -> ProjectDecision:
-    action = str(raw.get("project_decision") or raw.get("decision") or "").strip()
-    if action not in {
+_PROJECT_DECISION_ACTIONS = frozenset(
+    {
         "continue",
         "finalize_negative",
         "finalize_positive",
         "branch_new_project",
         "blocked",
         "needs_review",
-    }:
+    }
+)
+_HYPOTHESIS_STATUSES = frozenset({"supported", "unsupported", "mixed", "inconclusive"})
+_CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
+_EVIDENCE_STRENGTHS = frozenset({"weak", "moderate", "strong"})
+_FOLLOWUP_TYPES = frozenset({"", "deepen", "branch", "retry"})
+
+
+def _coerce_member_or_default(
+    value: Any, *, default: str, allowed: frozenset[str]
+) -> str:
+    text = str(value or default).strip() or default
+    return text if text in allowed else default
+
+
+def _coerce_project_decision_action(raw: dict[str, Any]) -> str:
+    action = str(raw.get("project_decision") or raw.get("decision") or "").strip()
+    if action not in _PROJECT_DECISION_ACTIONS:
         raise ValueError(f"unsupported project decision: {action or '<missing>'}")
+    return action
 
-    hypothesis_status = (
-        str(raw.get("hypothesis_status") or "inconclusive").strip() or "inconclusive"
-    )
-    if hypothesis_status not in {"supported", "unsupported", "mixed", "inconclusive"}:
-        hypothesis_status = "inconclusive"
 
-    confidence = str(raw.get("confidence") or "medium").strip() or "medium"
-    if confidence not in {"low", "medium", "high"}:
-        confidence = "medium"
-
-    evidence_strength = (
-        str(raw.get("evidence_strength") or "moderate").strip() or "moderate"
-    )
-    if evidence_strength not in {"weak", "moderate", "strong"}:
-        evidence_strength = "moderate"
-
-    raw_followup_type = (
+def _coerce_followup_type(raw: dict[str, Any]) -> str:
+    followup_type = (
         str(raw.get("followup_type") or "").strip().lower().replace("-", "_")
     )
-    if raw_followup_type not in {"", "deepen", "branch", "retry"}:
-        raw_followup_type = ""
-    raw_required = raw.get("followup_required_evidence")
+    return followup_type if followup_type in _FOLLOWUP_TYPES else ""
+
+
+def _coerce_followup_required_evidence(raw_required: Any) -> list[str]:
     if isinstance(raw_required, list):
-        followup_required_evidence = [
+        return [
             part
             for item in raw_required
             for part in split_numbered_list_text(str(item))
             if part
         ]
-    elif isinstance(raw_required, str):
-        followup_required_evidence = split_numbered_list_text(raw_required)
-    else:
-        followup_required_evidence = []
+    if isinstance(raw_required, str):
+        return split_numbered_list_text(raw_required)
+    return []
+
+
+def _coerce_project_decision(
+    raw: dict[str, Any], source: str, source_path: Path | None = None
+) -> ProjectDecision:
+    action = _coerce_project_decision_action(raw)
+    hypothesis_status = _coerce_member_or_default(
+        raw.get("hypothesis_status"),
+        default="inconclusive",
+        allowed=_HYPOTHESIS_STATUSES,
+    )
+    confidence = _coerce_member_or_default(
+        raw.get("confidence"), default="medium", allowed=_CONFIDENCE_LEVELS
+    )
+    evidence_strength = _coerce_member_or_default(
+        raw.get("evidence_strength"),
+        default="moderate",
+        allowed=_EVIDENCE_STRENGTHS,
+    )
+    raw_followup_type = _coerce_followup_type(raw)
+    followup_required_evidence = _coerce_followup_required_evidence(
+        raw.get("followup_required_evidence")
+    )
 
     return ProjectDecision(
         project_decision=action,
@@ -1293,7 +1516,7 @@ def _load_project_decision(
     include_summary_fallback: bool = True,
 ) -> tuple[ProjectDecision | None, str | None]:
     for explicit_path in (
-        project_dir / ".enoch" / "project_decision.json",
+        project_dir / ENOCH_PROJECT_DIRNAME / "project_decision.json",
         project_dir / ".omx" / "project_decision.json",
     ):
         try:
@@ -1345,14 +1568,8 @@ def _tail_lines(path: Path, limit: int = 30) -> list[str]:
     return [line for line in lines if line.strip()]
 
 
-def _recent_files(
-    project_dir: Path,
-    limit: int = 12,
-    *,
-    max_entries: int = 2_500,
-    max_seconds: float = 0.35,
-) -> list[str]:
-    ignore_dirs = {
+_RECENT_FILES_IGNORE_DIRS = frozenset(
+    {
         ".venv",
         ".git",
         "__pycache__",
@@ -1364,54 +1581,215 @@ def _recent_files(
         "build",
         ".tox",
     }
-    ignored_roots = {
-        ("results",),
-        ("artifacts",),
-        (".enoch", "state"),
-        (".enoch", "logs"),
-        (".omx", "state"),  # legacy compatibility
-        (".omx", "logs"),  # legacy compatibility
-    }
+)
+_RECENT_FILES_IGNORED_ROOTS: tuple[tuple[str, ...], ...] = (
+    ("results",),
+    ("artifacts",),
+    (ENOCH_PROJECT_DIRNAME, "state"),
+    (ENOCH_PROJECT_DIRNAME, "logs"),
+    (".omx", "state"),  # legacy compatibility
+    (".omx", "logs"),  # legacy compatibility
+)
+
+
+def _recent_files_rel_root(root_path: Path, project_dir: Path) -> Path | None:
+    try:
+        return root_path.relative_to(project_dir)
+    except ValueError:
+        return None
+
+
+def _recent_files_skip_directory(rel_root: Path) -> bool:
+    if any(part in _RECENT_FILES_IGNORE_DIRS for part in rel_root.parts):
+        return True
+    return any(
+        rel_root.parts[: len(parts)] == parts for parts in _RECENT_FILES_IGNORED_ROOTS
+    )
+
+
+def _recent_files_prune_dirs(dirs: list[str]) -> None:
+    dirs[:] = [
+        directory for directory in dirs if directory not in _RECENT_FILES_IGNORE_DIRS
+    ]
+
+
+def _recent_files_stat_mtime(
+    root_path: Path, filename: str, project_dir: Path
+) -> tuple[float, str] | None:
+    path = root_path / filename
+    try:
+        stat = path.stat()
+        rel_path = path.relative_to(project_dir)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return (stat.st_mtime, f"{rel_path}")
+
+
+def _recent_files_heap_add(
+    collected: list[tuple[float, str]],
+    *,
+    limit: int,
+    mtime: float,
+    rel_path: str,
+) -> None:
+    entry = (mtime, rel_path)
+    if len(collected) < limit:
+        heapq.heappush(collected, entry)
+    else:
+        heapq.heappushpop(collected, entry)
+
+
+def _recent_files_scan_should_stop(
+    scanned: int, max_entries: int, deadline: float, *, inclusive_cap: bool
+) -> bool:
+    at_cap = scanned >= max_entries if inclusive_cap else scanned > max_entries
+    return at_cap or time.monotonic() > deadline
+
+
+def _recent_files_scan_directory_files(
+    collected: list[tuple[float, str]],
+    *,
+    root_path: Path,
+    files: list[str],
+    project_dir: Path,
+    limit: int,
+    max_entries: int,
+    deadline: float,
+    scanned: int,
+) -> int:
+    for filename in files:
+        scanned += 1
+        if _recent_files_scan_should_stop(
+            scanned, max_entries, deadline, inclusive_cap=False
+        ):
+            break
+        entry = _recent_files_stat_mtime(root_path, filename, project_dir)
+        if entry is None:
+            continue
+        _recent_files_heap_add(
+            collected, limit=limit, mtime=entry[0], rel_path=entry[1]
+        )
+    return scanned
+
+
+def _recent_files_scan(
+    project_dir: Path,
+    *,
+    limit: int,
+    max_entries: int,
+    max_seconds: float,
+) -> list[tuple[float, str]]:
     collected: list[tuple[float, str]] = []
     scanned = 0
     deadline = time.monotonic() + max_seconds
+    walker = os.walk(project_dir, onerror=lambda _exc: None)
+    for root, dirs, files in walker:
+        if _recent_files_scan_should_stop(
+            scanned, max_entries, deadline, inclusive_cap=True
+        ):
+            break
+        root_path = Path(root)
+        rel_root = _recent_files_rel_root(root_path, project_dir)
+        if rel_root is None:
+            continue
+        if _recent_files_skip_directory(rel_root):
+            dirs[:] = []
+            continue
+        _recent_files_prune_dirs(dirs)
+        scanned = _recent_files_scan_directory_files(
+            collected,
+            root_path=root_path,
+            files=files,
+            project_dir=project_dir,
+            limit=limit,
+            max_entries=max_entries,
+            deadline=deadline,
+            scanned=scanned,
+        )
+    return collected
+
+
+def _recent_files(
+    project_dir: Path,
+    limit: int = 12,
+    *,
+    max_entries: int = 2_500,
+    max_seconds: float = 0.35,
+) -> list[str]:
     try:
-        walker = os.walk(project_dir, onerror=lambda _exc: None)
-        for root, dirs, files in walker:
-            if scanned >= max_entries or time.monotonic() > deadline:
-                break
-            root_path = Path(root)
-            try:
-                rel_root = root_path.relative_to(project_dir)
-            except ValueError:
-                continue
-            if any(part in ignore_dirs for part in rel_root.parts) or any(
-                rel_root.parts[: len(parts)] == parts for parts in ignored_roots
-            ):
-                dirs[:] = []
-                continue
-            dirs[:] = [directory for directory in dirs if directory not in ignore_dirs]
-            for filename in files:
-                scanned += 1
-                if scanned > max_entries or time.monotonic() > deadline:
-                    break
-                path = root_path / filename
-                try:
-                    stat = path.stat()
-                    rel_path = Path(path).relative_to(project_dir)
-                except (OSError, RuntimeError, ValueError):
-                    continue
-                entry = (stat.st_mtime, f"{rel_path}")
-                if len(collected) < limit:
-                    heapq.heappush(collected, entry)
-                else:
-                    heapq.heappushpop(collected, entry)
+        collected = _recent_files_scan(
+            project_dir,
+            limit=limit,
+            max_entries=max_entries,
+            max_seconds=max_seconds,
+        )
     except (OSError, RuntimeError, ValueError):
         return []
     return [
         f"{Path(path).as_posix()}"
         for _, path in sorted(collected, key=lambda item: item[0], reverse=True)
     ]
+
+
+_RESULT_FOLDER_NAMES = ("results", "artifacts")
+_RESULT_WALK_SKIP_DIRS = frozenset(
+    {".git", "__pycache__", ".mypy_cache", ".pytest_cache"}
+)
+
+
+def _push_mtime_heap_entry(
+    collected: list[tuple[float, str]],
+    limit: int,
+    entry: tuple[float, str],
+) -> None:
+    if len(collected) < limit:
+        heapq.heappush(collected, entry)
+    else:
+        heapq.heappushpop(collected, entry)
+
+
+def _result_file_mtime_entry(path: Path, project_dir: Path) -> tuple[float, str] | None:
+    try:
+        if not path.is_file():
+            return None
+        stat = path.stat()
+        return (stat.st_mtime, path.relative_to(project_dir).as_posix())
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _collect_result_files_in_folder(
+    folder_root: Path,
+    project_dir: Path,
+    collected: list[tuple[float, str]],
+    *,
+    limit: int,
+    scanned: int,
+    deadline: float,
+    max_entries: int,
+) -> int:
+    try:
+        walker = os.walk(folder_root, onerror=lambda _exc: None)
+        for current_root, dirs, files in walker:
+            if scanned >= max_entries or time.monotonic() > deadline:
+                break
+            dirs[:] = [
+                directory
+                for directory in dirs
+                if directory not in _RESULT_WALK_SKIP_DIRS
+            ]
+            for filename in files:
+                scanned += 1
+                if scanned > max_entries or time.monotonic() > deadline:
+                    break
+                entry = _result_file_mtime_entry(
+                    Path(current_root) / filename, project_dir
+                )
+                if entry is not None:
+                    _push_mtime_heap_entry(collected, limit, entry)
+    except (OSError, RuntimeError, ValueError):
+        return scanned
+    return scanned
 
 
 def _result_files(
@@ -1424,40 +1802,19 @@ def _result_files(
     collected: list[tuple[float, str]] = []
     scanned = 0
     deadline = time.monotonic() + max_seconds
-    for folder_name in ("results", "artifacts"):
+    for folder_name in _RESULT_FOLDER_NAMES:
         root = project_dir / folder_name
         if not _path_exists(root):
             continue
-        try:
-            walker = os.walk(root, onerror=lambda _exc: None)
-            for current_root, dirs, files in walker:
-                if scanned >= max_entries or time.monotonic() > deadline:
-                    break
-                dirs[:] = [
-                    directory
-                    for directory in dirs
-                    if directory
-                    not in {".git", "__pycache__", ".mypy_cache", ".pytest_cache"}
-                ]
-                for filename in files:
-                    scanned += 1
-                    if scanned > max_entries or time.monotonic() > deadline:
-                        break
-                    path = Path(current_root) / filename
-                    try:
-                        if not path.is_file():
-                            continue
-                        stat = path.stat()
-                        rel_path = path.relative_to(project_dir).as_posix()
-                    except (OSError, RuntimeError, ValueError):
-                        continue
-                    entry = (stat.st_mtime, rel_path)
-                    if len(collected) < limit:
-                        heapq.heappush(collected, entry)
-                    else:
-                        heapq.heappushpop(collected, entry)
-        except (OSError, RuntimeError, ValueError):
-            continue
+        scanned = _collect_result_files_in_folder(
+            root,
+            project_dir,
+            collected,
+            limit=limit,
+            scanned=scanned,
+            deadline=deadline,
+            max_entries=max_entries,
+        )
         if scanned >= max_entries or time.monotonic() > deadline:
             break
     return [
@@ -1483,7 +1840,9 @@ def _tail_jsonl(path: Path, limit: int = 80) -> list[str]:
 
 
 def _latest_session(project_dir: Path) -> SessionHistoryEntry | None:
-    history_path = project_dir / ".enoch" / "logs" / "session-history.jsonl"
+    history_path = (
+        project_dir / ENOCH_PROJECT_DIRNAME / "logs" / "session-history.jsonl"
+    )
     history_exists = _path_exists(history_path)
     if not history_exists:
         legacy_history_path = project_dir / ".omx" / "logs" / "session-history.jsonl"
@@ -1651,6 +2010,106 @@ def _ready_callback_for_retry(record: RunRecord) -> GateCallback | None:
     )
 
 
+def _dashboard_record_sort_priority(truth: dict[str, Any]) -> int:
+    if truth["is_live"]:
+        return 0
+    if truth["needs_attention"]:
+        return 1
+    return 2
+
+
+def _dashboard_operator_view(
+    record: RunRecord,
+    active_processes: list[ProcessInfo],
+    *,
+    superseded: bool,
+    stale_callback: bool,
+    delivered: bool,
+) -> tuple[str, str, str, bool, bool]:
+    state = record.gate_state
+    if active_processes or (state == GateState.RUNNING and not superseded):
+        return (
+            "active",
+            "Active",
+            "Codex or project-owned processes are still running.",
+            True,
+            False,
+        )
+    if superseded:
+        return (
+            "superseded",
+            "Superseded",
+            "A newer run exists for this project; this older record is historical evidence, not current attention.",
+            False,
+            False,
+        )
+    if state == GateState.QUESTION_PENDING:
+        return (
+            "question_pending",
+            "Question pending",
+            "Codex asked for input; this is a real operator hold.",
+            True,
+            True,
+        )
+    if state == GateState.ERROR:
+        return (
+            "attention",
+            "Attention",
+            "Wake-gate recorded an error for this run.",
+            False,
+            True,
+        )
+    if stale_callback:
+        return (
+            "stale_callback_ready",
+            "Stale callback",
+            "Wake-gate reached callback-ready but has no delivered idempotency key; inspect or reconcile.",
+            False,
+            True,
+        )
+    if state in {GateState.WAKE_READY, GateState.FINISHED_READY} and not delivered:
+        return (
+            "callback_pending",
+            "Callback pending",
+            "Wake-gate is ready and waiting for callback delivery confirmation.",
+            True,
+            False,
+        )
+    if delivered:
+        lifecycle = (
+            "callback_delivered"
+            if state == GateState.WAKE_READY
+            else "finished_delivered"
+        )
+        return (
+            lifecycle,
+            "Delivered",
+            "The configured completion callback accepted the wake/finish event; this is historical evidence, not live work.",
+            False,
+            False,
+        )
+    if state in {
+        GateState.PENDING_IDLE_GATE,
+        GateState.WAITING_FOR_PROCESS_EXIT,
+        GateState.WAITING_FOR_QUIET_WINDOW,
+        GateState.FINISHED_PENDING_GATE,
+    }:
+        return (
+            "settling",
+            "Settling",
+            "Wake-gate is waiting for process-exit or quiet-window evidence.",
+            True,
+            False,
+        )
+    return (
+        "historical",
+        "Historical",
+        "Inactive historical run record.",
+        False,
+        False,
+    )
+
+
 def _dashboard_truth(
     record: RunRecord,
     active_processes: list[ProcessInfo],
@@ -1669,76 +2128,13 @@ def _dashboard_truth(
         and age_seconds is not None
         and age_seconds > stale_seconds
     )
-
-    if active_processes:
-        lifecycle = "active"
-        status = "Active"
-        detail = "Codex or project-owned processes are still running."
-        is_live = True
-        needs_attention = False
-    elif superseded:
-        lifecycle = "superseded"
-        status = "Superseded"
-        detail = "A newer run exists for this project; this older record is historical evidence, not current attention."
-        is_live = False
-        needs_attention = False
-    elif state == GateState.RUNNING:
-        lifecycle = "active"
-        status = "Active"
-        detail = "Codex or project-owned processes are still running."
-        is_live = True
-        needs_attention = False
-    elif state == GateState.QUESTION_PENDING:
-        lifecycle = "question_pending"
-        status = "Question pending"
-        detail = "Codex asked for input; this is a real operator hold."
-        is_live = True
-        needs_attention = True
-    elif state == GateState.ERROR:
-        lifecycle = "attention"
-        status = "Attention"
-        detail = "Wake-gate recorded an error for this run."
-        is_live = False
-        needs_attention = True
-    elif stale_callback:
-        lifecycle = "stale_callback_ready"
-        status = "Stale callback"
-        detail = "Wake-gate reached callback-ready but has no delivered idempotency key; inspect or reconcile."
-        is_live = False
-        needs_attention = True
-    elif state in {GateState.WAKE_READY, GateState.FINISHED_READY} and not delivered:
-        lifecycle = "callback_pending"
-        status = "Callback pending"
-        detail = "Wake-gate is ready and waiting for callback delivery confirmation."
-        is_live = True
-        needs_attention = False
-    elif delivered:
-        lifecycle = (
-            "callback_delivered"
-            if state == GateState.WAKE_READY
-            else "finished_delivered"
-        )
-        status = "Delivered"
-        detail = "The configured completion callback accepted the wake/finish event; this is historical evidence, not live work."
-        is_live = False
-        needs_attention = False
-    elif state in {
-        GateState.PENDING_IDLE_GATE,
-        GateState.WAITING_FOR_PROCESS_EXIT,
-        GateState.WAITING_FOR_QUIET_WINDOW,
-        GateState.FINISHED_PENDING_GATE,
-    }:
-        lifecycle = "settling"
-        status = "Settling"
-        detail = "Wake-gate is waiting for process-exit or quiet-window evidence."
-        is_live = True
-        needs_attention = False
-    else:
-        lifecycle = "historical"
-        status = "Historical"
-        detail = "Inactive historical run record."
-        is_live = False
-        needs_attention = False
+    lifecycle, status, detail, is_live, needs_attention = _dashboard_operator_view(
+        record,
+        active_processes,
+        superseded=superseded,
+        stale_callback=stale_callback,
+        delivered=delivered,
+    )
 
     return {
         "lifecycle_state": lifecycle,
@@ -1780,56 +2176,88 @@ def _is_superseded_record(
     return latest is not None and latest.run_id != record.run_id
 
 
+_RUN_DASHBOARD_PROCESS_STATES = {
+    GateState.RUNNING,
+    GateState.PENDING_IDLE_GATE,
+    GateState.WAITING_FOR_PROCESS_EXIT,
+    GateState.WAITING_FOR_QUIET_WINDOW,
+    GateState.FINISHED_PENDING_GATE,
+}
+
+
+def _resolve_run_project_dir(record: RunRecord) -> Path | None:
+    if not record.project_dir:
+        return None
+    try:
+        return _resolve_under_root(record.project_dir, config.expanded_project_root)
+    except ControlPlaneHttpError:
+        return None
+
+
+def _run_dashboard_active_processes(
+    record: RunRecord, *, detail: bool
+) -> list[ProcessInfo]:
+    if detail or record.gate_state in _RUN_DASHBOARD_PROCESS_STATES:
+        return gate.process_tracker.describe_processes(record)
+    return []
+
+
+def _run_dashboard_project_context(
+    project_dir: Path | None, *, detail: bool
+) -> tuple[
+    SessionHistoryEntry | None,
+    ProjectDecision | None,
+    str | None,
+    list[str],
+    list[str],
+    list[str],
+]:
+    if project_dir is None or not project_dir.exists():
+        return None, None, None, [], [], []
+
+    run_notes_tail = _tail_lines(
+        project_dir / "run_notes.md", limit=30 if detail else 8
+    )
+    recent_files: list[str] = []
+    result_files: list[str] = []
+    if detail:
+        recent_files = _recent_files(
+            project_dir, limit=30, max_entries=6_000, max_seconds=0.9
+        )
+        result_files = _result_files(
+            project_dir, limit=50, max_entries=6_000, max_seconds=0.9
+        )
+    project_decision, decision_error = _load_project_decision(
+        project_dir,
+        include_summary_fallback=detail,
+    )
+    latest_session = _latest_session(project_dir) if detail else None
+    return (
+        latest_session,
+        project_decision,
+        decision_error,
+        run_notes_tail,
+        recent_files,
+        result_files,
+    )
+
+
 def _run_dashboard_item(
     record: RunRecord,
     *,
     detail: bool = False,
     superseded: bool = False,
 ) -> dict[str, Any]:
-    process_states = {
-        GateState.RUNNING,
-        GateState.PENDING_IDLE_GATE,
-        GateState.WAITING_FOR_PROCESS_EXIT,
-        GateState.WAITING_FOR_QUIET_WINDOW,
-        GateState.FINISHED_PENDING_GATE,
-    }
-    active_processes = (
-        gate.process_tracker.describe_processes(record)
-        if detail or record.gate_state in process_states
-        else []
-    )
-    project_dir: Path | None = None
-    if record.project_dir:
-        try:
-            project_dir = _resolve_under_root(
-                record.project_dir, config.expanded_project_root
-            )
-        except HTTPException:
-            project_dir = None
-
-    latest_session = (
-        _latest_session(project_dir) if detail and project_dir is not None else None
-    )
-    project_decision: ProjectDecision | None = None
-    decision_error: str | None = None
-    run_notes_tail: list[str] = []
-    recent_files: list[str] = []
-    result_files: list[str] = []
-    if project_dir is not None and project_dir.exists():
-        run_notes_tail = _tail_lines(
-            project_dir / "run_notes.md", limit=30 if detail else 8
-        )
-        if detail:
-            recent_files = _recent_files(
-                project_dir, limit=30, max_entries=6_000, max_seconds=0.9
-            )
-            result_files = _result_files(
-                project_dir, limit=50, max_entries=6_000, max_seconds=0.9
-            )
-        project_decision, decision_error = _load_project_decision(
-            project_dir,
-            include_summary_fallback=detail,
-        )
+    active_processes = _run_dashboard_active_processes(record, detail=detail)
+    project_dir = _resolve_run_project_dir(record)
+    (
+        latest_session,
+        project_decision,
+        decision_error,
+        run_notes_tail,
+        recent_files,
+        result_files,
+    ) = _run_dashboard_project_context(project_dir, detail=detail)
 
     truth = _dashboard_truth(record, active_processes, superseded=superseded)
     current_activity = _activity_from_processes(
@@ -2034,10 +2462,10 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@app.post("/dashboard/queue-snapshot")
+@app.post("/dashboard/queue-snapshot", responses=_DASHBOARD_SNAPSHOT_RESPONSES)
 def dashboard_queue_snapshot(
     payload: dict[str, Any],
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     snapshot = _build_queue_snapshot(payload)
@@ -2154,10 +2582,10 @@ def _build_paper_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@app.post("/dashboard/paper-snapshot")
+@app.post("/dashboard/paper-snapshot", responses=_DASHBOARD_SNAPSHOT_RESPONSES)
 def dashboard_paper_snapshot(
     payload: dict[str, Any],
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     snapshot = _build_paper_snapshot(payload)
@@ -2168,69 +2596,54 @@ def dashboard_paper_snapshot(
     return {"ok": True, "paper_snapshot": snapshot}
 
 
-@app.get("/dashboard/api/paper-artifact/{project_id}")
+@app.get(
+    "/dashboard/api/paper-artifact/{project_id}",
+    responses=_DASHBOARD_PAPER_ARTIFACT_RESPONSES,
+)
 def dashboard_api_paper_artifact(
     project_id: str,
-    path: str = Query(..., min_length=1),
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
-    max_bytes: int = Query(default=350_000, ge=1, le=2_000_000),
+    path: Annotated[str, Query(min_length=1)],
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
+    max_bytes: Annotated[int, Query(ge=1, le=2_000_000)] = 350_000,
 ) -> dict[str, Any]:
     _require_dashboard_bearer(authorization, token)
     project_dir = _resolve_project_dir(project_id, None)
     if not _checked_exists(
-        project_dir, label="project directory", status_code=403
-    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ) or not _checked_is_dir(
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ):
         raise HTTPException(
-            status_code=404, detail=f"project directory not found: {project_id}"
+            status_code=404, detail=f"{PROJECT_DIRECTORY_LABEL} not found: {project_id}"
         )
-    artifact_path = _resolve_project_relative_path(project_dir, path)
-    try:
-        artifact_exists = artifact_path.exists() and artifact_path.is_file()
-    except OSError as exc:
-        raise HTTPException(
-            status_code=403, detail=f"paper artifact is not readable: {path}"
-        ) from exc
-    if not artifact_exists:
-        raise HTTPException(status_code=404, detail=f"paper artifact not found: {path}")
-    try:
-        size = artifact_path.stat().st_size
-    except OSError as exc:
-        raise HTTPException(
-            status_code=403, detail=f"paper artifact is not readable: {path}"
-        ) from exc
-    if size > max_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=f"paper artifact too large for dashboard preview: {path}",
-        )
-    try:
-        content = artifact_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise HTTPException(
-            status_code=403, detail=f"paper artifact is not readable: {path}"
-        ) from exc
-    except UnicodeDecodeError as exc:
-        raise HTTPException(
-            status_code=415, detail=f"paper artifact is not UTF-8 text: {path}"
-        ) from exc
+    entry = _read_project_paper_artifact_entry(
+        project_dir,
+        path,
+        max_bytes=max_bytes,
+        too_large_detail=f"paper artifact too large for dashboard preview: {path}",
+    )
     return {
         "ok": True,
         "project_id": project_id,
         "project_dir": project_dir.as_posix(),
-        "path": artifact_path.relative_to(project_dir).as_posix(),
-        "bytes": size,
-        "content": content,
+        "path": entry["path"],
+        "bytes": entry["bytes"],
+        "content": entry["content"],
         "timestamp": utc_now(),
     }
 
 
-@app.get("/dashboard/paper-artifact/{project_id}", response_class=HTMLResponse)
+@app.get(
+    "/dashboard/paper-artifact/{project_id}",
+    response_class=HTMLResponse,
+    responses=_DASHBOARD_PAPER_ARTIFACT_RESPONSES,
+)
 def dashboard_paper_artifact(
     project_id: str,
-    path: str = Query(..., min_length=1),
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
+    path: Annotated[str, Query(min_length=1)],
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
 ) -> HTMLResponse:
     data = dashboard_api_paper_artifact(
         project_id, path, authorization=authorization, token=token, max_bytes=2_000_000
@@ -2247,13 +2660,13 @@ def dashboard_paper_artifact(
     )
 
 
-@app.get("/dashboard/api")
+@app.get("/dashboard/api", responses=_HTTP_401_INVALID_BEARER)
 def dashboard_api(
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
-    limit: int = Query(default=40, ge=1, le=250),
-    event_limit: int = Query(default=30, ge=0, le=200),
-    detail: bool = Query(default=False),
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=250)] = 40,
+    event_limit: Annotated[int, Query(ge=0, le=200)] = 30,
+    detail: Annotated[bool, Query()] = False,
 ) -> dict[str, Any]:
     _require_dashboard_bearer(authorization, token)
 
@@ -2277,13 +2690,7 @@ def dashboard_api(
         reverse=True,
     )
     records.sort(
-        key=lambda record: (
-            0
-            if truth_by_run[record.run_id]["is_live"]
-            else 1
-            if truth_by_run[record.run_id]["needs_attention"]
-            else 2
-        )
+        key=lambda record: _dashboard_record_sort_priority(truth_by_run[record.run_id])
     )
     visible_records = records[:limit]
     state_counts = Counter(record.gate_state.value for record in records)
@@ -2346,11 +2753,14 @@ def dashboard_api(
     }
 
 
-@app.get("/dashboard/api/run/{run_id}")
+@app.get(
+    "/dashboard/api/run/{run_id}",
+    responses=_DASHBOARD_API_RUN_RESPONSES,
+)
 def dashboard_api_run(
     run_id: str,
-    authorization: str | None = Header(default=None),
-    token: str | None = Query(default=None),
+    authorization: Annotated[str | None, Header()] = None,
+    token: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     _require_dashboard_bearer(authorization, token)
     record = store.load_run(run_id)
@@ -2372,19 +2782,22 @@ def dashboard_api_run(
     }
 
 
-@app.get("/project-status/{project_id}")
+@app.get(
+    "/project-status/{project_id}",
+    responses=_PROJECT_STATUS_RESPONSES,
+)
 async def project_status(
     project_id: str,
-    authorization: str | None = Header(default=None),
-    run_id: str | None = Query(default=None),
-    project_dir: str | None = Query(default=None),
+    authorization: Annotated[str | None, Header()] = None,
+    run_id: Annotated[str | None, Query()] = None,
+    project_dir: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
 
     try:
         resolved_project_dir = _resolve_project_dir(project_id, project_dir)
-    except HTTPException:
-        raise
+    except ControlPlaneHttpError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2401,7 +2814,7 @@ async def project_status(
         active_processes = gate.process_tracker.describe_processes(record)
 
     project_available = _checked_exists(
-        resolved_project_dir, label="project directory", status_code=403
+        resolved_project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
     )
     response = ProjectStatusResponse(
         project_id=project_id,
@@ -2424,10 +2837,10 @@ async def project_status(
     return response.model_dump(exclude_none=False)
 
 
-@app.post("/prepare-project")
+@app.post("/prepare-project", responses=_PREPARE_PROJECT_RESPONSES)
 async def prepare_project(
     request: PrepareProjectRequest,
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     metadata = _normalize_prepare_metadata(request.metadata)
@@ -2444,13 +2857,13 @@ async def prepare_project(
     )
 
     project_dir.mkdir(parents=True, exist_ok=True)
-    (project_dir / ".enoch").mkdir(parents=True, exist_ok=True)
+    (project_dir / ENOCH_PROJECT_DIRNAME).mkdir(parents=True, exist_ok=True)
 
     _write_text(prompt_file, request.prompt_text, request.overwrite)
     if resume_prompt_file and request.resume_prompt_text is not None:
         _write_text(resume_prompt_file, request.resume_prompt_text, request.overwrite)
 
-    metadata_path = project_dir / ".enoch" / "project.json"
+    metadata_path = project_dir / ENOCH_PROJECT_DIRNAME / "project.json"
     metadata_payload = {
         "run_id": request.run_id,
         "project_id": request.project_id,
@@ -2482,70 +2895,34 @@ async def prepare_project(
     }
 
 
-@app.post("/project-paper/{project_id}/read")
+@app.post(
+    "/project-paper/{project_id}/read",
+    responses=_READ_PROJECT_PAPER_RESPONSES,
+)
 async def read_project_paper(
     project_id: str,
     request: PaperArtifactReadRequest,
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
-    if len(request.paths) > 20:
-        raise HTTPException(
-            status_code=400, detail="too many paper artifact paths; max 20"
-        )
-    if request.max_bytes_per_file < 1 or request.max_bytes_per_file > 2_000_000:
-        raise HTTPException(
-            status_code=400, detail="max_bytes_per_file must be between 1 and 2000000"
-        )
+    _validate_paper_artifact_read_request(request)
 
     project_dir = _resolve_project_dir(project_id, None)
     if not _checked_exists(
-        project_dir, label="project directory", status_code=403
-    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ) or not _checked_is_dir(
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ):
         raise HTTPException(
-            status_code=404, detail=f"project directory not found: {project_id}"
+            status_code=404, detail=f"{PROJECT_DIRECTORY_LABEL} not found: {project_id}"
         )
 
-    files: list[dict[str, Any]] = []
-    for relative in request.paths:
-        path = _resolve_project_relative_path(project_dir, relative)
-        try:
-            artifact_exists = path.exists() and path.is_file()
-        except OSError as exc:
-            raise HTTPException(
-                status_code=403, detail=f"paper artifact is not readable: {relative}"
-            ) from exc
-        if not artifact_exists:
-            raise HTTPException(
-                status_code=404, detail=f"paper artifact not found: {relative}"
-            )
-        try:
-            size = path.stat().st_size
-        except OSError as exc:
-            raise HTTPException(
-                status_code=403, detail=f"paper artifact is not readable: {relative}"
-            ) from exc
-        if size > request.max_bytes_per_file:
-            raise HTTPException(
-                status_code=413, detail=f"paper artifact too large to read: {relative}"
-            )
-        try:
-            content = path.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise HTTPException(
-                status_code=403, detail=f"paper artifact is not readable: {relative}"
-            ) from exc
-        except UnicodeDecodeError as exc:
-            raise HTTPException(
-                status_code=415, detail=f"paper artifact is not UTF-8 text: {relative}"
-            ) from exc
-        files.append(
-            {
-                "path": path.relative_to(project_dir).as_posix(),
-                "bytes": size,
-                "content": content,
-            }
+    files = [
+        _read_project_paper_artifact_entry(
+            project_dir, relative, max_bytes=request.max_bytes_per_file
         )
+        for relative in request.paths
+    ]
 
     return {
         "ok": True,
@@ -2556,11 +2933,14 @@ async def read_project_paper(
     }
 
 
-@app.post("/project-paper/{project_id}")
+@app.post(
+    "/project-paper/{project_id}",
+    responses=_WRITE_PROJECT_PAPER_RESPONSES,
+)
 async def write_project_paper(
     project_id: str,
     request: PaperArtifactRequest,
-    authorization: str | None = Header(default=None),
+    authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_local_bearer(authorization)
     if len(request.files) > 20:
@@ -2570,10 +2950,12 @@ async def write_project_paper(
 
     project_dir = _resolve_project_dir(project_id, None)
     if not _checked_exists(
-        project_dir, label="project directory", status_code=403
-    ) or not _checked_is_dir(project_dir, label="project directory", status_code=403):
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ) or not _checked_is_dir(
+        project_dir, label=PROJECT_DIRECTORY_LABEL, status_code=403
+    ):
         raise HTTPException(
-            status_code=404, detail=f"project directory not found: {project_id}"
+            status_code=404, detail=f"{PROJECT_DIRECTORY_LABEL} not found: {project_id}"
         )
 
     written: list[dict[str, Any]] = []
@@ -2616,24 +2998,21 @@ async def write_project_paper(
     }
 
 
-@app.post("/dispatch")
-async def dispatch_run(
-    request: DispatchRequest,
-    authorization: str | None = Header(default=None),
-) -> dict:
-    _require_local_bearer(authorization)
-    project_dir = _resolve_under_root(request.project_dir, config.expanded_project_root)
-    prompt_file = _resolve_under_root(request.prompt_file, config.expanded_project_root)
-    workload_class, workload_profile = _resolve_workload_profile_for_project_dir(
-        project_dir
-    )
-
+def _require_dispatch_script() -> Path:
     script_path = Path(config.dispatch_script_path).expanduser()
     if not script_path.exists():
         raise HTTPException(
             status_code=500, detail=f"dispatch script not found: {script_path}"
         )
+    return script_path
 
+
+def _build_dispatch_cmd(
+    script_path: Path,
+    request: DispatchRequest,
+    project_dir: Path,
+    prompt_file: Path,
+) -> list[str]:
     cmd = [
         str(script_path),
         "--run-id",
@@ -2660,27 +3039,36 @@ async def dispatch_run(
     if request.log_dir:
         log_dir = _resolve_under_root(request.log_dir, config.expanded_project_root)
         cmd.extend(["--log-dir", str(log_dir)])
+    return cmd
 
+
+def _dispatch_subprocess_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.update(
+        {
+            "ENOCH_COMPLETION_CALLBACK_URL": config.completion_callback_url,
+            "ENOCH_COMPLETION_CALLBACK_TOKEN": config.completion_callback_token,
+            "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(
+                config.completion_callback_timeout_sec
+            ),
+            "ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir),
+        }
+    )
+    return env
+
+
+async def _run_dispatch_subprocess(
+    cmd: list[str],
+) -> subprocess.CompletedProcess[str]:
     try:
-        env = os.environ.copy()
-        env.update(
-            {
-                "ENOCH_COMPLETION_CALLBACK_URL": config.completion_callback_url,
-                "ENOCH_COMPLETION_CALLBACK_TOKEN": config.completion_callback_token,
-                "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(
-                    config.completion_callback_timeout_sec
-                ),
-                "ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir),
-            }
-        )
-        result = await asyncio.to_thread(
+        return await asyncio.to_thread(
             subprocess.run,
             cmd,
             capture_output=True,
             text=True,
             check=False,
             timeout=config.dispatch_timeout_sec,
-            env=env,
+            env=_dispatch_subprocess_env(),
         )
     except subprocess.TimeoutExpired as exc:
         raise HTTPException(
@@ -2688,6 +3076,10 @@ async def dispatch_run(
             detail=f"dispatch timed out after {config.dispatch_timeout_sec}s",
         ) from exc
 
+
+def _parse_dispatch_subprocess_result(
+    result: subprocess.CompletedProcess[str],
+) -> dict[str, Any]:
     if result.returncode != 0:
         raise HTTPException(
             status_code=502,
@@ -2697,9 +3089,8 @@ async def dispatch_run(
                 "stderr": result.stderr.strip(),
             },
         )
-
     try:
-        payload = json.loads(result.stdout)
+        return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise HTTPException(
             status_code=502,
@@ -2710,6 +3101,22 @@ async def dispatch_run(
             },
         ) from exc
 
+
+def _apply_dispatch_baseline_vram(record: RunRecord) -> None:
+    baseline_sample = telemetry.sample()
+    if record.baseline_vram_mib is None or (
+        baseline_sample.memory_source == "uma_meminfo" and record.baseline_vram_mib == 0
+    ):
+        record.baseline_vram_mib = baseline_sample.vram_used_mib
+
+
+def _persist_dispatch_run_record(
+    request: DispatchRequest,
+    project_dir: Path,
+    workload_class: str,
+    workload_profile: Any,
+    payload: dict[str, Any],
+) -> None:
     record = store.load_run(request.run_id) or RunRecord(
         run_id=request.run_id,
         session_id=request.session_id or "",
@@ -2731,12 +3138,29 @@ async def dispatch_run(
     record.last_idempotency_key = None
     record.quiet_samples = []
     record.updated_at = utc_now()
-    baseline_sample = telemetry.sample()
-    if record.baseline_vram_mib is None or (
-        baseline_sample.memory_source == "uma_meminfo" and record.baseline_vram_mib == 0
-    ):
-        record.baseline_vram_mib = baseline_sample.vram_used_mib
+    _apply_dispatch_baseline_vram(record)
     store.save_run(record)
+
+
+@app.post("/dispatch", responses=_DISPATCH_RESPONSES)
+async def dispatch_run(
+    request: DispatchRequest,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
+    _require_local_bearer(authorization)
+    project_dir = _resolve_under_root(request.project_dir, config.expanded_project_root)
+    prompt_file = _resolve_under_root(request.prompt_file, config.expanded_project_root)
+    workload_class, workload_profile = _resolve_workload_profile_for_project_dir(
+        project_dir
+    )
+
+    script_path = _require_dispatch_script()
+    cmd = _build_dispatch_cmd(script_path, request, project_dir, prompt_file)
+    result = await _run_dispatch_subprocess(cmd)
+    payload = _parse_dispatch_subprocess_result(result)
+    _persist_dispatch_run_record(
+        request, project_dir, workload_class, workload_profile, payload
+    )
 
     return {
         "accepted": True,
@@ -2798,6 +3222,111 @@ async def _reap_and_log_stale_project_processes(record: RunRecord) -> None:
     )
 
 
+def _build_gate_timeout_callback(
+    record: RunRecord,
+    timeout_idempotency_key: str,
+    profile_evidence: dict[str, Any],
+) -> GateCallback:
+    return GateCallback(
+        event_type="gate_timeout",
+        run_id=record.run_id,
+        session_id=record.session_id,
+        project_id=record.project_id,
+        project_name=record.project_name,
+        source_event=(record.last_event.value if record.last_event else "unknown"),
+        gate_state=record.gate_state.value,
+        idle_seen_at=record.idle_seen_at,
+        process_tracking=gate.process_tracker.snapshot(record, []),
+        telemetry={
+            "workload_class": profile_evidence["workload_class"],
+            "workload_profile_name": profile_evidence["workload_profile_name"],
+            "thresholds": profile_evidence["workload_thresholds"],
+        },
+        reason="idle_gate_timeout",
+        idempotency_key=timeout_idempotency_key,
+    )
+
+
+async def _process_retry_callback(record: RunRecord) -> bool:
+    retry_callback = _ready_callback_for_retry(record)
+    if retry_callback is None:
+        return False
+    ok, detail = await _deliver_callback(retry_callback)
+    profile_evidence = _wake_decision_profile_evidence(record)
+    store.append_event(
+        {
+            "kind": "callback_retry",
+            "run_id": record.run_id,
+            "event_type": retry_callback.event_type,
+            "ok": ok,
+            "detail": detail,
+            "timestamp": utc_now(),
+            **profile_evidence,
+        }
+    )
+    if not ok:
+        return False
+    record.last_idempotency_key = retry_callback.idempotency_key
+    store.save_run(record)
+    return True
+
+
+async def _process_gate_timeout(record: RunRecord) -> bool:
+    if not gate.is_timed_out(record):
+        return False
+    timeout_idempotency_key = (
+        f"{record.run_id}:gate_timeout:{record.idle_seen_at or record.last_event_at}"
+    )
+    if record.last_idempotency_key == timeout_idempotency_key:
+        return True
+    profile_evidence = _wake_decision_profile_evidence(record)
+    timeout_callback = _build_gate_timeout_callback(
+        record, timeout_idempotency_key, profile_evidence
+    )
+    record.gate_state = GateState.ERROR
+    record.last_idempotency_key = timeout_callback.idempotency_key
+    store.save_run(record)
+    ok, detail = await _deliver_callback(timeout_callback)
+    store.append_event(
+        {
+            "kind": "callback_attempt",
+            "run_id": record.run_id,
+            "event_type": timeout_callback.event_type,
+            "ok": ok,
+            "detail": detail,
+            "timestamp": utc_now(),
+            **profile_evidence,
+        }
+    )
+    store.save_run(record)
+    return True
+
+
+async def _process_gate_evaluation(record: RunRecord) -> bool:
+    record, callback = gate.evaluate(record)
+    store.save_run(record)
+    if callback is None:
+        return False
+    ok, detail = await _deliver_callback(callback)
+    profile_evidence = _wake_decision_profile_evidence(record)
+    store.append_event(
+        {
+            "kind": "callback_attempt",
+            "run_id": record.run_id,
+            "event_type": callback.event_type,
+            "ok": ok,
+            "detail": detail,
+            "timestamp": utc_now(),
+            **profile_evidence,
+        }
+    )
+    if not ok:
+        return False
+    record.last_idempotency_key = callback.idempotency_key
+    store.save_run(record)
+    return True
+
+
 async def _evaluate_until_ready(run_id: str) -> None:
     try:
         while True:
@@ -2808,94 +3337,12 @@ async def _evaluate_until_ready(run_id: str) -> None:
 
             await _reap_and_log_stale_project_processes(record)
 
-            retry_callback = _ready_callback_for_retry(record)
-            if retry_callback is not None:
-                ok, detail = await _deliver_callback(retry_callback)
-                profile_evidence = _wake_decision_profile_evidence(record)
-                store.append_event(
-                    {
-                        "kind": "callback_retry",
-                        "run_id": record.run_id,
-                        "event_type": retry_callback.event_type,
-                        "ok": ok,
-                        "detail": detail,
-                        "timestamp": utc_now(),
-                        **profile_evidence,
-                    }
-                )
-                if ok:
-                    record.last_idempotency_key = retry_callback.idempotency_key
-                    store.save_run(record)
-                    return
-
-            if gate.is_timed_out(record):
-                timeout_idempotency_key = f"{record.run_id}:gate_timeout:{record.idle_seen_at or record.last_event_at}"
-                if record.last_idempotency_key == timeout_idempotency_key:
-                    return
-                profile_evidence = _wake_decision_profile_evidence(record)
-                timeout_callback = GateCallback(
-                    event_type="gate_timeout",
-                    run_id=record.run_id,
-                    session_id=record.session_id,
-                    project_id=record.project_id,
-                    project_name=record.project_name,
-                    source_event=(
-                        record.last_event.value if record.last_event else "unknown"
-                    ),
-                    gate_state=record.gate_state.value,
-                    idle_seen_at=record.idle_seen_at,
-                    process_tracking=gate.process_tracker.snapshot(record, []),
-                    telemetry={
-                        "workload_class": profile_evidence["workload_class"],
-                        "workload_profile_name": profile_evidence[
-                            "workload_profile_name"
-                        ],
-                        "thresholds": profile_evidence["workload_thresholds"],
-                    },
-                    reason="idle_gate_timeout",
-                    idempotency_key=timeout_idempotency_key,
-                )
-                record.gate_state = GateState.ERROR
-                record.last_idempotency_key = timeout_callback.idempotency_key
-                store.save_run(record)
-                ok, detail = await _deliver_callback(timeout_callback)
-                store.append_event(
-                    {
-                        "kind": "callback_attempt",
-                        "run_id": record.run_id,
-                        "event_type": timeout_callback.event_type,
-                        "ok": ok,
-                        "detail": detail,
-                        "timestamp": utc_now(),
-                        **profile_evidence,
-                    }
-                )
-                if ok:
-                    store.save_run(record)
-                    return
-                store.save_run(record)
+            if await _process_retry_callback(record):
                 return
-
-            record, callback = gate.evaluate(record)
-            store.save_run(record)
-            if callback is not None:
-                ok, detail = await _deliver_callback(callback)
-                profile_evidence = _wake_decision_profile_evidence(record)
-                store.append_event(
-                    {
-                        "kind": "callback_attempt",
-                        "run_id": record.run_id,
-                        "event_type": callback.event_type,
-                        "ok": ok,
-                        "detail": detail,
-                        "timestamp": utc_now(),
-                        **profile_evidence,
-                    }
-                )
-                if ok:
-                    record.last_idempotency_key = callback.idempotency_key
-                    store.save_run(record)
-                    return
+            if await _process_gate_timeout(record):
+                return
+            if await _process_gate_evaluation(record):
+                return
 
             await asyncio.sleep(config.sample_interval_sec)
     finally:
@@ -2910,36 +3357,33 @@ def _ensure_evaluator(run_id: str) -> None:
 
 
 async def _reconcile_missing_idle_loop() -> None:
-    try:
-        while True:
-            await _replay_callback_outbox_once()
-            for record in store.list_runs():
-                record = _assign_record_workload_profile(record)
-                if record.gate_state == GateState.RUNNING:
-                    await _reap_and_log_stale_project_processes(record)
-                    record, changed = gate.reconcile(record)
-                    if changed:
-                        store.append_event(
-                            {
-                                "kind": "reconciled_missing_idle",
-                                "run_id": record.run_id,
-                                "session_id": record.session_id,
-                                "timestamp": utc_now(),
-                            }
-                        )
-                        store.save_run(record)
-                if record.gate_state in {
-                    GateState.PENDING_IDLE_GATE,
-                    GateState.WAITING_FOR_PROCESS_EXIT,
-                    GateState.WAITING_FOR_QUIET_WINDOW,
-                    GateState.FINISHED_PENDING_GATE,
-                    GateState.WAKE_READY,
-                    GateState.FINISHED_READY,
-                }:
-                    _ensure_evaluator(record.run_id)
-            await asyncio.sleep(config.sample_interval_sec)
-    except asyncio.CancelledError:
-        raise
+    while True:
+        await _replay_callback_outbox_once()
+        for record in store.list_runs():
+            record = _assign_record_workload_profile(record)
+            if record.gate_state == GateState.RUNNING:
+                await _reap_and_log_stale_project_processes(record)
+                record, changed = gate.reconcile(record)
+                if changed:
+                    store.append_event(
+                        {
+                            "kind": "reconciled_missing_idle",
+                            "run_id": record.run_id,
+                            "session_id": record.session_id,
+                            "timestamp": utc_now(),
+                        }
+                    )
+                    store.save_run(record)
+            if record.gate_state in {
+                GateState.PENDING_IDLE_GATE,
+                GateState.WAITING_FOR_PROCESS_EXIT,
+                GateState.WAITING_FOR_QUIET_WINDOW,
+                GateState.FINISHED_PENDING_GATE,
+                GateState.WAKE_READY,
+                GateState.FINISHED_READY,
+            }:
+                _ensure_evaluator(record.run_id)
+        await asyncio.sleep(config.sample_interval_sec)
 
 
 # NOTE: startup/shutdown logic moved to the lifespan context manager above

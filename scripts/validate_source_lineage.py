@@ -157,187 +157,251 @@ def _source_id_candidates_for_url(
     return candidates
 
 
-def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
-    """Return deterministic source-lineage problems for a fetched snapshot."""
-
+def _candidate_source_url_problems(
+    candidate_id: str,
+    title: str,
+    source_urls: list[str],
+    source_ids: set[str],
+    source_by_url: Mapping[str, str],
+) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
     problems: list[dict[str, Any]] = []
-    source_ids, source_by_url = _source_indexes(snapshot.sources)
-    lineage = _lineage_keys(snapshot.lineages)
-
-    for candidate in snapshot.candidates:
-        candidate_id = _text(candidate.get("candidate_id"))
-        title = _text(candidate.get("title"))
-        explicit_source_ids = [
-            _text(item)
-            for item in _json_list(candidate.get("source_ids"))
-            if _text(item)
-        ]
-        source_urls = [
-            _text(item)
-            for item in _json_list(candidate.get("source_urls"))
-            if _text(item)
-        ]
-        expected_ids: list[tuple[str, str]] = [
-            (source_id, "source_ids") for source_id in explicit_source_ids
-        ]
-        for url in source_urls:
-            url_candidates = _source_id_candidates_for_url(url, source_by_url)
-            existing = next(
-                (source_id for source_id in url_candidates if source_id in source_ids),
-                "",
-            )
-            if not existing:
-                problems.append(
-                    {
-                        "kind": "candidate_source_url_missing_source",
-                        "candidate_id": candidate_id,
-                        "title": title,
-                        "source_url": url,
-                        "expected_source_id": source_id_for_url(url),
-                    }
-                )
-            else:
-                expected_ids.append((existing, "source_urls"))
-
-        for source_id, origin in sorted(set(expected_ids)):
-            if source_id not in source_ids:
-                problems.append(
-                    {
-                        "kind": "candidate_source_id_missing_source",
-                        "candidate_id": candidate_id,
-                        "title": title,
-                        "source_id": source_id,
-                        "origin": origin,
-                    }
-                )
-                continue
-            if (
-                "source",
-                source_id,
-                "candidate",
-                candidate_id,
-                "generated_from",
-            ) not in lineage:
-                problems.append(
-                    {
-                        "kind": "candidate_source_missing_lineage",
-                        "candidate_id": candidate_id,
-                        "title": title,
-                        "source_id": source_id,
-                        "origin": origin,
-                    }
-                )
-
-        raw_payload = _json_dict(candidate.get("raw_candidate_json"))
-        synthesized_from = [
-            _text(item)
-            for item in _json_list(raw_payload.get("synthesized_from"))
-            if _text(item)
-        ]
-        for branch_id in synthesized_from:
-            if (
-                "candidate",
-                branch_id,
-                "candidate",
-                candidate_id,
-                "synthesized_from",
-            ) not in lineage or (
-                "candidate",
-                branch_id,
-                "candidate",
-                candidate_id,
-                "superseded_by",
-            ) not in lineage:
-                problems.append(
-                    {
-                        "kind": "synthesized_candidate_missing_branch_lineage",
-                        "candidate_id": candidate_id,
-                        "title": title,
-                        "source_candidate_id": branch_id,
-                    }
-                )
-        reflection_source_ids = [
-            _text(item)
-            for item in _json_list(raw_payload.get("reflection_source_ids"))
-            if _text(item)
-        ]
-        for project_id in reflection_source_ids:
-            if (
-                "project",
-                project_id,
-                "candidate",
-                candidate_id,
-                "inspired_by_success",
-            ) not in lineage:
-                problems.append(
-                    {
-                        "kind": "synthesized_candidate_missing_reflection_lineage",
-                        "candidate_id": candidate_id,
-                        "title": title,
-                        "source_project_id": project_id,
-                    }
-                )
-
-    for followup in snapshot.followups:
-        project_id = _text(followup.get("idea_id"))
-        title = _text(followup.get("title"))
-        payload = _json_dict(followup.get("source_payload_json"))
-        parent_project_id = _text(payload.get("parent_project_id"))
-        parent_run_id = _text(payload.get("parent_run_id"))
-        parent_source_id = followup_parent_source_id(parent_project_id, parent_run_id)
-        source_url = _text(followup.get("source_external_url"))
-
-        if not parent_project_id:
+    expected_ids: list[tuple[str, str]] = []
+    for url in source_urls:
+        url_candidates = _source_id_candidates_for_url(url, source_by_url)
+        existing = next(
+            (source_id for source_id in url_candidates if source_id in source_ids),
+            "",
+        )
+        if not existing:
             problems.append(
                 {
-                    "kind": "followup_missing_parent_project_id",
-                    "project_id": project_id,
+                    "kind": "candidate_source_url_missing_source",
+                    "candidate_id": candidate_id,
                     "title": title,
+                    "source_url": url,
+                    "expected_source_id": source_id_for_url(url),
                 }
             )
-        if parent_source_id not in source_ids:
+        else:
+            expected_ids.append((existing, "source_urls"))
+    return problems, expected_ids
+
+
+def _validate_candidate_source_lineage(
+    candidate_id: str,
+    title: str,
+    explicit_source_ids: list[str],
+    expected_from_urls: list[tuple[str, str]],
+    source_ids: set[str],
+    lineage: set[tuple[str, str, str, str, str]],
+) -> list[dict[str, Any]]:
+    problems: list[dict[str, Any]] = []
+    expected_ids = [(source_id, "source_ids") for source_id in explicit_source_ids]
+    expected_ids.extend(expected_from_urls)
+    for source_id, origin in sorted(set(expected_ids)):
+        if source_id not in source_ids:
             problems.append(
                 {
-                    "kind": "followup_missing_parent_run_source",
-                    "project_id": project_id,
+                    "kind": "candidate_source_id_missing_source",
+                    "candidate_id": candidate_id,
                     "title": title,
-                    "parent_project_id": parent_project_id,
-                    "parent_run_id": parent_run_id,
-                    "expected_source_id": parent_source_id,
-                    "source_url": source_url,
+                    "source_id": source_id,
+                    "origin": origin,
                 }
             )
-        elif (
+            continue
+        if (
             "source",
-            parent_source_id,
+            source_id,
             "candidate",
-            project_id,
+            candidate_id,
             "generated_from",
         ) not in lineage:
             problems.append(
                 {
-                    "kind": "followup_missing_parent_run_lineage",
-                    "project_id": project_id,
+                    "kind": "candidate_source_missing_lineage",
+                    "candidate_id": candidate_id,
                     "title": title,
-                    "parent_project_id": parent_project_id,
-                    "parent_run_id": parent_run_id,
-                    "source_id": parent_source_id,
+                    "source_id": source_id,
+                    "origin": origin,
                 }
             )
+    return problems
+
+
+def _validate_candidate_synthesis_lineage(
+    candidate_id: str,
+    title: str,
+    raw_payload: Mapping[str, Any],
+    lineage: set[tuple[str, str, str, str, str]],
+) -> list[dict[str, Any]]:
+    problems: list[dict[str, Any]] = []
+    synthesized_from = [
+        _text(item)
+        for item in _json_list(raw_payload.get("synthesized_from"))
+        if _text(item)
+    ]
+    for branch_id in synthesized_from:
         if (
-            parent_project_id
-            and ("project", parent_project_id, "project", project_id, "followup_parent")
-            not in lineage
-        ):
+            "candidate",
+            branch_id,
+            "candidate",
+            candidate_id,
+            "synthesized_from",
+        ) not in lineage or (
+            "candidate",
+            branch_id,
+            "candidate",
+            candidate_id,
+            "superseded_by",
+        ) not in lineage:
             problems.append(
                 {
-                    "kind": "followup_missing_parent_project_lineage",
-                    "project_id": project_id,
+                    "kind": "synthesized_candidate_missing_branch_lineage",
+                    "candidate_id": candidate_id,
                     "title": title,
-                    "parent_project_id": parent_project_id,
-                    "parent_run_id": parent_run_id,
+                    "source_candidate_id": branch_id,
                 }
             )
+    reflection_source_ids = [
+        _text(item)
+        for item in _json_list(raw_payload.get("reflection_source_ids"))
+        if _text(item)
+    ]
+    for project_id in reflection_source_ids:
+        if (
+            "project",
+            project_id,
+            "candidate",
+            candidate_id,
+            "inspired_by_success",
+        ) not in lineage:
+            problems.append(
+                {
+                    "kind": "synthesized_candidate_missing_reflection_lineage",
+                    "candidate_id": candidate_id,
+                    "title": title,
+                    "source_project_id": project_id,
+                }
+            )
+    return problems
+
+
+def _validate_candidate(
+    candidate: Mapping[str, Any],
+    source_ids: set[str],
+    source_by_url: Mapping[str, str],
+    lineage: set[tuple[str, str, str, str, str]],
+) -> list[dict[str, Any]]:
+    candidate_id = _text(candidate.get("candidate_id"))
+    title = _text(candidate.get("title"))
+    explicit_source_ids = [
+        _text(item) for item in _json_list(candidate.get("source_ids")) if _text(item)
+    ]
+    source_urls = [
+        _text(item) for item in _json_list(candidate.get("source_urls")) if _text(item)
+    ]
+    url_problems, expected_from_urls = _candidate_source_url_problems(
+        candidate_id, title, source_urls, source_ids, source_by_url
+    )
+    problems = list(url_problems)
+    problems.extend(
+        _validate_candidate_source_lineage(
+            candidate_id,
+            title,
+            explicit_source_ids,
+            expected_from_urls,
+            source_ids,
+            lineage,
+        )
+    )
+    raw_payload = _json_dict(candidate.get("raw_candidate_json"))
+    problems.extend(
+        _validate_candidate_synthesis_lineage(candidate_id, title, raw_payload, lineage)
+    )
+    return problems
+
+
+def _validate_followup(
+    followup: Mapping[str, Any],
+    source_ids: set[str],
+    lineage: set[tuple[str, str, str, str, str]],
+) -> list[dict[str, Any]]:
+    project_id = _text(followup.get("idea_id"))
+    title = _text(followup.get("title"))
+    payload = _json_dict(followup.get("source_payload_json"))
+    parent_project_id = _text(payload.get("parent_project_id"))
+    parent_run_id = _text(payload.get("parent_run_id"))
+    parent_source_id = followup_parent_source_id(parent_project_id, parent_run_id)
+    source_url = _text(followup.get("source_external_url"))
+
+    problems: list[dict[str, Any]] = []
+    if not parent_project_id:
+        problems.append(
+            {
+                "kind": "followup_missing_parent_project_id",
+                "project_id": project_id,
+                "title": title,
+            }
+        )
+    if parent_source_id not in source_ids:
+        problems.append(
+            {
+                "kind": "followup_missing_parent_run_source",
+                "project_id": project_id,
+                "title": title,
+                "parent_project_id": parent_project_id,
+                "parent_run_id": parent_run_id,
+                "expected_source_id": parent_source_id,
+                "source_url": source_url,
+            }
+        )
+    elif (
+        "source",
+        parent_source_id,
+        "candidate",
+        project_id,
+        "generated_from",
+    ) not in lineage:
+        problems.append(
+            {
+                "kind": "followup_missing_parent_run_lineage",
+                "project_id": project_id,
+                "title": title,
+                "parent_project_id": parent_project_id,
+                "parent_run_id": parent_run_id,
+                "source_id": parent_source_id,
+            }
+        )
+    if (
+        parent_project_id
+        and ("project", parent_project_id, "project", project_id, "followup_parent")
+        not in lineage
+    ):
+        problems.append(
+            {
+                "kind": "followup_missing_parent_project_lineage",
+                "project_id": project_id,
+                "title": title,
+                "parent_project_id": parent_project_id,
+                "parent_run_id": parent_run_id,
+            }
+        )
+    return problems
+
+
+def validate_snapshot(snapshot: SourceLineageSnapshot) -> list[dict[str, Any]]:
+    """Return deterministic source-lineage problems for a fetched snapshot."""
+
+    source_ids, source_by_url = _source_indexes(snapshot.sources)
+    lineage = _lineage_keys(snapshot.lineages)
+    problems: list[dict[str, Any]] = []
+    for candidate in snapshot.candidates:
+        problems.extend(
+            _validate_candidate(candidate, source_ids, source_by_url, lineage)
+        )
+    for followup in snapshot.followups:
+        problems.extend(_validate_followup(followup, source_ids, lineage))
     return problems
 
 

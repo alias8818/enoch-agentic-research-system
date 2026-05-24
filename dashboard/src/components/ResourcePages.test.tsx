@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
 import { SAVED_TABLE_FILTERS_STORAGE_KEY } from '../savedTableFilters'
+import { fetchMockCallUrl, fetchMockRequestBody } from '../test/fetchMockBody'
 import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './ResourcePages'
 
 function renderWithClient(ui: React.ReactElement) {
@@ -10,10 +11,8 @@ function renderWithClient(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
 }
 
-function requestUrl(call: unknown[]): URL {
-  const [input] = call
-  expect(typeof input).toBe('string')
-  return new URL(input as string, 'https://enoch.local')
+function fetchMockUrl(fetchMock: Parameters<typeof fetchMockCallUrl>[0], callIndex: number): URL {
+  return new URL(fetchMockCallUrl(fetchMock, callIndex), 'https://enoch.local')
 }
 
 function expectParam(url: URL, name: string, value: string) {
@@ -24,7 +23,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   saveToken('')
-  window.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
+  globalThis.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
 })
 
 it('loads queue rows from the V1 queue endpoint with the route status', async () => {
@@ -36,7 +35,7 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
   await screen.findByText('Queue item')
   expect(screen.getByRole('link', { name: /p1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:p1')
   expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/control/api/v1/queue?'), expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
-  const url = requestUrl(fetchMock.mock.calls[0])
+  const url = fetchMockUrl(fetchMock, 0)
   expect(url.pathname).toBe('/control/api/v1/queue')
   expectParam(url, 'queue', 'all')
   expectParam(url, 'page_size', '50')
@@ -112,8 +111,8 @@ it('syncs route-derived status changes into resource page backend filters', asyn
 
   await screen.findByText('Active item')
   expect(screen.getByLabelText(/Status/i)).toHaveValue('active')
-  const first = requestUrl(fetchMock.mock.calls[0])
-  const second = requestUrl(fetchMock.mock.calls[1])
+  const first = fetchMockUrl(fetchMock, 0)
+  const second = fetchMockUrl(fetchMock, 1)
   expectParam(first, 'status', 'queued')
   expectParam(second, 'status', 'active')
 })
@@ -135,8 +134,13 @@ it('checks selected queued rows with dispatch-one dry-run only', async () => {
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/dispatch-one', expect.objectContaining({
     method: 'POST',
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: 'project-1', dry_run: true, requested_by: 'dashboard-v2', force_preflight: true }),
   }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 2))).toEqual({
+    project_id: 'project-1',
+    dry_run: true,
+    requested_by: 'dashboard-v2',
+    force_preflight: true,
+  })
   expect(screen.getByText('Selected work')).toBeInTheDocument()
   expect(screen.getByText('Lane / target')).toBeInTheDocument()
   expect(screen.getAllByText('Next safe action').length).toBeGreaterThan(0)
@@ -145,7 +149,7 @@ it('checks selected queued rows with dispatch-one dry-run only', async () => {
 
 it('live-dispatches a selected queued row only after dry-run and dialog confirmation', async () => {
   saveToken('test-token')
-  const confirmSpy = vi.spyOn(window, 'confirm')
+  const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ project_id: 'project-live', status: 'queued', machine_target: 'gb10', title: 'Live queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ project_id: 'project-live', project: { project_name: 'Live queue item' } }), { status: 200 }))
@@ -171,8 +175,13 @@ it('live-dispatches a selected queued row only after dry-run and dialog confirma
   expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/dispatch-one', expect.objectContaining({
     method: 'POST',
     headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ project_id: 'project-live', dry_run: false, requested_by: 'dashboard-v2', force_preflight: true }),
   }))
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 3))).toEqual({
+    project_id: 'project-live',
+    dry_run: false,
+    requested_by: 'dashboard-v2',
+    force_preflight: true,
+  })
   await screen.findByText('Fresh queue item')
   expect(fetchMock).toHaveBeenNthCalledWith(5, expect.stringContaining('/control/api/v1/queue?'), expect.any(Object))
 })
@@ -212,7 +221,7 @@ it('loads project discovery rows from the V1 projects endpoint', async () => {
 
   await screen.findByText('Trace Oracle')
   expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
-  const url = requestUrl(fetchMock.mock.calls[0])
+  const url = fetchMockUrl(fetchMock, 0)
   expect(url.pathname).toBe('/control/api/v1/projects')
   expectParam(url, 'status', 'testing')
   expectParam(url, 'page_size', '50')
@@ -268,7 +277,7 @@ it('loads runs from the V1 runs endpoint with state filters and detail fetches',
 
   await screen.findByText('run-1')
   expect(screen.getByRole('link', { name: /run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
-  const url = requestUrl(fetchMock.mock.calls[0])
+  const url = fetchMockUrl(fetchMock, 0)
   expect(url.pathname).toBe('/control/api/v1/runs')
   expectParam(url, 'state', 'running')
   expectParam(url, 'page_size', '50')
@@ -310,7 +319,7 @@ it('applies queue filters and follows the backend cursor without inventing pagin
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
   await screen.findByText('Filtered item')
 
-  let url = requestUrl(fetchMock.mock.calls[1])
+  let url = fetchMockUrl(fetchMock, 1)
   expectParam(url, 'search', 'oracle')
   expectParam(url, 'status', 'active')
   expectParam(url, 'page_size', '25')
@@ -319,14 +328,14 @@ it('applies queue filters and follows the backend cursor without inventing pagin
   fireEvent.click(screen.getByRole('button', { name: /Next page/i }))
   await screen.findByText('Next page item')
 
-  url = requestUrl(fetchMock.mock.calls[2])
+  url = fetchMockUrl(fetchMock, 2)
   expectParam(url, 'cursor', 'cursor-3')
   expectParam(url, 'search', 'oracle')
   expectParam(url, 'status', 'active')
 })
 
 it('loads saved queue filter presets from localStorage and applies them to the queue read model', async () => {
-  window.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({
+  globalThis.localStorage.setItem(SAVED_TABLE_FILTERS_STORAGE_KEY, JSON.stringify({
     queue: [{ id: 'preset-1', name: 'Queued watch', search: 'oracle', status: 'queued', pageSize: '25' }],
   }))
   const fetchMock = vi.spyOn(globalThis, 'fetch')
@@ -339,7 +348,7 @@ it('loads saved queue filter presets from localStorage and applies them to the q
   fireEvent.change(screen.getByLabelText(/Saved filters/i), { target: { value: 'preset-1' } })
   await screen.findByText('Saved filter item')
 
-  const url = requestUrl(fetchMock.mock.calls[1])
+  const url = fetchMockUrl(fetchMock, 1)
   expectParam(url, 'search', 'oracle')
   expectParam(url, 'status', 'queued')
   expectParam(url, 'page_size', '25')
@@ -358,7 +367,7 @@ it('saves the current queue filter draft as a local preset', async () => {
   fireEvent.change(screen.getByLabelText(/Preset name/i), { target: { value: 'Queued watch' } })
   fireEvent.click(screen.getByRole('button', { name: /Save preset/i }))
 
-  const stored = JSON.parse(window.localStorage.getItem(SAVED_TABLE_FILTERS_STORAGE_KEY) || '{}')
+  const stored = JSON.parse(globalThis.localStorage.getItem(SAVED_TABLE_FILTERS_STORAGE_KEY) || '{}')
   expect(stored.queue).toEqual([expect.objectContaining({
     name: 'Queued watch',
     search: 'oracle',
@@ -401,7 +410,7 @@ it('writes applied event filters back to the V2 hash', async () => {
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
 
   await screen.findByText('Callback summary')
-  expect(window.location.hash).toBe('#events?event_type=worker.callback&search=stalled')
+  expect(globalThis.location.hash).toBe('#events?event_type=worker.callback&search=stalled')
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
@@ -419,7 +428,7 @@ it('applies paper and event filters to the backed endpoints', async () => {
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
   await screen.findByText('Review paper')
 
-  let url = requestUrl(fetchMock.mock.calls[1])
+  let url = fetchMockUrl(fetchMock, 1)
   expect(url.pathname).toBe('/control/api/v1/papers')
   expectParam(url, 'search', 'trace')
   expectParam(url, 'status', 'draft_review')
@@ -432,7 +441,7 @@ it('applies paper and event filters to the backed endpoints', async () => {
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
   await screen.findByText('Callback summary')
 
-  url = requestUrl(fetchMock.mock.calls[3])
+  url = fetchMockUrl(fetchMock, 3)
   expect(url.pathname).toBe('/control/api/v1/events')
   expectParam(url, 'search', 'stalled')
   expectParam(url, 'event_type', 'worker.callback')
@@ -467,7 +476,7 @@ it('loads corpus import rows as a first-class V2 subview', async () => {
 
   expect(await screen.findByText('Corpus candidate')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /paper-corpus/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-corpus')
-  const url = requestUrl(fetchMock.mock.calls[1])
+  const url = fetchMockUrl(fetchMock, 1)
   expect(url.pathname).toBe('/control/api/v1/papers')
   expectParam(url, 'status', 'publication_draft')
   expectParam(url, 'sort', 'recent')

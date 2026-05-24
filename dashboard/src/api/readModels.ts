@@ -99,3 +99,31 @@ export type AutomationDetail = {
   item?: Record<string, unknown>
   checklist?: { items?: Record<string, unknown>[] }
 }
+
+export type IntakeIdeaProjectionRow = {
+  idea_id?: string
+  title?: string
+  idea_status?: string
+  queue_status?: string
+  next_action_hint?: string
+  paper_status?: string
+  source_kind?: string
+  machine_target?: string
+  project_id?: string
+  updated_at?: string
+  operator_stage?: string
+  operator_detail_stage?: string
+  operator_next_step?: string
+  operator_stage_label?: string
+}
+
+export type IntakeIdeasResponse = {
+  ok?: boolean
+  generated_at?: string
+  operator_summary?: string
+  latest_sync?: Record<string, unknown> | null
+  projection_counts?: Record<string, number>
+  queued_projection?: IntakeIdeaProjectionRow[]
+  skipped_reasons?: Record<string, number>
+  recent_events?: Record<string, unknown>[]
+}

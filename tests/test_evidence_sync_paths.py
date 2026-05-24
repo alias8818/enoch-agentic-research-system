@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import (
     _extract_safe_tar_bytes,
+    UnresolvableArtifactRootsError,
     _local_artifact_root,
     _local_paper_evidence_present,
     _remote_evidence_dir,
@@ -51,6 +52,17 @@ def _tar_bytes(
             info.linkname = target
             tf.addfile(info)
     return buffer.getvalue()
+
+
+def test_safe_tar_extract_rejects_too_many_members(tmp_path) -> None:
+    artifact_root = tmp_path / "artifact"
+    entries = {f"file_{index}.txt": b"x" for index in range(600)}
+    payload = _tar_bytes(entries)
+
+    result = _extract_safe_tar_bytes(payload, artifact_root, max_entries=512)
+
+    assert result["ok"] is False
+    assert any(item["status"] == "too_many_members" for item in result["skipped"])
 
 
 def test_safe_tar_extract_rejects_traversal_and_symlinks(tmp_path) -> None:
@@ -193,11 +205,10 @@ def test_local_artifact_root_fails_closed_when_project_and_state_roots_unresolva
         raise OSError("unresolvable")
 
     monkeypatch.setattr(Path, "resolve", fail_resolve)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(UnresolvableArtifactRootsError) as exc:
         _local_artifact_root(config, project_id="project", project_dir_text="")
 
-    assert exc.value.status_code == 500
-    assert "artifact roots" in str(exc.value.detail)
+    assert "artifact roots" in str(exc.value)
 
 
 def test_local_paper_evidence_rejects_symlinked_high_signal_files(tmp_path) -> None:
@@ -585,7 +596,10 @@ def test_sync_worker_http_evidence_can_use_routed_worker_credentials(
             error=None,
         )
 
-    monkeypatch.setattr(router, "_worker_json_request", fake_worker_json)
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.worker_evidence_sync._worker_json_request",
+        fake_worker_json,
+    )
     config = GateConfig(
         state_dir=str(tmp_path / "state"),
         project_root=str(tmp_path / "projects"),
@@ -632,7 +646,7 @@ def test_sync_worker_http_evidence_rejects_worker_returned_escape_paths(
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -707,7 +721,7 @@ def test_sync_worker_http_evidence_skips_empty_worker_paths(tmp_path) -> None:
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -736,7 +750,7 @@ def test_sync_worker_http_evidence_skips_invalid_worker_path_bytes(tmp_path) -> 
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -811,7 +825,7 @@ def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_emp
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -827,7 +841,7 @@ def test_sync_worker_http_evidence_removes_existing_file_when_worker_returns_emp
 def test_sync_worker_http_evidence_skips_uninspectable_worker_target(
     tmp_path, monkeypatch
 ) -> None:
-    from enoch_control_plane.control_plane import router
+    from enoch_control_plane.control_plane import router, worker_evidence_sync
 
     config = _config(tmp_path)
     config.worker_wake_gate_bearer_token = "worker-token"
@@ -848,7 +862,9 @@ def test_sync_worker_http_evidence_skips_uninspectable_worker_target(
             raise PermissionError("simulated target access failure")
         return real_exists(path)
 
-    monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(
+        worker_evidence_sync, "post_worker_json", lambda *args, **kwargs: Result()
+    )
     monkeypatch.setattr(Path, "exists", blocked_exists)
 
     result = router._sync_worker_http_evidence(
@@ -880,11 +896,13 @@ def test_sync_worker_http_evidence_preserves_existing_file_when_write_fails(
         error = ""
         body = {"files": [{"path": "run_notes.md", "content": "new evidence"}]}
 
-    import enoch_control_plane.control_plane.router as router
+    from enoch_control_plane.control_plane import router, worker_evidence_sync
 
-    monkeypatch.setattr(router, "post_worker_json", lambda *args, **kwargs: Result())
     monkeypatch.setattr(
-        router,
+        worker_evidence_sync, "post_worker_json", lambda *args, **kwargs: Result()
+    )
+    monkeypatch.setattr(
+        worker_evidence_sync,
         "_atomic_write_text",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             OSError("simulated evidence write failure")
@@ -924,7 +942,7 @@ def test_sync_worker_http_evidence_skips_malformed_success_bodies(tmp_path) -> N
         )
 
     with patch(
-        "enoch_control_plane.control_plane.router.post_worker_json",
+        "enoch_control_plane.control_plane.worker_evidence_sync.post_worker_json",
         side_effect=fake_post_worker_json,
     ):
         result = _sync_worker_http_evidence(
@@ -954,7 +972,10 @@ def test_worker_http_evidence_sync_times_out_slow_worker_reads(tmp_path, monkeyp
             error="TimeoutError: worker request exceeded 0.010s",
         )
 
-    monkeypatch.setattr(router, "_worker_json_request", timed_out_worker_json)
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.worker_evidence_sync._worker_json_request",
+        timed_out_worker_json,
+    )
     config = GateConfig(
         state_dir=str(tmp_path / "state"),
         project_root=str(tmp_path / "projects"),

@@ -21,12 +21,21 @@ jobs:
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
       - name: Install Python dependencies
         run: uv sync --all-extras --dev
       - name: Run Python tests with coverage
         run: |
-          uv run coverage run -m pytest -q
-          uv run coverage xml -o coverage.xml
+          uv run pytest -q -n auto -m "not repo_root" \
+            --cov=enoch_control_plane \
+            --cov-branch
+          uv run pytest -q -m "repo_root" \
+            --cov=enoch_control_plane \
+            --cov-branch \
+            --cov-append \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=75
       - uses: SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

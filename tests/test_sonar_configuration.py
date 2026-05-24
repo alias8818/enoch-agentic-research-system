@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 
@@ -69,9 +70,10 @@ def test_sonar_workflow_generates_coverage_before_scan_and_uses_node24_actions()
     )
 
     assert "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true" in workflow
-    assert "uv run coverage run -m pytest -q" in workflow
-    assert "uv run coverage xml -o coverage.xml" in workflow
-    assert workflow.index("uv run coverage xml -o coverage.xml") < workflow.index(
+    assert 'uv run pytest -q -n auto -m "not repo_root"' in workflow
+    assert 'uv run pytest -q -m "repo_root"' in workflow
+    assert "--cov-report=xml:coverage.xml" in workflow
+    assert workflow.index("--cov-report=xml:coverage.xml") < workflow.index(
         "SonarSource/sonarqube-scan-action"
     )
     assert "actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3" in workflow
@@ -90,3 +92,27 @@ def test_sonar_accepts_internal_http_for_research_control_plane() -> None:
     http_rule = props.get("sonar.issue.ignore.multicriteria.httpInternal.ruleKey", "")
     assert "python:S5332" in http_rule
     assert "typescript:S5332" in http_rule
+
+
+def test_sonar_cognitive_complexity_policy_thresholds() -> None:
+    """S3776 production threshold is 15; higher bands are documented review guidelines."""
+    props = _properties()
+    assert props["enoch.cognitiveComplexity.productionThreshold"] == "15"
+    assert props["enoch.cognitiveComplexity.scriptGuidelineThreshold"] == "20"
+    assert props["enoch.cognitiveComplexity.testGuidelineThreshold"] == "25"
+    assert props["enoch.cognitiveComplexity.blockThreshold"] == "25"
+    text = (ROOT / "sonar-project.properties").read_text(encoding="utf-8")
+    assert "python:S3776" in text
+    assert "typescript:S3776" in text
+    assert "total cognitive complexity" in text.lower()
+
+
+def test_sonarlint_s3776_threshold_is_fifteen_for_python_and_typescript() -> None:
+    settings = json.loads(
+        (ROOT / ".vscode" / "settings.json").read_text(encoding="utf-8")
+    )
+    rules = settings["sonarlint.rules"]
+    assert rules["python:S3776"]["parameters"]["threshold"] == 15
+    assert rules["typescript:S3776"]["parameters"]["threshold"] == 15
+    assert rules["python:S3776"]["level"] == "on"
+    assert rules["typescript:S3776"]["level"] == "on"

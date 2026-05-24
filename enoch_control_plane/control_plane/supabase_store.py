@@ -51,21 +51,31 @@ from .store import (
     _audit_rows,
     _bool,
     _checklist_progress,
+    _collect_idea_intake_candidates,
     _completed_success_queue_row,
     _contract_worker_callback_states,
+    _derived_worker_callback_idempotency_key,
+    _late_terminal_success_worker_callback_payload,
+    _stale_worker_callback_ignore_reason,
+    _stale_worker_callback_payload,
+    _worker_callback_entity_id,
+    _worker_callback_event_type_name,
+    _worker_callback_payload,
+    _worker_callback_transition,
     _default_review_checklist,
+    _default_supabase_finalization_root,
     _expanduser_or_none,
     _existing_file_snapshot,
     _first_present,
     _hash,
-    _idea_id,
-    _idea_status,
-    _idea_title,
     _int,
     _is_older_timestamp,
     _json,
     _json_dict,
     _json_list,
+    _NOTION_EXECUTION_STATE_MAP,
+    _notion_execution_update_row,
+    _notion_intake_row_result,
     _notion_page_id,
     _notion_page_id_from_url,
     _notion_status,
@@ -76,50 +86,89 @@ from .store import (
     _normalize_review_checklist,
     _priority_rank,
     _progress_for_items,
+    _queue_row_merged_with_paper,
     _readiness_passed,
     _review_rank,
+    _review_rank_bucket,
     _restore_or_remove_path,
+    _import_snapshot_event_payload,
+    _paper_status_from_import_raw,
     _reject_conflicting_snapshot_rows,
     _slug_id,
     _snapshot_rows,
     _text,
+    _validate_import_snapshot_rows,
 )
 from .workload_routing import route_machine_target
 
+# Centralized SQL constant for the top remaining S1192 duplication
+# (status count query used in multiple _query calls).
+STATUS_COUNT_QUERY = "select status, count(*) as count from queue_items group by status"
+PROJECT_DECISION_JSON_FILENAME = "project_decision.json"
+# Centralized SQL fragment for queue status equality filters (Sonar S1192 at ~1598).
+_QUEUE_STATUS_EQUALS_PARAM = "q.status = %s"
+
 
 ConnectionFactory = Callable[[], Any]
+
+_NEGATIVE_DECISION_GATE_TOKENS = (
+    "negative",
+    "reject",
+    "not positive",
+    "nonpositive",
+    "non_positive",
+)
+_UNKNOWN_DECISION_GATE_TOKENS = (
+    "needs_review",
+    "inconclusive",
+    "caveat",
+    "conditional",
+    "mixed",
+)
+
+
+def _execute_rowcount(cur: Any, result: Any | None = None) -> int:
+    if result is not None:
+        count = getattr(result, "rowcount", None)
+        if count is not None:
+            return int(count or 0)
+    # Match prior getattr(..., getattr(cur, "rowcount", 1)) fallback semantics.
+    return int(getattr(cur, "rowcount", 1) or 0)
+
+
+def _decision_gate_values_text(gate: dict[str, Any]) -> str:
+    return " ".join(
+        _text(item[-1]).lower()
+        for item in gate.get("values") or []
+        if isinstance(item, (list, tuple)) and item
+    )
+
+
+def _decision_gate_haystack(gate: dict[str, Any], *, reason: str) -> str:
+    return " ".join(
+        [reason, _text(gate.get("decision")).lower(), _decision_gate_values_text(gate)]
+    )
+
+
+def _haystack_contains_any_token(haystack: str, tokens: tuple[str, ...]) -> bool:
+    for token in tokens:
+        if token in haystack:
+            return True
+    return False
 
 
 def _decision_gate_state(gate: dict[str, Any]) -> str:
     if gate.get("eligible") is True:
         return "positive"
     reason = _text(gate.get("reason")).lower()
-    decision = _text(gate.get("decision")).lower()
-    values = " ".join(
-        _text(item[-1]).lower()
-        for item in gate.get("values") or []
-        if isinstance(item, (list, tuple)) and item
-    )
-    haystack = " ".join([reason, decision, values])
     if "missing" in reason:
         return "missing"
     if "could not" in reason or "malformed" in reason:
         return "malformed"
-    if any(
-        token in haystack
-        for token in (
-            "negative",
-            "reject",
-            "not positive",
-            "nonpositive",
-            "non_positive",
-        )
-    ):
+    haystack = _decision_gate_haystack(gate, reason=reason)
+    if _haystack_contains_any_token(haystack, _NEGATIVE_DECISION_GATE_TOKENS):
         return "negative"
-    if any(
-        token in haystack
-        for token in ("needs_review", "inconclusive", "caveat", "conditional", "mixed")
-    ):
+    if _haystack_contains_any_token(haystack, _UNKNOWN_DECISION_GATE_TOKENS):
         return "unknown"
     return "unknown"
 
@@ -176,6 +225,67 @@ def _source_id_for_url(url: str) -> str:
     return f"url-{hashlib.sha256(_text(url).encode('utf-8')).hexdigest()[:24]}"
 
 
+def _source_record_from_candidate_source(
+    source: dict[str, Any], candidate: dict[str, Any]
+) -> dict[str, Any] | None:
+    url = _text(source.get("url"))
+    source_id = _text(source.get("source_id")) or (
+        _source_id_for_url(url) if url else ""
+    )
+    if not source_id:
+        return None
+    return {
+        "source_id": source_id,
+        "source_kind": _text(
+            source.get("source_kind") or candidate.get("source_kind") or "other"
+        ),
+        "title": _text(source.get("title") or candidate.get("title")),
+        "url": url,
+        "external_id": _text(source.get("external_id")),
+        "retrieved_at": _text(source.get("retrieved_at")),
+        "summary": _text(source.get("summary")),
+        "payload_json": source.get("payload_json")
+        if isinstance(source.get("payload_json"), dict)
+        else {},
+        "content_hash": _text(source.get("content_hash")),
+    }
+
+
+def _source_record_from_candidate_url(
+    url: str, candidate: dict[str, Any]
+) -> dict[str, Any]:
+    source_id = _source_id_for_url(url)
+    return {
+        "source_id": source_id,
+        "source_kind": _text(candidate.get("source_kind") or "other"),
+        "title": _text(candidate.get("title")),
+        "url": url,
+        "external_id": "",
+        "retrieved_at": "",
+        "summary": "Candidate source URL materialized at Research Facility ledger write time.",
+        "payload_json": {"url": url},
+        "content_hash": hashlib.sha256(url.encode("utf-8")).hexdigest(),
+    }
+
+
+def _append_unique_source_record(
+    records: list[dict[str, Any]],
+    record: dict[str, Any],
+    seen_ids: set[str],
+    seen_urls: set[str],
+) -> None:
+    source_id = _text(record.get("source_id"))
+    if not source_id or source_id in seen_ids:
+        return
+    url = _text(record.get("url"))
+    if url and url in seen_urls:
+        return
+    records.append(record)
+    seen_ids.add(source_id)
+    if url:
+        seen_urls.add(url)
+
+
 def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
@@ -183,53 +293,177 @@ def _candidate_source_records(candidate: dict[str, Any]) -> list[dict[str, Any]]
     for source in candidate.get("source_records") or []:
         if not isinstance(source, dict):
             continue
-        url = _text(source.get("url"))
-        source_id = _text(source.get("source_id")) or (
-            _source_id_for_url(url) if url else ""
-        )
-        if not source_id or source_id in seen_ids:
-            continue
-        record = {
-            "source_id": source_id,
-            "source_kind": _text(
-                source.get("source_kind") or candidate.get("source_kind") or "other"
-            ),
-            "title": _text(source.get("title") or candidate.get("title")),
-            "url": url,
-            "external_id": _text(source.get("external_id")),
-            "retrieved_at": _text(source.get("retrieved_at")),
-            "summary": _text(source.get("summary")),
-            "payload_json": source.get("payload_json")
-            if isinstance(source.get("payload_json"), dict)
-            else {},
-            "content_hash": _text(source.get("content_hash")),
-        }
-        records.append(record)
-        seen_ids.add(source_id)
-        if url:
-            seen_urls.add(url)
+        record = _source_record_from_candidate_source(source, candidate)
+        if record is not None:
+            _append_unique_source_record(records, record, seen_ids, seen_urls)
     for raw_url in candidate.get("source_urls") or []:
         url = _text(raw_url)
-        if not url or url in seen_urls:
+        if not url:
             continue
-        source_id = _source_id_for_url(url)
-        if source_id in seen_ids:
-            continue
-        record = {
-            "source_id": source_id,
-            "source_kind": _text(candidate.get("source_kind") or "other"),
-            "title": _text(candidate.get("title")),
-            "url": url,
-            "external_id": "",
-            "retrieved_at": "",
-            "summary": "Candidate source URL materialized at Research Facility ledger write time.",
-            "payload_json": {"url": url},
-            "content_hash": hashlib.sha256(url.encode("utf-8")).hexdigest(),
-        }
-        records.append(record)
-        seen_ids.add(source_id)
-        seen_urls.add(url)
+        record = _source_record_from_candidate_url(url, candidate)
+        _append_unique_source_record(records, record, seen_ids, seen_urls)
     return records
+
+
+def _unique_candidate_source_ids(
+    candidate: dict[str, Any], source_records: list[dict[str, Any]]
+) -> list[str]:
+    source_ids: list[str] = []
+    for source_id in [
+        *list(candidate.get("source_ids") or []),
+        *[_text(source.get("source_id")) for source in source_records],
+    ]:
+        source_id_text = _text(source_id)
+        if source_id_text and source_id_text not in source_ids:
+            source_ids.append(source_id_text)
+    return source_ids
+
+
+def _candidate_source_url_list(candidate: dict[str, Any]) -> list[str]:
+    return [_text(url) for url in (candidate.get("source_urls") or []) if _text(url)]
+
+
+def _promote_research_candidate_action(*, dry_run: bool) -> str:
+    return "dry_run_promote_candidate" if dry_run else "promote_candidate"
+
+
+def _promote_research_candidate_ok_response(
+    *,
+    dry_run: bool,
+    candidate_id: str,
+    idea_id: str,
+    title: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "action": _promote_research_candidate_action(dry_run=dry_run),
+        "dry_run": dry_run,
+        "candidate_id": candidate_id,
+        "idea_id": idea_id,
+        "title": title,
+        **extra,
+    }
+
+
+def _promote_research_candidate_blocked(
+    candidate_id: str, reason: str, **extra: Any
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": False,
+        "action": "promote_candidate_blocked",
+        "reason": reason,
+        **extra,
+    }
+    if candidate_id:
+        payload["candidate_id"] = candidate_id
+    return payload
+
+
+def _promote_research_workbench_gate(
+    wb: dict[str, Any],
+    *,
+    candidate_id: str,
+    dry_run: bool,
+) -> dict[str, Any] | None:
+    admitted_idea_id = _text(wb.get("admitted_idea_id"))
+    if admitted_idea_id:
+        return _promote_research_candidate_ok_response(
+            dry_run=dry_run,
+            candidate_id=candidate_id,
+            idea_id=admitted_idea_id,
+            title=_text(wb.get("title")),
+            already_promoted=True,
+            queued_count=0,
+            reason="candidate is already linked to an admitted idea",
+        )
+    current_status = _text(wb.get("status"))
+    admission_decision = _text(wb.get("admission_decision"))
+    if current_status != "admitted" or admission_decision != "admitted":
+        return _promote_research_candidate_blocked(
+            candidate_id,
+            "candidate is not admitted",
+            dry_run=dry_run,
+            title=_text(wb.get("title")),
+            status=current_status,
+            admission_decision=admission_decision,
+        )
+    return None
+
+
+def _promote_research_candidate_context(
+    candidate: dict[str, Any], candidate_id: str, requested_by: str
+) -> dict[str, Any]:
+    source_urls = candidate.get("source_urls")
+    if not isinstance(source_urls, list):
+        source_urls = []
+    raw_candidate = candidate.get("raw_candidate_json")
+    if not isinstance(raw_candidate, dict):
+        raw_candidate = {}
+    idea_id = candidate_id
+    title = _text(candidate.get("title")) or idea_id
+    return {
+        "idea_id": idea_id,
+        "title": title,
+        "source_external_url": _text(source_urls[0]) if source_urls else "",
+        "source_payload_json": {
+            **raw_candidate,
+            "research_candidate_id": candidate_id,
+            "promoted_by": requested_by,
+            "promotion_path": "research_facility_promote_candidate",
+        },
+    }
+
+
+def _promote_research_idea_row_params(
+    fields: dict[str, Any], candidate: dict[str, Any], json_text: Callable[[Any], str]
+) -> tuple[Any, ...]:
+    return (
+        fields["idea_id"],
+        fields["title"],
+        _text(candidate.get("category")),
+        _text(candidate.get("priority")),
+        fields["source_external_url"],
+        _text(candidate.get("description")) or _text(candidate.get("hypothesis")),
+        _text(candidate.get("implementation")),
+        _text(candidate.get("baseline_to_beat")),
+        _text(candidate.get("kill_condition")),
+        _text(candidate.get("accessibility_delta")),
+        _text(candidate.get("expected_token_budget")),
+        _text(candidate.get("novelty_score")),
+        _text(candidate.get("machine_target")),
+        _text(candidate.get("model")),
+        _text(candidate.get("sandbox")),
+        json_text(fields["source_payload_json"]),
+    )
+
+
+def _research_candidate_rejection_reason(plan_json: dict[str, Any]) -> str:
+    if plan_json.get("admission_decision") != "rejected":
+        return ""
+    return str(plan_json.get("admission_reason") or "")
+
+
+def _research_candidate_text_value(
+    candidate: dict[str, Any], key: str, default: str = ""
+) -> str:
+    return str(candidate.get(key) or default)
+
+
+def _research_candidate_float_value(candidate: dict[str, Any], key: str) -> float:
+    return float(candidate.get(key) or 0)
+
+
+def _research_candidate_json_value(
+    candidate: dict[str, Any], key: str, default: Any
+) -> Any:
+    return candidate.get(key) or default
+
+
+def _plan_to_json(plan: Any) -> dict[str, Any]:
+    if hasattr(plan, "to_json"):
+        return plan.to_json()
+    return dict(plan)
 
 
 def _internal_project_source_record(
@@ -320,6 +554,304 @@ def _record_internal_project_source_lineage(
         ),
     )
     return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def _persist_notion_intake_candidate(
+    cur: Any,
+    candidate: dict[str, Any],
+    *,
+    now: str,
+    override_existing_dispatch_metadata: bool,
+) -> str:
+    raw = candidate["source_row"]
+    existed = (
+        cur.execute(
+            "select 1 from queue_items where project_id = %s",
+            (candidate["project_id"],),
+        ).fetchone()
+        is not None
+    )
+    cur.execute(
+        """
+        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do update set
+          project_name=excluded.project_name,
+          project_dir=projects.project_dir,
+          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
+          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
+          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
+          updated_at=excluded.updated_at
+        """,
+        (
+            candidate["project_id"],
+            candidate["project_name"],
+            candidate["project_dir"],
+            candidate["notion_page_url"],
+            candidate["notion_page_id"],
+            candidate["origin_idea_status"],
+            now,
+            now,
+        ),
+    )
+    if existed:
+        if override_existing_dispatch_metadata:
+            cur.execute(
+                """
+                update queue_items
+                set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
+                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
+                """,
+                (
+                    candidate["selection_rank"],
+                    candidate["dispatch_priority"],
+                    candidate["machine_target"],
+                    candidate["model"],
+                    candidate["sandbox"],
+                    now,
+                    candidate["project_id"],
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                update queue_items
+                set selection_rank=%s, dispatch_priority=%s, updated_at=%s
+                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
+                """,
+                (
+                    candidate["selection_rank"],
+                    candidate["dispatch_priority"],
+                    now,
+                    candidate["project_id"],
+                ),
+            )
+        outcome = "updated"
+    else:
+        cur.execute(
+            """
+            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                candidate["project_id"],
+                QueueStatus.QUEUED.value,
+                candidate["selection_rank"],
+                candidate["dispatch_priority"],
+                True,
+                0,
+                0,
+                0,
+                2,
+                "",
+                "",
+                "",
+                "",
+                candidate["next_action_hint"],
+                False,
+                "",
+                "",
+                "",
+                candidate["machine_target"],
+                candidate["model"],
+                candidate["sandbox"],
+                None,
+                None,
+                None,
+                now,
+            ),
+        )
+        outcome = "created"
+    _record_internal_project_source_lineage(
+        cur,
+        project_id=candidate["project_id"],
+        title=candidate["project_name"],
+        source_kind=candidate["source_kind"],
+        payload={"source_payload_json": raw if isinstance(raw, dict) else {}},
+    )
+    return outcome
+
+
+def _idea_intake_ideas_row_values(
+    candidate: dict[str, Any], raw: dict[str, Any], *, now: str
+) -> tuple[Any, ...]:
+    return (
+        candidate["project_id"],
+        candidate["project_name"],
+        candidate["origin_idea_status"],
+        _text(_first_present(raw, "category", "property_category")),
+        _text(_first_present(raw, "priority", "property_priority")),
+        candidate["source_kind"],
+        _text(_first_present(raw, "source_external_id", "external_id")),
+        _text(_first_present(raw, "source_external_url", "external_url", "url")),
+        _text(_first_present(raw, "description", "property_description")),
+        _text(_first_present(raw, "implementation", "property_implementation")),
+        _text(_first_present(raw, "baseline_to_beat", "property_baseline_to_beat")),
+        _text(_first_present(raw, "kill_condition", "property_kill_condition")),
+        _text(
+            _first_present(raw, "accessibility_delta", "property_accessibility_delta")
+        ),
+        _text(_first_present(raw, "experiment_results", "property_experiment_results")),
+        _text(
+            _first_present(
+                raw, "expected_token_budget", "property_expected_token_budget"
+            )
+        ),
+        _text(_first_present(raw, "confidence", "property_confidence")),
+        _text(_first_present(raw, "feasibility", "property_feasibility")),
+        _text(_first_present(raw, "leverage", "property_leverage")),
+        _text(_first_present(raw, "novelty_score", "property_novelty_score")),
+        _text(_first_present(raw, "signal_speed", "property_signal_speed")),
+        _text(_first_present(raw, "teacher_dependence", "property_teacher_dependence")),
+        candidate["machine_target"],
+        candidate["model"],
+        candidate["sandbox"],
+        candidate["selection_rank"],
+        candidate["dispatch_priority"],
+        _json(raw),
+        now,
+        now,
+    )
+
+
+def _persist_idea_intake_candidate(
+    cur: Any,
+    candidate: dict[str, Any],
+    *,
+    now: str,
+    override_existing_dispatch_metadata: bool,
+) -> str:
+    raw = candidate["source_row"]
+    existed = (
+        cur.execute(
+            "select 1 from queue_items where project_id = %s",
+            (candidate["project_id"],),
+        ).fetchone()
+        is not None
+    )
+    cur.execute(
+        """
+        insert into ideas(
+          idea_id, title, idea_status, category, priority, source_kind, source_external_id, source_external_url,
+          description, implementation, baseline_to_beat, kill_condition, accessibility_delta, experiment_results,
+          expected_token_budget, confidence, feasibility, leverage, novelty_score, signal_speed, teacher_dependence,
+          machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json, created_at, updated_at
+        ) values (
+          %s,%s,%s,%s,%s,%s,%s,%s,
+          %s,%s,%s,%s,%s,%s,
+          %s,%s,%s,%s,%s,%s,%s,
+          %s,%s,%s,%s,%s,%s::jsonb,%s,%s
+        )
+        on conflict (idea_id) do update set
+          title=excluded.title, idea_status=excluded.idea_status, category=excluded.category, priority=excluded.priority,
+          source_kind=excluded.source_kind, source_external_id=excluded.source_external_id,
+          source_external_url=excluded.source_external_url, description=excluded.description,
+          implementation=excluded.implementation, baseline_to_beat=excluded.baseline_to_beat,
+          kill_condition=excluded.kill_condition, accessibility_delta=excluded.accessibility_delta,
+          experiment_results=excluded.experiment_results, expected_token_budget=excluded.expected_token_budget,
+          confidence=excluded.confidence, feasibility=excluded.feasibility, leverage=excluded.leverage,
+          novelty_score=excluded.novelty_score, signal_speed=excluded.signal_speed,
+          teacher_dependence=excluded.teacher_dependence, machine_target=excluded.machine_target,
+          model=excluded.model, sandbox=excluded.sandbox, selection_rank=excluded.selection_rank,
+          dispatch_priority=excluded.dispatch_priority, source_payload_json=excluded.source_payload_json,
+          updated_at=excluded.updated_at
+        """,
+        _idea_intake_ideas_row_values(candidate, raw, now=now),
+    )
+    cur.execute(
+        """
+        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        values (%s,%s,%s,'','',%s,%s,%s)
+        on conflict (project_id) do update set
+          project_name=excluded.project_name, project_dir=excluded.project_dir,
+          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
+          updated_at=excluded.updated_at
+        """,
+        (
+            candidate["project_id"],
+            candidate["project_name"],
+            candidate["project_dir"],
+            candidate["origin_idea_status"],
+            now,
+            now,
+        ),
+    )
+    if existed:
+        if override_existing_dispatch_metadata:
+            cur.execute(
+                """
+                update queue_items
+                set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
+                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
+                """,
+                (
+                    candidate["selection_rank"],
+                    candidate["dispatch_priority"],
+                    candidate["machine_target"],
+                    candidate["model"],
+                    candidate["sandbox"],
+                    now,
+                    candidate["project_id"],
+                ),
+            )
+        else:
+            cur.execute(
+                """
+                update queue_items
+                set selection_rank=%s, dispatch_priority=%s, updated_at=%s
+                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
+                """,
+                (
+                    candidate["selection_rank"],
+                    candidate["dispatch_priority"],
+                    now,
+                    candidate["project_id"],
+                ),
+            )
+        outcome = "updated"
+    else:
+        cur.execute(
+            """
+            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                candidate["project_id"],
+                QueueStatus.QUEUED.value,
+                candidate["selection_rank"],
+                candidate["dispatch_priority"],
+                True,
+                0,
+                0,
+                0,
+                2,
+                "",
+                "",
+                "",
+                "",
+                candidate["next_action_hint"],
+                False,
+                "",
+                "",
+                "",
+                candidate["machine_target"],
+                candidate["model"],
+                candidate["sandbox"],
+                None,
+                None,
+                None,
+                now,
+            ),
+        )
+        outcome = "created"
+    _record_internal_project_source_lineage(
+        cur,
+        project_id=candidate["project_id"],
+        title=candidate["project_name"],
+        source_kind=candidate["source_kind"],
+        payload={"source_payload_json": raw if isinstance(raw, dict) else {}},
+    )
+    return outcome
 
 
 def _followup_depth_from_payload(payload: dict[str, Any] | None) -> int:
@@ -465,33 +997,543 @@ def _followup_escalation_payload(
     }
 
 
+def _followup_launch_noop_response() -> dict[str, Any]:
+    return {
+        "ok": True,
+        "action": "noop",
+        "reason": "no follow-up candidate",
+        "candidate": None,
+        "followup": None,
+    }
+
+
+def _followup_launch_dry_run_response(
+    candidate: dict[str, Any], followup_payload: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "action": "dry_run_followup",
+        "reason": "follow-up candidate selected; no row inserted",
+        "candidate": candidate,
+        "followup": followup_payload,
+    }
+
+
+def _followup_launch_success_response(
+    candidate: dict[str, Any], followup_payload: dict[str, Any], event_id: str
+) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "action": "followup_queued",
+        "reason": "bounded follow-up queued",
+        "candidate": candidate,
+        "followup": followup_payload,
+        "event_id": event_id,
+    }
+
+
+def _followup_launch_plan(candidate: dict[str, Any]) -> dict[str, Any]:
+    title = (
+        _text(candidate.get("followup_title"))
+        or f"Follow-up: {_text(candidate.get('project_name')) or _text(candidate.get('project_id'))}"
+    )
+    hypothesis = _text(candidate.get("followup_hypothesis")) or _text(
+        candidate.get("operator_explanation")
+    )
+    parent_id = _text(candidate.get("project_id"))
+    followup_id = _stable_followup_id(parent_id, title, hypothesis)
+    depth = _int(candidate.get("followup_depth"), 0) + 1
+    followup_payload = {
+        "idea_id": followup_id,
+        "title": title,
+        "parent_project_id": parent_id,
+        "parent_run_id": _text(candidate.get("current_run_id")),
+        "followup_depth": depth,
+        "followup_type": _text(candidate.get("followup_type"))
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_"),
+        "followup_hypothesis": hypothesis,
+        "followup_required_evidence": _followup_required_evidence_items(candidate),
+        "followup_success_threshold": _text(
+            candidate.get("followup_success_threshold")
+        ),
+        "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
+        **_followup_escalation_payload(candidate, depth),
+    }
+    parent_source = _followup_parent_source_record(candidate, followup_payload)
+    return {
+        "title": title,
+        "hypothesis": hypothesis,
+        "parent_id": parent_id,
+        "followup_id": followup_id,
+        "followup_payload": followup_payload,
+        "parent_source": parent_source,
+    }
+
+
+_GATE_DECISION_VALUE_FIELDS = (
+    "project_decision",
+    "decision",
+    "status",
+    "hypothesis_status",
+    "verdict",
+    "outcome",
+    "recommendation",
+)
+
+
+def _gate_value_for_field(values: Sequence[Any], field: str) -> str:
+    for item in values:
+        if (
+            isinstance(item, (list, tuple))
+            and len(item) >= 3
+            and _text(item[1]) == field
+        ):
+            return _text(item[2])
+    return ""
+
+
+def _decision_from_gate_values(values: Sequence[Any]) -> str:
+    for preferred_field in _GATE_DECISION_VALUE_FIELDS:
+        decision = _gate_value_for_field(values, preferred_field)
+        if decision:
+            return decision
+    return ""
+
+
 def _decision_summary(gate: dict[str, Any]) -> str:
     reason = _text(gate.get("reason"))
-    decision = _text(gate.get("decision"))
-    if not decision:
-        values = gate.get("values") or []
-        for preferred_field in (
-            "project_decision",
-            "decision",
-            "status",
-            "hypothesis_status",
-            "verdict",
-            "outcome",
-            "recommendation",
-        ):
-            for item in values:
-                if (
-                    isinstance(item, (list, tuple))
-                    and len(item) >= 3
-                    and _text(item[1]) == preferred_field
-                ):
-                    decision = _text(item[2])
-                    break
-            if decision:
-                break
+    decision = _text(gate.get("decision")) or _decision_from_gate_values(
+        gate.get("values") or []
+    )
     if decision and reason:
         return f"{decision} ({reason})"
     return decision or reason
+
+
+def _resolve_project_decision_artifact_path(artifact_root_path: Path) -> Path:
+    candidates = (
+        artifact_root_path / ".enoch" / PROJECT_DECISION_JSON_FILENAME,
+        artifact_root_path / ".omx" / PROJECT_DECISION_JSON_FILENAME,
+        artifact_root_path / PROJECT_DECISION_JSON_FILENAME,
+    )
+    for path in candidates:
+        if path.exists():
+            return path
+    return candidates[-1]
+
+
+def _idea_source_payload_for_project(cur: Any, project_id: str) -> dict[str, Any]:
+    source_row = cur.execute(
+        "select source_payload_json from ideas where idea_id = %s",
+        (project_id,),
+    ).fetchone()
+    if not source_row:
+        return {}
+    raw_source = (
+        source_row[0]
+        if not isinstance(source_row, dict)
+        else source_row.get("source_payload_json")
+    )
+    if isinstance(raw_source, dict):
+        return raw_source
+    if isinstance(raw_source, str):
+        return _json_dict(raw_source)
+    return {}
+
+
+def _verified_run_id_for_decision(cur: Any, run_id_value: str | None) -> str | None:
+    if not run_id_value:
+        return None
+    found_run = cur.execute(
+        "select 1 from runs where run_id = %s", (run_id_value,)
+    ).fetchone()
+    return run_id_value if found_run else None
+
+
+_PROJECT_DECISION_UPSERT_SQL = """
+                    insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
+                      decision_summary, artifact_path, payload_json, payload_hash, decided_at,
+                      followup_recommended, followup_type, followup_title, followup_hypothesis,
+                      followup_required_evidence, followup_success_threshold, followup_stop_condition, followup_depth)
+                    values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)
+                    on conflict (project_id, run_id, decision_type) do update set
+                      decision_gate_state=excluded.decision_gate_state,
+                      decision_summary=excluded.decision_summary,
+                      artifact_path=excluded.artifact_path,
+                      payload_json=excluded.payload_json,
+                      payload_hash=excluded.payload_hash,
+                      decided_at=excluded.decided_at,
+                      followup_recommended=excluded.followup_recommended,
+                      followup_type=excluded.followup_type,
+                      followup_title=excluded.followup_title,
+                      followup_hypothesis=excluded.followup_hypothesis,
+                      followup_required_evidence=excluded.followup_required_evidence,
+                      followup_success_threshold=excluded.followup_success_threshold,
+                      followup_stop_condition=excluded.followup_stop_condition,
+                      followup_depth=excluded.followup_depth,
+                      updated_at=now()
+                    where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at
+                    """
+
+
+def _upsert_project_decision_gate_row(
+    cur: Any,
+    *,
+    project_id: str,
+    run_id_value: str | None,
+    gate: dict[str, Any],
+    artifact_path: Path,
+    payload: dict[str, Any],
+    payload_json: str,
+    followup: dict[str, Any],
+    followup_depth: int,
+    decided_at: str | None,
+) -> bool:
+    cur.execute(
+        _PROJECT_DECISION_UPSERT_SQL,
+        (
+            project_id,
+            run_id_value,
+            _decision_gate_state(gate),
+            _decision_summary(gate),
+            str(artifact_path),
+            payload_json,
+            _hash(payload),
+            decided_at or utc_now(),
+            bool(followup.get("followup_recommended")),
+            _text(followup.get("followup_type")),
+            _text(followup.get("followup_title")),
+            _text(followup.get("followup_hypothesis")),
+            _json(followup.get("followup_required_evidence") or []),
+            _text(followup.get("followup_success_threshold")),
+            _text(followup.get("followup_stop_condition")),
+            followup_depth,
+        ),
+    )
+    return getattr(cur, "rowcount", None) != 0
+
+
+def _project_decision_gate_record(
+    *,
+    persisted: bool,
+    project_id: str,
+    run_id_value: str | None,
+    gate: dict[str, Any],
+    artifact_path: Path,
+    followup: dict[str, Any],
+    followup_depth: int,
+) -> dict[str, Any]:
+    record = {
+        "ok": True,
+        "persisted": persisted,
+        "project_id": project_id,
+        "run_id": run_id_value or "",
+        "decision_gate_state": _decision_gate_state(gate),
+        "decision_summary": _decision_summary(gate),
+        "artifact_path": str(artifact_path),
+    }
+    if not persisted:
+        record["reason"] = "stale project decision ignored"
+        return record
+    return {**record, **followup, "followup_depth": followup_depth}
+
+
+def _unresolved_artifact(field: str, raw_path: str) -> dict[str, Any]:
+    return {
+        "field": field,
+        "path": raw_path,
+        "absolute_path": "",
+        "exists": False,
+        "readable": False,
+        "safe": False,
+        "size_bytes": 0,
+    }
+
+
+def _resolve_artifact_path(path: Path, project_dir: Path | None) -> Path | None:
+    try:
+        if path.is_absolute():
+            candidate = path
+        elif project_dir:
+            candidate = project_dir / path
+        else:
+            candidate = path
+        return candidate.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _artifact_path_is_safe(resolved: Path, project_dir: Path | None) -> bool:
+    if project_dir is None:
+        return True
+    try:
+        resolved.relative_to(project_dir.resolve())
+        return True
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _artifact_file_stats(
+    resolved: Path, raw_path: str, safe: bool
+) -> tuple[bool, bool, int]:
+    try:
+        exists = bool(raw_path) and resolved.exists()
+        readable = safe and exists and resolved.is_file()
+        size_bytes = resolved.stat().st_size if readable else 0
+        return exists, readable, size_bytes
+    except (OSError, RuntimeError, ValueError):
+        return bool(raw_path), False, 0
+
+
+_QUEUE_PAPER_RUN_SCOPE = (
+    "where pa.project_id = q.project_id\n"
+    "  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)"
+)
+
+_PROJECT_DECISION_SCOPE = (
+    "where d.project_id = q.project_id\n"
+    "  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)"
+)
+
+_PROJECT_DECISION_ORDER = (
+    "order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end,"
+    " d.decided_at desc nulls last, d.decision_id desc nulls last"
+)
+
+
+def _queue_paper_scalar_subquery(select_expr: str, alias: str) -> str:
+    return f"""
+              (
+                select {select_expr}
+                from papers pa
+                {_QUEUE_PAPER_RUN_SCOPE}
+                order by pa.updated_at desc
+                limit 1
+              ) as {alias}"""
+
+
+def _queue_paper_review_subquery(select_expr: str, alias: str) -> str:
+    return f"""
+              (
+                select {select_expr}
+                from papers pa
+                left join publication_automation_items rv using(paper_id)
+                {_QUEUE_PAPER_RUN_SCOPE}
+                order by pa.updated_at desc
+                limit 1
+              ) as {alias}"""
+
+
+def _queue_corpus_subquery(select_expr: str, alias: str) -> str:
+    return f"""
+              (
+                select {select_expr}
+                from papers pa
+                left join corpus_imports ci using(paper_id)
+                {_QUEUE_PAPER_RUN_SCOPE}
+                order by pa.updated_at desc
+                limit 1
+              ) as {alias}"""
+
+
+def _queue_project_decision_subquery(select_expr: str, alias: str) -> str:
+    return f"""
+              (
+                select {select_expr}
+                from project_decisions d
+                {_PROJECT_DECISION_SCOPE}
+                {_PROJECT_DECISION_ORDER}
+                limit 1
+              ) as {alias}"""
+
+
+def _queue_project_decision_json_field_subquery(json_field: str, alias: str) -> str:
+    return _queue_project_decision_subquery(
+        (
+            f"coalesce(d.payload_json->'project_decision'->>'{json_field}',"
+            f" d.payload_json->>'{json_field}')"
+        ),
+        alias,
+    )
+
+
+def _queue_rows_related_projection_sql() -> str:
+    paper_scalars = (
+        ("pa.paper_id", "related_paper_id"),
+        ("pa.paper_status", "related_paper_status"),
+        ("pa.draft_markdown_path", "related_draft_markdown_path"),
+        ("pa.evidence_bundle_path", "related_evidence_bundle_path"),
+        ("pa.claim_ledger_path", "related_claim_ledger_path"),
+        ("pa.manifest_path", "related_manifest_path"),
+    )
+    review_scalars = (
+        ("rv.automation_status", "related_review_status"),
+        ("rv.finalization_package_path", "related_finalization_package_path"),
+    )
+    corpus_scalars = (
+        ("ci.corpus_import_id", "related_corpus_import_id"),
+        ("ci.artifact_slug", "related_artifact_slug"),
+        ("ci.source_record_fingerprint", "related_source_record_fingerprint"),
+        ("(ci.paper_id is not null)", "related_corpus_imported"),
+    )
+    decision_columns = (
+        ("d.decision_gate_state", "decision_gate_state"),
+        ("d.decision_summary", "decision_summary"),
+        ("d.payload_json", "decision_payload_json"),
+        ("d.followup_recommended", "followup_recommended"),
+        ("d.followup_type", "followup_type"),
+        ("d.followup_title", "followup_title"),
+        ("d.followup_hypothesis", "followup_hypothesis"),
+        ("d.followup_required_evidence", "followup_required_evidence"),
+        ("d.followup_success_threshold", "followup_success_threshold"),
+        ("d.followup_stop_condition", "followup_stop_condition"),
+        ("d.followup_depth", "followup_depth"),
+    )
+    decision_json_fields = (
+        ("project_decision", "project_decision"),
+        ("research_outcome", "research_outcome"),
+        ("bounded_paper_ready", "bounded_paper_ready"),
+        ("hypothesis_status", "hypothesis_status"),
+        ("evidence_strength", "evidence_strength"),
+        ("claim_scope", "claim_scope"),
+        ("scale_limits", "scale_limits"),
+    )
+    parts = [
+        *(_queue_paper_scalar_subquery(expr, alias) for expr, alias in paper_scalars),
+        *(_queue_paper_review_subquery(expr, alias) for expr, alias in review_scalars),
+        *(_queue_corpus_subquery(expr, alias) for expr, alias in corpus_scalars),
+        *(
+            _queue_project_decision_subquery(expr, alias)
+            for expr, alias in decision_columns
+        ),
+        *(
+            _queue_project_decision_json_field_subquery(field, alias)
+            for field, alias in decision_json_fields
+        ),
+        """
+              exists (
+                select 1
+                from control_events ev
+                where ev.event_type = 'followup.launch'
+                  and ev.entity_type = 'project'
+                  and ev.entity_id = q.project_id
+              ) as followup_launched""",
+    ]
+    return ",\n".join(parts)
+
+
+_SUPABASE_EVENT_PAGE_ORDER_BY = {
+    "type": "event_type asc, event_id desc",
+    "entity": "entity_type asc, entity_id asc, event_id desc",
+}
+
+
+def _supabase_event_page_filter_clauses(
+    *,
+    event_id: str = "",
+    entity_type: str = "",
+    entity_id: str = "",
+    event_type: str = "",
+    search: str = "",
+) -> tuple[list[str], list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    event_id_int = _int(event_id, 0)
+    if event_id_int > 0:
+        clauses.append("event_id = %s")
+        params.append(event_id_int)
+    if entity_type:
+        clauses.append("entity_type = %s")
+        params.append(entity_type)
+    if entity_id:
+        clauses.append("entity_id = %s")
+        params.append(entity_id)
+    if event_type:
+        clauses.append("event_type = %s")
+        params.append(event_type)
+    if search:
+        clauses.append("(event_type ilike %s or entity_id ilike %s)")
+        needle = f"%{search}%"
+        params.extend([needle, needle])
+    return clauses, params
+
+
+def _supabase_event_page_sort_plan(
+    sort: str, cursor_id: int
+) -> tuple[str, list[str], list[Any], bool]:
+    if sort == "oldest":
+        extra_clauses: list[str] = []
+        extra_params: list[Any] = []
+        if cursor_id > 0:
+            extra_clauses.append("event_id > %s")
+            extra_params.append(cursor_id)
+        return "event_id asc", extra_clauses, extra_params, True
+    if sort == "recent":
+        extra_clauses = []
+        extra_params = []
+        if cursor_id > 0:
+            extra_clauses.append("event_id < %s")
+            extra_params.append(cursor_id)
+        return "event_id desc", extra_clauses, extra_params, True
+    order_by = _SUPABASE_EVENT_PAGE_ORDER_BY.get(sort, "event_id desc")
+    return order_by, [], [], False
+
+
+def _supabase_event_page_select_list(*, include_payload: bool) -> str:
+    if include_payload:
+        return """
+            event_id,
+            idempotency_key,
+            event_type,
+            entity_type,
+            entity_id,
+            payload_json,
+            created_at
+        """
+    return """
+        event_id,
+        idempotency_key,
+        event_type,
+        entity_type,
+        entity_id,
+        pg_column_size(payload_json) as payload_bytes,
+        created_at
+    """
+
+
+def _supabase_event_page_item(
+    row: dict[str, Any],
+    *,
+    include_payload: bool,
+    payload_fn: Callable[[Any], Any],
+) -> dict[str, Any]:
+    item = dict(row)
+    if include_payload:
+        item["payload"] = payload_fn(item.pop("payload_json"))
+    else:
+        item["payload_summary"] = {
+            "keys": [],
+            "bytes": int(item.pop("payload_bytes") or 0),
+        }
+    item["created_at"] = str(item.get("created_at") or "")
+    return item
+
+
+def _supabase_event_page_next_cursor(
+    *,
+    uses_event_id_cursor: bool,
+    has_more: bool,
+    out: list[dict[str, Any]],
+    cursor_id: int,
+    safe_size: int,
+) -> str | None:
+    if not has_more or not out:
+        return None
+    if uses_event_id_cursor:
+        return str(out[-1]["event_id"])
+    return str(max(0, cursor_id) + safe_size)
 
 
 class ReadOnlyStoreError(RuntimeError):
@@ -529,6 +1571,49 @@ class SupabaseReadOnlyControlPlaneStore:
             ) from exc
         return psycopg.connect(self.database_url, row_factory=dict_row)
 
+    @staticmethod
+    def _invoke_connection_method(conn: Any, method_name: str) -> None:
+        method = getattr(conn, method_name, None)
+        if callable(method):
+            method()
+
+    def _discard_connection(self, conn: Any | None) -> None:
+        if conn is None:
+            return
+        self._invoke_connection_method(conn, "close")
+        if conn is self._conn:
+            self._conn = None
+
+    def _handle_connection_error(self, conn: Any | None, exc: Exception) -> None:
+        if conn is None:
+            return
+        self._invoke_connection_method(conn, "rollback")
+        if bool(getattr(conn, "closed", False)) or self._is_transient_connection_error(
+            exc
+        ):
+            self._discard_connection(conn)
+
+    def _checkout_persistent_connection(self) -> Any:
+        conn = self._conn
+        if conn is None or bool(getattr(conn, "closed", False)):
+            conn = self._connect_factory()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("set statement_timeout to '45s'")
+                    cur.execute("set idle_in_transaction_session_timeout to '30s'")
+            except Exception as exc:
+                self._handle_connection_error(conn, exc)
+                raise
+            self._conn = conn
+        try:
+            # Supabase pooler/transaction boundaries can reset session settings.
+            with conn.cursor() as cur:
+                cur.execute("set search_path to enoch, public")
+        except Exception as exc:
+            self._handle_connection_error(conn, exc)
+            raise
+        return conn
+
     @contextmanager
     def _connect(self) -> Iterator[Any]:
         if self._external_connect_factory:
@@ -539,58 +1624,18 @@ class SupabaseReadOnlyControlPlaneStore:
                         cur.execute("set search_path to enoch, public")
                     yield conn
             finally:
-                close = getattr(conn, "close", None)
-                if callable(close):
-                    close()
+                self._invoke_connection_method(conn, "close")
             return
 
         self._conn_lock.acquire()
         conn = None
         try:
-            try:
-                conn = self._conn
-                if conn is None or bool(getattr(conn, "closed", False)):
-                    conn = self._connect_factory()
-                    with conn.cursor() as cur:
-                        cur.execute("set statement_timeout to '45s'")
-                        cur.execute("set idle_in_transaction_session_timeout to '30s'")
-                    self._conn = conn
-                # Supabase pooler/transaction boundaries can reset session settings.
-                # Keep the persistent server-side connection, but assert the private
-                # schema on every checkout so subsequent dashboard reads do not drift
-                # back to `public`. This pre-yield section must also release the
-                # mutex on failure; otherwise a DB restart can permanently wedge all
-                # dashboard worker threads behind _conn_lock.
-                with conn.cursor() as cur:
-                    cur.execute("set search_path to enoch, public")
-            except Exception as exc:
-                if conn is not None:
-                    rollback = getattr(conn, "rollback", None)
-                    if callable(rollback):
-                        rollback()
-                    if bool(
-                        getattr(conn, "closed", False)
-                    ) or self._is_transient_connection_error(exc):
-                        close = getattr(conn, "close", None)
-                        if callable(close):
-                            close()
-                        self._conn = None
-                raise
-            try:
-                yield conn
-                conn.commit()
-            except Exception as exc:
-                rollback = getattr(conn, "rollback", None)
-                if callable(rollback):
-                    rollback()
-                if bool(
-                    getattr(conn, "closed", False)
-                ) or self._is_transient_connection_error(exc):
-                    close = getattr(conn, "close", None)
-                    if callable(close):
-                        close()
-                    self._conn = None
-                raise
+            conn = self._checkout_persistent_connection()
+            yield conn
+            conn.commit()
+        except Exception as exc:
+            self._handle_connection_error(conn, exc)
+            raise
         finally:
             self._conn_lock.release()
 
@@ -740,9 +1785,7 @@ class SupabaseReadOnlyControlPlaneStore:
 
     def queue_counts_sql(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for row in self._query(
-            "select status, count(*) as count from queue_items group by status"
-        ):
+        for row in self._query(STATUS_COUNT_QUERY):
             status = _text(row["status"]) or "unknown"
             count = int(row["count"] or 0)
             counts[status] = count
@@ -880,259 +1923,7 @@ class SupabaseReadOnlyControlPlaneStore:
               p.notion_page_url,
               p.notion_page_id,
               p.origin_idea_status,
-              (
-                select pa.paper_id
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_paper_id,
-              (
-                select pa.paper_status
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_paper_status,
-              (
-                select rv.automation_status
-                from papers pa
-                left join publication_automation_items rv using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_review_status,
-              (
-                select rv.finalization_package_path
-                from papers pa
-                left join publication_automation_items rv using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_finalization_package_path,
-              (
-                select pa.draft_markdown_path
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_draft_markdown_path,
-              (
-                select pa.evidence_bundle_path
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_evidence_bundle_path,
-              (
-                select pa.claim_ledger_path
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_claim_ledger_path,
-              (
-                select pa.manifest_path
-                from papers pa
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_manifest_path,
-              (
-                select ci.corpus_import_id
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_corpus_import_id,
-              (
-                select ci.artifact_slug
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_artifact_slug,
-              (
-                select ci.source_record_fingerprint
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_source_record_fingerprint,
-              (
-                select (ci.paper_id is not null)
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                where pa.project_id = q.project_id
-                  and (coalesce(q.current_run_id, '') = '' or pa.run_id = q.current_run_id)
-                order by pa.updated_at desc
-                limit 1
-              ) as related_corpus_imported,
-              (
-                select d.decision_gate_state
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as decision_gate_state,
-              (
-                select d.decision_summary
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as decision_summary,
-              (
-                select d.payload_json
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as decision_payload_json,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'project_decision', d.payload_json->>'project_decision')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as project_decision,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'research_outcome', d.payload_json->>'research_outcome')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as research_outcome,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'bounded_paper_ready', d.payload_json->>'bounded_paper_ready')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as bounded_paper_ready,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'hypothesis_status', d.payload_json->>'hypothesis_status')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as hypothesis_status,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'evidence_strength', d.payload_json->>'evidence_strength')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as evidence_strength,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'claim_scope', d.payload_json->>'claim_scope')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as claim_scope,
-              (
-                select coalesce(d.payload_json->'project_decision'->>'scale_limits', d.payload_json->>'scale_limits')
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as scale_limits,
-              (
-                select d.followup_recommended
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_recommended,
-              (
-                select d.followup_type
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_type,
-              (
-                select d.followup_title
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_title,
-              (
-                select d.followup_hypothesis
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_hypothesis,
-              (
-                select d.followup_required_evidence
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_required_evidence,
-              (
-                select d.followup_success_threshold
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_success_threshold,
-              (
-                select d.followup_stop_condition
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_stop_condition,
-              (
-                select d.followup_depth
-                from project_decisions d
-                where d.project_id = q.project_id
-                  and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
-                order by case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end, d.decided_at desc nulls last, d.decision_id desc nulls last
-                limit 1
-              ) as followup_depth,
-              exists (
-                select 1
-                from control_events ev
-                where ev.event_type = 'followup.launch'
-                  and ev.entity_type = 'project'
-                  and ev.entity_id = q.project_id
-              ) as followup_launched,
+              {_queue_rows_related_projection_sql()},
               i.source_kind as idea_source_kind,
               coalesce(i.source_payload_json, '{{}}'::jsonb) as idea_source_payload_json,
               case
@@ -1250,7 +2041,7 @@ class SupabaseReadOnlyControlPlaneStore:
             clauses.append(f"q.status in ({placeholders})")
             params.extend(sorted(ACTIVE_STATUSES))
         elif queue == "queued":
-            clauses.append("q.status = %s")
+            clauses.append(_QUEUE_STATUS_EQUALS_PARAM)
             params.append(QueueStatus.QUEUED.value)
         elif queue == "blocked":
             clauses.append(
@@ -1264,16 +2055,16 @@ class SupabaseReadOnlyControlPlaneStore:
                 ]
             )
         elif queue == "paused":
-            clauses.append("q.status = %s")
+            clauses.append(_QUEUE_STATUS_EQUALS_PARAM)
             params.append(QueueStatus.PAUSED.value)
         elif queue == "completed":
             clauses.append("q.status in (%s, %s)")
             params.extend([QueueStatus.COMPLETED.value, QueueStatus.CANCELED.value])
         elif queue not in {"", "all"}:
-            clauses.append("q.status = %s")
+            clauses.append(_QUEUE_STATUS_EQUALS_PARAM)
             params.append(queue)
         if status:
-            clauses.append("q.status = %s")
+            clauses.append(_QUEUE_STATUS_EQUALS_PARAM)
             params.append(status)
         if search:
             needle = f"%{search.strip()}%"
@@ -1492,69 +2283,23 @@ class SupabaseReadOnlyControlPlaneStore:
         sort: str = "recent",
     ) -> tuple[list[dict[str, Any]], str | None, bool]:
         safe_size = max(1, min(page_size, 200))
-        clauses: list[str] = []
-        params: list[Any] = []
-        event_id_int = _int(event_id, 0)
-        if event_id_int > 0:
-            clauses.append("event_id = %s")
-            params.append(event_id_int)
-        if entity_type:
-            clauses.append("entity_type = %s")
-            params.append(entity_type)
-        if entity_id:
-            clauses.append("entity_id = %s")
-            params.append(entity_id)
-        if event_type:
-            clauses.append("event_type = %s")
-            params.append(event_type)
-        if search:
-            clauses.append("(event_type ilike %s or entity_id ilike %s)")
-            needle = f"%{search}%"
-            params.extend([needle, needle])
-
+        clauses, params = _supabase_event_page_filter_clauses(
+            event_id=event_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            event_type=event_type,
+            search=search,
+        )
         cursor_id = _int(cursor, 0)
-        if sort == "oldest":
-            if cursor_id > 0:
-                clauses.append("event_id > %s")
-                params.append(cursor_id)
-            order_by = "event_id asc"
-        elif sort == "recent":
-            if cursor_id > 0:
-                clauses.append("event_id < %s")
-                params.append(cursor_id)
-            order_by = "event_id desc"
-        else:
-            # Non-event-id orderings need offset cursors to preserve a stable
-            # sorted page contract. Keep the SQL bounded; never fetch
-            # cursor+page_size rows and slice in Python.
-            order_by = {
-                "type": "event_type asc, event_id desc",
-                "entity": "entity_type asc, entity_id asc, event_id desc",
-            }.get(sort, "event_id desc")
-
+        order_by, sort_clauses, sort_params, uses_event_id_cursor = (
+            _supabase_event_page_sort_plan(sort, cursor_id)
+        )
+        clauses.extend(sort_clauses)
+        params.extend(sort_params)
         where = f"where {' and '.join(clauses)}" if clauses else ""
-        if include_payload:
-            select_list = """
-                event_id,
-                idempotency_key,
-                event_type,
-                entity_type,
-                entity_id,
-                payload_json,
-                created_at
-            """
-        else:
-            select_list = """
-                event_id,
-                idempotency_key,
-                event_type,
-                entity_type,
-                entity_id,
-                pg_column_size(payload_json) as payload_bytes,
-                created_at
-            """
+        select_list = _supabase_event_page_select_list(include_payload=include_payload)
 
-        if sort in {"recent", "oldest"}:
+        if uses_event_id_cursor:
             params.append(safe_size + 1)
             rows = self._query(
                 f"select {select_list} from control_events {where} order by {order_by} limit %s",
@@ -1568,24 +2313,249 @@ class SupabaseReadOnlyControlPlaneStore:
                 tuple(params),
             )
 
-        out: list[dict[str, Any]] = []
-        for row in rows[:safe_size]:
-            item = dict(row)
-            if include_payload:
-                item["payload"] = self._payload(item.pop("payload_json"))
-            else:
-                item["payload_summary"] = {
-                    "keys": [],
-                    "bytes": int(item.pop("payload_bytes") or 0),
-                }
-            item["created_at"] = str(item.get("created_at") or "")
-            out.append(item)
+        out = [
+            _supabase_event_page_item(
+                row, include_payload=include_payload, payload_fn=self._payload
+            )
+            for row in rows[:safe_size]
+        ]
         has_more = len(rows) > safe_size
-        if sort in {"recent", "oldest"}:
-            next_cursor = str(out[-1]["event_id"]) if has_more and out else None
-        else:
-            next_cursor = str(max(0, cursor_id) + safe_size) if has_more else None
+        next_cursor = _supabase_event_page_next_cursor(
+            uses_event_id_cursor=uses_event_id_cursor,
+            has_more=has_more,
+            out=out,
+            cursor_id=cursor_id,
+            safe_size=safe_size,
+        )
         return out, next_cursor, has_more
+
+    def _overview_queue_status_counts(self, cur: Any) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        blocked_count = 0
+        for row in self._cursor_rows(
+            cur,
+            """
+            select
+              status,
+              count(*) as count,
+              (
+                select count(*)
+                from queue_items
+                where manual_review_required = true or status in (%s, %s, %s)
+              ) as blocked_count
+            from queue_items
+            group by status
+            """,
+            (
+                QueueStatus.BLOCKED.value,
+                QueueStatus.NEEDS_REVIEW.value,
+                QueueStatus.DISPATCH_ERROR.value,
+            ),
+        ):
+            status = _text(row["status"]) or "unknown"
+            count = int(row["count"] or 0)
+            counts[status] = count
+            counts["all"] = counts.get("all", 0) + count
+            blocked_count = int(row.get("blocked_count") or 0)
+        counts["active"] = sum(counts.get(status, 0) for status in ACTIVE_STATUSES)
+        counts["queued"] = counts.get(QueueStatus.QUEUED.value, 0)
+        counts["blocked"] = blocked_count
+        for key in ("all", "active", "queued", "blocked", "paused", "completed"):
+            counts.setdefault(key, 0)
+        return counts
+
+    def _overview_paper_status_counts(self, cur: Any) -> dict[str, int]:
+        paper_counts: dict[str, int] = {}
+        for row in self._cursor_rows(
+            cur,
+            "select paper_status, count(*) as count from papers group by paper_status",
+        ):
+            status = _text(row["paper_status"]) or "unknown"
+            count = int(row["count"] or 0)
+            paper_counts[status] = count
+            paper_counts["all"] = paper_counts.get("all", 0) + count
+        paper_counts.setdefault("all", 0)
+        return paper_counts
+
+    def _overview_active_queue_slice(
+        self, cur: Any, *, active_limit: int
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        safe_active_limit = max(1, min(active_limit, 50))
+        placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
+        active_items = self._queue_rows_from_cursor(
+            cur,
+            f"where q.status in ({placeholders}) order by q.updated_at desc limit %s",
+            (*sorted(ACTIVE_STATUSES), safe_active_limit),
+        )
+        next_candidates = self._queue_rows_from_cursor(
+            cur,
+            "where q.status = %s order by q.dispatch_priority asc, q.updated_at desc limit 1",
+            (QueueStatus.QUEUED.value,),
+        )
+        next_candidate = next_candidates[0] if next_candidates else None
+        return active_items, next_candidate
+
+    def _overview_operator_queue_rows(self, cur: Any) -> list[dict[str, Any]]:
+        return self._cursor_rows(
+            cur,
+            """
+            select
+              q.project_id,
+              p.project_name,
+              q.status,
+              q.dispatch_priority,
+              q.selection_rank,
+              q.current_run_id,
+              q.current_session_id,
+              q.last_run_state,
+              q.next_action_hint,
+              q.manual_review_required,
+              q.blocked_reason,
+              q.last_result_summary,
+              q.last_callback_at,
+              q.last_dispatch_at,
+              q.updated_at,
+              p.project_dir,
+              p.notion_page_url,
+              ''::text as related_paper_id,
+              ''::text as related_paper_status,
+              ''::text as related_review_status,
+              ''::text as related_finalization_package_path,
+              ''::text as related_draft_markdown_path,
+              ''::text as related_evidence_bundle_path,
+              ''::text as related_claim_ledger_path,
+              ''::text as related_manifest_path,
+              false as related_corpus_imported,
+              ''::text as related_corpus_import_id,
+              ''::text as related_artifact_slug,
+              ''::text as related_source_record_fingerprint,
+              coalesce(pe.decision_gate_state, '') as decision_gate_state,
+              coalesce(pe.decision_summary, '') as decision_summary,
+              coalesce(pe.research_outcome, '') as research_outcome,
+              coalesce(pe.hypothesis_status, '') as hypothesis_status,
+              coalesce(pe.evidence_strength, '') as evidence_strength,
+              coalesce(pe.claim_scope, '') as claim_scope,
+              coalesce(pe.scale_limits, '') as scale_limits,
+              coalesce(pe.useful_signal_summary, '') as useful_signal_summary,
+              coalesce(pe.bounded_paper_ready, false) as bounded_paper_ready,
+              coalesce(pe.compute_scale_blocked, false) as compute_scale_blocked,
+              coalesce(pe.recommended_next_action, '') as recommended_next_action,
+              coalesce(pe.stop_reason, '') as stop_reason,
+              coalesce(pe.followup_recommended, false) as followup_recommended,
+              coalesce(pe.followup_type, '') as followup_type,
+              coalesce(pe.followup_title, '') as followup_title,
+              coalesce(pe.followup_hypothesis, '') as followup_hypothesis,
+              coalesce(pe.followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
+              coalesce(pe.followup_success_threshold, '') as followup_success_threshold,
+              coalesce(pe.followup_stop_condition, '') as followup_stop_condition,
+              coalesce(pe.followup_depth, 0) as followup_depth,
+              case
+                when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$'
+                then (i.source_payload_json->>'followup_depth')::integer
+                when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$'
+                then (i.source_payload_json->>'parent_followup_depth')::integer
+                else 0
+              end as source_followup_depth,
+              exists (
+                select 1
+                from control_events ev
+                where ev.event_type = 'followup.launch'
+                  and ev.entity_type = 'project'
+                  and ev.entity_id = q.project_id
+              ) as followup_launched
+            from queue_items q
+            join projects p using(project_id)
+            left join paper_eligibility pe on pe.project_id = q.project_id
+            left join ideas i on i.idea_id = q.project_id
+            where exists (
+                select 1
+                from paper_eligibility candidate
+                where candidate.project_id = q.project_id
+                  and (candidate.raw_write_candidate or candidate.followup_recommended)
+            )
+               or q.manual_review_required = true
+               or q.status in (%s, %s, %s)
+            order by q.updated_at desc
+            """,
+            (
+                QueueStatus.BLOCKED.value,
+                QueueStatus.NEEDS_REVIEW.value,
+                QueueStatus.DISPATCH_ERROR.value,
+            ),
+        )
+
+    def _overview_operator_paper_rows(self, cur: Any) -> list[dict[str, Any]]:
+        return self._paper_rows_from_cursor(
+            cur,
+            """
+            where
+              (pa.paper_status = %s and rv.automation_status = %s and rv.finalization_package_path <> '' and ci.paper_id is null)
+              or ci.paper_id is not null
+              or pa.paper_status in (%s, %s, %s)
+            order by pa.updated_at desc
+            """,
+            (
+                PaperStatus.PUBLICATION_DRAFT.value,
+                ReviewStatus.FINALIZED.value,
+                PaperStatus.PUBLICATION_DRAFT.value,
+                PaperStatus.DRAFT_REVIEW.value,
+                PaperStatus.ARCHIVED.value,
+            ),
+        )
+
+    def _overview_events_page(
+        self, cur: Any, *, event_limit: int
+    ) -> tuple[list[dict[str, Any]], str | None, bool]:
+        safe_event_limit = max(0, min(event_limit, 50))
+        if not safe_event_limit:
+            return [], None, False
+        event_rows = self._cursor_rows(
+            cur,
+            """
+            select
+                event_id,
+                idempotency_key,
+                event_type,
+                entity_type,
+                entity_id,
+                pg_column_size(payload_json) as payload_bytes,
+                created_at
+            from control_events
+            order by event_id desc
+            limit %s
+            """,
+            (safe_event_limit + 1,),
+        )
+        events: list[dict[str, Any]] = []
+        for row in event_rows[:safe_event_limit]:
+            item = dict(row)
+            item["payload_summary"] = {
+                "keys": [],
+                "bytes": int(item.pop("payload_bytes") or 0),
+            }
+            item["created_at"] = str(item.get("created_at") or "")
+            events.append(item)
+        event_has_more = len(event_rows) > safe_event_limit
+        event_next_cursor = (
+            str(events[-1]["event_id"]) if event_has_more and events else None
+        )
+        return events, event_next_cursor, event_has_more
+
+    def _fetch_overview_read_model_parts(
+        self, cur: Any, *, active_limit: int, event_limit: int
+    ) -> dict[str, Any]:
+        active_items, next_candidate = self._overview_active_queue_slice(
+            cur, active_limit=active_limit
+        )
+        return {
+            "counts": self._overview_queue_status_counts(cur),
+            "paper_counts": self._overview_paper_status_counts(cur),
+            "active_items": active_items,
+            "next_candidate": next_candidate,
+            "raw_queue_rows": self._overview_operator_queue_rows(cur),
+            "raw_paper_rows": self._overview_operator_paper_rows(cur),
+            "events_page": self._overview_events_page(cur, event_limit=event_limit),
+        }
 
     def overview_read_model_parts(
         self, *, active_limit: int = 5, event_limit: int = 10
@@ -1604,223 +2574,11 @@ class SupabaseReadOnlyControlPlaneStore:
             try:
                 with self._connect() as conn:
                     with conn.cursor() as cur:
-                        counts: dict[str, int] = {}
-                        blocked_count = 0
-                        for row in self._cursor_rows(
+                        return self._fetch_overview_read_model_parts(
                             cur,
-                            """
-                            select
-                              status,
-                              count(*) as count,
-                              (
-                                select count(*)
-                                from queue_items
-                                where manual_review_required = true or status in (%s, %s, %s)
-                              ) as blocked_count
-                            from queue_items
-                            group by status
-                            """,
-                            (
-                                QueueStatus.BLOCKED.value,
-                                QueueStatus.NEEDS_REVIEW.value,
-                                QueueStatus.DISPATCH_ERROR.value,
-                            ),
-                        ):
-                            status = _text(row["status"]) or "unknown"
-                            count = int(row["count"] or 0)
-                            counts[status] = count
-                            counts["all"] = counts.get("all", 0) + count
-                            blocked_count = int(row.get("blocked_count") or 0)
-                        counts["active"] = sum(
-                            counts.get(status, 0) for status in ACTIVE_STATUSES
+                            active_limit=active_limit,
+                            event_limit=event_limit,
                         )
-                        counts["queued"] = counts.get(QueueStatus.QUEUED.value, 0)
-                        counts["blocked"] = blocked_count
-                        for key in (
-                            "all",
-                            "active",
-                            "queued",
-                            "blocked",
-                            "paused",
-                            "completed",
-                        ):
-                            counts.setdefault(key, 0)
-
-                        paper_counts: dict[str, int] = {}
-                        for row in self._cursor_rows(
-                            cur,
-                            "select paper_status, count(*) as count from papers group by paper_status",
-                        ):
-                            status = _text(row["paper_status"]) or "unknown"
-                            count = int(row["count"] or 0)
-                            paper_counts[status] = count
-                            paper_counts["all"] = paper_counts.get("all", 0) + count
-                        paper_counts.setdefault("all", 0)
-
-                        safe_active_limit = max(1, min(active_limit, 50))
-                        placeholders = ",".join(["%s"] * len(ACTIVE_STATUSES))
-                        active_items = self._queue_rows_from_cursor(
-                            cur,
-                            f"where q.status in ({placeholders}) order by q.updated_at desc limit %s",
-                            (*sorted(ACTIVE_STATUSES), safe_active_limit),
-                        )
-                        next_candidates = self._queue_rows_from_cursor(
-                            cur,
-                            "where q.status = %s order by q.dispatch_priority asc, q.updated_at desc limit 1",
-                            (QueueStatus.QUEUED.value,),
-                        )
-                        raw_queue_rows = self._cursor_rows(
-                            cur,
-                            """
-                            select
-                              q.project_id,
-                              p.project_name,
-                              q.status,
-                              q.dispatch_priority,
-                              q.selection_rank,
-                              q.current_run_id,
-                              q.current_session_id,
-                              q.last_run_state,
-                              q.next_action_hint,
-                              q.manual_review_required,
-                              q.blocked_reason,
-                              q.last_result_summary,
-                              q.last_callback_at,
-                              q.last_dispatch_at,
-                              q.updated_at,
-                              p.project_dir,
-                              p.notion_page_url,
-                              ''::text as related_paper_id,
-                              ''::text as related_paper_status,
-                              ''::text as related_review_status,
-                              ''::text as related_finalization_package_path,
-                              ''::text as related_draft_markdown_path,
-                              ''::text as related_evidence_bundle_path,
-                              ''::text as related_claim_ledger_path,
-                              ''::text as related_manifest_path,
-                              false as related_corpus_imported,
-                              ''::text as related_corpus_import_id,
-                              ''::text as related_artifact_slug,
-                              ''::text as related_source_record_fingerprint,
-                              coalesce(pe.decision_gate_state, '') as decision_gate_state,
-                              coalesce(pe.decision_summary, '') as decision_summary,
-                              coalesce(pe.research_outcome, '') as research_outcome,
-                              coalesce(pe.hypothesis_status, '') as hypothesis_status,
-                              coalesce(pe.evidence_strength, '') as evidence_strength,
-                              coalesce(pe.claim_scope, '') as claim_scope,
-                              coalesce(pe.scale_limits, '') as scale_limits,
-                              coalesce(pe.useful_signal_summary, '') as useful_signal_summary,
-                              coalesce(pe.bounded_paper_ready, false) as bounded_paper_ready,
-                              coalesce(pe.compute_scale_blocked, false) as compute_scale_blocked,
-                              coalesce(pe.recommended_next_action, '') as recommended_next_action,
-                              coalesce(pe.stop_reason, '') as stop_reason,
-                              coalesce(pe.followup_recommended, false) as followup_recommended,
-                              coalesce(pe.followup_type, '') as followup_type,
-                              coalesce(pe.followup_title, '') as followup_title,
-                              coalesce(pe.followup_hypothesis, '') as followup_hypothesis,
-                              coalesce(pe.followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
-                              coalesce(pe.followup_success_threshold, '') as followup_success_threshold,
-                              coalesce(pe.followup_stop_condition, '') as followup_stop_condition,
-                              coalesce(pe.followup_depth, 0) as followup_depth,
-                              case
-                                when coalesce(i.source_payload_json->>'followup_depth', '') ~ '^[0-9]+$'
-                                then (i.source_payload_json->>'followup_depth')::integer
-                                when coalesce(i.source_payload_json->>'parent_followup_depth', '') ~ '^[0-9]+$'
-                                then (i.source_payload_json->>'parent_followup_depth')::integer
-                                else 0
-                              end as source_followup_depth,
-                              exists (
-                                select 1
-                                from control_events ev
-                                where ev.event_type = 'followup.launch'
-                                  and ev.entity_type = 'project'
-                                  and ev.entity_id = q.project_id
-                              ) as followup_launched
-                            from queue_items q
-                            join projects p using(project_id)
-                            left join paper_eligibility pe on pe.project_id = q.project_id
-                            left join ideas i on i.idea_id = q.project_id
-                            where exists (
-                                select 1
-                                from paper_eligibility candidate
-                                where candidate.project_id = q.project_id
-                                  and (candidate.raw_write_candidate or candidate.followup_recommended)
-                            )
-                               or q.manual_review_required = true
-                               or q.status in (%s, %s, %s)
-                            order by q.updated_at desc
-                            """,
-                            (
-                                QueueStatus.BLOCKED.value,
-                                QueueStatus.NEEDS_REVIEW.value,
-                                QueueStatus.DISPATCH_ERROR.value,
-                            ),
-                        )
-                        raw_paper_rows = self._paper_rows_from_cursor(
-                            cur,
-                            """
-                            where
-                              (pa.paper_status = %s and rv.automation_status = %s and rv.finalization_package_path <> '' and ci.paper_id is null)
-                              or ci.paper_id is not null
-                              or pa.paper_status in (%s, %s, %s)
-                            order by pa.updated_at desc
-                            """,
-                            (
-                                PaperStatus.PUBLICATION_DRAFT.value,
-                                ReviewStatus.FINALIZED.value,
-                                PaperStatus.PUBLICATION_DRAFT.value,
-                                PaperStatus.DRAFT_REVIEW.value,
-                                PaperStatus.ARCHIVED.value,
-                            ),
-                        )
-
-                        safe_event_limit = max(0, min(event_limit, 50))
-                        if safe_event_limit:
-                            event_rows = self._cursor_rows(
-                                cur,
-                                """
-                                select
-                                    event_id,
-                                    idempotency_key,
-                                    event_type,
-                                    entity_type,
-                                    entity_id,
-                                    pg_column_size(payload_json) as payload_bytes,
-                                    created_at
-                                from control_events
-                                order by event_id desc
-                                limit %s
-                                """,
-                                (safe_event_limit + 1,),
-                            )
-                            events = []
-                            for row in event_rows[:safe_event_limit]:
-                                item = dict(row)
-                                item["payload_summary"] = {
-                                    "keys": [],
-                                    "bytes": int(item.pop("payload_bytes") or 0),
-                                }
-                                item["created_at"] = str(item.get("created_at") or "")
-                                events.append(item)
-                            event_has_more = len(event_rows) > safe_event_limit
-                            event_next_cursor = (
-                                str(events[-1]["event_id"])
-                                if event_has_more and events
-                                else None
-                            )
-                        else:
-                            events = []
-                            event_next_cursor = None
-                            event_has_more = False
-                return {
-                    "counts": counts,
-                    "paper_counts": paper_counts,
-                    "active_items": active_items,
-                    "next_candidate": next_candidates[0] if next_candidates else None,
-                    "raw_queue_rows": raw_queue_rows,
-                    "raw_paper_rows": raw_paper_rows,
-                    "events_page": (events, event_next_cursor, event_has_more),
-                }
             except Exception as exc:
                 last_exc = exc
                 if attempt < 2 and self._is_transient_connection_error(exc):
@@ -1835,9 +2593,7 @@ class SupabaseReadOnlyControlPlaneStore:
 
     def status_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for row in self._query(
-            "select status, count(*) as count from queue_items group by status"
-        ):
+        for row in self._query(STATUS_COUNT_QUERY):
             counts[_text(row["status"]) or "unknown"] = int(row["count"] or 0)
         return counts
 
@@ -2046,7 +2802,7 @@ class SupabaseReadOnlyControlPlaneStore:
                     _text(row["status"]) or "unknown": int(row["count"] or 0)
                     for row in self._cursor_rows(
                         cur,
-                        "select status, count(*) as count from queue_items group by status",
+                        STATUS_COUNT_QUERY,
                     )
                 }
         return {
@@ -2373,10 +3129,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         QueueStatus.DISPATCHING.value,
                     ),
                 )
-                rowcount = int(
-                    getattr(result, "rowcount", getattr(cur, "rowcount", 1)) or 0
-                )
-                if rowcount == 1:
+                if _execute_rowcount(cur, result) == 1:
                     self._append_event_in_cursor(
                         cur,
                         idempotency_key=f"dispatch-claim-release:{run_id}",
@@ -2500,6 +3253,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
     def dispatch_next_dry_run(
         self, *, requested_by: str
     ) -> tuple[str, dict[str, Any] | None, int | None, str]:
+        # requested_by matches ControlPlaneStore.dispatch_next_dry_run for graph callers.
         flags = self.flags()
         if flags.queue_paused:
             return "paused", None, None, flags.pause_reason or "queue paused"
@@ -2580,11 +3334,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             claimed_at=_text(row.get("claimed_at")),
             updated_at=updated_at,
             rank_score=score,
-            rank_bucket="blocked"
-            if score < 0
-            else "ready"
-            if score >= 100
-            else "review",
+            rank_bucket=_review_rank_bucket(score),
             rank_reasons=rank_reasons,
             missing_signals=missing_signals,
             rank_tiebreaker=_text(row.get("rank_tiebreaker")),
@@ -2650,31 +3400,37 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         payload["action"] = action
         return payload
 
-    def backfill_paper_reviews(
+    def _papers_for_review_backfill(
         self, request: PaperReviewBackfillRequest
-    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
-        audit_by_paper = _audit_rows(request.source_audit_path)
+    ) -> list[dict[str, Any]]:
         requested_paper_ids = sorted(
             {_text(paper_id) for paper_id in request.paper_ids if _text(paper_id)}
         )
-        if requested_paper_ids:
-            placeholders = ",".join(["%s"] * len(requested_paper_ids))
-            papers = self._paper_rows(
-                f"where pa.paper_id in ({placeholders})", tuple(requested_paper_ids)
-            )
-        else:
-            papers = self.paper_rows()
+        if not requested_paper_ids:
+            return self.paper_rows()
+        placeholders = ",".join(["%s"] * len(requested_paper_ids))
+        return self._paper_rows(
+            f"where pa.paper_id in ({placeholders})", tuple(requested_paper_ids)
+        )
+
+    def _paper_review_backfill_candidates(
+        self,
+        papers: list[dict[str, Any]],
+        *,
+        audit_by_paper: dict[str, dict[str, Any]],
+        source_audit_path: str,
+    ) -> tuple[list[PaperReviewRecord], list[dict[str, Any]]]:
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
+        mandatory = [
+            "draft_markdown_path",
+            "draft_latex_path",
+            "evidence_bundle_path",
+            "claim_ledger_path",
+            "manifest_path",
+        ]
         for paper in papers:
             paper_id = _text(paper.get("paper_id"))
-            mandatory = [
-                "draft_markdown_path",
-                "draft_latex_path",
-                "evidence_bundle_path",
-                "claim_ledger_path",
-                "manifest_path",
-            ]
             missing_paths = [name for name in mandatory if not _text(paper.get(name))]
             if missing_paths:
                 errors.append(
@@ -2700,9 +3456,92 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     rank_reasons=rank_reasons,
                     missing_signals=missing_signals,
                     rank_tiebreaker=tiebreaker,
-                    source_audit_path=request.source_audit_path,
+                    source_audit_path=source_audit_path,
                 )
             )
+        return candidates, errors
+
+    def _upsert_backfill_paper_review_row(
+        self, cur: Any, record: PaperReviewRecord, now: Any
+    ) -> str:
+        existing = cur.execute(
+            "select * from publication_automation_items where paper_id = %s",
+            (record.paper_id,),
+        ).fetchone()
+        rank_reasons_json = _json(record.rank_reasons)
+        missing_signals_json = _json(record.missing_signals)
+        if not existing:
+            cur.execute(
+                """
+                insert into publication_automation_items(paper_id,automation_status,automation_actor,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
+                values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    record.paper_id,
+                    record.review_status.value,
+                    record.reviewer,
+                    record.blocker,
+                    None,
+                    _json(_normalize_review_checklist(record.checklist_json)),
+                    record.rank_score,
+                    rank_reasons_json,
+                    missing_signals_json,
+                    record.rank_tiebreaker,
+                    record.source_audit_path,
+                    record.finalization_package_path,
+                    None,
+                    record.decision_summary,
+                    now,
+                    now,
+                ),
+            )
+            return "created"
+        existing_status = _text(existing["automation_status"])
+        next_status = (
+            record.review_status.value
+            if existing_status in SYSTEM_REVIEW_STATUSES
+            else existing_status
+        )
+        changes = {
+            "automation_status": next_status,
+            "rank_score": record.rank_score,
+            "rank_reasons_json": rank_reasons_json,
+            "missing_signals_json": missing_signals_json,
+            "rank_tiebreaker": record.rank_tiebreaker,
+            "source_audit_path": record.source_audit_path,
+        }
+        if all(str(existing[key]) == str(value) for key, value in changes.items()):
+            return "skipped"
+        cur.execute(
+            """
+            update publication_automation_items
+            set automation_status=%s, rank_score=%s, rank_reasons_json=%s::jsonb, missing_signals_json=%s::jsonb,
+                rank_tiebreaker=%s, source_audit_path=%s, updated_at=%s
+            where paper_id=%s
+            """,
+            (
+                next_status,
+                record.rank_score,
+                rank_reasons_json,
+                missing_signals_json,
+                record.rank_tiebreaker,
+                record.source_audit_path,
+                now,
+                record.paper_id,
+            ),
+        )
+        return "updated"
+
+    def backfill_paper_reviews(
+        self, request: PaperReviewBackfillRequest
+    ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
+        audit_by_paper = _audit_rows(request.source_audit_path)
+        papers = self._papers_for_review_backfill(request)
+        candidates, errors = self._paper_review_backfill_candidates(
+            papers,
+            audit_by_paper=audit_by_paper,
+            source_audit_path=request.source_audit_path,
+        )
         if request.dry_run:
             return False, len(candidates), 0, 0, errors
         event_payload = request.model_dump(mode="json")
@@ -2724,78 +3563,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 if not inserted:
                     return False, 0, 0, 0, errors
                 for record in candidates:
-                    existing = cur.execute(
-                        "select * from publication_automation_items where paper_id = %s",
-                        (record.paper_id,),
-                    ).fetchone()
-                    rank_reasons_json = _json(record.rank_reasons)
-                    missing_signals_json = _json(record.missing_signals)
-                    if existing:
-                        existing_status = _text(existing["automation_status"])
-                        next_status = (
-                            record.review_status.value
-                            if existing_status in SYSTEM_REVIEW_STATUSES
-                            else existing_status
-                        )
-                        changes = {
-                            "automation_status": next_status,
-                            "rank_score": record.rank_score,
-                            "rank_reasons_json": rank_reasons_json,
-                            "missing_signals_json": missing_signals_json,
-                            "rank_tiebreaker": record.rank_tiebreaker,
-                            "source_audit_path": record.source_audit_path,
-                        }
-                        if all(
-                            str(existing[key]) == str(value)
-                            for key, value in changes.items()
-                        ):
-                            skipped += 1
-                            continue
-                        cur.execute(
-                            """
-                            update publication_automation_items
-                            set automation_status=%s, rank_score=%s, rank_reasons_json=%s::jsonb, missing_signals_json=%s::jsonb,
-                                rank_tiebreaker=%s, source_audit_path=%s, updated_at=%s
-                            where paper_id=%s
-                            """,
-                            (
-                                next_status,
-                                record.rank_score,
-                                rank_reasons_json,
-                                missing_signals_json,
-                                record.rank_tiebreaker,
-                                record.source_audit_path,
-                                now,
-                                record.paper_id,
-                            ),
-                        )
+                    outcome = self._upsert_backfill_paper_review_row(cur, record, now)
+                    if outcome == "created":
+                        created += 1
+                    elif outcome == "updated":
                         updated += 1
-                        continue
-                    cur.execute(
-                        """
-                        insert into publication_automation_items(paper_id,automation_status,automation_actor,blocker,claimed_at,checklist_json,rank_score,rank_reasons_json,missing_signals_json,rank_tiebreaker,source_audit_path,finalization_package_path,finalized_at,decision_summary,created_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
-                        """,
-                        (
-                            record.paper_id,
-                            record.review_status.value,
-                            record.reviewer,
-                            record.blocker,
-                            None,
-                            _json(_normalize_review_checklist(record.checklist_json)),
-                            record.rank_score,
-                            rank_reasons_json,
-                            missing_signals_json,
-                            record.rank_tiebreaker,
-                            record.source_audit_path,
-                            record.finalization_package_path,
-                            None,
-                            record.decision_summary,
-                            now,
-                            now,
-                        ),
-                    )
-                    created += 1
+                    else:
+                        skipped += 1
         return inserted, created, updated, skipped, errors
 
     def claim_paper_review(
@@ -2908,6 +3682,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     )
         return event_id, inserted, self.paper_review_row(paper_id) or {}
 
+    @staticmethod
     def _validate_checklist_item_update(
         item: dict[str, Any] | None, status: str, note: str, item_id: str
     ) -> None:
@@ -3002,56 +3777,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         )
         path = _expanduser_or_none(raw_path) if raw_path else Path()
         if project_dir_text and project_dir is None:
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
+            return _unresolved_artifact(field, raw_path)
         if raw_path and path is None:
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
+            return _unresolved_artifact(field, raw_path)
         path = path or Path()
-        try:
-            resolved = (
-                path
-                if path.is_absolute()
-                else (project_dir / path if project_dir else path)
-            ).resolve()
-        except (OSError, RuntimeError, ValueError):
-            return {
-                "field": field,
-                "path": raw_path,
-                "absolute_path": "",
-                "exists": False,
-                "readable": False,
-                "safe": False,
-                "size_bytes": 0,
-            }
-        safe = True
-        if project_dir is not None:
-            try:
-                resolved.relative_to(project_dir.resolve())
-            except (OSError, RuntimeError, ValueError):
-                safe = False
-        try:
-            exists = bool(raw_path) and resolved.exists()
-            readable = safe and exists and resolved.is_file()
-            size_bytes = resolved.stat().st_size if readable else 0
-        except (OSError, RuntimeError, ValueError):
-            exists = bool(raw_path)
-            readable = False
-            size_bytes = 0
+        resolved = _resolve_artifact_path(path, project_dir)
+        if resolved is None:
+            return _unresolved_artifact(field, raw_path)
+        safe = _artifact_path_is_safe(resolved, project_dir)
+        exists, readable, size_bytes = _artifact_file_stats(resolved, raw_path, safe)
         return {
             "field": field,
             "path": raw_path,
@@ -3063,12 +3797,12 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         }
 
     def _finalization_manifest_path(self, paper_id: str, idempotency_key: str) -> Path:
-        root = Path(
-            os.environ.get(
-                "ENOCH_SUPABASE_FINALIZATION_ROOT",
-                "/tmp/enoch-supabase-finalization-packages",
-            )
-        ).expanduser()
+        configured = os.environ.get("ENOCH_SUPABASE_FINALIZATION_ROOT", "").strip()
+        root = (
+            Path(configured).expanduser()
+            if configured
+            else _default_supabase_finalization_root()
+        )
         return (
             root
             / _slug_id(paper_id)
@@ -3085,70 +3819,71 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         except OSError:
             return {}
 
-    def prepare_paper_review_finalization_package(
+    def _replay_prepare_finalization_package(
         self,
         paper_id: str,
         request: PaperReviewPrepareFinalizationRequest,
-        *,
-        require_approval: bool = True,
-    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
-        row = self._require_paper_review(paper_id)
-        payload = self._mutation_payload(request, action="prepare_finalization_package")
-        payload.update(
-            {
-                "to_status": ReviewStatus.FINALIZED.value,
-                "require_approval": require_approval,
-            }
+        payload: dict[str, Any],
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]] | None:
+        if request.dry_run:
+            return None
+        replayed_event_id = self._replayed_event_id(
+            request.idempotency_key,
+            payload,
+            event_type="paper_review.finalization_package_prepared",
+            entity_type="paper_review",
+            entity_id=paper_id,
         )
-        if not request.dry_run:
-            replayed_event_id = self._replayed_event_id(
-                request.idempotency_key,
-                payload,
-                event_type="paper_review.finalization_package_prepared",
-                entity_type="paper_review",
-                entity_id=paper_id,
-            )
-            if replayed_event_id is not None:
-                item = self.paper_review_row(paper_id) or {}
-                return (
-                    replayed_event_id,
-                    False,
-                    item,
-                    _text(item.get("finalization_package_path")),
-                    self._load_manifest(_text(item.get("finalization_package_path"))),
-                )
-        current = _text(row.get("automation_status"))
-        if not request.dry_run and current == ReviewStatus.FINALIZED.value:
-            item = self.paper_review_row(paper_id) or {}
-            path = _text(item.get("finalization_package_path"))
-            return None, False, item, path, self._load_manifest(path)
-        if (
-            not request.dry_run
-            and require_approval
-            and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value
-        ):
+        if replayed_event_id is None:
+            return None
+        item = self.paper_review_row(paper_id) or {}
+        path = _text(item.get("finalization_package_path"))
+        return replayed_event_id, False, item, path, self._load_manifest(path)
+
+    def _existing_finalized_package_result(
+        self,
+        paper_id: str,
+        *,
+        dry_run: bool,
+        current: str,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]] | None:
+        if dry_run or current != ReviewStatus.FINALIZED.value:
+            return None
+        item = self.paper_review_row(paper_id) or {}
+        path = _text(item.get("finalization_package_path"))
+        return None, False, item, path, self._load_manifest(path)
+
+    def _validate_prepare_finalization_status(
+        self,
+        *,
+        dry_run: bool,
+        require_approval: bool,
+        current: str,
+    ) -> None:
+        if dry_run:
+            return
+        if require_approval and current != ReviewStatus.APPROVED_FOR_FINALIZATION.value:
             raise ValueError(
                 "legacy approval-gated finalization requires internal approved_for_finalization state"
             )
-        if (
-            not request.dry_run
-            and not require_approval
-            and current
-            in {
-                ReviewStatus.BLOCKED.value,
-                ReviewStatus.CHANGES_REQUESTED.value,
-                ReviewStatus.IN_REVIEW.value,
-                ReviewStatus.REJECTED.value,
-                ReviewStatus.UNREVIEWED.value,
-            }
-        ):
+        blocked = {
+            ReviewStatus.BLOCKED.value,
+            ReviewStatus.CHANGES_REQUESTED.value,
+            ReviewStatus.IN_REVIEW.value,
+            ReviewStatus.REJECTED.value,
+            ReviewStatus.UNREVIEWED.value,
+        }
+        if not require_approval and current in blocked:
             raise ValueError(
                 f"automated finalization cannot publish paper reviews with review_status={current}"
             )
-        paper = self.paper_row(paper_id)
-        if paper is None:
-            raise ValueError("paper row not found")
-        checklist = self.paper_review_checklist(paper_id)
+
+    def _collect_finalization_artifacts(
+        self,
+        paper: dict[str, Any],
+        *,
+        dry_run: bool,
+    ) -> list[dict[str, Any]]:
         artifacts = [
             self._resolved_artifact(paper, field)
             for field in (
@@ -3162,15 +3897,26 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         unreadable = [
             artifact["field"] for artifact in artifacts if not artifact["readable"]
         ]
-        if unreadable and not request.dry_run:
+        if unreadable and not dry_run:
             raise ValueError(
                 f"finalization package requires readable artifacts: {', '.join(unreadable)}"
             )
-        package_path = self._finalization_manifest_path(
-            paper_id, request.idempotency_key
-        )
-        now = utc_now()
-        manifest = {
+        return artifacts
+
+    def _build_finalization_package_manifest(
+        self,
+        *,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        paper: dict[str, Any],
+        row: dict[str, Any],
+        current: str,
+        require_approval: bool,
+        artifacts: list[dict[str, Any]],
+        checklist: dict[str, Any],
+        now: str,
+    ) -> dict[str, Any]:
+        return {
             "schema": "paper_finalization_package_v1",
             "generated_at": now,
             "dry_run": request.dry_run,
@@ -3190,14 +3936,17 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "review_item": self.paper_review_row(paper_id) or {},
             "no_submission_side_effects": True,
         }
-        if request.dry_run:
-            return (
-                None,
-                False,
-                self.paper_review_row(paper_id) or {},
-                str(package_path),
-                manifest,
-            )
+
+    def _persist_prepare_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        *,
+        payload: dict[str, Any],
+        package_path: Path,
+        manifest: dict[str, Any],
+        now: str,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
         previous_manifest_exists, previous_manifest_content = _existing_file_snapshot(
             package_path,
             label="finalization package manifest",
@@ -3235,6 +3984,72 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         item = self.paper_review_row(paper_id) or {}
         return event_id, inserted, item, str(package_path), manifest
 
+    def prepare_paper_review_finalization_package(
+        self,
+        paper_id: str,
+        request: PaperReviewPrepareFinalizationRequest,
+        *,
+        require_approval: bool = True,
+    ) -> tuple[int | None, bool, dict[str, Any], str, dict[str, Any]]:
+        row = self._require_paper_review(paper_id)
+        payload = self._mutation_payload(request, action="prepare_finalization_package")
+        payload.update(
+            {
+                "to_status": ReviewStatus.FINALIZED.value,
+                "require_approval": require_approval,
+            }
+        )
+        replayed = self._replay_prepare_finalization_package(paper_id, request, payload)
+        if replayed is not None:
+            return replayed
+        current = _text(row.get("automation_status"))
+        existing = self._existing_finalized_package_result(
+            paper_id, dry_run=request.dry_run, current=current
+        )
+        if existing is not None:
+            return existing
+        self._validate_prepare_finalization_status(
+            dry_run=request.dry_run,
+            require_approval=require_approval,
+            current=current,
+        )
+        paper = self.paper_row(paper_id)
+        if paper is None:
+            raise ValueError("paper row not found")
+        checklist = self.paper_review_checklist(paper_id)
+        artifacts = self._collect_finalization_artifacts(paper, dry_run=request.dry_run)
+        package_path = self._finalization_manifest_path(
+            paper_id, request.idempotency_key
+        )
+        now = utc_now()
+        manifest = self._build_finalization_package_manifest(
+            paper_id=paper_id,
+            request=request,
+            paper=paper,
+            row=row,
+            current=current,
+            require_approval=require_approval,
+            artifacts=artifacts,
+            checklist=checklist,
+            now=now,
+        )
+        if request.dry_run:
+            return (
+                None,
+                False,
+                self.paper_review_row(paper_id) or {},
+                str(package_path),
+                manifest,
+            )
+        return self._persist_prepare_finalization_package(
+            paper_id,
+            request,
+            payload=payload,
+            package_path=package_path,
+            manifest=manifest,
+            now=now,
+        )
+
     def ingest_notion_ideas(
         self, request: NotionIntakeRequest
     ) -> tuple[bool, int, int, int, list[dict[str, Any]], list[dict[str, Any]]]:
@@ -3244,70 +4059,19 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         candidates: list[dict[str, Any]] = []
         skipped_rows: list[dict[str, Any]] = []
         for raw in request.notion_rows:
-            title = _notion_title(raw)
-            status = _notion_status(raw).lower()
-            page_id = _notion_page_id(raw)
-            page_url = _notion_url(raw)
-            if not title:
-                skipped_rows.append({"reason": "missing title", "row": raw})
-                continue
-            if include_statuses and not status:
-                skipped_rows.append(
-                    {
-                        "reason": "missing status",
-                        "title": title,
-                        "status": status,
-                        "page_id": page_id,
-                    }
-                )
-                continue
-            if include_statuses and status not in include_statuses:
-                skipped_rows.append(
-                    {
-                        "reason": f"status {status!r} not included",
-                        "title": title,
-                        "status": status,
-                        "page_id": page_id,
-                    }
-                )
-                continue
-            project_id = (
-                _slug_id(page_id.replace("-", ""))
-                if page_id
-                else f"notion-{_slug_id(title)}"
-            )
-            if not project_id:
-                skipped_rows.append(
-                    {"reason": "missing project id", "title": title, "page_id": page_id}
-                )
-                continue
-            rank = _priority_rank(raw)
-            routing = route_machine_target(
+            candidate, skip = _notion_intake_row_result(
                 raw,
+                include_statuses=include_statuses,
                 default_machine_target=request.default_machine_target,
                 workload_machine_targets=request.workload_machine_targets,
+                default_model=request.default_model,
+                default_sandbox=request.default_sandbox,
+                source=request.source or "notion",
             )
-            candidates.append(
-                {
-                    "project_id": project_id,
-                    "project_name": title,
-                    "project_dir": project_id,
-                    "notion_page_url": page_url,
-                    "notion_page_id": page_id,
-                    "origin_idea_status": status,
-                    "status": QueueStatus.QUEUED.value,
-                    "selection_rank": rank,
-                    "dispatch_priority": rank,
-                    "next_action_hint": "controller_review",
-                    "machine_target": routing["machine_target"],
-                    "workload_class": routing["workload_class"],
-                    "routing_reason": routing["routing_reason"],
-                    "model": request.default_model,
-                    "sandbox": request.default_sandbox,
-                    "source_kind": request.source or "notion",
-                    "source_row": raw,
-                }
-            )
+            if skip is not None:
+                skipped_rows.append(skip)
+                continue
+            candidates.append(candidate)
         if request.dry_run:
             return False, 0, 0, len(skipped_rows), candidates, skipped_rows
         event_payload = request.model_dump(mode="json")
@@ -3335,114 +4099,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         skipped_rows,
                     )
                 for candidate in candidates:
-                    raw = candidate["source_row"]
-                    existed = (
-                        cur.execute(
-                            "select 1 from queue_items where project_id = %s",
-                            (candidate["project_id"],),
-                        ).fetchone()
-                        is not None
-                    )
-                    cur.execute(
-                        """
-                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (project_id) do update set
-                          project_name=excluded.project_name,
-                          project_dir=projects.project_dir,
-                          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
-                          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
-                          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
-                          updated_at=excluded.updated_at
-                        """,
-                        (
-                            candidate["project_id"],
-                            candidate["project_name"],
-                            candidate["project_dir"],
-                            candidate["notion_page_url"],
-                            candidate["notion_page_id"],
-                            candidate["origin_idea_status"],
-                            now,
-                            now,
-                        ),
-                    )
-                    if existed:
-                        if request.override_existing_dispatch_metadata:
-                            cur.execute(
-                                """
-                                update queue_items
-                                set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
-                                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
-                                """,
-                                (
-                                    candidate["selection_rank"],
-                                    candidate["dispatch_priority"],
-                                    candidate["machine_target"],
-                                    candidate["model"],
-                                    candidate["sandbox"],
-                                    now,
-                                    candidate["project_id"],
-                                ),
-                            )
-                        else:
-                            cur.execute(
-                                """
-                                update queue_items
-                                set selection_rank=%s, dispatch_priority=%s, updated_at=%s
-                                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
-                                """,
-                                (
-                                    candidate["selection_rank"],
-                                    candidate["dispatch_priority"],
-                                    now,
-                                    candidate["project_id"],
-                                ),
-                            )
-                        updated += 1
-                    else:
-                        cur.execute(
-                            """
-                            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            """,
-                            (
-                                candidate["project_id"],
-                                QueueStatus.QUEUED.value,
-                                candidate["selection_rank"],
-                                candidate["dispatch_priority"],
-                                True,
-                                0,
-                                0,
-                                0,
-                                2,
-                                "",
-                                "",
-                                "",
-                                "",
-                                candidate["next_action_hint"],
-                                False,
-                                "",
-                                "",
-                                "",
-                                candidate["machine_target"],
-                                candidate["model"],
-                                candidate["sandbox"],
-                                None,
-                                None,
-                                None,
-                                now,
-                            ),
-                        )
-                        created += 1
-                    _record_internal_project_source_lineage(
+                    outcome = _persist_notion_intake_candidate(
                         cur,
-                        project_id=candidate["project_id"],
-                        title=candidate["project_name"],
-                        source_kind=candidate["source_kind"],
-                        payload={
-                            "source_payload_json": raw if isinstance(raw, dict) else {}
-                        },
+                        candidate,
+                        now=now,
+                        override_existing_dispatch_metadata=request.override_existing_dispatch_metadata,
                     )
+                    if outcome == "created":
+                        created += 1
+                    else:
+                        updated += 1
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
     def ingest_ideas(
@@ -3451,67 +4117,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         include_statuses = {
             item.strip().lower() for item in request.include_statuses if item.strip()
         }
-        candidates: list[dict[str, Any]] = []
-        skipped_rows: list[dict[str, Any]] = []
-        for raw in request.ideas:
-            title = _idea_title(raw)
-            origin_status = _idea_status(raw).lower()
-            status = origin_status or "exploring"
-            if not title:
-                skipped_rows.append({"reason": "missing title", "row": raw})
-                continue
-            if include_statuses and status and status not in include_statuses:
-                skipped_rows.append(
-                    {
-                        "reason": f"status {status!r} not included",
-                        "title": title,
-                        "status": status,
-                        "idea_id": _text(
-                            _first_present(raw, "idea_id", "project_id", "id")
-                        ),
-                    }
-                )
-                continue
-            project_id = _idea_id(raw, title)
-            if not project_id:
-                skipped_rows.append({"reason": "missing idea id", "title": title})
-                continue
-            rank = _int(
-                _first_present(raw, "selection_rank", "dispatch_priority"),
-                _priority_rank(raw),
-            )
-            dispatch_priority = _int(
-                _first_present(raw, "dispatch_priority", "selection_rank"), rank
-            )
-            routing = route_machine_target(
-                raw,
-                default_machine_target=request.default_machine_target,
-                workload_machine_targets=request.workload_machine_targets,
-            )
-            candidates.append(
-                {
-                    "project_id": project_id,
-                    "idea_id": project_id,
-                    "project_name": title,
-                    "project_dir": project_id,
-                    "origin_idea_status": origin_status,
-                    "status": QueueStatus.QUEUED.value,
-                    "selection_rank": rank,
-                    "dispatch_priority": dispatch_priority,
-                    "next_action_hint": "controller_review",
-                    "machine_target": routing["machine_target"],
-                    "workload_class": routing["workload_class"],
-                    "routing_reason": routing["routing_reason"],
-                    "model": _text(_first_present(raw, "model", "default_model"))
-                    or request.default_model,
-                    "sandbox": _text(_first_present(raw, "sandbox", "default_sandbox"))
-                    or request.default_sandbox,
-                    "source_kind": _text(raw.get("source_kind"))
-                    or request.source
-                    or "supabase_native",
-                    "source_row": raw,
-                }
-            )
+        candidates, skipped_rows = _collect_idea_intake_candidates(
+            request, include_statuses
+        )
         if request.dry_run:
             return False, 0, 0, len(skipped_rows), candidates, skipped_rows
         event_payload = request.model_dump(mode="json")
@@ -3539,312 +4147,28 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         skipped_rows,
                     )
                 for candidate in candidates:
-                    existed = (
-                        cur.execute(
-                            "select 1 from queue_items where project_id = %s",
-                            (candidate["project_id"],),
-                        ).fetchone()
-                        is not None
-                    )
-                    raw = candidate["source_row"]
-                    cur.execute(
-                        """
-                        insert into ideas(
-                          idea_id, title, idea_status, category, priority, source_kind, source_external_id, source_external_url,
-                          description, implementation, baseline_to_beat, kill_condition, accessibility_delta, experiment_results,
-                          expected_token_budget, confidence, feasibility, leverage, novelty_score, signal_speed, teacher_dependence,
-                          machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json, created_at, updated_at
-                        ) values (
-                          %s,%s,%s,%s,%s,%s,%s,%s,
-                          %s,%s,%s,%s,%s,%s,
-                          %s,%s,%s,%s,%s,%s,%s,
-                          %s,%s,%s,%s,%s,%s::jsonb,%s,%s
-                        )
-                        on conflict (idea_id) do update set
-                          title=excluded.title, idea_status=excluded.idea_status, category=excluded.category, priority=excluded.priority,
-                          source_kind=excluded.source_kind, source_external_id=excluded.source_external_id,
-                          source_external_url=excluded.source_external_url, description=excluded.description,
-                          implementation=excluded.implementation, baseline_to_beat=excluded.baseline_to_beat,
-                          kill_condition=excluded.kill_condition, accessibility_delta=excluded.accessibility_delta,
-                          experiment_results=excluded.experiment_results, expected_token_budget=excluded.expected_token_budget,
-                          confidence=excluded.confidence, feasibility=excluded.feasibility, leverage=excluded.leverage,
-                          novelty_score=excluded.novelty_score, signal_speed=excluded.signal_speed,
-                          teacher_dependence=excluded.teacher_dependence, machine_target=excluded.machine_target,
-                          model=excluded.model, sandbox=excluded.sandbox, selection_rank=excluded.selection_rank,
-                          dispatch_priority=excluded.dispatch_priority, source_payload_json=excluded.source_payload_json,
-                          updated_at=excluded.updated_at
-                        """,
-                        (
-                            candidate["project_id"],
-                            candidate["project_name"],
-                            candidate["origin_idea_status"],
-                            _text(_first_present(raw, "category", "property_category")),
-                            _text(_first_present(raw, "priority", "property_priority")),
-                            candidate["source_kind"],
-                            _text(
-                                _first_present(raw, "source_external_id", "external_id")
-                            ),
-                            _text(
-                                _first_present(
-                                    raw, "source_external_url", "external_url", "url"
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw, "description", "property_description"
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw, "implementation", "property_implementation"
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw, "baseline_to_beat", "property_baseline_to_beat"
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw, "kill_condition", "property_kill_condition"
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw,
-                                    "accessibility_delta",
-                                    "property_accessibility_delta",
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw,
-                                    "experiment_results",
-                                    "property_experiment_results",
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw,
-                                    "expected_token_budget",
-                                    "property_expected_token_budget",
-                                )
-                            ),
-                            _text(
-                                _first_present(raw, "confidence", "property_confidence")
-                            ),
-                            _text(
-                                _first_present(
-                                    raw, "feasibility", "property_feasibility"
-                                )
-                            ),
-                            _text(_first_present(raw, "leverage", "property_leverage")),
-                            _text(
-                                _first_present(
-                                    raw, "novelty_score", "property_novelty_score"
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw, "signal_speed", "property_signal_speed"
-                                )
-                            ),
-                            _text(
-                                _first_present(
-                                    raw,
-                                    "teacher_dependence",
-                                    "property_teacher_dependence",
-                                )
-                            ),
-                            candidate["machine_target"],
-                            candidate["model"],
-                            candidate["sandbox"],
-                            candidate["selection_rank"],
-                            candidate["dispatch_priority"],
-                            _json(raw),
-                            now,
-                            now,
-                        ),
-                    )
-                    cur.execute(
-                        """
-                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                        values (%s,%s,%s,'','',%s,%s,%s)
-                        on conflict (project_id) do update set
-                          project_name=excluded.project_name, project_dir=excluded.project_dir,
-                          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
-                          updated_at=excluded.updated_at
-                        """,
-                        (
-                            candidate["project_id"],
-                            candidate["project_name"],
-                            candidate["project_dir"],
-                            candidate["origin_idea_status"],
-                            now,
-                            now,
-                        ),
-                    )
-                    if existed:
-                        if request.override_existing_dispatch_metadata:
-                            cur.execute(
-                                """
-                                update queue_items
-                                set selection_rank=%s, dispatch_priority=%s, machine_target=%s, model=%s, sandbox=%s, updated_at=%s
-                                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
-                                """,
-                                (
-                                    candidate["selection_rank"],
-                                    candidate["dispatch_priority"],
-                                    candidate["machine_target"],
-                                    candidate["model"],
-                                    candidate["sandbox"],
-                                    now,
-                                    candidate["project_id"],
-                                ),
-                            )
-                        else:
-                            cur.execute(
-                                """
-                                update queue_items
-                                set selection_rank=%s, dispatch_priority=%s, updated_at=%s
-                                where project_id=%s and status not in ('dispatching','running','awaiting_wake','wake_received','reconciling')
-                                """,
-                                (
-                                    candidate["selection_rank"],
-                                    candidate["dispatch_priority"],
-                                    now,
-                                    candidate["project_id"],
-                                ),
-                            )
-                        updated += 1
-                    else:
-                        cur.execute(
-                            """
-                            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                            values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                            """,
-                            (
-                                candidate["project_id"],
-                                QueueStatus.QUEUED.value,
-                                candidate["selection_rank"],
-                                candidate["dispatch_priority"],
-                                True,
-                                0,
-                                0,
-                                0,
-                                2,
-                                "",
-                                "",
-                                "",
-                                "",
-                                candidate["next_action_hint"],
-                                False,
-                                "",
-                                "",
-                                "",
-                                candidate["machine_target"],
-                                candidate["model"],
-                                candidate["sandbox"],
-                                None,
-                                None,
-                                None,
-                                now,
-                            ),
-                        )
-                        created += 1
-                    _record_internal_project_source_lineage(
+                    outcome = _persist_idea_intake_candidate(
                         cur,
-                        project_id=candidate["project_id"],
-                        title=candidate["project_name"],
-                        source_kind=candidate["source_kind"],
-                        payload={
-                            "source_payload_json": raw if isinstance(raw, dict) else {}
-                        },
+                        candidate,
+                        now=now,
+                        override_existing_dispatch_metadata=request.override_existing_dispatch_metadata,
                     )
+                    if outcome == "created":
+                        created += 1
+                    else:
+                        updated += 1
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
     def notion_execution_update_projection(self) -> list[dict[str, Any]]:
-        state_map = {
-            QueueStatus.QUEUED.value: "queued",
-            QueueStatus.DISPATCHING.value: "running",
-            QueueStatus.RUNNING.value: "running",
-            QueueStatus.AWAITING_WAKE.value: "waiting",
-            QueueStatus.WAKE_RECEIVED.value: "waiting",
-            QueueStatus.RECONCILING.value: "waiting",
-            QueueStatus.COMPLETED.value: "completed",
-            QueueStatus.PAUSED.value: "blocked",
-            QueueStatus.CANCELED.value: "completed",
-            QueueStatus.DISPATCH_ERROR.value: "failed",
-            QueueStatus.BLOCKED.value: "blocked",
-            QueueStatus.NEEDS_REVIEW.value: "blocked",
-        }
         paper_by_project = {
             paper.get("project_id"): paper for paper in self.paper_rows()
         }
-        rows = []
+        rows: list[dict[str, Any]] = []
         for row in self.queue_rows():
-            paper = paper_by_project.get(row.get("project_id")) or {}
-            merged = {
-                **row,
-                "paper_id": paper.get("paper_id") or "",
-                "paper_status": paper.get("paper_status") or "",
-                "paper_type": paper.get("paper_type") or "",
-                "draft_markdown_path": paper.get("draft_markdown_path") or "",
-                "paper_updated_at": paper.get("updated_at") or "",
-            }
-            page_url = merged.get("notion_page_url") or ""
-            if not page_url:
-                continue
-            execution_state = state_map.get(merged.get("status") or "", "blocked")
-            blocked_reason = (
-                merged.get("blocked_reason")
-                or (
-                    merged.get("last_result_summary")
-                    if execution_state in {"blocked", "failed"}
-                    else ""
-                )
-                or ""
-            )
-            rows.append(
-                {
-                    "project_id": merged.get("project_id") or "",
-                    "page_id": merged.get("notion_page_id")
-                    or _notion_page_id_from_url(page_url),
-                    "notion_page_url": page_url,
-                    "properties": {
-                        "Execution State": execution_state,
-                        "Current Run ID": merged.get("current_run_id") or "",
-                        "Next Action": merged.get("next_action_hint") or "",
-                        "Blocked Reason": blocked_reason,
-                        "Last Execution Update": merged.get("updated_at") or utc_now(),
-                        "Execution Summary": merged.get("last_result_summary") or "",
-                        "Enoch Project ID": merged.get("project_id") or "",
-                        "Enoch Queue Status": merged.get("status") or "",
-                        "Enoch Last Run State": merged.get("last_run_state") or "",
-                        "Enoch Last Event Type": merged.get("last_event_type") or "",
-                        "Enoch Next Action Hint": merged.get("next_action_hint") or "",
-                        "Enoch Project Dir": merged.get("project_dir") or "",
-                        "Enoch Current Session ID": merged.get("current_session_id")
-                        or "",
-                        "Enoch Last Result Summary": merged.get("last_result_summary")
-                        or "",
-                        "Enoch Last Error": merged.get("last_error") or "",
-                        "Enoch Manual Review Required": "__YES__"
-                        if merged.get("manual_review_required")
-                        else "__NO__",
-                        "Enoch Dispatch Priority": merged.get("dispatch_priority") or 0,
-                        "Enoch Selection Rank": merged.get("selection_rank") or 0,
-                        "Enoch Paper ID": merged.get("paper_id") or "",
-                        "Enoch Paper Status": merged.get("paper_status") or "",
-                        "Enoch Paper Type": merged.get("paper_type") or "",
-                        "Enoch Paper Markdown Path": merged.get("draft_markdown_path")
-                        or "",
-                        "Enoch Paper Updated At": merged.get("paper_updated_at") or "",
-                        "Enoch Paper Updated At ISO": merged.get("paper_updated_at")
-                        or "",
-                    },
-                }
-            )
+            merged = _queue_row_merged_with_paper(row, paper_by_project)
+            update = _notion_execution_update_row(merged, _NOTION_EXECUTION_STATE_MAP)
+            if update is not None:
+                rows.append(update)
         return rows
 
     def queue_notion_projection(self) -> list[dict[str, Any]]:
@@ -3928,6 +4252,132 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             for row in rows
         }
 
+    def _write_promoted_research_candidate_rows(
+        self,
+        cur: Any,
+        *,
+        candidate_id: str,
+        candidate: dict[str, Any],
+        wb: dict[str, Any],
+        fields: dict[str, Any],
+        requested_by: str,
+    ) -> dict[str, int | bool]:
+        idea_id = str(fields["idea_id"])
+        title = str(fields["title"])
+        cur.execute(
+            """
+            insert into ideas(
+              idea_id, title, idea_status, category, priority, source_kind, source_external_url,
+              description, implementation, baseline_to_beat, kill_condition, accessibility_delta,
+              expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank,
+              dispatch_priority, source_payload_json
+            ) values (
+              %s,%s,'testing',%s,%s,'research_facility',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,50,50,%s::jsonb
+            )
+            on conflict (idea_id) do update set
+              title=excluded.title,
+              category=excluded.category,
+              priority=excluded.priority,
+              source_external_url=excluded.source_external_url,
+              description=excluded.description,
+              implementation=excluded.implementation,
+              baseline_to_beat=excluded.baseline_to_beat,
+              kill_condition=excluded.kill_condition,
+              accessibility_delta=excluded.accessibility_delta,
+              expected_token_budget=excluded.expected_token_budget,
+              novelty_score=excluded.novelty_score,
+              machine_target=excluded.machine_target,
+              model=excluded.model,
+              sandbox=excluded.sandbox,
+              source_payload_json=excluded.source_payload_json,
+              updated_at=now()
+            """,
+            _promote_research_idea_row_params(fields, candidate, self._json_text),
+        )
+        cur.execute(
+            """
+            insert into projects(project_id, project_name, project_dir, origin_idea_status)
+            values (%s,%s,%s,'testing')
+            on conflict (project_id) do update set
+              project_name=excluded.project_name,
+              project_dir=excluded.project_dir,
+              origin_idea_status=coalesce(nullif(projects.origin_idea_status,''), excluded.origin_idea_status),
+              updated_at=now()
+            """,
+            (idea_id, title, idea_id),
+        )
+        cur.execute(
+            """
+            insert into queue_items(
+              project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,
+              retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,
+              next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,
+              machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at
+            ) values (
+              %s,'queued',50,50,true,0,0,0,2,'','','','','controller_review',false,'','','',
+              %s,%s,%s,null,null,null,now()
+            )
+            on conflict (project_id) do update set
+              machine_target=excluded.machine_target,
+              model=excluded.model,
+              sandbox=excluded.sandbox,
+              updated_at=now()
+            where queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling')
+            """,
+            (
+                idea_id,
+                _text(candidate.get("machine_target")),
+                _text(candidate.get("model")),
+                _text(candidate.get("sandbox")),
+            ),
+        )
+        queue_rowcount = int(cur.rowcount or 0)
+        promotion_key = f"research-promotion:{candidate_id}:{idea_id}"
+        admission_inserted = self._insert_research_admission(
+            cur,
+            candidate_id=candidate_id,
+            admission_decision="admitted",
+            admission_reason=f"promoted to queued idea/project rows by {requested_by}",
+            score_breakdown=candidate.get("score_breakdown") or {},
+            admitted_idea_id=idea_id,
+            operator=requested_by,
+            idempotency_key=promotion_key,
+        )
+        cur.execute(
+            """
+            insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+            select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
+            from (values
+              ('candidate', %s, 'idea', %s, 'admitted_as', %s),
+              ('idea', %s, 'project', %s, 'queued_as', %s)
+            ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+            where not exists (
+              select 1 from research_lineage rl
+              where rl.source_type=v.source_type and rl.source_id=v.source_id
+                and rl.target_type=v.target_type and rl.target_id=v.target_id
+                and rl.relation_type=v.relation_type
+            )
+            """,
+            (
+                candidate_id,
+                idea_id,
+                self._json_text(
+                    {
+                        "admission_reason": _text(wb.get("admission_reason")),
+                        "promoted_by": requested_by,
+                    }
+                ),
+                idea_id,
+                idea_id,
+                self._json_text({"queued_by": requested_by, "dispatch_started": False}),
+            ),
+        )
+        return {
+            "queue_rowcount": queue_rowcount,
+            "admission_inserted": admission_inserted,
+            "lineage_inserted": int(cur.rowcount or 0),
+        }
+
     def promote_research_candidate(
         self, candidate_id: str, *, requested_by: str, dry_run: bool = True
     ) -> dict[str, Any]:
@@ -3943,11 +4393,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         candidate_id = _text(candidate_id).strip()
         requested_by = (_text(requested_by) or "dashboard")[:80]
         if not candidate_id:
-            return {
-                "ok": False,
-                "action": "promote_candidate_blocked",
-                "reason": "candidate_id is required",
-            }
+            return _promote_research_candidate_blocked("", "candidate_id is required")
 
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -3961,41 +4407,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     (candidate_id,),
                 ).fetchone()
                 if not workbench:
-                    return {
-                        "ok": False,
-                        "action": "promote_candidate_blocked",
-                        "candidate_id": candidate_id,
-                        "reason": "candidate not found",
-                    }
+                    return _promote_research_candidate_blocked(
+                        candidate_id, "candidate not found"
+                    )
                 wb = dict(workbench)
-                current_status = _text(wb.get("status"))
-                admission_decision = _text(wb.get("admission_decision"))
-                admitted_idea_id = _text(wb.get("admitted_idea_id"))
-                if admitted_idea_id:
-                    return {
-                        "ok": True,
-                        "action": "dry_run_promote_candidate"
-                        if dry_run
-                        else "promote_candidate",
-                        "dry_run": dry_run,
-                        "candidate_id": candidate_id,
-                        "idea_id": admitted_idea_id,
-                        "title": _text(wb.get("title")),
-                        "already_promoted": True,
-                        "queued_count": 0,
-                        "reason": "candidate is already linked to an admitted idea",
-                    }
-                if current_status != "admitted" or admission_decision != "admitted":
-                    return {
-                        "ok": False,
-                        "action": "promote_candidate_blocked",
-                        "dry_run": dry_run,
-                        "candidate_id": candidate_id,
-                        "title": _text(wb.get("title")),
-                        "status": current_status,
-                        "admission_decision": admission_decision,
-                        "reason": "candidate is not admitted",
-                    }
+                gate_response = _promote_research_workbench_gate(
+                    wb, candidate_id=candidate_id, dry_run=dry_run
+                )
+                if gate_response is not None:
+                    return gate_response
 
                 row = cur.execute(
                     """
@@ -4009,180 +4429,232 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     (candidate_id,),
                 ).fetchone()
                 if not row:
-                    return {
-                        "ok": False,
-                        "action": "promote_candidate_blocked",
-                        "candidate_id": candidate_id,
-                        "reason": "candidate row not found",
-                    }
+                    return _promote_research_candidate_blocked(
+                        candidate_id, "candidate row not found"
+                    )
                 candidate = dict(row)
-                idea_id = candidate_id
-                title = _text(candidate.get("title")) or idea_id
-                source_urls = (
-                    candidate.get("source_urls")
-                    if isinstance(candidate.get("source_urls"), list)
-                    else []
+                fields = _promote_research_candidate_context(
+                    candidate, candidate_id, requested_by
                 )
-                source_external_url = _text(source_urls[0]) if source_urls else ""
-                raw_candidate = (
-                    candidate.get("raw_candidate_json")
-                    if isinstance(candidate.get("raw_candidate_json"), dict)
-                    else {}
+                response = _promote_research_candidate_ok_response(
+                    dry_run=dry_run,
+                    candidate_id=candidate_id,
+                    idea_id=str(fields["idea_id"]),
+                    title=str(fields["title"]),
+                    queued_count=0 if dry_run else 1,
+                    dispatch_started=False,
+                    reason="candidate is admitted and promotable",
                 )
-                source_payload_json = {
-                    **raw_candidate,
-                    "research_candidate_id": candidate_id,
-                    "promoted_by": requested_by,
-                    "promotion_path": "research_facility_promote_candidate",
-                }
-                response = {
-                    "ok": True,
-                    "action": "dry_run_promote_candidate"
-                    if dry_run
-                    else "promote_candidate",
-                    "dry_run": dry_run,
-                    "candidate_id": candidate_id,
-                    "idea_id": idea_id,
-                    "title": title,
-                    "queued_count": 0 if dry_run else 1,
-                    "dispatch_started": False,
-                    "reason": "candidate is admitted and promotable",
-                }
                 if dry_run:
                     return response
 
-                cur.execute(
-                    """
-                    insert into ideas(
-                      idea_id, title, idea_status, category, priority, source_kind, source_external_url,
-                      description, implementation, baseline_to_beat, kill_condition, accessibility_delta,
-                      expected_token_budget, novelty_score, machine_target, model, sandbox, selection_rank,
-                      dispatch_priority, source_payload_json
-                    ) values (
-                      %s,%s,'testing',%s,%s,'research_facility',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,50,50,%s::jsonb
-                    )
-                    on conflict (idea_id) do update set
-                      title=excluded.title,
-                      category=excluded.category,
-                      priority=excluded.priority,
-                      source_external_url=excluded.source_external_url,
-                      description=excluded.description,
-                      implementation=excluded.implementation,
-                      baseline_to_beat=excluded.baseline_to_beat,
-                      kill_condition=excluded.kill_condition,
-                      accessibility_delta=excluded.accessibility_delta,
-                      expected_token_budget=excluded.expected_token_budget,
-                      novelty_score=excluded.novelty_score,
-                      machine_target=excluded.machine_target,
-                      model=excluded.model,
-                      sandbox=excluded.sandbox,
-                      source_payload_json=excluded.source_payload_json,
-                      updated_at=now()
-                    """,
-                    (
-                        idea_id,
-                        title,
-                        _text(candidate.get("category")),
-                        _text(candidate.get("priority")),
-                        source_external_url,
-                        _text(candidate.get("description"))
-                        or _text(candidate.get("hypothesis")),
-                        _text(candidate.get("implementation")),
-                        _text(candidate.get("baseline_to_beat")),
-                        _text(candidate.get("kill_condition")),
-                        _text(candidate.get("accessibility_delta")),
-                        _text(candidate.get("expected_token_budget")),
-                        _text(candidate.get("novelty_score")),
-                        _text(candidate.get("machine_target")),
-                        _text(candidate.get("model")),
-                        _text(candidate.get("sandbox")),
-                        self._json_text(source_payload_json),
-                    ),
-                )
-                cur.execute(
-                    """
-                    insert into projects(project_id, project_name, project_dir, origin_idea_status)
-                    values (%s,%s,%s,'testing')
-                    on conflict (project_id) do update set
-                      project_name=excluded.project_name,
-                      project_dir=excluded.project_dir,
-                      origin_idea_status=coalesce(nullif(projects.origin_idea_status,''), excluded.origin_idea_status),
-                      updated_at=now()
-                    """,
-                    (idea_id, title, idea_id),
-                )
-                cur.execute(
-                    """
-                    insert into queue_items(
-                      project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,
-                      retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,
-                      next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,
-                      machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at
-                    ) values (
-                      %s,'queued',50,50,true,0,0,0,2,'','','','','controller_review',false,'','','',
-                      %s,%s,%s,null,null,null,now()
-                    )
-                    on conflict (project_id) do update set
-                      machine_target=excluded.machine_target,
-                      model=excluded.model,
-                      sandbox=excluded.sandbox,
-                      updated_at=now()
-                    where queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling')
-                    """,
-                    (
-                        idea_id,
-                        _text(candidate.get("machine_target")),
-                        _text(candidate.get("model")),
-                        _text(candidate.get("sandbox")),
-                    ),
-                )
-                queue_rowcount = int(cur.rowcount or 0)
-                promotion_key = f"research-promotion:{candidate_id}:{idea_id}"
-                admission_inserted = self._insert_research_admission(
+                write_result = self._write_promoted_research_candidate_rows(
                     cur,
                     candidate_id=candidate_id,
-                    admission_decision="admitted",
-                    admission_reason=f"promoted to queued idea/project rows by {requested_by}",
-                    score_breakdown=candidate.get("score_breakdown") or {},
-                    admitted_idea_id=idea_id,
-                    operator=requested_by,
-                    idempotency_key=promotion_key,
+                    candidate=candidate,
+                    wb=wb,
+                    fields=fields,
+                    requested_by=requested_by,
                 )
-                cur.execute(
-                    """
-                    insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                    select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
-                    from (values
-                      ('candidate', %s, 'idea', %s, 'admitted_as', %s),
-                      ('idea', %s, 'project', %s, 'queued_as', %s)
-                    ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                    where not exists (
-                      select 1 from research_lineage rl
-                      where rl.source_type=v.source_type and rl.source_id=v.source_id
-                        and rl.target_type=v.target_type and rl.target_id=v.target_id
-                        and rl.relation_type=v.relation_type
-                    )
-                    """,
-                    (
-                        candidate_id,
-                        idea_id,
-                        self._json_text(
-                            {
-                                "admission_reason": _text(wb.get("admission_reason")),
-                                "promoted_by": requested_by,
-                            }
-                        ),
-                        idea_id,
-                        idea_id,
-                        self._json_text(
-                            {"queued_by": requested_by, "dispatch_started": False}
-                        ),
-                    ),
-                )
-                response["queue_upserted"] = queue_rowcount
-                response["admission_inserted"] = admission_inserted
-                response["lineage_inserted"] = int(cur.rowcount or 0)
+                response["queue_upserted"] = write_result["queue_rowcount"]
+                response["admission_inserted"] = write_result["admission_inserted"]
+                response["lineage_inserted"] = write_result["lineage_inserted"]
                 return response
+
+    def _upsert_research_source_record(
+        self, cur: Any, source: dict[str, Any], candidate: dict[str, Any]
+    ) -> bool:
+        source_id = _text(source.get("source_id"))
+        if not source_id:
+            return False
+        cur.execute(
+            """
+            insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
+            values (%s,%s,%s,%s,%s,nullif(%s,'')::timestamptz,%s,%s::jsonb,%s)
+            on conflict (source_id) do update set
+              source_kind=excluded.source_kind,
+              title=excluded.title,
+              url=excluded.url,
+              external_id=excluded.external_id,
+              summary=excluded.summary,
+              payload_json=excluded.payload_json,
+              content_hash=excluded.content_hash,
+              updated_at=now()
+            """,
+            (
+                source_id,
+                _text(
+                    source.get("source_kind") or candidate.get("source_kind") or "other"
+                ),
+                _text(source.get("title") or candidate.get("title")),
+                _text(source.get("url")),
+                _text(source.get("external_id")),
+                _text(source.get("retrieved_at")),
+                _text(source.get("summary")),
+                self._json_text(source.get("payload_json") or {}),
+                _text(source.get("content_hash"))
+                or hashlib.sha256(self._json_text(source).encode("utf-8")).hexdigest(),
+            ),
+        )
+        return True
+
+    def _research_candidate_upsert_params(
+        self,
+        candidate: dict[str, Any],
+        candidate_id: str,
+        plan_json: dict[str, Any],
+        source_ids: list[str],
+        source_urls: list[str],
+    ) -> tuple[Any, ...]:
+        text = _research_candidate_text_value
+        score = _research_candidate_float_value
+        json_value = _research_candidate_json_value
+        return (
+            candidate_id,
+            text(candidate, "generation_mode", "manual_import"),
+            text(candidate, "status", "generated"),
+            text(candidate, "title", candidate_id),
+            text(candidate, "category"),
+            text(candidate, "priority"),
+            text(candidate, "source_kind"),
+            self._json_text(source_ids),
+            self._json_text(source_urls),
+            text(candidate, "parent_project_id"),
+            text(candidate, "parent_run_id"),
+            text(candidate, "hypothesis"),
+            text(candidate, "mechanism"),
+            text(candidate, "description"),
+            text(candidate, "implementation"),
+            text(candidate, "baseline_to_beat"),
+            text(candidate, "success_threshold"),
+            text(candidate, "kill_condition"),
+            text(candidate, "accessibility_delta"),
+            self._json_text(json_value(candidate, "expected_artifacts", [])),
+            self._json_text(json_value(candidate, "required_evidence", [])),
+            self._json_text(json_value(candidate, "likely_failure_modes", [])),
+            text(candidate, "estimated_runtime_class"),
+            text(candidate, "expected_token_budget"),
+            text(candidate, "machine_target"),
+            text(candidate, "model"),
+            text(candidate, "sandbox"),
+            score(candidate, "novelty_score"),
+            score(candidate, "feasibility_score"),
+            score(candidate, "accessibility_score"),
+            score(candidate, "falsifiability_score"),
+            score(candidate, "total_score"),
+            self._json_text(json_value(candidate, "score_breakdown", {})),
+            text(candidate, "dedupe_key", candidate_id),
+            self._json_text(json_value(candidate, "similar_prior_projects", [])),
+            text(candidate, "novelty_comparison"),
+            text(candidate, "risk_notes"),
+            _research_candidate_rejection_reason(plan_json),
+            text(candidate, "provider"),
+            text(candidate, "provider_model"),
+            text(candidate, "prompt_version"),
+            text(candidate, "generated_by"),
+            self._json_text(json_value(candidate, "raw_candidate_json", candidate)),
+        )
+
+    def _upsert_research_candidate_row(
+        self,
+        cur: Any,
+        candidate: dict[str, Any],
+        candidate_id: str,
+        plan_json: dict[str, Any],
+        source_ids: list[str],
+        source_urls: list[str],
+    ) -> None:
+        cur.execute(
+            """
+            insert into research_candidates(
+              candidate_id,generation_mode,status,title,category,priority,source_kind,source_ids,source_urls,
+              parent_project_id,parent_run_id,hypothesis,mechanism,description,implementation,baseline_to_beat,
+              success_threshold,kill_condition,accessibility_delta,expected_artifacts,required_evidence,likely_failure_modes,
+              estimated_runtime_class,expected_token_budget,machine_target,model,sandbox,novelty_score,feasibility_score,
+              accessibility_score,falsifiability_score,total_score,score_breakdown,dedupe_key,similar_prior_projects,
+              novelty_comparison,risk_notes,rejection_reason,provider,provider_model,prompt_version,generated_by,raw_candidate_json
+            ) values (
+              %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,
+              %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s::jsonb
+            )
+            on conflict (candidate_id) do update set
+              status=excluded.status,
+              total_score=excluded.total_score,
+              score_breakdown=excluded.score_breakdown,
+              raw_candidate_json=excluded.raw_candidate_json,
+              updated_at=now()
+            """,
+            self._research_candidate_upsert_params(
+                candidate, candidate_id, plan_json, source_ids, source_urls
+            ),
+        )
+
+    def _insert_source_candidate_lineage(
+        self, cur: Any, source_ids: list[str], candidate_id: str
+    ) -> int:
+        inserted = 0
+        for source_id in source_ids:
+            cur.execute(
+                """
+                insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+                select 'source', %s, 'candidate', %s, 'generated_from', %s::jsonb
+                where not exists (
+                  select 1 from research_lineage
+                  where source_type='source' and source_id=%s and target_type='candidate' and target_id=%s and relation_type='generated_from'
+                )
+                """,
+                (
+                    str(source_id),
+                    candidate_id,
+                    self._json_text({"source_ids": source_ids}),
+                    str(source_id),
+                    candidate_id,
+                ),
+            )
+            inserted += int(cur.rowcount or 0)
+        return inserted
+
+    def _persist_research_facility_plan(
+        self,
+        cur: Any,
+        plan: Any,
+        *,
+        requested_by: str,
+        counters: dict[str, int],
+    ) -> None:
+        plan_json = _plan_to_json(plan)
+        candidate = dict(plan_json.get("candidate") or {})
+        candidate_id = str(candidate.get("candidate_id") or "").strip()
+        if not candidate_id:
+            return
+        source_records = _candidate_source_records(candidate)
+        source_ids = _unique_candidate_source_ids(candidate, source_records)
+        source_urls = _candidate_source_url_list(candidate)
+        for source in source_records:
+            if self._upsert_research_source_record(cur, source, candidate):
+                counters["sources_upserted"] += 1
+        self._upsert_research_candidate_row(
+            cur, candidate, candidate_id, plan_json, source_ids, source_urls
+        )
+        counters["candidates_upserted"] += 1
+        counters["lineage_inserted"] += self._insert_source_candidate_lineage(
+            cur, source_ids, candidate_id
+        )
+        idempotency_key = (
+            f"research-admission:{candidate_id}:{plan_json.get('admission_decision')}"
+        )
+        counters["admissions_inserted"] += self._insert_research_admission(
+            cur,
+            candidate_id=candidate_id,
+            admission_decision=str(
+                plan_json.get("admission_decision") or "needs_review"
+            ),
+            admission_reason=str(plan_json.get("admission_reason") or ""),
+            score_breakdown=plan_json.get("score_breakdown") or {},
+            admitted_idea_id=None,
+            operator=requested_by,
+            idempotency_key=idempotency_key,
+        )
 
     def record_research_facility_plans(
         self, plans: Sequence[Any], *, requested_by: str, queue_admitted: bool = False
@@ -4208,173 +4680,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         with self._connect() as conn:
             with conn.cursor() as cur:
                 for plan in plans:
-                    plan_json = (
-                        plan.to_json() if hasattr(plan, "to_json") else dict(plan)
-                    )
-                    candidate = dict(plan_json.get("candidate") or {})
-                    candidate_id = str(candidate.get("candidate_id") or "").strip()
-                    if not candidate_id:
-                        continue
-                    source_records = _candidate_source_records(candidate)
-                    source_ids = []
-                    for source_id in [
-                        *list(candidate.get("source_ids") or []),
-                        *[_text(source.get("source_id")) for source in source_records],
-                    ]:
-                        source_id_text = _text(source_id)
-                        if source_id_text and source_id_text not in source_ids:
-                            source_ids.append(source_id_text)
-                    source_urls = [
-                        _text(url)
-                        for url in (candidate.get("source_urls") or [])
-                        if _text(url)
-                    ]
-                    for source in source_records:
-                        source_id = _text(source.get("source_id"))
-                        if not source_id:
-                            continue
-                        cur.execute(
-                            """
-                            insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
-                            values (%s,%s,%s,%s,%s,nullif(%s,'')::timestamptz,%s,%s::jsonb,%s)
-                            on conflict (source_id) do update set
-                              source_kind=excluded.source_kind,
-                              title=excluded.title,
-                              url=excluded.url,
-                              external_id=excluded.external_id,
-                              summary=excluded.summary,
-                              payload_json=excluded.payload_json,
-                              content_hash=excluded.content_hash,
-                              updated_at=now()
-                            """,
-                            (
-                                source_id,
-                                _text(
-                                    source.get("source_kind")
-                                    or candidate.get("source_kind")
-                                    or "other"
-                                ),
-                                _text(source.get("title") or candidate.get("title")),
-                                _text(source.get("url")),
-                                _text(source.get("external_id")),
-                                _text(source.get("retrieved_at")),
-                                _text(source.get("summary")),
-                                self._json_text(source.get("payload_json") or {}),
-                                _text(source.get("content_hash"))
-                                or hashlib.sha256(
-                                    self._json_text(source).encode("utf-8")
-                                ).hexdigest(),
-                            ),
-                        )
-                        counters["sources_upserted"] += 1
-                    cur.execute(
-                        """
-                        insert into research_candidates(
-                          candidate_id,generation_mode,status,title,category,priority,source_kind,source_ids,source_urls,
-                          parent_project_id,parent_run_id,hypothesis,mechanism,description,implementation,baseline_to_beat,
-                          success_threshold,kill_condition,accessibility_delta,expected_artifacts,required_evidence,likely_failure_modes,
-                          estimated_runtime_class,expected_token_budget,machine_target,model,sandbox,novelty_score,feasibility_score,
-                          accessibility_score,falsifiability_score,total_score,score_breakdown,dedupe_key,similar_prior_projects,
-                          novelty_comparison,risk_notes,rejection_reason,provider,provider_model,prompt_version,generated_by,raw_candidate_json
-                        ) values (
-                          %s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,
-                          %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s,%s::jsonb
-                        )
-                        on conflict (candidate_id) do update set
-                          status=excluded.status,
-                          total_score=excluded.total_score,
-                          score_breakdown=excluded.score_breakdown,
-                          raw_candidate_json=excluded.raw_candidate_json,
-                          updated_at=now()
-                        """,
-                        (
-                            candidate_id,
-                            str(candidate.get("generation_mode") or "manual_import"),
-                            str(candidate.get("status") or "generated"),
-                            str(candidate.get("title") or candidate_id),
-                            str(candidate.get("category") or ""),
-                            str(candidate.get("priority") or ""),
-                            str(candidate.get("source_kind") or ""),
-                            self._json_text(source_ids),
-                            self._json_text(source_urls),
-                            str(candidate.get("parent_project_id") or ""),
-                            str(candidate.get("parent_run_id") or ""),
-                            str(candidate.get("hypothesis") or ""),
-                            str(candidate.get("mechanism") or ""),
-                            str(candidate.get("description") or ""),
-                            str(candidate.get("implementation") or ""),
-                            str(candidate.get("baseline_to_beat") or ""),
-                            str(candidate.get("success_threshold") or ""),
-                            str(candidate.get("kill_condition") or ""),
-                            str(candidate.get("accessibility_delta") or ""),
-                            self._json_text(candidate.get("expected_artifacts") or []),
-                            self._json_text(candidate.get("required_evidence") or []),
-                            self._json_text(
-                                candidate.get("likely_failure_modes") or []
-                            ),
-                            str(candidate.get("estimated_runtime_class") or ""),
-                            str(candidate.get("expected_token_budget") or ""),
-                            str(candidate.get("machine_target") or ""),
-                            str(candidate.get("model") or ""),
-                            str(candidate.get("sandbox") or ""),
-                            float(candidate.get("novelty_score") or 0),
-                            float(candidate.get("feasibility_score") or 0),
-                            float(candidate.get("accessibility_score") or 0),
-                            float(candidate.get("falsifiability_score") or 0),
-                            float(candidate.get("total_score") or 0),
-                            self._json_text(candidate.get("score_breakdown") or {}),
-                            str(candidate.get("dedupe_key") or candidate_id),
-                            self._json_text(
-                                candidate.get("similar_prior_projects") or []
-                            ),
-                            str(candidate.get("novelty_comparison") or ""),
-                            str(candidate.get("risk_notes") or ""),
-                            str(
-                                plan_json.get("admission_reason")
-                                if plan_json.get("admission_decision") == "rejected"
-                                else ""
-                            ),
-                            str(candidate.get("provider") or ""),
-                            str(candidate.get("provider_model") or ""),
-                            str(candidate.get("prompt_version") or ""),
-                            str(candidate.get("generated_by") or ""),
-                            self._json_text(
-                                candidate.get("raw_candidate_json") or candidate
-                            ),
-                        ),
-                    )
-                    counters["candidates_upserted"] += 1
-                    for source_id in source_ids:
-                        cur.execute(
-                            """
-                            insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                            select 'source', %s, 'candidate', %s, 'generated_from', %s::jsonb
-                            where not exists (
-                              select 1 from research_lineage
-                              where source_type='source' and source_id=%s and target_type='candidate' and target_id=%s and relation_type='generated_from'
-                            )
-                            """,
-                            (
-                                str(source_id),
-                                candidate_id,
-                                self._json_text({"source_ids": source_ids}),
-                                str(source_id),
-                                candidate_id,
-                            ),
-                        )
-                        counters["lineage_inserted"] += int(cur.rowcount or 0)
-                    idempotency_key = f"research-admission:{candidate_id}:{plan_json.get('admission_decision')}"
-                    counters["admissions_inserted"] += self._insert_research_admission(
-                        cur,
-                        candidate_id=candidate_id,
-                        admission_decision=str(
-                            plan_json.get("admission_decision") or "needs_review"
-                        ),
-                        admission_reason=str(plan_json.get("admission_reason") or ""),
-                        score_breakdown=plan_json.get("score_breakdown") or {},
-                        admitted_idea_id=None,
-                        operator=requested_by,
-                        idempotency_key=idempotency_key,
+                    self._persist_research_facility_plan(
+                        cur, plan, requested_by=requested_by, counters=counters
                     )
         return counters
 
@@ -4548,151 +4855,270 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             )
         return int(row["event_id"])
 
+    def _resolve_worker_callback_project_id(self, project_id: str, run_id: str) -> str:
+        if project_id or not run_id:
+            return project_id
+        row = self._one("select project_id from runs where run_id = %s", (run_id,))
+        return _text(row.get("project_id") if row else "")
+
+    def _worker_callback_queue_snapshot(
+        self, project_id: str, run_id: str
+    ) -> tuple[dict[str, Any] | None, bool, str]:
+        if not project_id:
+            return None, False, ""
+        current_queue_row = self._one(
+            "select status,current_run_id,current_session_id,last_run_state,next_action_hint from queue_items where project_id = %s",
+            (project_id,),
+        )
+        current_run_id = _text((current_queue_row or {}).get("current_run_id"))
+        current_status = _text((current_queue_row or {}).get("status"))
+        stale_callback = bool(
+            current_queue_row is not None and (not run_id or current_run_id != run_id)
+        )
+        return current_queue_row, stale_callback, current_status
+
+    def _worker_callback_result_row(self, project_id: str) -> dict[str, Any]:
+        return self.queue_row(project_id) or {}
+
+    def _emit_worker_callback_side_effect(
+        self,
+        *,
+        idempotency_key: str,
+        event_payload: dict[str, Any],
+        event_type: str,
+        run_id: str,
+        project_id: str,
+    ) -> tuple[int, bool, dict[str, Any]]:
+        event_type_name = _worker_callback_event_type_name(event_type)
+        entity_id = _worker_callback_entity_id(run_id, project_id)
+        replayed_event_id = self._replayed_event_id(
+            idempotency_key,
+            event_payload,
+            event_type=event_type_name,
+            entity_type="run",
+            entity_id=entity_id,
+        )
+        if replayed_event_id is not None:
+            return (
+                replayed_event_id,
+                False,
+                self._worker_callback_result_row(project_id),
+            )
+        event_id, inserted = self.append_event(
+            idempotency_key=idempotency_key,
+            event_type=event_type_name,
+            entity_type="run",
+            entity_id=entity_id,
+            payload=event_payload,
+        )
+        return event_id, inserted, self._worker_callback_result_row(project_id)
+
+    def _try_record_late_terminal_success_worker_callback(
+        self,
+        *,
+        payload: dict[str, Any],
+        current_queue_row: dict[str, Any] | None,
+        run_id: str,
+        project_id: str,
+        event_type: str,
+        idempotency_key: str,
+        received_by: str,
+    ) -> tuple[int, bool, dict[str, Any]] | None:
+        if not (
+            _completed_success_queue_row(current_queue_row, run_id)
+            and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
+        ):
+            return None
+        assert current_queue_row is not None
+        event_payload = _late_terminal_success_worker_callback_payload(
+            payload, current_queue_row, received_by=received_by
+        )
+        return self._emit_worker_callback_side_effect(
+            idempotency_key=idempotency_key,
+            event_payload=event_payload,
+            event_type=event_type,
+            run_id=run_id,
+            project_id=project_id,
+        )
+
+    def _try_record_stale_worker_callback(
+        self,
+        *,
+        payload: dict[str, Any],
+        current_queue_row: dict[str, Any] | None,
+        stale_callback: bool,
+        run_id: str,
+        project_id: str,
+        event_type: str,
+        idempotency_key: str,
+        received_by: str,
+        current_status: str,
+    ) -> tuple[int, bool, dict[str, Any]] | None:
+        if not (stale_callback and current_queue_row):
+            return None
+        preserved_status = (
+            _text(current_queue_row.get("status")) or QueueStatus.NEEDS_REVIEW.value
+        )
+        preserved_hint = (
+            _text(current_queue_row.get("next_action_hint")) or "await_callback"
+        )
+        event_payload = _stale_worker_callback_payload(
+            payload,
+            current_queue_row,
+            received_by=received_by,
+            status=preserved_status,
+            next_action_hint=preserved_hint,
+            ignore_reason=_stale_worker_callback_ignore_reason(
+                run_id=run_id, current_status=current_status
+            ),
+        )
+        return self._emit_worker_callback_side_effect(
+            idempotency_key=idempotency_key,
+            event_payload=event_payload,
+            event_type=event_type,
+            run_id=run_id,
+            project_id=project_id,
+        )
+
+    def _persist_applied_worker_callback(
+        self,
+        cur: Any,
+        *,
+        now: str,
+        payload: dict[str, Any],
+        project_id: str,
+        run_id: str,
+        event_type: str,
+        idempotency_key: str,
+        event_payload: dict[str, Any],
+        status: str,
+        next_action_hint: str,
+        manual_review_required: bool,
+        last_error: str,
+    ) -> tuple[int, bool]:
+        summary = (
+            f"worker callback {event_type}: "
+            f"{_text(payload.get('reason')) or 'worker reported ready'}"
+        )
+        last_run_state, run_state, gate_state = _contract_worker_callback_states(
+            event_type, _text(payload.get("gate_state"))
+        )
+        run_ended_at = None if event_type == "session_started" else now
+        if project_id:
+            cur.execute(
+                """
+                update queue_items
+                set status=%s, current_session_id=coalesce(nullif(%s, ''), current_session_id), last_run_state=%s,
+                    last_event_type=%s, next_action_hint=%s, manual_review_required=%s, last_error=%s,
+                    last_result_summary=%s, last_callback_at=%s, updated_at=%s
+                where project_id=%s
+                """,
+                (
+                    status,
+                    _text(payload.get("session_id")),
+                    last_run_state,
+                    "worker_callback",
+                    next_action_hint,
+                    manual_review_required,
+                    last_error,
+                    summary,
+                    now,
+                    now,
+                    project_id,
+                ),
+            )
+        if run_id and project_id:
+            cur.execute(
+                """
+                insert into runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
+                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                on conflict (run_id) do update set
+                    session_id=coalesce(nullif(excluded.session_id, ''), runs.session_id),
+                    state=excluded.state,
+                    ended_at=excluded.ended_at,
+                    last_callback_at=excluded.last_callback_at,
+                    gate_state=excluded.gate_state,
+                    current_activity=excluded.current_activity,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    run_id,
+                    project_id,
+                    _text(payload.get("session_id")),
+                    run_state,
+                    "callback",
+                    now,
+                    run_ended_at,
+                    now,
+                    gate_state,
+                    "worker_callback",
+                    idempotency_key,
+                    now,
+                ),
+            )
+        return self._append_event_in_cursor(
+            cur,
+            idempotency_key=idempotency_key,
+            event_type=_worker_callback_event_type_name(event_type),
+            entity_type="run",
+            entity_id=_worker_callback_entity_id(run_id, project_id),
+            payload=event_payload,
+        )
+
     def record_worker_callback(
         self, callback: Any, *, received_by: str = "worker-callback"
     ) -> tuple[int, bool, dict[str, Any]]:
         now = utc_now()
-        payload = (
-            callback.model_dump(mode="json")
-            if hasattr(callback, "model_dump")
-            else dict(callback)
-        )
+        payload = _worker_callback_payload(callback)
         run_id = _text(payload.get("run_id"))
         project_id = _text(payload.get("project_id"))
         event_type = _text(payload.get("event_type"))
-        idempotency_key = _text(payload.get("idempotency_key"))
-        if not idempotency_key:
-            session_part = _text(payload.get("session_id")) or "no-session"
-            payload_part = _hash(payload)[:16]
-            idempotency_key = f"worker-callback:{run_id or 'unknown'}:{event_type or 'unknown'}:{session_part}:{payload_part}"
-        if not project_id and run_id:
-            row = self._one("select project_id from runs where run_id = %s", (run_id,))
-            project_id = _text(row.get("project_id") if row else "")
+        idempotency_key = _derived_worker_callback_idempotency_key(
+            payload,
+            run_id=run_id,
+            event_type=event_type,
+            idempotency_key=_text(payload.get("idempotency_key")),
+        )
+        project_id = self._resolve_worker_callback_project_id(project_id, run_id)
         replayed_callback_event_id = self._replayed_worker_callback_event_id(
             idempotency_key, payload
         )
         if replayed_callback_event_id is not None:
-            return replayed_callback_event_id, False, self.queue_row(project_id) or {}
-        current_queue_row: dict[str, Any] | None = None
-        stale_callback = False
-        if project_id:
-            current_queue_row = self._one(
-                "select status,current_run_id,current_session_id,last_run_state,next_action_hint from queue_items where project_id = %s",
-                (project_id,),
+            return (
+                replayed_callback_event_id,
+                False,
+                self._worker_callback_result_row(project_id),
             )
-            current_run_id = _text((current_queue_row or {}).get("current_run_id"))
-            current_status = _text((current_queue_row or {}).get("status"))
-            stale_callback = bool(
-                current_queue_row is not None
-                and (not run_id or current_run_id != run_id)
-            )
-        if (
-            _completed_success_queue_row(current_queue_row, run_id)
-            and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
-        ):
-            event_payload = {
-                **payload,
-                "received_by": received_by,
-                "applied_status": _text(
-                    current_queue_row.get("status") if current_queue_row else ""
-                ),
-                "applied_next_action_hint": _text(
-                    current_queue_row.get("next_action_hint")
-                    if current_queue_row
-                    else ""
-                ),
-                "late_callback_ignored": True,
-                "ignore_reason": "terminal_success_precedence",
-                "current_run_id": _text(
-                    current_queue_row.get("current_run_id") if current_queue_row else ""
-                ),
-                "current_last_run_state": _text(
-                    current_queue_row.get("last_run_state") if current_queue_row else ""
-                ),
-            }
-            replayed_event_id = self._replayed_event_id(
-                idempotency_key,
-                event_payload,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-            )
-            if replayed_event_id is not None:
-                return replayed_event_id, False, self.queue_row(project_id) or {}
-            event_id, inserted = self.append_event(
-                idempotency_key=idempotency_key,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-                payload=event_payload,
-            )
-            return event_id, inserted, self.queue_row(project_id) or {}
-
-        status = QueueStatus.COMPLETED.value
-        next_action_hint = "select_next_project"
-        manual_review_required = False
-        last_error = ""
-        if event_type == "session_started":
-            status = QueueStatus.RUNNING.value
-            next_action_hint = "await_callback"
-        elif event_type == "question_pending":
-            status = QueueStatus.NEEDS_REVIEW.value
-            next_action_hint = "answer_worker_question"
-            manual_review_required = True
-        elif event_type in {"gate_timeout", "gate_error"}:
-            status = QueueStatus.BLOCKED.value
-            next_action_hint = "inspect_worker_gate_failure"
-            manual_review_required = True
-            last_error = _text(payload.get("reason")) or event_type
-        elif event_type in {"wake_ready", "session_finished_ready"}:
-            next_action_hint = "draft_paper_or_select_next_project"
-        else:
-            status = QueueStatus.NEEDS_REVIEW.value
-            next_action_hint = "inspect_unknown_worker_callback"
-            manual_review_required = True
-            last_error = (
-                _text(payload.get("reason")) or f"unknown worker callback: {event_type}"
-            )
-        if stale_callback and current_queue_row:
-            status = (
-                _text(current_queue_row.get("status")) or QueueStatus.NEEDS_REVIEW.value
-            )
-            next_action_hint = (
-                _text(current_queue_row.get("next_action_hint")) or "await_callback"
-            )
-            event_payload = {
-                **payload,
-                "received_by": received_by,
-                "applied_status": status,
-                "applied_next_action_hint": next_action_hint,
-                "stale_callback_ignored": True,
-                "ignore_reason": (
-                    "missing_run_id_for_active_project"
-                    if not run_id and current_status in ACTIVE_STATUSES
-                    else "missing_run_id_for_project_callback"
-                    if not run_id
-                    else "run_id_mismatch"
-                ),
-                "current_run_id": _text(current_queue_row.get("current_run_id")),
-            }
-            replayed_event_id = self._replayed_event_id(
-                idempotency_key,
-                event_payload,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-            )
-            if replayed_event_id is not None:
-                return replayed_event_id, False, self.queue_row(project_id) or {}
-            event_id, inserted = self.append_event(
-                idempotency_key=idempotency_key,
-                event_type=f"worker_callback.{event_type}",
-                entity_type="run",
-                entity_id=run_id or project_id or "unknown",
-                payload=event_payload,
-            )
-            return event_id, inserted, self.queue_row(project_id) or {}
-
+        current_queue_row, stale_callback, current_status = (
+            self._worker_callback_queue_snapshot(project_id, run_id)
+        )
+        late_result = self._try_record_late_terminal_success_worker_callback(
+            payload=payload,
+            current_queue_row=current_queue_row,
+            run_id=run_id,
+            project_id=project_id,
+            event_type=event_type,
+            idempotency_key=idempotency_key,
+            received_by=received_by,
+        )
+        if late_result is not None:
+            return late_result
+        status, next_action_hint, manual_review_required, last_error = (
+            _worker_callback_transition(event_type, payload)
+        )
+        stale_result = self._try_record_stale_worker_callback(
+            payload=payload,
+            current_queue_row=current_queue_row,
+            stale_callback=stale_callback,
+            run_id=run_id,
+            project_id=project_id,
+            event_type=event_type,
+            idempotency_key=idempotency_key,
+            received_by=received_by,
+            current_status=current_status,
+        )
+        if stale_result is not None:
+            return stale_result
         event_payload = {
             **payload,
             "received_by": received_by,
@@ -4702,80 +5128,33 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         replayed_event_id = self._replayed_event_id(
             idempotency_key,
             event_payload,
-            event_type=f"worker_callback.{event_type}",
+            event_type=_worker_callback_event_type_name(event_type),
             entity_type="run",
-            entity_id=run_id or project_id or "unknown",
+            entity_id=_worker_callback_entity_id(run_id, project_id),
         )
         if replayed_event_id is not None:
-            return replayed_event_id, False, self.queue_row(project_id) or {}
-        summary = f"worker callback {event_type}: {_text(payload.get('reason')) or 'worker reported ready'}"
-        last_run_state, run_state, gate_state = _contract_worker_callback_states(
-            event_type, _text(payload.get("gate_state"))
-        )
-        run_ended_at = None if event_type == "session_started" else now
+            return (
+                replayed_event_id,
+                False,
+                self._worker_callback_result_row(project_id),
+            )
         with self._connect() as conn:
             with conn.cursor() as cur:
-                if project_id:
-                    cur.execute(
-                        """
-                        update queue_items
-                        set status=%s, current_session_id=coalesce(nullif(%s, ''), current_session_id), last_run_state=%s,
-                            last_event_type=%s, next_action_hint=%s, manual_review_required=%s, last_error=%s,
-                            last_result_summary=%s, last_callback_at=%s, updated_at=%s
-                        where project_id=%s
-                        """,
-                        (
-                            status,
-                            _text(payload.get("session_id")),
-                            last_run_state,
-                            "worker_callback",
-                            next_action_hint,
-                            manual_review_required,
-                            last_error,
-                            summary,
-                            now,
-                            now,
-                            project_id,
-                        ),
-                    )
-                if run_id and project_id:
-                    cur.execute(
-                        """
-                        insert into runs(run_id,project_id,session_id,state,dispatch_mode,started_at,ended_at,last_callback_at,gate_state,current_activity,idempotency_key,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (run_id) do update set
-                            session_id=coalesce(nullif(excluded.session_id, ''), runs.session_id),
-                            state=excluded.state,
-                            ended_at=excluded.ended_at,
-                            last_callback_at=excluded.last_callback_at,
-                            gate_state=excluded.gate_state,
-                            current_activity=excluded.current_activity,
-                            updated_at=excluded.updated_at
-                        """,
-                        (
-                            run_id,
-                            project_id,
-                            _text(payload.get("session_id")),
-                            run_state,
-                            "callback",
-                            now,
-                            run_ended_at,
-                            now,
-                            gate_state,
-                            "worker_callback",
-                            idempotency_key,
-                            now,
-                        ),
-                    )
-                event_id, inserted = self._append_event_in_cursor(
+                event_id, inserted = self._persist_applied_worker_callback(
                     cur,
+                    now=now,
+                    payload=payload,
+                    project_id=project_id,
+                    run_id=run_id,
+                    event_type=event_type,
                     idempotency_key=idempotency_key,
-                    event_type=f"worker_callback.{event_type}",
-                    entity_type="run",
-                    entity_id=run_id or project_id or "unknown",
-                    payload=event_payload,
+                    event_payload=event_payload,
+                    status=status,
+                    next_action_hint=next_action_hint,
+                    manual_review_required=bool(manual_review_required),
+                    last_error=last_error,
                 )
-        return event_id, inserted, self.queue_row(project_id) or {}
+        return event_id, inserted, self._worker_callback_result_row(project_id)
 
     def record_project_decision_gate(
         self,
@@ -4813,31 +5192,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 "reason": "missing project decision artifact",
                 "gate": gate,
             }
-        artifact_path = artifact_root_path / ".enoch" / "project_decision.json"
-        if not artifact_path.exists():
-            artifact_path = artifact_root_path / ".omx" / "project_decision.json"
-        if not artifact_path.exists():
-            artifact_path = artifact_root_path / "project_decision.json"
+        artifact_path = _resolve_project_decision_artifact_path(artifact_root_path)
         decision_payload = project_decision_payload(artifact_root_path)
         followup = followup_candidate_from_decision_payload(decision_payload)
         run_id_value = _text(run_id) or None
-        idea_source_payload: dict[str, Any] = {}
         with self._connect() as conn:
             with conn.cursor() as cur:
-                source_row = cur.execute(
-                    "select source_payload_json from ideas where idea_id = %s",
-                    (project_id,),
-                ).fetchone()
-                if source_row:
-                    raw_source = (
-                        source_row[0]
-                        if not isinstance(source_row, dict)
-                        else source_row.get("source_payload_json")
-                    )
-                    if isinstance(raw_source, dict):
-                        idea_source_payload = raw_source
-                    elif isinstance(raw_source, str):
-                        idea_source_payload = _json_dict(raw_source)
+                idea_source_payload = _idea_source_payload_for_project(cur, project_id)
                 followup_depth = _enforced_followup_depth(
                     decision_payload, {"source_payload_json": idea_source_payload}
                 )
@@ -4849,85 +5210,34 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     "enforced_followup_depth": followup_depth,
                 }
                 payload_json = _json(payload)
-                if run_id_value:
-                    found_run = cur.execute(
-                        "select 1 from runs where run_id = %s", (run_id_value,)
-                    ).fetchone()
-                    if not found_run:
-                        run_id_value = None
-                cur.execute(
-                    """
-                    insert into project_decisions(project_id, run_id, decision_type, decision_gate_state,
-                      decision_summary, artifact_path, payload_json, payload_hash, decided_at,
-                      followup_recommended, followup_type, followup_title, followup_hypothesis,
-                      followup_required_evidence, followup_success_threshold, followup_stop_condition, followup_depth)
-                    values (%s,%s,'project_outcome',%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)
-                    on conflict (project_id, run_id, decision_type) do update set
-                      decision_gate_state=excluded.decision_gate_state,
-                      decision_summary=excluded.decision_summary,
-                      artifact_path=excluded.artifact_path,
-                      payload_json=excluded.payload_json,
-                      payload_hash=excluded.payload_hash,
-                      decided_at=excluded.decided_at,
-                      followup_recommended=excluded.followup_recommended,
-                      followup_type=excluded.followup_type,
-                      followup_title=excluded.followup_title,
-                      followup_hypothesis=excluded.followup_hypothesis,
-                      followup_required_evidence=excluded.followup_required_evidence,
-                      followup_success_threshold=excluded.followup_success_threshold,
-                      followup_stop_condition=excluded.followup_stop_condition,
-                      followup_depth=excluded.followup_depth,
-                      updated_at=now()
-                    where project_decisions.decided_at is null or excluded.decided_at >= project_decisions.decided_at
-                    """,
-                    (
-                        project_id,
-                        run_id_value,
-                        _decision_gate_state(gate),
-                        _decision_summary(gate),
-                        str(artifact_path),
-                        payload_json,
-                        _hash(payload),
-                        decided_at or utc_now(),
-                        bool(followup.get("followup_recommended")),
-                        _text(followup.get("followup_type")),
-                        _text(followup.get("followup_title")),
-                        _text(followup.get("followup_hypothesis")),
-                        _json(followup.get("followup_required_evidence") or []),
-                        _text(followup.get("followup_success_threshold")),
-                        _text(followup.get("followup_stop_condition")),
-                        followup_depth,
-                    ),
+                run_id_value = _verified_run_id_for_decision(cur, run_id_value)
+                persisted = _upsert_project_decision_gate_row(
+                    cur,
+                    project_id=project_id,
+                    run_id_value=run_id_value,
+                    gate=gate,
+                    artifact_path=artifact_path,
+                    payload=payload,
+                    payload_json=payload_json,
+                    followup=followup,
+                    followup_depth=followup_depth,
+                    decided_at=decided_at,
                 )
-                persisted = getattr(cur, "rowcount", None) != 0
-        if not persisted:
-            return {
-                "ok": True,
-                "persisted": False,
-                "project_id": project_id,
-                "run_id": run_id_value or "",
-                "reason": "stale project decision ignored",
-                "decision_gate_state": _decision_gate_state(gate),
-                "decision_summary": _decision_summary(gate),
-                "artifact_path": str(artifact_path),
-            }
-        return {
-            "ok": True,
-            "persisted": True,
-            "project_id": project_id,
-            "run_id": run_id_value or "",
-            "decision_gate_state": _decision_gate_state(gate),
-            "decision_summary": _decision_summary(gate),
-            "artifact_path": str(artifact_path),
-            **followup,
-            "followup_depth": followup_depth,
-        }
+        return _project_decision_gate_record(
+            persisted=persisted,
+            project_id=project_id,
+            run_id_value=run_id_value,
+            gate=gate,
+            artifact_path=artifact_path,
+            followup=followup,
+            followup_depth=followup_depth,
+        )
 
     def next_followup_candidate(
         self, *, project_id: str = "", max_followup_depth: int = 4
     ) -> dict[str, Any] | None:
         clauses = [
-            "q.status = %s",
+            _QUEUE_STATUS_EQUALS_PARAM,
             "q.manual_review_required = false",
             "coalesce(pe.followup_recommended, false) = true",
             "coalesce(pe.followup_title, '') <> ''",
@@ -4973,6 +5283,196 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         candidates.sort(key=promising_followup_priority_key)
         return candidates[0] if candidates else None
 
+    def _assert_followup_launch_idempotency(
+        self,
+        cur: Any,
+        *,
+        followup_id: str,
+        title: str,
+        followup_payload: dict[str, Any],
+    ) -> None:
+        cur.execute(
+            "select idea_id, title, source_payload_json from ideas where idea_id = %s",
+            (followup_id,),
+        )
+        existing_idea = cur.fetchone()
+        if existing_idea and (
+            self._row_value(existing_idea, "title", 1) != title
+            or self._json_text(self._row_value(existing_idea, "source_payload_json", 2))
+            != self._json_text(followup_payload)
+        ):
+            raise IdempotencyConflict(
+                f"follow-up idea id {followup_id!r} was reused with different idea identity"
+            )
+        cur.execute(
+            "select project_id, project_name, project_dir, origin_idea_status from projects where project_id = %s",
+            (followup_id,),
+        )
+        existing_project = cur.fetchone()
+        if existing_project and (
+            self._row_value(existing_project, "project_name", 1) != title
+            or self._row_value(existing_project, "project_dir", 2) != followup_id
+            or self._row_value(existing_project, "origin_idea_status", 3) != "testing"
+        ):
+            raise IdempotencyConflict(
+                f"follow-up project id {followup_id!r} was reused with different project identity"
+            )
+        cur.execute(
+            "select project_id, status, current_run_id, next_action_hint from queue_items where project_id = %s",
+            (followup_id,),
+        )
+        existing_queue = cur.fetchone()
+        if existing_queue and (
+            self._row_value(existing_queue, "status", 1) != QueueStatus.QUEUED.value
+            or self._row_value(existing_queue, "current_run_id", 2)
+            or self._row_value(existing_queue, "next_action_hint", 3)
+            != "controller_review"
+        ):
+            raise IdempotencyConflict(
+                f"follow-up queue id {followup_id!r} was reused with different queue identity"
+            )
+
+    def _persist_followup_launch_rows(
+        self,
+        cur: Any,
+        *,
+        plan: dict[str, Any],
+        candidate: dict[str, Any],
+        requested_by: str,
+        now: Any,
+    ) -> str:
+        followup_id = str(plan["followup_id"])
+        title = str(plan["title"])
+        hypothesis = str(plan["hypothesis"])
+        parent_id = str(plan["parent_id"])
+        followup_payload = plan["followup_payload"]
+        parent_source = plan["parent_source"]
+        cur.execute(
+            """
+            insert into ideas(
+              idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation,
+              baseline_to_beat, kill_condition, expected_token_budget, confidence, feasibility, leverage,
+              machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json, created_at, updated_at
+            ) values (%s,%s,'testing','follow-up','High','followup_branch',%s,%s,%s,%s,%s,'medium','medium','medium','high',%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
+            on conflict (idea_id) do nothing
+            """,
+            (
+                followup_id,
+                title,
+                parent_source["url"],
+                hypothesis,
+                "Bounded follow-up investigation generated from prior no-paper evidence; do not write a paper unless this run independently becomes paper-positive.",
+                _text(candidate.get("project_name")),
+                _text(candidate.get("followup_stop_condition")),
+                _text(candidate.get("machine_target")),
+                _text(candidate.get("model")),
+                _text(candidate.get("sandbox")),
+                _int(candidate.get("selection_rank"), 50),
+                _int(candidate.get("dispatch_priority"), 50),
+                _json(followup_payload),
+                now,
+                now,
+            ),
+        )
+        cur.execute(
+            """
+            insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id, origin_idea_status, created_at, updated_at)
+            values (%s,%s,%s,'','','testing',%s,%s)
+            on conflict (project_id) do nothing
+            """,
+            (followup_id, title, followup_id, now, now),
+        )
+        cur.execute(
+            """
+            insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+            values (%s,'queued',%s,%s,true,0,0,0,2,'','','','','controller_review',false,'','','',%s,%s,%s,null,null,null,%s)
+            on conflict (project_id) do nothing
+            """,
+            (
+                followup_id,
+                _int(candidate.get("selection_rank"), 50),
+                _int(candidate.get("dispatch_priority"), 50),
+                _text(candidate.get("machine_target")),
+                _text(candidate.get("model")),
+                _text(candidate.get("sandbox")),
+                now,
+            ),
+        )
+        parent_payload_text = self._json_text(parent_source["payload_json"])
+        cur.execute(
+            """
+            insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
+            values (%s,%s,%s,%s,%s,null,%s,%s::jsonb,%s)
+            on conflict (source_id) do update set
+              source_kind=excluded.source_kind,
+              title=excluded.title,
+              url=excluded.url,
+              external_id=excluded.external_id,
+              summary=excluded.summary,
+              payload_json=excluded.payload_json,
+              content_hash=excluded.content_hash,
+              updated_at=now()
+            """,
+            (
+                parent_source["source_id"],
+                parent_source["source_kind"],
+                parent_source["title"],
+                parent_source["url"],
+                parent_source["external_id"],
+                parent_source["summary"],
+                parent_payload_text,
+                hashlib.sha256(parent_payload_text.encode("utf-8")).hexdigest(),
+            ),
+        )
+        cur.execute(
+            """
+            insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+            select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
+            from (values
+              ('source', %s, 'candidate', %s, 'generated_from', %s),
+              ('project', %s, 'project', %s, 'followup_parent', %s)
+            ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
+            where not exists (
+              select 1 from research_lineage rl
+              where rl.source_type=v.source_type and rl.source_id=v.source_id
+                and rl.target_type=v.target_type and rl.target_id=v.target_id
+                and rl.relation_type=v.relation_type
+            )
+            """,
+            (
+                parent_source["source_id"],
+                followup_id,
+                self._json_text(
+                    {
+                        "source_id": parent_source["source_id"],
+                        "source_url": parent_source["url"],
+                        "captured_by": "followup.launch",
+                    }
+                ),
+                parent_id,
+                followup_id,
+                self._json_text(
+                    {
+                        "parent_run_id": _text(candidate.get("current_run_id")),
+                        "followup_type": followup_payload["followup_type"],
+                    }
+                ),
+            ),
+        )
+        event_id, _inserted = self._append_event_in_cursor(
+            cur,
+            idempotency_key=f"followup.launch:{parent_id}:{followup_id}",
+            event_type="followup.launch",
+            entity_type="project",
+            entity_id=parent_id,
+            payload={
+                "requested_by": requested_by,
+                "candidate": {"project_id": parent_id},
+                "followup": followup_payload,
+            },
+        )
+        return str(event_id)
+
     def launch_followup_candidate(
         self,
         *,
@@ -4985,233 +5485,28 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             project_id=project_id, max_followup_depth=max_followup_depth
         )
         if not candidate:
-            return {
-                "ok": True,
-                "action": "noop",
-                "reason": "no follow-up candidate",
-                "candidate": None,
-                "followup": None,
-            }
-        title = (
-            _text(candidate.get("followup_title"))
-            or f"Follow-up: {_text(candidate.get('project_name')) or _text(candidate.get('project_id'))}"
-        )
-        hypothesis = _text(candidate.get("followup_hypothesis")) or _text(
-            candidate.get("operator_explanation")
-        )
-        parent_id = _text(candidate.get("project_id"))
-        followup_id = _stable_followup_id(parent_id, title, hypothesis)
-        depth = _int(candidate.get("followup_depth"), 0) + 1
-        followup_payload = {
-            "idea_id": followup_id,
-            "title": title,
-            "parent_project_id": parent_id,
-            "parent_run_id": _text(candidate.get("current_run_id")),
-            "followup_depth": depth,
-            "followup_type": _text(candidate.get("followup_type"))
-            .lower()
-            .replace("-", "_")
-            .replace(" ", "_"),
-            "followup_hypothesis": hypothesis,
-            "followup_required_evidence": _followup_required_evidence_items(candidate),
-            "followup_success_threshold": _text(
-                candidate.get("followup_success_threshold")
-            ),
-            "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
-            **_followup_escalation_payload(candidate, depth),
-        }
-        parent_source = _followup_parent_source_record(candidate, followup_payload)
+            return _followup_launch_noop_response()
+        plan = _followup_launch_plan(candidate)
+        followup_payload = plan["followup_payload"]
         if dry_run:
-            return {
-                "ok": True,
-                "action": "dry_run_followup",
-                "reason": "follow-up candidate selected; no row inserted",
-                "candidate": candidate,
-                "followup": followup_payload,
-            }
+            return _followup_launch_dry_run_response(candidate, followup_payload)
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "select idea_id, title, source_payload_json from ideas where idea_id = %s",
-                    (followup_id,),
-                )
-                existing_idea = cur.fetchone()
-                if existing_idea and (
-                    self._row_value(existing_idea, "title", 1) != title
-                    or self._json_text(
-                        self._row_value(existing_idea, "source_payload_json", 2)
-                    )
-                    != self._json_text(followup_payload)
-                ):
-                    raise IdempotencyConflict(
-                        f"follow-up idea id {followup_id!r} was reused with different idea identity"
-                    )
-                cur.execute(
-                    """
-                    insert into ideas(
-                      idea_id, title, idea_status, category, priority, source_kind, source_external_url, description, implementation,
-                      baseline_to_beat, kill_condition, expected_token_budget, confidence, feasibility, leverage,
-                      machine_target, model, sandbox, selection_rank, dispatch_priority, source_payload_json, created_at, updated_at
-                    ) values (%s,%s,'testing','follow-up','High','followup_branch',%s,%s,%s,%s,%s,'medium','medium','medium','high',%s,%s,%s,%s,%s,%s::jsonb,%s,%s)
-                    on conflict (idea_id) do nothing
-                    """,
-                    (
-                        followup_id,
-                        title,
-                        parent_source["url"],
-                        hypothesis,
-                        "Bounded follow-up investigation generated from prior no-paper evidence; do not write a paper unless this run independently becomes paper-positive.",
-                        _text(candidate.get("project_name")),
-                        _text(candidate.get("followup_stop_condition")),
-                        _text(candidate.get("machine_target")),
-                        _text(candidate.get("model")),
-                        _text(candidate.get("sandbox")),
-                        _int(candidate.get("selection_rank"), 50),
-                        _int(candidate.get("dispatch_priority"), 50),
-                        _json(followup_payload),
-                        now,
-                        now,
-                    ),
-                )
-                cur.execute(
-                    "select project_id, project_name, project_dir, origin_idea_status from projects where project_id = %s",
-                    (followup_id,),
-                )
-                existing_project = cur.fetchone()
-                if existing_project and (
-                    self._row_value(existing_project, "project_name", 1) != title
-                    or self._row_value(existing_project, "project_dir", 2)
-                    != followup_id
-                    or self._row_value(existing_project, "origin_idea_status", 3)
-                    != "testing"
-                ):
-                    raise IdempotencyConflict(
-                        f"follow-up project id {followup_id!r} was reused with different project identity"
-                    )
-                cur.execute(
-                    """
-                    insert into projects(project_id, project_name, project_dir, notion_page_url, notion_page_id, origin_idea_status, created_at, updated_at)
-                    values (%s,%s,%s,'','','testing',%s,%s)
-                    on conflict (project_id) do nothing
-                    """,
-                    (followup_id, title, followup_id, now, now),
-                )
-                cur.execute(
-                    "select project_id, status, current_run_id, next_action_hint from queue_items where project_id = %s",
-                    (followup_id,),
-                )
-                existing_queue = cur.fetchone()
-                if existing_queue and (
-                    self._row_value(existing_queue, "status", 1)
-                    != QueueStatus.QUEUED.value
-                    or self._row_value(existing_queue, "current_run_id", 2)
-                    or self._row_value(existing_queue, "next_action_hint", 3)
-                    != "controller_review"
-                ):
-                    raise IdempotencyConflict(
-                        f"follow-up queue id {followup_id!r} was reused with different queue identity"
-                    )
-                cur.execute(
-                    """
-                    insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                    values (%s,'queued',%s,%s,true,0,0,0,2,'','','','','controller_review',false,'','','',%s,%s,%s,null,null,null,%s)
-                    on conflict (project_id) do nothing
-                    """,
-                    (
-                        followup_id,
-                        _int(candidate.get("selection_rank"), 50),
-                        _int(candidate.get("dispatch_priority"), 50),
-                        _text(candidate.get("machine_target")),
-                        _text(candidate.get("model")),
-                        _text(candidate.get("sandbox")),
-                        now,
-                    ),
-                )
-                cur.execute(
-                    """
-                    insert into research_sources(source_id, source_kind, title, url, external_id, retrieved_at, summary, payload_json, content_hash)
-                    values (%s,%s,%s,%s,%s,null,%s,%s::jsonb,%s)
-                    on conflict (source_id) do update set
-                      source_kind=excluded.source_kind,
-                      title=excluded.title,
-                      url=excluded.url,
-                      external_id=excluded.external_id,
-                      summary=excluded.summary,
-                      payload_json=excluded.payload_json,
-                      content_hash=excluded.content_hash,
-                      updated_at=now()
-                    """,
-                    (
-                        parent_source["source_id"],
-                        parent_source["source_kind"],
-                        parent_source["title"],
-                        parent_source["url"],
-                        parent_source["external_id"],
-                        parent_source["summary"],
-                        self._json_text(parent_source["payload_json"]),
-                        hashlib.sha256(
-                            self._json_text(parent_source["payload_json"]).encode(
-                                "utf-8"
-                            )
-                        ).hexdigest(),
-                    ),
-                )
-                cur.execute(
-                    """
-                    insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                    select source_type, source_id, target_type, target_id, relation_type, evidence_json::jsonb
-                    from (values
-                      ('source', %s, 'candidate', %s, 'generated_from', %s),
-                      ('project', %s, 'project', %s, 'followup_parent', %s)
-                    ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-                    where not exists (
-                      select 1 from research_lineage rl
-                      where rl.source_type=v.source_type and rl.source_id=v.source_id
-                        and rl.target_type=v.target_type and rl.target_id=v.target_id
-                        and rl.relation_type=v.relation_type
-                    )
-                    """,
-                    (
-                        parent_source["source_id"],
-                        followup_id,
-                        self._json_text(
-                            {
-                                "source_id": parent_source["source_id"],
-                                "source_url": parent_source["url"],
-                                "captured_by": "followup.launch",
-                            }
-                        ),
-                        parent_id,
-                        followup_id,
-                        self._json_text(
-                            {
-                                "parent_run_id": _text(candidate.get("current_run_id")),
-                                "followup_type": followup_payload["followup_type"],
-                            }
-                        ),
-                    ),
-                )
-                event_id, _inserted = self._append_event_in_cursor(
+                self._assert_followup_launch_idempotency(
                     cur,
-                    idempotency_key=f"followup.launch:{parent_id}:{followup_id}",
-                    event_type="followup.launch",
-                    entity_type="project",
-                    entity_id=parent_id,
-                    payload={
-                        "requested_by": requested_by,
-                        "candidate": {"project_id": parent_id},
-                        "followup": followup_payload,
-                    },
+                    followup_id=str(plan["followup_id"]),
+                    title=str(plan["title"]),
+                    followup_payload=followup_payload,
                 )
-        return {
-            "ok": True,
-            "action": "followup_queued",
-            "reason": "bounded follow-up queued",
-            "candidate": candidate,
-            "followup": followup_payload,
-            "event_id": event_id,
-        }
+                event_id = self._persist_followup_launch_rows(
+                    cur,
+                    plan=plan,
+                    candidate=candidate,
+                    requested_by=requested_by,
+                    now=now,
+                )
+        return _followup_launch_success_response(candidate, followup_payload, event_id)
 
     def mark_queue_item_paused(
         self, *, project_id: str, reason: str, updated_by: str = "operator"
@@ -5345,36 +5640,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             *request.paper_rows,
             *_snapshot_rows(request.paper_snapshot, paper=True),
         ]
-        _reject_conflicting_snapshot_rows(
-            queue_rows,
-            key_fields=("project_id",),
-            identity_fields=(
-                ("project_name", "name", "title"),
-                ("project_dir", "project_path"),
-                ("status", "queue_status"),
-                ("current_run_id",),
-            ),
-            label="queue project",
-        )
-        _reject_conflicting_snapshot_rows(
-            paper_rows,
-            key_fields=("paper_id",),
-            identity_fields=(
-                ("project_id",),
-                ("run_id",),
-                ("paper_type",),
-                ("paper_status",),
-                ("draft_markdown_path",),
-                ("draft_latex_path",),
-                ("evidence_bundle_path",),
-                ("claim_ledger_path",),
-                ("manifest_path",),
-            ),
-            label="paper",
-        )
-        event_payload = request.model_dump(mode="json")
-        event_payload["normalized_queue_row_count"] = len(queue_rows)
-        event_payload["normalized_paper_row_count"] = len(paper_rows)
+        _validate_import_snapshot_rows(queue_rows, paper_rows)
+        event_payload = _import_snapshot_event_payload(request, queue_rows, paper_rows)
         projects = queue_items = papers = 0
         with self._connect() as conn:
             with conn.cursor() as cur:
@@ -5389,251 +5656,301 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 if not inserted:
                     return False, 0, 0, 0
                 for raw in queue_rows:
-                    project_id = _text(raw.get("project_id"))
-                    if not project_id:
-                        continue
-                    status_value = (
-                        _text(_first_present(raw, "status", "queue_status"))
-                        or QueueStatus.QUEUED.value
-                    )
-                    if status_value not in QueueStatus._value2member_map_:
-                        status_value = QueueStatus.QUEUED.value
-                    created_at = (
-                        _text(_first_present(raw, "createdAt", "created_at"))
-                        or utc_now()
-                    )
-                    updated_at = (
-                        _text(
-                            _first_present(
-                                raw, "updatedAt", "updated_at", "last_execution_update"
-                            )
-                        )
-                        or utc_now()
-                    )
-                    cur.execute(
-                        """
-                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (project_id) do update set
-                          project_name=excluded.project_name,
-                          project_dir=coalesce(nullif(projects.project_dir,''), excluded.project_dir),
-                          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
-                          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
-                          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
-                          updated_at=excluded.updated_at
-                        where excluded.updated_at >= projects.updated_at
-                        """,
-                        (
-                            project_id,
-                            _text(_first_present(raw, "project_name", "name", "title"))
-                            or project_id,
-                            _text(_first_present(raw, "project_dir", "project_path")),
-                            _text(_first_present(raw, "notion_page_url", "url")),
-                            _text(
-                                _first_present(raw, "notion_page_id", "page_id", "id")
-                            )
-                            or _notion_page_id_from_url(
-                                _text(_first_present(raw, "notion_page_url", "url"))
-                            ),
-                            _text(
-                                _first_present(raw, "origin_idea_status", "idea_status")
-                            )
-                            or "unknown",
-                            created_at,
-                            updated_at,
-                        ),
-                    )
-                    projects += 1
-                    cur.execute(
-                        "select status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at from queue_items where project_id = %s",
-                        (project_id,),
-                    )
-                    existing_queue = cur.fetchone()
-                    if existing_queue and _is_older_timestamp(
-                        updated_at, existing_queue.get("updated_at")
-                    ):
-                        continue
-                    existing_run_id = _text(
-                        (existing_queue or {}).get("current_run_id")
-                    )
-                    incoming_run_id = _text(raw.get("current_run_id"))
-                    preserve_active_runtime = bool(
-                        existing_queue
-                        and _text(existing_queue["status"]) in ACTIVE_STATUSES
-                        and (
-                            not existing_run_id
-                            or incoming_run_id != existing_run_id
-                            or status_value not in ACTIVE_STATUSES
-                        )
-                    )
-                    if preserve_active_runtime:
-                        status_value = _text(existing_queue["status"])
-                        current_run_id = existing_run_id
-                        current_session_id = _text(existing_queue["current_session_id"])
-                        last_run_state = _text(existing_queue["last_run_state"])
-                        last_event_type = _text(existing_queue["last_event_type"])
-                        next_action_hint = (
-                            _text(existing_queue["next_action_hint"])
-                            or "await_callback"
-                        )
-                        manual_review_required = _bool(
-                            existing_queue["manual_review_required"]
-                        )
-                        blocked_reason = _text(existing_queue["blocked_reason"])
-                        last_error = _text(existing_queue["last_error"])
-                        last_result_summary = _text(
-                            existing_queue["last_result_summary"]
-                        )
-                        last_dispatch_at = existing_queue["last_dispatch_at"]
-                        last_callback_at = existing_queue["last_callback_at"]
-                        stale_after = existing_queue["stale_after"]
-                    else:
-                        current_run_id = _text(raw.get("current_run_id"))
-                        current_session_id = _text(raw.get("current_session_id"))
-                        last_run_state = _text(raw.get("last_run_state"))
-                        last_event_type = _text(raw.get("last_event_type"))
-                        next_action_hint = (
-                            _text(raw.get("next_action_hint")) or "controller_review"
-                        )
-                        manual_review_required = _bool(
-                            raw.get("manual_review_required")
-                        )
-                        blocked_reason = _text(raw.get("blocked_reason"))
-                        last_error = _text(raw.get("last_error"))
-                        last_result_summary = _text(raw.get("last_result_summary"))
-                        last_dispatch_at = _first_present(
-                            raw, "last_dispatch_at", "last_execution_update"
-                        )
-                        last_callback_at = raw.get("last_callback_at")
-                        stale_after = raw.get("stale_after")
-                    cur.execute(
-                        """
-                        insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (project_id) do update set
-                          status=excluded.status, selection_rank=excluded.selection_rank, dispatch_priority=excluded.dispatch_priority,
-                          auto_continue=excluded.auto_continue, continue_count=excluded.continue_count, max_continues=excluded.max_continues,
-                          retry_count=excluded.retry_count, max_retries=excluded.max_retries, current_run_id=excluded.current_run_id,
-                          current_session_id=excluded.current_session_id, last_run_state=excluded.last_run_state, last_event_type=excluded.last_event_type,
-                          next_action_hint=excluded.next_action_hint, manual_review_required=excluded.manual_review_required, blocked_reason=excluded.blocked_reason,
-                          last_error=excluded.last_error, last_result_summary=excluded.last_result_summary, machine_target=excluded.machine_target,
-                          model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
-                          last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after, updated_at=excluded.updated_at
-                        """,
-                        (
-                            project_id,
-                            status_value,
-                            _int(_first_present(raw, "selection_rank", "rank"), 50),
-                            _int(
-                                _first_present(raw, "dispatch_priority", "priority"), 50
-                            ),
-                            _bool(_first_present(raw, "auto_continue", "autoContinue")),
-                            _int(
-                                _first_present(raw, "continue_count", "continueCount"),
-                                0,
-                            ),
-                            _int(
-                                _first_present(raw, "max_continues", "maxContinues"), 0
-                            ),
-                            _int(_first_present(raw, "retry_count", "retryCount"), 0),
-                            _int(_first_present(raw, "max_retries", "maxRetries"), 2),
-                            current_run_id,
-                            current_session_id,
-                            last_run_state,
-                            last_event_type,
-                            next_action_hint,
-                            manual_review_required,
-                            blocked_reason,
-                            last_error,
-                            last_result_summary,
-                            _text(raw.get("machine_target")) or "worker.example",
-                            _text(raw.get("model")) or "gpt-5.5",
-                            _text(raw.get("sandbox")) or "danger-full-access",
-                            last_dispatch_at,
-                            last_callback_at,
-                            stale_after,
-                            updated_at,
-                        ),
-                    )
-                    queue_items += 1
+                    row_projects, row_queue_items = _supabase_import_queue_row(cur, raw)
+                    projects += row_projects
+                    queue_items += row_queue_items
                 for raw in paper_rows:
-                    paper_id = _text(raw.get("paper_id"))
-                    project_id = _text(raw.get("project_id"))
-                    if not paper_id or not project_id:
-                        continue
-                    cur.execute(
-                        """
-                        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (project_id) do nothing
-                        """,
-                        (
-                            project_id,
-                            _text(raw.get("project_name")) or project_id,
-                            _text(raw.get("project_dir")),
-                            _text(raw.get("notion_page_url")),
-                            _text(raw.get("notion_page_id"))
-                            or _notion_page_id_from_url(
-                                _text(raw.get("notion_page_url"))
-                            ),
-                            "unknown",
-                            utc_now(),
-                            utc_now(),
-                        ),
-                    )
-                    status = (
-                        _text(raw.get("paper_status")) or PaperStatus.DRAFT_REVIEW.value
-                    )
-                    if status not in PaperStatus._value2member_map_:
-                        status = PaperStatus.DRAFT_REVIEW.value
-                    cur.execute(
-                        "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
-                        (paper_id,),
-                    )
-                    existing_paper = cur.fetchone()
-                    if _paper_identity_conflicts(
-                        existing_paper,
-                        {
-                            "project_id": project_id,
-                            "run_id": _text(raw.get("run_id")),
-                            "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
-                        },
-                    ):
-                        raise IdempotencyConflict(
-                            f"paper id {paper_id!r} was reused with different paper identity"
-                        )
-                    if existing_paper and _is_older_timestamp(
-                        raw.get("updated_at"), existing_paper["updated_at"]
-                    ):
-                        continue
-                    cur.execute(
-                        """
-                        insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
-                        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        on conflict (paper_id) do update set
-                          project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
-                          paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
-                          draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
-                          claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
-                          generated_at=excluded.generated_at, updated_at=excluded.updated_at
-                        """,
-                        (
-                            paper_id,
-                            project_id,
-                            _text(raw.get("run_id")) or None,
-                            _text(raw.get("paper_type")) or "arxiv_draft",
-                            status,
-                            _text(raw.get("draft_markdown_path")),
-                            _text(raw.get("draft_latex_path")),
-                            _text(raw.get("evidence_bundle_path")),
-                            _text(raw.get("claim_ledger_path")),
-                            _text(raw.get("manifest_path")),
-                            _text(raw.get("generated_at")) or utc_now(),
-                            _text(raw.get("updated_at")) or utc_now(),
-                        ),
-                    )
-                    papers += 1
+                    papers += _supabase_import_paper_row(cur, raw)
         return inserted, projects, queue_items, papers
+
+
+def _supabase_queue_status_value(raw: dict[str, Any]) -> str:
+    status_value = (
+        _text(_first_present(raw, "status", "queue_status")) or QueueStatus.QUEUED.value
+    )
+    if status_value not in QueueStatus._value2member_map_:
+        return QueueStatus.QUEUED.value
+    return status_value
+
+
+def _supabase_project_timestamps_from_queue_raw(
+    raw: dict[str, Any],
+) -> tuple[str, str]:
+    created_at = _text(_first_present(raw, "createdAt", "created_at")) or utc_now()
+    updated_at = (
+        _text(_first_present(raw, "updatedAt", "updated_at", "last_execution_update"))
+        or utc_now()
+    )
+    return created_at, updated_at
+
+
+def _supabase_upsert_import_project_from_queue_raw(
+    cur: Any,
+    raw: dict[str, Any],
+    *,
+    project_id: str,
+    created_at: str,
+    updated_at: str,
+) -> None:
+    cur.execute(
+        """
+        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do update set
+          project_name=excluded.project_name,
+          project_dir=coalesce(nullif(projects.project_dir,''), excluded.project_dir),
+          notion_page_url=coalesce(nullif(excluded.notion_page_url,''), projects.notion_page_url),
+          notion_page_id=coalesce(nullif(excluded.notion_page_id,''), projects.notion_page_id),
+          origin_idea_status=coalesce(nullif(excluded.origin_idea_status,''), projects.origin_idea_status),
+          updated_at=excluded.updated_at
+        where excluded.updated_at >= projects.updated_at
+        """,
+        (
+            project_id,
+            _text(_first_present(raw, "project_name", "name", "title")) or project_id,
+            _text(_first_present(raw, "project_dir", "project_path")),
+            _text(_first_present(raw, "notion_page_url", "url")),
+            _text(_first_present(raw, "notion_page_id", "page_id", "id"))
+            or _notion_page_id_from_url(
+                _text(_first_present(raw, "notion_page_url", "url"))
+            ),
+            _text(_first_present(raw, "origin_idea_status", "idea_status"))
+            or "unknown",
+            created_at,
+            updated_at,
+        ),
+    )
+
+
+def _supabase_existing_queue_row_for_import(
+    cur: Any, project_id: str
+) -> dict[str, Any] | None:
+    cur.execute(
+        "select status,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,last_dispatch_at,last_callback_at,stale_after,updated_at from queue_items where project_id = %s",
+        (project_id,),
+    )
+    existing_queue = cur.fetchone()
+    return dict(existing_queue) if existing_queue else None
+
+
+def _supabase_should_preserve_active_runtime_on_import(
+    existing_queue: dict[str, Any],
+    *,
+    status_value: str,
+    raw: dict[str, Any],
+) -> bool:
+    existing_run_id = _text(existing_queue.get("current_run_id"))
+    incoming_run_id = _text(raw.get("current_run_id"))
+    return bool(
+        _text(existing_queue["status"]) in ACTIVE_STATUSES
+        and (
+            not existing_run_id
+            or incoming_run_id != existing_run_id
+            or status_value not in ACTIVE_STATUSES
+        )
+    )
+
+
+def _supabase_queue_runtime_fields_for_import(
+    existing_queue: dict[str, Any] | None,
+    raw: dict[str, Any],
+    status_value: str,
+) -> dict[str, Any]:
+    if existing_queue and _supabase_should_preserve_active_runtime_on_import(
+        existing_queue, status_value=status_value, raw=raw
+    ):
+        return {
+            "status_value": _text(existing_queue["status"]),
+            "current_run_id": _text(existing_queue.get("current_run_id")),
+            "current_session_id": _text(existing_queue["current_session_id"]),
+            "last_run_state": _text(existing_queue["last_run_state"]),
+            "last_event_type": _text(existing_queue["last_event_type"]),
+            "next_action_hint": _text(existing_queue["next_action_hint"])
+            or "await_callback",
+            "manual_review_required": _bool(existing_queue["manual_review_required"]),
+            "blocked_reason": _text(existing_queue["blocked_reason"]),
+            "last_error": _text(existing_queue["last_error"]),
+            "last_result_summary": _text(existing_queue["last_result_summary"]),
+            "last_dispatch_at": existing_queue["last_dispatch_at"],
+            "last_callback_at": existing_queue["last_callback_at"],
+            "stale_after": existing_queue["stale_after"],
+        }
+    return {
+        "status_value": status_value,
+        "current_run_id": _text(raw.get("current_run_id")),
+        "current_session_id": _text(raw.get("current_session_id")),
+        "last_run_state": _text(raw.get("last_run_state")),
+        "last_event_type": _text(raw.get("last_event_type")),
+        "next_action_hint": _text(raw.get("next_action_hint")) or "controller_review",
+        "manual_review_required": _bool(raw.get("manual_review_required")),
+        "blocked_reason": _text(raw.get("blocked_reason")),
+        "last_error": _text(raw.get("last_error")),
+        "last_result_summary": _text(raw.get("last_result_summary")),
+        "last_dispatch_at": _first_present(
+            raw, "last_dispatch_at", "last_execution_update"
+        ),
+        "last_callback_at": raw.get("last_callback_at"),
+        "stale_after": raw.get("stale_after"),
+    }
+
+
+def _supabase_upsert_import_queue_item(
+    cur: Any,
+    raw: dict[str, Any],
+    *,
+    project_id: str,
+    updated_at: str,
+    runtime: dict[str, Any],
+) -> None:
+    cur.execute(
+        """
+        insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do update set
+          status=excluded.status, selection_rank=excluded.selection_rank, dispatch_priority=excluded.dispatch_priority,
+          auto_continue=excluded.auto_continue, continue_count=excluded.continue_count, max_continues=excluded.max_continues,
+          retry_count=excluded.retry_count, max_retries=excluded.max_retries, current_run_id=excluded.current_run_id,
+          current_session_id=excluded.current_session_id, last_run_state=excluded.last_run_state, last_event_type=excluded.last_event_type,
+          next_action_hint=excluded.next_action_hint, manual_review_required=excluded.manual_review_required, blocked_reason=excluded.blocked_reason,
+          last_error=excluded.last_error, last_result_summary=excluded.last_result_summary, machine_target=excluded.machine_target,
+          model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
+          last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after, updated_at=excluded.updated_at
+        """,
+        (
+            project_id,
+            runtime["status_value"],
+            _int(_first_present(raw, "selection_rank", "rank"), 50),
+            _int(_first_present(raw, "dispatch_priority", "priority"), 50),
+            _bool(_first_present(raw, "auto_continue", "autoContinue")),
+            _int(_first_present(raw, "continue_count", "continueCount"), 0),
+            _int(_first_present(raw, "max_continues", "maxContinues"), 0),
+            _int(_first_present(raw, "retry_count", "retryCount"), 0),
+            _int(_first_present(raw, "max_retries", "maxRetries"), 2),
+            runtime["current_run_id"],
+            runtime["current_session_id"],
+            runtime["last_run_state"],
+            runtime["last_event_type"],
+            runtime["next_action_hint"],
+            runtime["manual_review_required"],
+            runtime["blocked_reason"],
+            runtime["last_error"],
+            runtime["last_result_summary"],
+            _text(raw.get("machine_target")) or "worker.example",
+            _text(raw.get("model")) or "gpt-5.5",
+            _text(raw.get("sandbox")) or "danger-full-access",
+            runtime["last_dispatch_at"],
+            runtime["last_callback_at"],
+            runtime["stale_after"],
+            updated_at,
+        ),
+    )
+
+
+def _supabase_import_queue_row(cur: Any, raw: dict[str, Any]) -> tuple[int, int]:
+    project_id = _text(raw.get("project_id"))
+    if not project_id:
+        return 0, 0
+    status_value = _supabase_queue_status_value(raw)
+    created_at, updated_at = _supabase_project_timestamps_from_queue_raw(raw)
+    _supabase_upsert_import_project_from_queue_raw(
+        cur,
+        raw,
+        project_id=project_id,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+    projects = 1
+    existing_queue = _supabase_existing_queue_row_for_import(cur, project_id)
+    if existing_queue and _is_older_timestamp(
+        updated_at, existing_queue.get("updated_at")
+    ):
+        return projects, 0
+    runtime = _supabase_queue_runtime_fields_for_import(
+        existing_queue, raw, status_value
+    )
+    _supabase_upsert_import_queue_item(
+        cur, raw, project_id=project_id, updated_at=updated_at, runtime=runtime
+    )
+    return projects, 1
+
+
+def _supabase_ensure_import_project_for_paper(
+    cur: Any, raw: dict[str, Any], project_id: str
+) -> None:
+    cur.execute(
+        """
+        insert into projects(project_id,project_name,project_dir,notion_page_url,notion_page_id,origin_idea_status,created_at,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (project_id) do nothing
+        """,
+        (
+            project_id,
+            _text(raw.get("project_name")) or project_id,
+            _text(raw.get("project_dir")),
+            _text(raw.get("notion_page_url")),
+            _text(raw.get("notion_page_id"))
+            or _notion_page_id_from_url(_text(raw.get("notion_page_url"))),
+            "unknown",
+            utc_now(),
+            utc_now(),
+        ),
+    )
+
+
+def _supabase_import_paper_row(cur: Any, raw: dict[str, Any]) -> int:
+    paper_id = _text(raw.get("paper_id"))
+    project_id = _text(raw.get("project_id"))
+    if not paper_id or not project_id:
+        return 0
+    _supabase_ensure_import_project_for_paper(cur, raw, project_id)
+    status = _paper_status_from_import_raw(raw)
+    cur.execute(
+        "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
+        (paper_id,),
+    )
+    existing_paper = cur.fetchone()
+    if _paper_identity_conflicts(
+        existing_paper,
+        {
+            "project_id": project_id,
+            "run_id": _text(raw.get("run_id")),
+            "paper_type": _text(raw.get("paper_type")) or "arxiv_draft",
+        },
+    ):
+        raise IdempotencyConflict(
+            f"paper id {paper_id!r} was reused with different paper identity"
+        )
+    if existing_paper and _is_older_timestamp(
+        raw.get("updated_at"), existing_paper["updated_at"]
+    ):
+        return 0
+    cur.execute(
+        """
+        insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        on conflict (paper_id) do update set
+          project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
+          paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
+          draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
+          claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
+          generated_at=excluded.generated_at, updated_at=excluded.updated_at
+        """,
+        (
+            paper_id,
+            project_id,
+            _text(raw.get("run_id")) or None,
+            _text(raw.get("paper_type")) or "arxiv_draft",
+            status,
+            _text(raw.get("draft_markdown_path")),
+            _text(raw.get("draft_latex_path")),
+            _text(raw.get("evidence_bundle_path")),
+            _text(raw.get("claim_ledger_path")),
+            _text(raw.get("manifest_path")),
+            _text(raw.get("generated_at")) or utc_now(),
+            _text(raw.get("updated_at")) or utc_now(),
+        ),
+    )
+    return 1
 
 
 def resolve_supabase_database_url(configured_url: str) -> str:
