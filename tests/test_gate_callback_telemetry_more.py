@@ -471,6 +471,22 @@ def test_process_helpers_cover_benign_and_same_process(
     )
 
 
+def test_project_cwd_helper_tolerates_process_access_races() -> None:
+    tracker = ProcessTracker(Path("/tmp"))
+
+    class _FlakyProc:
+        def cwd(self) -> str:
+            return "/tmp/project"
+
+        def cmdline(self) -> list[str]:
+            raise telemetry_mod.psutil.AccessDenied(pid=111)
+
+    assert (
+        tracker._has_non_benign_project_cwd_process(_FlakyProc(), Path("/tmp/project"))
+        is False
+    )
+
+
 def test_reaper_sends_sigkill_when_term_does_not_exit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
