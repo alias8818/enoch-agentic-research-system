@@ -99,15 +99,27 @@ def check_config_fields(agents_content: str) -> None:
 
     config_keys = set(config_data.keys())
 
-    # Find backtick-quoted config field names in AGENTS.md
-    for match in re.finditer(r"`([^`]+)`", agents_content):
+    # Only examine the "Required config fields" section, not the whole file,
+    # to avoid false positives from pytest markers, model fields, etc.
+    required_section = re.search(
+        r"Required config fields:\s*\n((?:\s*-\s*`[^`]+`.*\n?)+)",
+        agents_content,
+    )
+    if not required_section:
+        errors.append("AGENTS.md missing 'Required config fields' section")
+        return
+
+    section_text = required_section.group(1)
+
+    # Find backtick-quoted field names in the required config section
+    for match in re.finditer(r"`([^`]+)`", section_text):
         field = match.group(1)
-        # Only check fields that look like config keys (snake_case)
-        if re.match(r"^[a-z][a-z0-9_]*$", field) and "_" in field:
-            if field not in config_keys:
-                errors.append(
-                    f"Config field '{field}' referenced in AGENTS.md not in config.example.json"
-                )
+        # Strip trailing description text after the field name
+        field = field.split()[0] if " " in field else field
+        if field not in config_keys:
+            errors.append(
+                f"Config field '{field}' referenced in AGENTS.md not in config.example.json"
+            )
 
 
 def check_ci_workflows(agents_content: str) -> None:
