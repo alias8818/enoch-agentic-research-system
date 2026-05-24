@@ -20,6 +20,25 @@ autopilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(autopilot)
 
 
+def test_base_url_uses_http_for_loopback_control_plane(monkeypatch):
+    monkeypatch.delenv("ENOCH_CONTROL_URL", raising=False)
+
+    assert autopilot._base_url({"listen_host": "0.0.0.0", "listen_port": 8787}) == (
+        "http://127.0.0.1:8787"
+    )
+    assert autopilot._base_url({"listen_host": "127.0.0.1", "listen_port": 8787}) == (
+        "http://127.0.0.1:8787"
+    )
+
+
+def test_base_url_allows_explicit_environment_override(monkeypatch):
+    monkeypatch.setenv("ENOCH_CONTROL_URL", "https://control.example")
+
+    assert autopilot._base_url({"listen_host": "0.0.0.0", "listen_port": 8787}) == (
+        "https://control.example"
+    )
+
+
 def test_dry_run_transient_failure_retries_before_blocking(tmp_path, capsys):
     for name in autopilot.REPO_NAMES:
         (tmp_path / name).mkdir()
