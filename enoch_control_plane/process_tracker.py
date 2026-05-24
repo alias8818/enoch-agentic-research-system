@@ -50,7 +50,12 @@ def _safe_send_signal(
         if active_proc is None:
             if psutil is None:
                 raise ProcessLookupError(pid)
-            active_proc = psutil.Process(pid)
+            try:
+                active_proc = psutil.Process(pid)
+            except psutil.NoSuchProcess as exc:
+                raise ProcessLookupError(pid) from exc
+            except psutil.AccessDenied as exc:
+                raise PermissionError(pid) from exc
         if ProcessTracker._same_process(active_proc, tracked) is not True:
             raise ProcessLookupError(pid)
     os.kill(pid, sig)

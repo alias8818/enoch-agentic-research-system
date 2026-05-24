@@ -207,6 +207,34 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [],
             )
 
+    def test_reaper_ignores_candidate_that_exits_before_initial_term(self) -> None:
+        import psutil
+
+        tracker = ProcessTracker(Path("/tmp"))
+        record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
+        candidate = ProcessInfo(
+            pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
+        )
+
+        with (
+            patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
+            patch("enoch_control_plane.process_tracker.os.kill") as kill_mock,
+            patch(
+                "enoch_control_plane.process_tracker.psutil.Process",
+                side_effect=psutil.NoSuchProcess(123456),
+            ),
+        ):
+            self.assertEqual(
+                tracker.reap_stale_project_processes(
+                    record,
+                    stale_after_sec=0,
+                    command_markers=["python"],
+                    term_grace_sec=0,
+                ),
+                [],
+            )
+            kill_mock.assert_not_called()
+
     def test_reaper_does_not_sigkill_reused_pid(self) -> None:
         class _ReusedProcess:
             pid = 123456
