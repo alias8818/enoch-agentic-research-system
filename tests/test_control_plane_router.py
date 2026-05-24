@@ -7314,21 +7314,20 @@ class ControlPlaneRouterTests(unittest.TestCase):
         )
 
         self.assertEqual(paper_gate_only["status"], "ready")
-        self.assertTrue(
-            any(
-                item["kind"] == "paper_gate_blocked"
-                for item in paper_gate_only["blockers"]
-            )
-        )
+        self.assertFalse(paper_gate_only["blockers"])
         self.assertIn(
-            "No dispatch or automation health blocker",
+            "No deterministic blocker",
             paper_gate_only["primary_reason"],
         )
 
         evidence_missing = movement_diagnosis(
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=[],
-            paper_pipeline={"not_writable_by_decision_gate": 3, "finalize_needed": 1},
+            paper_pipeline={
+                "not_writable_by_decision_gate": 3,
+                "paper_write_blocked": 0,
+                "finalize_needed": 1,
+            },
             investigation_pipeline={},
         )
 
@@ -7340,6 +7339,24 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
         )
         self.assertIn("publication draft", evidence_missing["primary_reason"])
+
+        positive_anomaly = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[],
+            paper_pipeline={
+                "not_writable_by_decision_gate": 3,
+                "paper_write_blocked": 1,
+                "finalize_needed": 0,
+            },
+            investigation_pipeline={},
+        )
+        self.assertEqual(positive_anomaly["status"], "blocked")
+        self.assertTrue(
+            any(
+                item["kind"] == "paper_write_blocked"
+                for item in positive_anomaly["blockers"]
+            )
+        )
 
     def test_dashboard_status_does_not_call_idle_empty_lane_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

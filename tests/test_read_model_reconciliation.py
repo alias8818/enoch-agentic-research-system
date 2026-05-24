@@ -504,6 +504,8 @@ def test_overview_operator_cards_match_reconciled_pipeline_counts(tmp_path) -> N
     )
     assert overview["operator_counts"]["total_operator_items"] == 3
     assert overview["paper_pipeline"]["raw_completed_no_paper_candidates"] == 1
+    assert overview["paper_pipeline"]["paper_gate_archive_count"] == 0
+    assert overview["paper_pipeline"]["paper_write_blocked"] == 0
     assert (
         overview["paper_pipeline"]["next_write_candidate"]["project_id"]
         == "write-project"
@@ -531,6 +533,12 @@ def test_overview_treats_unexpandable_project_dir_as_missing_decision_artifact()
     assert overview["operator_counts"][OperatorLane.COMPLETE_NO_PAPER.value] == 1
     rejected = overview["paper_pipeline"]["gate_rejected_sample"]
     assert rejected[0]["project_id"] == "unexpandable-project-dir"
+    assert overview["paper_pipeline"]["paper_gate_archive_count"] == 1
+    assert overview["paper_pipeline"]["paper_write_blocked"] == 0
+    assert (
+        overview["paper_pipeline"]["paper_gate_archive_summary"]
+        == "1 completed run is intentionally not paper-writable."
+    )
 
 
 def test_overview_last_import_result_uses_same_import_predicate_as_published_count() -> (

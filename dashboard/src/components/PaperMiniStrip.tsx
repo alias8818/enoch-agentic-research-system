@@ -37,6 +37,9 @@ export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: Ove
   const writeNeeded = pipeline?.write_needed ?? 0
   const finalizeNeeded = pipeline?.finalize_needed ?? 0
   const publishReady = pipeline?.publish_ready ?? 0
+  const archiveCount = pipeline?.paper_gate_archive_count ?? 0
+  const writeBlocked = pipeline?.paper_write_blocked ?? 0
+  const archiveSummary = pipeline?.paper_gate_archive_summary || `${archiveCount} completed runs are intentionally not paper-writable.`
   const pipelineSignature = [writeNeeded, finalizeNeeded, publishReady].join(':')
   const canLiveFinalize = finalizeReady && finalizeSignature === pipelineSignature
   const finalizeDisabledReason = finalizationDisabledReason(finalizeNeeded, finalizeReady, canLiveFinalize, isPending)
@@ -122,6 +125,12 @@ export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: Ove
         <button className="primary-button" type="button" disabled={isPending || !canLiveFinalize} onClick={liveFinalize}>Finalize drafts</button>
         {finalizeDisabledReason ? <p className="paper-strip-disabled-reason">{finalizeDisabledReason}</p> : null}
       </div>
+      {archiveCount > 0 || writeBlocked > 0 ? (
+        <div className={writeBlocked > 0 ? 'paper-gate-note paper-gate-note--warn' : 'paper-gate-note'}>
+          <strong>{writeBlocked > 0 ? 'Paper gate needs attention' : 'Paper gate archive'}</strong>
+          <p>{archiveSummary} {writeBlocked} paper-writing candidate{writeBlocked === 1 ? ' is' : 's are'} currently blocked.</p>
+        </div>
+      ) : null}
       <ResultCard result={result} stale={finalizeReady && finalizeSignature !== pipelineSignature} />
       {dialog}
     </section>

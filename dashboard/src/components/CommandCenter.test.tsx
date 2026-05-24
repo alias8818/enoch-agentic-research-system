@@ -569,6 +569,14 @@ it('renders the paper mini strip and movement diagnosis', () => {
   expect(screen.getByRole('link', { name: /Write/ })).toHaveAttribute('href', '/control/dashboard-v2#papers?status=publication_draft')
 })
 
+it('renders paper gate archive as non-actionable paper context', () => {
+  render(<PaperMiniStrip pipeline={{ write_needed: 0, finalize_needed: 0, publish_ready: 0, paper_gate_archive_count: 2248, paper_write_blocked: 0, paper_gate_archive_summary: '2248 completed runs are intentionally not paper-writable.' }} />)
+
+  expect(screen.getByText('Paper gate archive')).toBeInTheDocument()
+  expect(screen.getByText(/2248 completed runs are intentionally not paper-writable/)).toBeInTheDocument()
+  expect(screen.getByText(/0 paper-writing candidates are currently blocked/)).toBeInTheDocument()
+})
+
 it('explains why paper strip live finalization is disabled before dry-run', () => {
   render(<PaperMiniStrip pipeline={{ write_needed: 0, finalize_needed: 1, publish_ready: 0 }} />)
 
