@@ -5049,8 +5049,17 @@ def _auto_reconcile_stale_callback_ready(
 ) -> list[dict[str, Any]]:
     if not status.active_items or not _status_has_no_live_worker_conflict(status):
         return []
+    stale_lane_keys = {
+        str(lane.get("lane_key") or lane.get("machine_target") or "").strip()
+        for lane in status.worker_lanes
+        if isinstance(lane.get("active_confirmation"), dict)
+        and lane["active_confirmation"].get("state") == "stale_active"
+    }
     reconciled: list[dict[str, Any]] = []
     for row in status.active_items:
+        row_lane_key = str(row.get("lane") or row.get("machine_target") or "").strip()
+        if stale_lane_keys and row_lane_key not in stale_lane_keys:
+            continue
         if _queue_row_recent_callback(row):
             continue
         artifact_root, gate, evidence_sync, project_id, run_id = (

@@ -8166,6 +8166,97 @@ class ControlPlaneRouterTests(unittest.TestCase):
             status = client.get("/control/api/status", headers=headers).json()
             self.assertEqual(status["active_items"], [])
 
+    def test_queue_alert_auto_reconcile_only_mutates_stale_active_lanes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            stale_dir = Path(config.project_root) / "idea-stale-active"
+            (stale_dir / ".enoch").mkdir(parents=True)
+            (stale_dir / "run_notes.md").write_text("completed\n", encoding="utf-8")
+            (stale_dir / ".enoch" / "project_decision.json").write_text(
+                '{"project_decision":"finalize_negative"}\n', encoding="utf-8"
+            )
+            other_dir = Path(config.project_root) / "idea-unrelated-active"
+            (other_dir / ".enoch").mkdir(parents=True)
+            (other_dir / "run_notes.md").write_text("completed\n", encoding="utf-8")
+            (other_dir / ".enoch" / "project_decision.json").write_text(
+                '{"project_decision":"finalize_negative"}\n', encoding="utf-8"
+            )
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "auto-reconcile-lane-scope-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-stale-active",
+                            "project_name": "Stale Active",
+                            "project_dir": "idea-stale-active",
+                            "status": "awaiting_wake",
+                            "machine_target": "gb10",
+                            "current_run_id": "run-stale-active",
+                        },
+                        {
+                            "project_id": "idea-unrelated-active",
+                            "project_name": "Unrelated Active",
+                            "project_dir": "idea-unrelated-active",
+                            "status": "awaiting_wake",
+                            "machine_target": "cpu-proxmox-1",
+                            "current_run_id": "run-unrelated-active",
+                        },
+                    ],
+                },
+            )
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={
+                    "ok": True,
+                    "checks": [
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": True,
+                            "detail": "active_or_waiting=0, live=0",
+                            "data": {"active_or_waiting": 0, "live": 0},
+                        }
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api",
+                status="ok",
+                payload={
+                    "ok": True,
+                    "body": {
+                        "runs": [
+                            {
+                                "run_id": "run-unrelated-active",
+                                "project_id": "idea-unrelated-active",
+                                "target": "cpu-proxmox-1",
+                            }
+                        ]
+                    },
+                },
+            )
+
+            alert = client.post(
+                "/control/api/alerts/queue-check",
+                headers=headers,
+                json={"dry_run": False, "requested_by": "test"},
+            ).json()
+
+            reconciled_runs = [item.get("run_id") for item in alert.get("auto_reconcile", [])]
+            self.assertIn("run-stale-active", reconciled_runs)
+            self.assertNotIn("run-unrelated-active", reconciled_runs)
+
     def test_queue_alert_auto_reconcile_requires_local_paper_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)

@@ -273,7 +273,7 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
       status: 'active',
       queued_count: 0,
       dispatch_available: false,
-      active_item: { project_name: 'CPU job' },
+      active_item: { project_id: 'project-cpu', current_run_id: 'run-cpu', project_name: 'CPU job' },
       active_confirmation: { state: 'stale_active' },
     },
     { lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 1, dispatch_available: true, next_candidate: { project_name: 'GB10 job' } },
@@ -301,7 +301,7 @@ it('exposes stale active lane reconcile as an explicit confirmed action', async 
       status: 'active',
       queued_count: 0,
       dispatch_available: false,
-      active_item: { project_name: 'CPU job' },
+      active_item: { project_id: 'project-cpu', current_run_id: 'run-cpu', project_name: 'CPU job' },
       active_confirmation: { state: 'stale_active' },
     },
   ]} onRefresh={onRefresh} />)
@@ -315,6 +315,10 @@ it('exposes stale active lane reconcile as an explicit confirmed action', async 
     body: expect.stringContaining('"dry_run":false'),
   })))
   expect(fetchMockRequestBody(fetchMock, 0)).toContain('"requested_by":"dashboard-v2"')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"lane_key":"cpu"')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"machine_target":"cpu-proxmox-1"')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"project_id":"project-cpu"')
+  expect(fetchMockRequestBody(fetchMock, 0)).toContain('"run_id":"run-cpu"')
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
