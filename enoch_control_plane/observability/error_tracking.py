@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import re
+from dataclasses import dataclass
 from urllib.parse import ParseResult, parse_qsl, urlencode, urlparse, urlunparse
 from typing import Any
 
@@ -43,6 +44,16 @@ _SAFE_EXTRA_KEYS = {
 }
 _TAG_CONTEXT_KEYS = {"component", "lane", "operation", "machine_target"}
 _sentry_initialized = False
+
+
+@dataclass(frozen=True)
+class _SentryRuntimeConfig:
+    dsn: str
+    environment: str
+    release: str
+    component: str
+    sample_rate: float
+    server_name: str | None
 
 
 def _env(name: str, default: str = "") -> str:
@@ -149,6 +160,76 @@ def _sanitize_breadcrumbs(event: dict[str, Any]) -> None:
             data["url"] = _sanitize_url(data.get("url"))
 
 
+def _sanitize_request(request: dict[str, Any]) -> dict[str, Any]:
+    if "url" in request:
+        request["url"] = _sanitize_url(request.get("url"))
+    request["headers"] = _sanitize_headers(request.get("headers"))
+    for key in ("data", "cookies", "query_string", "env"):
+        if key in request:
+            request[key] = _FILTERED
+    return request
+
+
+def _sanitize_contexts(contexts: dict[str, Any]) -> dict[str, Any]:
+    safe_context_keys = {"trace", "runtime", "os", "device"}
+    return {
+        str(key): value
+        if str(key) in safe_context_keys
+        else _sanitize_value(str(key), value)
+        for key, value in contexts.items()
+    }
+
+
+def _ensure_component_tag(event: dict[str, Any]) -> None:
+    tags = event.setdefault("tags", {})
+    if isinstance(tags, dict):
+        tags.setdefault("component", _env("ENOCH_SENTRY_COMPONENT", "control_plane"))
+
+
+def _sentry_runtime_config(component: str) -> _SentryRuntimeConfig | None:
+    dsn = _sentry_dsn()
+    if not dsn:
+        return None
+    return _SentryRuntimeConfig(
+        dsn=dsn,
+        environment=_env("ENOCH_SENTRY_ENV", _env("ENOCH_ENV", "production")),
+        release=_env("ENOCH_SENTRY_RELEASE", _env("ENOCH_RELEASE", "unknown")),
+        component=component,
+        sample_rate=_bounded_float_env(
+            "ENOCH_SENTRY_TRACES_SAMPLE_RATE", 0.02, 0.0, 1.0
+        ),
+        server_name=_env("ENOCH_SENTRY_SERVER_NAME") or None,
+    )
+
+
+def _sentry_dependencies_available() -> bool:
+    if sentry_sdk is not None and FastApiIntegration is not None:
+        return True
+    logger.warning("SENTRY_DSN is configured but sentry-sdk is not installed")
+    return False
+
+
+def _configure_sentry_scope(config: _SentryRuntimeConfig) -> None:
+    with sentry_sdk.configure_scope() as scope:
+        scope.set_tag("component", config.component)
+        scope.set_tag("environment", config.environment)
+        scope.set_tag("release", config.release)
+
+
+def _initialize_sentry_sdk(config: _SentryRuntimeConfig) -> None:
+    sentry_sdk.init(
+        dsn=config.dsn,
+        integrations=[FastApiIntegration()],
+        traces_sample_rate=config.sample_rate,
+        environment=config.environment,
+        release=config.release,
+        server_name=config.server_name,
+        send_default_pii=False,
+        before_send=before_send,
+    )
+    _configure_sentry_scope(config)
+
+
 def before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
     """Sentry before_send hook that prevents private research/secrets leakage.
 
@@ -160,31 +241,14 @@ def before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] |
     del hint
     request = event.get("request")
     if isinstance(request, dict):
-        if "url" in request:
-            request["url"] = _sanitize_url(request.get("url"))
-        request["headers"] = _sanitize_headers(request.get("headers"))
-        if "data" in request:
-            request["data"] = _FILTERED
-        if "cookies" in request:
-            request["cookies"] = _FILTERED
-        if "query_string" in request:
-            request["query_string"] = _FILTERED
-        if "env" in request:
-            request["env"] = _FILTERED
+        event["request"] = _sanitize_request(request)
     extra = event.get("extra")
     if isinstance(extra, dict):
         event["extra"] = _sanitize_context(extra)
     contexts = event.get("contexts")
     if isinstance(contexts, dict):
-        event["contexts"] = {
-            str(key): value
-            if str(key) in {"trace", "runtime", "os", "device"}
-            else _sanitize_value(str(key), value)
-            for key, value in contexts.items()
-        }
-    tags = event.setdefault("tags", {})
-    if isinstance(tags, dict):
-        tags.setdefault("component", _env("ENOCH_SENTRY_COMPONENT", "control_plane"))
+        event["contexts"] = _sanitize_contexts(contexts)
+    _ensure_component_tag(event)
     _sanitize_breadcrumbs(event)
     return event
 
@@ -193,38 +257,21 @@ def init_sentry(*, component: str = "control_plane") -> bool:
     """Initialize Sentry SDK if SENTRY_DSN is configured."""
 
     global _sentry_initialized
-    dsn = _sentry_dsn()
-    if not dsn:
+    runtime_config = _sentry_runtime_config(component)
+    if runtime_config is None:
         return False
     if _sentry_initialized:
         return True
-    if sentry_sdk is None or FastApiIntegration is None:
-        logger.warning("SENTRY_DSN is configured but sentry-sdk is not installed")
+    if not _sentry_dependencies_available():
         return False
-    environment = _env("ENOCH_SENTRY_ENV", _env("ENOCH_ENV", "production"))
-    release = _env("ENOCH_SENTRY_RELEASE", _env("ENOCH_RELEASE", "unknown"))
-    sample_rate = _bounded_float_env("ENOCH_SENTRY_TRACES_SAMPLE_RATE", 0.02, 0.0, 1.0)
     try:
-        sentry_sdk.init(
-            dsn=dsn,
-            integrations=[FastApiIntegration()],
-            traces_sample_rate=sample_rate,
-            environment=environment,
-            release=release,
-            server_name=_env("ENOCH_SENTRY_SERVER_NAME") or None,
-            send_default_pii=False,
-            before_send=before_send,
-        )
-        with sentry_sdk.configure_scope() as scope:
-            scope.set_tag("component", component)
-            scope.set_tag("environment", environment)
-            scope.set_tag("release", release)
+        _initialize_sentry_sdk(runtime_config)
         _sentry_initialized = True
         logger.info(
             "Sentry initialized (env=%s, release=%s, component=%s)",
-            environment,
-            release,
-            component,
+            runtime_config.environment,
+            runtime_config.release,
+            runtime_config.component,
         )
         return True
     except Exception as exc:  # pragma: no cover - defensive startup behavior.
@@ -236,6 +283,15 @@ def is_sentry_enabled() -> bool:
     return _sentry_initialized
 
 
+def _apply_sentry_scope_context(scope: Any, sanitized: dict[str, Any]) -> None:
+    for key in _TAG_CONTEXT_KEYS:
+        if sanitized.get(key):
+            scope.set_tag(key, str(sanitized[key]))
+    for key, value in sanitized.items():
+        if key not in _TAG_CONTEXT_KEYS:
+            scope.set_extra(key, value)
+
+
 def capture_exception(exc: BaseException, **context: Any) -> str | None:
     """Report an exception to Sentry if configured and return its event ID."""
 
@@ -243,12 +299,7 @@ def capture_exception(exc: BaseException, **context: Any) -> str | None:
     if _sentry_initialized and sentry_sdk is not None:
         try:
             with sentry_sdk.configure_scope() as scope:
-                for key in _TAG_CONTEXT_KEYS:
-                    if sanitized.get(key):
-                        scope.set_tag(key, str(sanitized[key]))
-                for key, value in sanitized.items():
-                    if key not in _TAG_CONTEXT_KEYS:
-                        scope.set_extra(key, value)
+                _apply_sentry_scope_context(scope, sanitized)
             event_id = sentry_sdk.capture_exception(exc)
             return str(event_id) if event_id else None
         except Exception:
