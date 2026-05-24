@@ -5974,6 +5974,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 ],
             )
 
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={"target": "http://gb10-worker:8787", "ok": True},
+            )
+
             with patch(
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
@@ -5986,7 +5993,6 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             self.assertEqual(api_response.status_code, 200)
             preflight.assert_called_once()
-            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
             global_observation = store.latest_dashboard_observation(
                 source="worker_preflight"
             )
@@ -5994,6 +6000,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 source="worker_preflight", scope="lane:http://cpu-proxmox-1:8787"
             )
             self.assertIsNotNone(global_observation)
+            self.assertEqual(
+                global_observation.payload["target"], "http://gb10-worker:8787"
+            )
             self.assertIsNotNone(scoped)
             self.assertEqual(scoped.payload["target"], "http://cpu-proxmox-1:8787")
 
