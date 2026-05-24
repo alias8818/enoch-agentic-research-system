@@ -521,17 +521,34 @@ class MovementDiagnosisTests(unittest.TestCase):
         self.assertEqual(diagnosis["blockers"][0]["kind"], "no_admitted_candidates")
         self.assertIn("generate", diagnosis["blockers"][0]["summary"].lower())
 
-    def test_paper_gate_and_evidence_blockers_are_reported(self) -> None:
+    def test_paper_gate_archive_is_not_reported_as_blocker(self) -> None:
         diagnosis = movement_diagnosis(
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=[],
-            paper_pipeline={"not_writable_by_decision_gate": 3, "finalize_needed": 2},
+            paper_pipeline={
+                "not_writable_by_decision_gate": 3,
+                "paper_gate_archive_count": 3,
+                "paper_write_blocked": 0,
+                "finalize_needed": 2,
+            },
             investigation_pipeline={},
         )
 
         kinds = [item["kind"] for item in diagnosis["blockers"]]
-        self.assertIn("paper_gate_blocked", kinds)
+        self.assertNotIn("paper_gate_blocked", kinds)
+        self.assertNotIn("paper_write_blocked", kinds)
         self.assertIn("evidence_missing", kinds)
+
+    def test_positive_paper_write_blocked_is_reported(self) -> None:
+        diagnosis = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[],
+            paper_pipeline={"paper_write_blocked": 2, "finalize_needed": 0},
+            investigation_pipeline={},
+        )
+
+        kinds = [item["kind"] for item in diagnosis["blockers"]]
+        self.assertIn("paper_write_blocked", kinds)
 
     def test_duplicate_active_on_single_lane_is_hard_blocker(self) -> None:
         diagnosis = movement_diagnosis(

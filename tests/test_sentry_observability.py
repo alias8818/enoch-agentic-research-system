@@ -98,6 +98,10 @@ def test_sentry_before_send_removes_request_bodies_and_sensitive_context(
     assert cleaned["request"]["data"] == "[Filtered]"
     assert cleaned["request"]["cookies"] == "[Filtered]"
     assert cleaned["request"]["query_string"] == "[Filtered]"
+    assert (
+        cleaned["request"]["url"]
+        == "https://control.example/control/api/v1/overview?token=%5BFiltered%5D"
+    )
     assert cleaned["request"]["headers"]["Authorization"] == "[Filtered]"
     assert cleaned["request"]["headers"]["Cookie"] == "[Filtered]"
     assert cleaned["request"]["headers"]["X-Request-ID"] == "req-1"
@@ -107,6 +111,29 @@ def test_sentry_before_send_removes_request_bodies_and_sensitive_context(
     assert cleaned["extra"]["evidence_bundle"] == "[Filtered]"
     assert cleaned["extra"]["api_key"] == "[Filtered]"
     assert cleaned["contexts"]["artifact"] == "[Filtered]"
+
+
+def test_sentry_before_send_sanitizes_breadcrumb_urls(monkeypatch) -> None:
+    error_tracking = _reload_error_tracking(monkeypatch)
+    event = {
+        "breadcrumbs": {
+            "values": [
+                {
+                    "type": "http",
+                    "data": {
+                        "url": "https://control.example/dashboard?token=secret&view=summary"
+                    },
+                }
+            ]
+        }
+    }
+
+    cleaned = error_tracking.before_send(event, {})
+
+    assert (
+        cleaned["breadcrumbs"]["values"][0]["data"]["url"]
+        == "https://control.example/dashboard?token=%5BFiltered%5D&view=summary"
+    )
 
 
 def test_capture_exception_returns_event_id_and_sanitizes_context(monkeypatch) -> None:

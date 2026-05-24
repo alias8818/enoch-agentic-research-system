@@ -5534,6 +5534,20 @@ class EnochSentrySmokeError(RuntimeError):
     """Safe synthetic exception used to verify Sentry delivery."""
 
 
+def _declare_non_store_mutating_post(action: str) -> None:
+    """Document a POST route that performs no control-store mutation.
+
+    Most POST routes must call `_require_writable_store` before mutating the
+    control-plane store.  A few operator smoke-test endpoints are POST-only
+    because they intentionally trigger a bounded external side effect while
+    leaving the control-plane store untouched.  Calling this marker makes that
+    boundary explicit and keeps the AST write-boundary test fail-closed for
+    future POST routes.
+    """
+    if not action:
+        raise AssertionError("non-mutating POST boundary action is required")
+
+
 def _register_control_plane_sentry_smoke_route(
     router: APIRouter, require_bearer: RequireBearer
 ) -> None:
@@ -5542,6 +5556,7 @@ def _register_control_plane_sentry_smoke_route(
         authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         require_bearer(authorization)
+        _declare_non_store_mutating_post("sentry smoke")
         exc = EnochSentrySmokeError("enoch sentry smoke test")
         event_id = capture_exception(
             exc,
