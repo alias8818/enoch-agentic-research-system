@@ -25,6 +25,7 @@ const pageMetaSchema = z.object({
 
 /** SQL LEFT JOINs and idle projects may send explicit null instead of omitting keys. */
 const apiString = z.string().nullish()
+const apiId = z.union([z.string(), z.number()]).nullish()
 
 function pagedRowsSchema<T extends z.ZodTypeAny>(rowSchema: T) {
   return z.object({
@@ -89,7 +90,7 @@ export const paperListRowSchema = z.object({
   paper_status: apiString,
   review_status: apiString,
   corpus_imported: z.boolean().optional(),
-  corpus_import_id: z.string().optional(),
+  corpus_import_id: apiId,
   artifact_paths_present: z.record(z.unknown()).optional(),
   updated_at: z.string().optional(),
   age_seconds: z.number().optional(),
