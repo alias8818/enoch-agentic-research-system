@@ -371,9 +371,10 @@ def _recent_dispatch_transition_projects(
 def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
     if finding.source != "control_plane_db+worker_preflight":
         return False
-    return (
-        "active row" in finding.message.lower()
-        and "no live worker run" in finding.message.lower()
+    return "active row" in finding.message.lower() and (
+        "no live worker run" in finding.message.lower()
+        or "without a matching worker run" in finding.message.lower()
+        or "unconfirmed during worker reconcile grace" in finding.message.lower()
     )
 
 

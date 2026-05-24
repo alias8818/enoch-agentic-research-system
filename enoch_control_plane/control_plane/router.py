@@ -2056,6 +2056,7 @@ def _int_or_none(value: Any) -> int | None:
 
 
 WORKER_SETTLING_RECENT_GRACE_SEC = 180
+ACTIVE_LANE_CONFIRMATION_GRACE_SEC = 180
 
 
 def _worker_run_is_settling_without_process(run: dict[str, Any]) -> bool:
@@ -2095,6 +2096,125 @@ def _worker_no_live_failed_check(
     if not no_live or no_live.get("ok") is not False:
         return None
     return no_live
+
+
+def _preflight_observed_recently(
+    preflight: DashboardObservationRecord | None,
+    *,
+    grace_seconds: int = ACTIVE_LANE_CONFIRMATION_GRACE_SEC,
+) -> bool:
+    observed = _parse_ts(preflight.observed_at if preflight else None)
+    if observed is None:
+        return False
+    now = datetime.now(timezone.utc)
+    grace = timedelta(seconds=max(1, grace_seconds))
+    if observed > now + grace:
+        return False
+    return now <= observed + grace
+
+
+def _queue_row_recent_callback(
+    row: dict[str, Any],
+    *,
+    grace_seconds: int = ACTIVE_LANE_CONFIRMATION_GRACE_SEC,
+) -> bool:
+    observed = _parse_ts(str(row.get("last_callback_at") or "") or None)
+    if observed is None:
+        return False
+    now = datetime.now(timezone.utc)
+    grace = timedelta(seconds=max(1, grace_seconds))
+    if observed > now + grace:
+        return False
+    return now <= observed + grace
+
+
+def _worker_dashboard_runs_from_preflight(
+    preflight: DashboardObservationRecord | None,
+) -> list[dict[str, Any]]:
+    runs = _worker_dashboard_body_from_preflight(preflight).get("runs")
+    if not isinstance(runs, list):
+        return []
+    return [run for run in runs if isinstance(run, dict)]
+
+
+def _worker_run_matches_queue_row(run: dict[str, Any], row: dict[str, Any]) -> bool:
+    row_run_id = str(row.get("current_run_id") or "").strip()
+    row_project_id = str(row.get("project_id") or "").strip()
+    run_run_id = str(run.get("run_id") or "").strip()
+    run_project_id = str(run.get("project_id") or "").strip()
+    if row_run_id and run_run_id and row_run_id == run_run_id:
+        return True
+    return bool(row_project_id and run_project_id and row_project_id == run_project_id)
+
+
+def _worker_run_is_live_marker(run: dict[str, Any]) -> bool:
+    active_process_count = _int_or_none(run.get("active_process_count"))
+    if active_process_count is not None and active_process_count > 0:
+        return True
+    if run.get("is_live") is True:
+        return True
+    gate_state = _normal_status(run.get("gate_state"))
+    lifecycle_state = _normal_status(run.get("lifecycle_state"))
+    return gate_state in ACTIVE_STATUSES or lifecycle_state in ACTIVE_STATUSES
+
+
+def _active_lane_worker_confirmation(
+    *,
+    preflight: DashboardObservationRecord | None,
+    preflight_lane_key: str,
+    lane_key: str,
+    active_row: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not active_row:
+        return {"state": "idle", "matched": False}
+    if preflight is None:
+        return {
+            "state": "unknown",
+            "matched": False,
+            "reason": "no worker preflight observation",
+        }
+    if preflight_lane_key and preflight_lane_key != lane_key:
+        return {
+            "state": "unknown",
+            "matched": False,
+            "reason": "preflight observation is for a different worker lane",
+            "observed_lane_key": preflight_lane_key,
+        }
+    for run in _worker_dashboard_runs_from_preflight(preflight):
+        if _worker_run_matches_queue_row(run, active_row):
+            return {
+                "state": "active_confirmed"
+                if _worker_run_is_live_marker(run)
+                else "active_unconfirmed",
+                "matched": True,
+                "matched_run_id": str(run.get("run_id") or ""),
+                "matched_project_id": str(run.get("project_id") or ""),
+                "active_process_count": _int_or_none(run.get("active_process_count")),
+                "reason": "matched worker run/session marker",
+            }
+    no_live = _preflight_check(preflight, "worker_no_live_runs")
+    if no_live and no_live.get("ok") is True:
+        if _preflight_observed_recently(preflight) or _queue_row_recent_callback(
+            active_row
+        ):
+            return {
+                "state": "active_unconfirmed_grace",
+                "matched": False,
+                "reason": "worker reports no live run, but observation/callback is within reconcile grace",
+                "worker_check": no_live,
+            }
+        return {
+            "state": "stale_active",
+            "matched": False,
+            "reason": "worker reports no live run for active control-plane row",
+            "worker_check": no_live,
+        }
+    return {
+        "state": "active_unconfirmed",
+        "matched": False,
+        "reason": "worker preflight did not include a matching live run marker",
+        "worker_check": no_live,
+    }
 
 
 def _terminal_run_states_for_worker_settling() -> set[str]:
@@ -4706,11 +4826,68 @@ def _worker_evidence_sync_kwargs_for_row(
 
 
 def _status_has_no_live_worker_conflict(status: DashboardStatusResponse) -> bool:
+    for lane in status.worker_lanes:
+        confirmation = lane.get("active_confirmation")
+        if (
+            isinstance(confirmation, dict)
+            and confirmation.get("state") == "stale_active"
+        ):
+            return True
     return any(
         item.source == CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE
         and "no live worker run" in item.message
         for item in [*status.conflicts, *status.warnings]
     )
+
+
+def _append_dashboard_worker_lane_confirmation_findings(
+    worker_lanes: list[dict[str, Any]],
+    *,
+    warnings: list[DashboardFinding],
+    blockers: list[str],
+    conflicts: list[DashboardFinding],
+) -> None:
+    for lane in worker_lanes:
+        confirmation = lane.get("active_confirmation")
+        if not isinstance(confirmation, dict):
+            continue
+        state = str(confirmation.get("state") or "")
+        if state not in {"stale_active", "active_unconfirmed_grace"}:
+            continue
+        lane_label = str(
+            lane.get("worker_role")
+            or lane.get("machine_target")
+            or lane.get("lane_key")
+            or "worker lane"
+        )
+        active_item = (
+            lane.get("active_item") if isinstance(lane.get("active_item"), dict) else {}
+        )
+        finding = DashboardFinding(
+            severity="warn",
+            source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
+            authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
+            message=(
+                f"{lane_label} has an active control-plane row without a matching worker run"
+                if state == "stale_active"
+                else f"{lane_label} active row is unconfirmed during worker reconcile grace"
+            ),
+            suggested_action=(
+                "run a live queue alert check to safely reconcile the stale active row"
+                if state == "stale_active"
+                else "wait for the worker observation grace window before reconciling"
+            ),
+            data={
+                "lane_key": lane.get("lane_key"),
+                "machine_target": lane.get("machine_target"),
+                "active_item": active_item,
+                "active_confirmation": confirmation,
+            },
+        )
+        warnings.append(finding)
+        if state == "stale_active":
+            conflicts.append(finding)
+            blockers.append(f"stale active worker lane: {lane_label}")
 
 
 def _auto_reconcile_evidence_gate_for_row(
@@ -4863,6 +5040,8 @@ def _auto_reconcile_stale_callback_ready(
         return []
     reconciled: list[dict[str, Any]] = []
     for row in status.active_items:
+        if _queue_row_recent_callback(row):
+            continue
         artifact_root, gate, evidence_sync, project_id, run_id = (
             _auto_reconcile_evidence_gate_for_row(config, row)
         )
@@ -5159,6 +5338,8 @@ def _cp_mount_worker_lane_capacity_entry(
     active_by_lane: dict[str, list[dict[str, Any]]],
     queued_by_lane: dict[str, list[dict[str, Any]]],
     global_blockers: list[str],
+    worker_preflight: DashboardObservationRecord | None = None,
+    worker_preflight_lane_key: str = "",
 ) -> dict[str, Any]:
     lane_key = str(lane["lane_key"])
     lane_active = sorted(
@@ -5175,12 +5356,17 @@ def _cp_mount_worker_lane_capacity_entry(
             global_blockers=global_blockers,
         )
     )
+    active_item = lane_active[0] if lane_active else None
     return {
         **lane,
         "status": "active" if lane_active else "idle",
         "active_count": len(lane_active),
-        "active_item": _worker_lane_summary_row(
-            lane_active[0] if lane_active else None
+        "active_item": _worker_lane_summary_row(active_item),
+        "active_confirmation": _active_lane_worker_confirmation(
+            preflight=worker_preflight,
+            preflight_lane_key=worker_preflight_lane_key,
+            lane_key=lane_key,
+            active_row=active_item,
         ),
         "queued_count": len(lane_queued),
         "next_candidate": _worker_lane_summary_row(next_candidate),
@@ -5197,6 +5383,7 @@ def _cp_mount_worker_lane_capacity(
     active: list[dict[str, Any]] | None = None,
     rows: list[dict[str, Any]] | None = None,
     global_blockers: list[str] | None = None,
+    worker_preflight: DashboardObservationRecord | None = None,
 ) -> list[dict[str, Any]]:
     active_rows = list(active if active is not None else store.active_items())
     queue_rows = list(rows if rows is not None else store.queue_rows())
@@ -5210,12 +5397,17 @@ def _cp_mount_worker_lane_capacity(
         config, lanes_by_key, active_rows, queued_candidates
     )
     blockers = [str(item) for item in (global_blockers or []) if str(item)]
+    worker_preflight_lane_key = _cp_mount_preflight_observation_lane_key(
+        config, worker_preflight
+    )
     return [
         _cp_mount_worker_lane_capacity_entry(
             lane,
             active_by_lane=active_by_lane,
             queued_by_lane=queued_by_lane,
             global_blockers=blockers,
+            worker_preflight=worker_preflight,
+            worker_preflight_lane_key=worker_preflight_lane_key,
         )
         for lane in sorted(lanes_by_key.values(), key=_cp_mount_worker_lane_sort_key)
     ]

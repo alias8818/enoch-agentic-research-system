@@ -6307,6 +6307,189 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(state_lanes["cpu-proxmox-1"]["dispatch_available"])
             self.assertTrue(state_lanes["gb10"]["dispatch_available"])
 
+    def test_dashboard_status_marks_active_lane_stale_when_worker_has_no_matching_run(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "stale-active-lane-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "active-cpu-stale",
+                            "project_name": "Active CPU Stale",
+                            "project_dir": "active-cpu-stale",
+                            "status": "awaiting_wake",
+                            "machine_target": "cpu-proxmox-1",
+                            "current_run_id": "run-active-cpu-stale",
+                            "updated_at": old,
+                        }
+                    ],
+                },
+            )
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                observed_at=old,
+                ttl_seconds=900,
+                payload={
+                    "ok": True,
+                    "target": "http://cpu-proxmox-1:8787",
+                    "checks": [
+                        {
+                            "name": "wake_gate_healthz",
+                            "ok": True,
+                            "detail": "ok",
+                            "data": {},
+                        },
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {"body": {"runs": [], "totals": {}}},
+                        },
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": True,
+                            "detail": "active_or_waiting=0, live=0",
+                            "data": {"active_or_waiting": 0, "live": 0},
+                        },
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api", status="ok", payload={"ok": True}
+            )
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            confirmation = lanes["cpu-proxmox-1"]["active_confirmation"]
+            self.assertEqual(confirmation["state"], "stale_active")
+            self.assertIn(
+                "stale active worker lane: cpu_worker", status["dispatch_blockers"]
+            )
+            self.assertTrue(
+                any(
+                    item["source"] == "control_plane_db+worker_preflight"
+                    and "without a matching worker run" in item["message"]
+                    for item in status["warnings"]
+                )
+            )
+
+    def test_dashboard_status_confirms_active_lane_from_matching_worker_run(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        }
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "confirmed-active-lane-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "active-cpu-confirmed",
+                            "project_name": "Active CPU Confirmed",
+                            "project_dir": "active-cpu-confirmed",
+                            "status": "running",
+                            "machine_target": "cpu-proxmox-1",
+                            "current_run_id": "run-active-cpu-confirmed",
+                        }
+                    ],
+                },
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "target": "http://cpu-proxmox-1:8787",
+                    "checks": [
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "runs": [
+                                        {
+                                            "run_id": "run-active-cpu-confirmed",
+                                            "project_id": "active-cpu-confirmed",
+                                            "is_live": True,
+                                            "active_process_count": 1,
+                                        }
+                                    ]
+                                }
+                            },
+                        },
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api", status="ok", payload={"ok": True}
+            )
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            confirmation = lanes["cpu-proxmox-1"]["active_confirmation"]
+            self.assertEqual(confirmation["state"], "active_confirmed")
+            self.assertEqual(confirmation["matched_run_id"], "run-active-cpu-confirmed")
+            self.assertNotIn(
+                "stale active worker lane: cpu_worker", status["dispatch_blockers"]
+            )
+
     def test_dashboard_status_reports_all_lanes_active_when_no_open_candidate(
         self,
     ) -> None:
@@ -7999,6 +8182,61 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 if event["event_type"] == "paper.evidence_sync_blocked"
             ]
             self.assertEqual(len(events), 1)
+
+    def test_queue_alert_auto_reconcile_skips_recent_callback_grace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = Path(config.project_root) / "idea-recent-callback"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / ".enoch" / "project_decision.json").write_text(
+                '{"project_decision":"finalize_negative"}\n', encoding="utf-8"
+            )
+            now = datetime.now(timezone.utc).isoformat()
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "recent-callback-grace-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-recent-callback",
+                            "project_name": "Recent Callback",
+                            "project_dir": "idea-recent-callback",
+                            "status": "awaiting_wake",
+                            "current_run_id": "run-recent-callback",
+                            "last_callback_at": now,
+                        }
+                    ],
+                },
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={
+                    "ok": True,
+                    "checks": [
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": True,
+                            "detail": "active_or_waiting=0, live=0",
+                            "data": {"active_or_waiting": 0, "live": 0},
+                        }
+                    ],
+                },
+            )
+
+            alert = client.post(
+                "/control/api/alerts/queue-check",
+                headers=headers,
+                json={"dry_run": False, "requested_by": "test"},
+            ).json()
+
+            self.assertFalse(alert.get("auto_reconcile"))
+            status = client.get("/control/api/status", headers=headers).json()
+            self.assertEqual(len(status["active_items"]), 1)
 
     def test_queue_alert_auto_reconcile_negative_decision_without_paper_evidence_does_not_alert(
         self,
