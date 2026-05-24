@@ -81,8 +81,9 @@ _PROMISING_TAIL = r"(?:preserved|outside|that are not|repo|records)"
 
 
 def _promising_count_regex(qualifier: str) -> re.Pattern[str]:
+    flexible_qualifier = re.escape(qualifier).replace(r"\ ", _HTML_GAP)
     return re.compile(
-        rf"\b(\d{{1,5}})\b{_HTML_GAP}{qualifier}{_PROMISING_LEADS}{_HTML_GAP}{_PROMISING_TAIL}",
+        rf"\b(\d{{1,5}})\b{_HTML_GAP}{flexible_qualifier}{_PROMISING_LEADS}{_HTML_GAP}{_PROMISING_TAIL}",
         re.I,
     )
 

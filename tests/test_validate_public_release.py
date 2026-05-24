@@ -315,3 +315,18 @@ def test_promising_signal_count_checks_reject_stale_public_copy(tmp_path) -> Non
     )
 
     assert failures == [f"promising signal count drift in {page}:1: 3 != 4"]
+
+
+def test_promising_signal_count_checks_allow_formatted_whitespace(tmp_path) -> None:
+    page = tmp_path / "README.md"
+    page.write_text(
+        "A separate repo preserves 3 bounded\npromising\tsignals outside the paper corpus.",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_promising_counts(
+        [page], promising_signal_count=4, failures=failures
+    )
+
+    assert failures == [f"promising signal count drift in {page}:1: 3 != 4"]
