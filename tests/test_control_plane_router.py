@@ -5549,13 +5549,81 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
             ) as preflight:
-                status = client.get("/control/api/status", headers=headers).json()
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
 
             preflight.assert_called_once()
             self.assertFalse(status["dispatch_safe"])
             self.assertIn("worker_preflight not ok", status["dispatch_blockers"])
             self.assertIn("worker_dashboard_api not ok", status["dispatch_blockers"])
             self.assertIn("worker health check failed", status["dispatch_blockers"])
+            self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
+
+    def test_dashboard_status_does_not_refresh_worker_preflight_by_default(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={"worker_wake_gate_url": "http://worker.example"}
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight",
+                side_effect=AssertionError(
+                    "dashboard status reads must not refresh workers by default"
+                ),
+            ) as preflight:
+                status = client.get("/control/api/status", headers=headers).json()
+
+            preflight.assert_not_called()
+            self.assertFalse(status["dispatch_safe"])
+            self.assertIn(
+                "worker_preflight stale or missing", status["dispatch_blockers"]
+            )
+
+    def test_dashboard_status_refreshes_worker_preflight_when_requested(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={"worker_wake_gate_url": "http://worker.example"}
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = WorkerPreflightResponse(
+                ok=True,
+                target="http://worker.example",
+                summary="worker idle",
+                checks=[
+                    WorkerPreflightCheck(
+                        name="wake_gate_healthz", ok=True, detail="ok", data={}
+                    ),
+                    WorkerPreflightCheck(
+                        name="worker_no_live_runs",
+                        ok=True,
+                        detail="active_or_waiting=0, live=0",
+                        data={"active_or_waiting": 0, "live": 0},
+                    ),
+                ],
+            )
+
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight",
+                return_value=response,
+            ) as preflight:
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
+
+            preflight.assert_called_once()
             self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
 
     def test_dashboard_status_auto_refreshes_stale_worker_evidence(self) -> None:
@@ -5630,7 +5698,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
             ) as preflight:
-                status = client.get("/control/api/status", headers=headers).json()
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
 
             preflight.assert_called_once()
             self.assertFalse(status["source_freshness"]["worker_preflight"]["stale"])
@@ -5722,7 +5792,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
             ) as preflight:
-                status = client.get("/control/api/status", headers=headers).json()
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
 
             preflight.assert_called_once()
             self.assertEqual(status["warnings"], [])
@@ -5784,7 +5856,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "enoch_control_plane.control_plane.router.run_worker_preflight",
                 return_value=response,
             ) as preflight:
-                status = client.get("/control/api/status", headers=headers).json()
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
 
             preflight.assert_called_once()
             self.assertTrue(status["dispatch_safe"])
