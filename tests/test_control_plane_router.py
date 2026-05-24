@@ -14982,3 +14982,110 @@ def test_router_no_redundant_response_model_fastapi_style():
     assert count == 0, (
         f"redundant response_model= still present (count={count}); remove all per S8409/S8410 to clear 49+ BLOCKERs"
     )
+
+
+def test_status_stale_active_rows_scopes_to_lane_active_item() -> None:
+    from enoch_control_plane.control_plane.models import DashboardStatusResponse
+    from enoch_control_plane.control_plane.router import _status_stale_active_rows
+
+    stale_row = {
+        "project_id": "stale-project",
+        "current_run_id": "run-stale",
+        "current_session_id": "sess-stale",
+    }
+    healthy_row = {
+        "project_id": "healthy-project",
+        "current_run_id": "run-healthy",
+        "current_session_id": "sess-healthy",
+    }
+    status = DashboardStatusResponse(
+        worker_lanes=[
+            {
+                "lane_key": "cpu-proxmox-1",
+                "active_item": stale_row,
+                "active_confirmation": {"state": "stale_active"},
+            },
+            {
+                "lane_key": "gb10",
+                "active_item": healthy_row,
+                "active_confirmation": {"state": "active_confirmed"},
+            },
+        ],
+        active_items=[stale_row, healthy_row],
+    )
+
+    assert _status_stale_active_rows(status) == [stale_row]
+
+
+def test_auto_reconcile_stale_callback_ready_only_reconciles_stale_lane_rows() -> None:
+    from enoch_control_plane.control_plane.models import DashboardStatusResponse
+    from enoch_control_plane.control_plane.router import _auto_reconcile_stale_callback_ready
+
+    stale_row = {
+        "project_id": "stale-project",
+        "project_name": "Stale Project",
+        "current_run_id": "run-stale",
+        "current_session_id": "sess-stale",
+    }
+    healthy_row = {
+        "project_id": "healthy-project",
+        "project_name": "Healthy Project",
+        "current_run_id": "run-healthy",
+        "current_session_id": "sess-healthy",
+    }
+    status = DashboardStatusResponse(
+        worker_lanes=[
+            {
+                "lane_key": "cpu-proxmox-1",
+                "active_item": stale_row,
+                "active_confirmation": {"state": "stale_active"},
+            },
+            {
+                "lane_key": "gb10",
+                "active_item": healthy_row,
+                "active_confirmation": {"state": "active_confirmed"},
+            },
+        ],
+        active_items=[stale_row, healthy_row],
+    )
+
+    class _Store:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> None:
+            self.events.append(kwargs)
+
+    store = _Store()
+    config = SimpleNamespace()
+
+    with patch(
+        "enoch_control_plane.control_plane.router._auto_reconcile_evidence_gate_for_row",
+        side_effect=lambda _config, row: (
+            Path("/tmp") / str(row["project_id"]),
+            {"values": {"approved": True}},
+            {"synced": False},
+            str(row["project_id"]),
+            str(row["current_run_id"]),
+        ),
+    ), patch(
+        "enoch_control_plane.control_plane.router._auto_reconcile_missing_evidence_failure",
+        return_value=None,
+    ), patch(
+        "enoch_control_plane.control_plane.router._auto_reconcile_replay_wake_ready_for_row",
+        side_effect=lambda _store, row, **kwargs: {
+            "ok": True,
+            "project_id": row["project_id"],
+            "run_id": kwargs["run_id"],
+        },
+    ) as replay:
+        reconciled = _auto_reconcile_stale_callback_ready(
+            config,
+            store,
+            status,
+            requested_by="test",
+        )
+
+    assert [item["project_id"] for item in reconciled] == ["stale-project"]
+    assert replay.call_count == 1
+    assert store.events and store.events[0]["event_type"] == "queue_alert.auto_reconcile"
