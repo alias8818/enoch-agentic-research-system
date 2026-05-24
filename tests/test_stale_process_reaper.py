@@ -252,7 +252,6 @@ class StaleProcessReaperTests(unittest.TestCase):
         # Reused PID must not be signaled at TERM or SIGKILL.
         self.assertEqual(signaled, [])
 
-
     def test_reaper_ignores_process_that_exits_before_term_signal(self) -> None:
         class _GoneOnLookupProcess:
             def create_time(self) -> float:
