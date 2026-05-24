@@ -159,6 +159,64 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     assert "Pure simulations" in prompt
 
 
+def test_provider_generate_omits_authorization_for_proxy_default_even_with_key() -> None:
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(_provider_payload()).encode("utf-8")
+
+    with patch(
+        "scripts.research_provider_generate.urllib.request.urlopen",
+        return_value=FakeResponse(),
+    ) as urlopen:
+        research_provider_generate.generate_provider_candidates(
+            base_url="https://synthetic.int.exe.xyz/openai/v1",
+            model="hf:zai-org/GLM-5.1",
+            api_key="secret-should-not-send",
+            max_candidates=1,
+            topic="quantization",
+            temperature=0.7,
+            seed="seed-proxy-no-auth",
+        )
+
+    request = urlopen.call_args.args[0]
+    assert "Authorization" not in request.headers
+
+
+def test_provider_generate_keeps_authorization_for_non_proxy_provider() -> None:
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(_provider_payload()).encode("utf-8")
+
+    with patch(
+        "scripts.research_provider_generate.urllib.request.urlopen",
+        return_value=FakeResponse(),
+    ) as urlopen:
+        research_provider_generate.generate_provider_candidates(
+            base_url="https://api.synthetic.new/openai/v1",
+            model="hf:zai-org/GLM-5.1",
+            api_key="secret-expected-to-send",
+            max_candidates=1,
+            topic="quantization",
+            temperature=0.7,
+            seed="seed-direct-auth",
+        )
+
+    request = urlopen.call_args.args[0]
+    assert request.headers["Authorization"] == "Bearer secret-expected-to-send"
+
+
 def test_provider_generate_retries_provider_call_error_before_succeeding(
     monkeypatch,
 ) -> None:

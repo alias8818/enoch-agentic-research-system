@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import urllib.request
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ DEFAULT_OPENAI_BASE_URL = default_research_provider_openai_base_url()
 DEFAULT_MODEL = DEFAULT_RESEARCH_PROVIDER_MODEL
 DEFAULT_MAX_TOKENS = 8000
 PROMPT_VERSION = "research_provider_generate_v2"
+_PROXY_HOSTS_WITH_INJECTED_AUTH = {"synthetic.int.exe.xyz"}
 
 TOPIC_SPREAD = [
     "long-context SSM/Mamba memory for tiny local systems",
@@ -214,7 +216,9 @@ def call_openai_compatible_chat(
         "Content-Type": "application/json",
         "User-Agent": "EnochResearchFacility/0.1",
     }
-    if api_key:
+    parsed_base = urlparse(base_url)
+    should_send_auth = parsed_base.hostname not in _PROXY_HOSTS_WITH_INJECTED_AUTH
+    if api_key and should_send_auth:
         headers["Authorization"] = f"Bearer {api_key}"
     safe_url = validate_http_url(
         base_url.rstrip("/") + "/chat/completions", field_name="provider url"
