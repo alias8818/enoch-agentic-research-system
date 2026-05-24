@@ -4729,6 +4729,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             def queued_items_sql(self, *, limit: int = 200) -> list[dict[str, str]]:
                 return list(self.queue.values())[:limit]
 
+            def queue_row(self, project_id: str):
+                return self.queue.get(project_id)
+
             def next_followup_candidate(
                 self, *, max_followup_depth: int = 4, project_id: str = ""
             ) -> dict[str, str]:
@@ -4746,6 +4749,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 self, *, limit: int = 100
             ) -> list[dict[str, str]]:
                 return []
+
+            def record_research_facility_plans(
+                self, *_args, **_kwargs
+            ):  # pragma: no cover - provider disabled in this test
+                raise AssertionError("provider generation disabled in this test")
 
             def promote_research_candidate(
                 self, *_args, **_kwargs
@@ -4790,7 +4798,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
         def fake_live_dispatch(candidate, *_args, **_kwargs):
             updated = dict(candidate)
-            updated.update({"status": "awaiting_wake", "current_run_id": "run-cpu-ready"})
+            updated.update(
+                {"status": "awaiting_wake", "current_run_id": "run-cpu-ready"}
+            )
             return {"run_id": "run-cpu-ready", "project_id": "cpu-ready"}, 1234, updated
 
         with (
@@ -4825,7 +4835,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(body["dispatched_count"], 1)
         self.assertEqual(body["dispatch"]["candidate"]["project_id"], "cpu-ready")
         self.assertEqual(body["followup_launch"]["action"], "skipped")
-        self.assertIn("dispatch disabled", body["followup_launch"]["reason"])
+        self.assertIn("dispatch is disabled", body["followup_launch"]["reason"])
         self.assertEqual(fake_store.followup_launches, 0)
         live_dispatch.assert_called_once()
 
@@ -15264,6 +15274,60 @@ def test_wait_for_completion_extracted_no_duplication_in_giant():
     from enoch_control_plane.control_plane.router import _wait_for_completion
 
     assert callable(_wait_for_completion)
+
+
+def test_wait_for_completion_refills_idle_lanes_while_other_lane_runs(monkeypatch):
+    """Regression: wait_for_completion must not block all lane dispatch.
+
+    If one lane finishes while another lane is still active, the polling loop
+    should get a chance to dispatch queued work on the newly idle lane instead
+    of waiting for the slowest lane to finish first.
+    """
+
+    from enoch_control_plane.control_plane.router import _wait_for_completion
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.polls = 0
+
+        def queue_row(self, project_id: str) -> dict[str, str]:
+            status = "completed" if self.polls else "awaiting_wake"
+            return {"project_id": project_id, "status": status}
+
+        def active_items(self) -> list[dict[str, str]]:
+            self.polls += 1
+            if self.polls == 1:
+                return [{"project_id": "slow-cpu", "machine_target": "cpu-proxmox-1"}]
+            return []
+
+    refills: list[int] = []
+
+    def refill_idle_lanes() -> int:
+        refills.append(1)
+        return 1
+
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.router.time.sleep", lambda _: None
+    )
+    response = {
+        "dispatch_started": True,
+        "dispatch": {"candidate": {"project_id": "fast-gb10"}},
+        "stages": [],
+    }
+
+    result = _wait_for_completion(
+        store=FakeStore(),
+        response=response,
+        wait_for_completion=True,
+        max_wait_seconds=30,
+        poll_interval_seconds=1,
+        refill_idle_lanes=refill_idle_lanes,
+    )
+
+    assert result["action"] == "completed"
+    assert result["refill_dispatches"] == 1
+    assert refills == [1]
+    assert response["wait"]["refill_dispatches"] == 1
 
 
 def test_worker_settling_after_vm_completion_extracted_for_s3776():
