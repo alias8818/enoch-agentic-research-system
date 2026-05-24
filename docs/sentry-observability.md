@@ -4,6 +4,10 @@ Enoch can report backend exceptions to Sentry, but this integration is intention
 
 ## Current project
 
+Current host/topology details are tracked in the
+[current runtime snapshot](current-runtime-snapshot.md); this page only records
+the Sentry-specific integration contract.
+
 - Organization: `sentry`
 - Project slug: `enoch-control-plane`
 - Platform: Python / FastAPI
