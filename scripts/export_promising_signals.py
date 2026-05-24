@@ -309,8 +309,11 @@ def _has_external_source_url(sources: list[dict[str, Any]]) -> bool:
         source_id = _text(source.get("source_id")).lower()
         if url.startswith(("arxiv:", "doi:")):
             return True
-        if urlparse(url).scheme in {"http", "https"}:
-            return True
+        try:
+            if urlparse(url).scheme in {"http", "https"}:
+                return True
+        except ValueError:
+            continue
         if source_id.startswith(("arxiv:", "doi:")):
             return True
     return False
