@@ -562,6 +562,21 @@ def _build_evidence_bundle_data(
     }
 
 
+def _is_atx_heading_line(line: str) -> bool:
+    """Return True only for CommonMark ATX heading lines."""
+    candidate = line.lstrip(" ")
+    if len(line) - len(candidate) > 3 or not candidate.startswith("#"):
+        return False
+    marker_len = 0
+    for char in candidate:
+        if char != "#":
+            break
+        marker_len += 1
+        if marker_len > 6:
+            return False
+    return len(candidate) == marker_len or candidate[marker_len].isspace()
+
+
 def _markdown_body_without_fences_and_headers(markdown: str) -> str:
     """Drop fenced code blocks and ATX headings without backtracking-prone regex."""
     kept: list[str] = []
@@ -571,7 +586,7 @@ def _markdown_body_without_fences_and_headers(markdown: str) -> str:
         if stripped.startswith("```"):
             in_fence = not in_fence
             continue
-        if in_fence or stripped.startswith("#"):
+        if in_fence or _is_atx_heading_line(line):
             continue
         kept.append(line)
     return "\n".join(kept)

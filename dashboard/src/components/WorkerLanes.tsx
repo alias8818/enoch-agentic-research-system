@@ -547,10 +547,16 @@ async function runSafeStaleActiveReconcile(deps: WorkerLaneCommandDeps, lane: Wo
   if (!confirmed) return
   deps.setBusyAction('reconcile')
   try {
+    const activeProjectId = displayText(lane.active_item?.project_id, '')
+    const activeRunId = displayText(lane.active_item?.current_run_id, '')
     const result = await apiPost<Record<string, unknown>>('/control/api/alerts/queue-check', {
       dry_run: false,
       requested_by: 'dashboard-v2',
       refresh_worker: false,
+      lane_key: displayText(lane.lane_key, ''),
+      machine_target: displayText(lane.machine_target, ''),
+      project_id: activeProjectId,
+      run_id: activeRunId,
     })
     deps.setCommandResult({ payload: result, context: { commandFamily: 'dispatch' } })
     deps.onRefresh()

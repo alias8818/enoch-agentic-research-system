@@ -21,7 +21,10 @@ def looks_like_external_source_reference(value: str) -> bool:
         return False
     if text.startswith(_EXTERNAL_SOURCE_ID_PREFIXES):
         return True
-    parsed = urlparse(text)
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return False
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 

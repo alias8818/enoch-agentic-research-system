@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import signal
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,7 @@ from enoch_control_plane.models import (
     RunRecord,
     TelemetrySample,
 )
-from enoch_control_plane.process_tracker import ProcessTracker
+from enoch_control_plane.process_tracker import ProcessTracker, _safe_send_signal
 
 
 class _StaticTelemetry:
@@ -206,6 +207,40 @@ class StaleProcessReaperTests(unittest.TestCase):
                 ),
                 [],
             )
+
+    def test_reaper_ignores_candidate_that_exits_before_initial_term(self) -> None:
+        import psutil
+
+        tracker = ProcessTracker(Path("/tmp"))
+        record = RunRecord(run_id="run", session_id="session", root_pid=999_999_999)
+        candidate = ProcessInfo(
+            pid=123456, elapsed_sec=999, create_time=1000.0, cmdline="python smoke.py"
+        )
+
+        with (
+            patch.object(tracker, "stale_reap_candidates", return_value=[candidate]),
+            patch("enoch_control_plane.process_tracker.os.kill") as kill_mock,
+            patch(
+                "enoch_control_plane.process_tracker.psutil.Process",
+                side_effect=psutil.NoSuchProcess(123456),
+            ),
+        ):
+            self.assertEqual(
+                tracker.reap_stale_project_processes(
+                    record,
+                    stale_after_sec=0,
+                    command_markers=["python"],
+                    term_grace_sec=0,
+                ),
+                [],
+            )
+            kill_mock.assert_not_called()
+
+    def test_safe_send_signal_refuses_unanchored_pid(self) -> None:
+        with patch("enoch_control_plane.process_tracker.os.kill") as kill_mock:
+            with self.assertRaises(ProcessLookupError):
+                _safe_send_signal(123456, signal.SIGTERM)
+            kill_mock.assert_not_called()
 
     def test_reaper_does_not_sigkill_reused_pid(self) -> None:
         class _ReusedProcess:

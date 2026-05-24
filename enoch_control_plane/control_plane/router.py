@@ -4841,14 +4841,46 @@ def _worker_evidence_sync_kwargs_for_row(
     }
 
 
+def _status_stale_active_rows(status: DashboardStatusResponse) -> list[dict[str, Any]]:
+    stale_lanes = [
+        lane
+        for lane in status.worker_lanes
+        if isinstance(lane.get("active_confirmation"), dict)
+        and lane["active_confirmation"].get("state") == "stale_active"
+    ]
+    if not stale_lanes:
+        return []
+
+    stale_rows: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+    for lane in stale_lanes:
+        active_item = lane.get("active_item")
+        if not isinstance(active_item, dict):
+            continue
+        lane_project_id = str(active_item.get("project_id") or "").strip()
+        lane_run_id = str(active_item.get("current_run_id") or "").strip()
+        lane_session_id = str(active_item.get("current_session_id") or "").strip()
+        for row in status.active_items:
+            project_id = str(row.get("project_id") or "").strip()
+            run_id = str(row.get("current_run_id") or "").strip()
+            session_id = str(row.get("current_session_id") or "").strip()
+            if lane_project_id and project_id != lane_project_id:
+                continue
+            if lane_run_id and run_id != lane_run_id:
+                continue
+            if lane_session_id and session_id != lane_session_id:
+                continue
+            key = (project_id, run_id, session_id)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            stale_rows.append(row)
+    return stale_rows
+
+
 def _status_has_no_live_worker_conflict(status: DashboardStatusResponse) -> bool:
-    for lane in status.worker_lanes:
-        confirmation = lane.get("active_confirmation")
-        if (
-            isinstance(confirmation, dict)
-            and confirmation.get("state") == "stale_active"
-        ):
-            return True
+    if _status_stale_active_rows(status):
+        return True
     return any(
         item.source == CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE
         and "no live worker run" in item.message
@@ -5054,8 +5086,10 @@ def _auto_reconcile_stale_callback_ready(
 ) -> list[dict[str, Any]]:
     if not status.active_items or not _status_has_no_live_worker_conflict(status):
         return []
+    stale_rows = _status_stale_active_rows(status)
+    rows_to_reconcile = stale_rows if stale_rows else status.active_items
     reconciled: list[dict[str, Any]] = []
-    for row in status.active_items:
+    for row in rows_to_reconcile:
         if _queue_row_recent_callback(row):
             continue
         artifact_root, gate, evidence_sync, project_id, run_id = (

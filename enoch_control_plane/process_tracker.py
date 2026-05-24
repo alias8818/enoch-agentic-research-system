@@ -39,20 +39,24 @@ def _safe_send_signal(
     """Send ``sig`` to ``pid`` only after PID/signal guards and identity checks.
 
     Guards against broadcast kills (``pid <= 0``), unexpected signals, and PID
-    reuse when ``tracked`` carries a ``create_time`` anchor.
+    reuse via a mandatory ``tracked.create_time`` identity anchor.
     """
     if pid <= 0:
         raise ProcessLookupError(pid)
     if sig not in _ALLOWED_REAP_SIGNALS:
         raise ValueError(f"unsupported stale-process reaper signal: {sig}")
-    if tracked is not None and tracked.create_time is not None:
-        active_proc = proc
-        if active_proc is None:
-            if psutil is None:
-                raise ProcessLookupError(pid)
+    if tracked is None or tracked.create_time is None or psutil is None:
+        raise ProcessLookupError(pid)
+    active_proc = proc
+    if active_proc is None:
+        try:
             active_proc = psutil.Process(pid)
-        if ProcessTracker._same_process(active_proc, tracked) is not True:
-            raise ProcessLookupError(pid)
+        except psutil.NoSuchProcess as exc:
+            raise ProcessLookupError(pid) from exc
+        except psutil.AccessDenied as exc:
+            raise PermissionError(pid) from exc
+    if ProcessTracker._same_process(active_proc, tracked) is not True:
+        raise ProcessLookupError(pid)
     os.kill(pid, sig)
 
 
