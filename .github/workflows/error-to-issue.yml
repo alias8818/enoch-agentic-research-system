@@ -1,0 +1,36 @@
+name: Error to Issue
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  create-tracking-issue:
+    name: Create tracking issue for error labels
+    if: contains(github.event.label.name, 'P0-critical') || contains(github.event.label.name, 'P1-high')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const label = context.payload.label.name;
+            const issue = context.payload.issue;
+            const body = [
+              `**Source issue:** #${issue.number}`,
+              `**Priority:** ${label}`,
+              `**Created:** ${issue.created_at}`,
+              ``,
+              `This tracking issue was auto-generated from the error-to-insight pipeline.`,
+              `Resolve the source issue and close this tracking issue.`,
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[${label}] Tracking: ${issue.title}`,
+              body: body,
+              labels: [label, 'area:observability'],
+            });

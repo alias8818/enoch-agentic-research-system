@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import sqlite3
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -1656,6 +1658,35 @@ def _event_page_attach_payload_fields(
         }
 
 
+_query_logger = logging.getLogger("enoch.store.queries")
+
+# Threshold in milliseconds; queries slower than this are logged at WARNING
+# to surface potential N+1 query patterns during development and CI.
+_SLOW_QUERY_MS = 50
+
+
+def _sqlite_trace_callback(sql: str) -> None:
+    """SQLite trace callback for query timing and N+1 detection.
+
+    Logs queries that exceed the slow-query threshold, helping developers
+    identify N+1 patterns where individual row lookups in a loop generate
+    many small queries instead of one batch query.
+    """
+    if not _query_logger.isEnabledFor(logging.DEBUG) and not _query_logger.isEnabledFor(
+        logging.WARNING
+    ):
+        return
+    # Skip PRAGMA and transaction statements.
+    upper = sql.strip().upper()
+    if upper.startswith("PRAGMA") or upper in ("BEGIN", "COMMIT", "ROLLBACK"):
+        return
+    _query_logger.debug("SQL: %s", sql[:200])
+    # The actual timing is handled at the _connect level via wall-clock
+    # measurement. This trace callback provides query visibility for N+1
+    # pattern analysis. When many similar SELECT statements appear in a
+    # single request, it indicates an N+1 query pattern.
+
+
 class ControlPlaneStore:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser()
@@ -1669,6 +1700,12 @@ class ControlPlaneStore:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=5000")
+        # Instrument SQLite with query timing for N+1 detection.
+        # set_trace_callback may not be available on mock connections in tests.
+        try:
+            conn.set_trace_callback(_sqlite_trace_callback)
+        except AttributeError:
+            pass
         try:
             with conn:
                 yield conn

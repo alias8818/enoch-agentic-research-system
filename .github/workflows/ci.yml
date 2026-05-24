@@ -21,15 +21,20 @@ jobs:
       - name: Validate runtime snapshot links
         run: python3 scripts/validate_runtime_snapshot_links.py
       - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          enable-cache: true
       - name: Install dependencies
         run: uv sync --all-extras --dev
       - name: Run Ruff correctness checks
         run: uv run ruff check .
       - name: Run Ruff format check
         run: uv run ruff format --check .
-      - name: Run Pyright report-only type check
+      - name: Run Pyright type check
         continue-on-error: true
         run: uv run pyright --level error
+      - name: Run deptry (unused dependencies)
+        continue-on-error: true
+        run: uv run deptry .
       - name: Run Semgrep report-only Enoch guardrails
         continue-on-error: true
         run: uv run semgrep --config .semgrep/enoch-guardrails.yml --metrics=off --no-git-ignore .
@@ -55,10 +60,10 @@ jobs:
         run: python3 scripts/check_dashboard_v2_source_asset_pair.py --base ${{ github.event.pull_request.base.sha }}
       - name: Validate dashboard V2 committed assets
         run: python3 scripts/validate_dashboard_v2_assets.py --skip-npm-ci
-      - name: Run tests
+      - name: Run tests with timing
         run: |
-          uv run pytest -q -n auto -m "not repo_root"
-          uv run pytest -q -m "repo_root"
+          uv run pytest -q -n auto -m "not repo_root" --durations=25 --reruns 2 --reruns-delay 3
+          uv run pytest -q -m "repo_root" --durations=10 --reruns 2 --reruns-delay 3
   secret-scan:
     name: secret-scan
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
+import re
 from pathlib import Path
 import resource
 import time
+import uuid
 from typing import Any, Callable
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -11,6 +14,27 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from enoch_control_plane.models import utc_now
+
+logger = logging.getLogger("enoch.observability")
+
+# Sensitive field patterns for log redaction.  Keys matching these
+# regexps have their values replaced with "[REDACTED]" before the
+# observation is persisted to JSONL or structured logs.
+_REDACT_KEY_PATTERNS = re.compile(
+    r"token|bearer|password|secret|api.key|auth|credential",
+    re.IGNORECASE,
+)
+
+
+def _redact_observation(observation: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy with sensitive values redacted."""
+    redacted: dict[str, Any] = {}
+    for key, value in observation.items():
+        if _REDACT_KEY_PATTERNS.search(key):
+            redacted[key] = "[REDACTED]"
+        else:
+            redacted[key] = value
+    return redacted
 
 
 def peak_rss_mib() -> float:
@@ -64,6 +88,12 @@ class RouteObservationMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Any]
     ) -> Response:
+        # Propagate or generate a request ID for distributed tracing.
+        request_id = (
+            request.headers.get("X-Request-ID")
+            or request.headers.get("X-Correlation-ID")
+            or str(uuid.uuid4())
+        )
         started = time.perf_counter()
         rss_before = current_rss_mib()
         peak_before = peak_rss_mib()
@@ -87,10 +117,12 @@ class RouteObservationMiddleware(BaseHTTPMiddleware):
                     content_length = int(raw_length)
                 response.headers["X-Enoch-Route-Duration-Ms"] = str(elapsed_ms)
                 response.headers["X-Enoch-Route-Peak-RSS-MiB"] = f"{peak_after:.3f}"
+                response.headers["X-Request-ID"] = request_id
                 if rss_after is not None:
                     response.headers["X-Enoch-Route-RSS-MiB"] = f"{rss_after:.3f}"
             observation = {
                 "observed_at": utc_now(),
+                "request_id": request_id,
                 "method": request.method,
                 "path": request.url.path,
                 "status_code": status_code,
@@ -116,9 +148,10 @@ class RouteObservationMiddleware(BaseHTTPMiddleware):
     def _append_observation(self, observation: dict[str, Any]) -> None:
         if self.observation_path is None:
             return
+        redacted = _redact_observation(observation)
         try:
             with self.observation_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(observation, sort_keys=True) + "\n")
+                handle.write(json.dumps(redacted, sort_keys=True) + "\n")
         except OSError:
             # Observability must never make the control plane unhealthy.
             return

@@ -21,6 +21,8 @@ jobs:
         with:
           fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
       - name: Install Python dependencies
         run: uv sync --all-extras --dev
       - name: Run Python tests with coverage

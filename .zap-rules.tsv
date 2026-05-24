@@ -1,0 +1,8 @@
+IGNORE	10038	README files should not be served in production
+IGNORE	10054	JSON responses should not contain comments
+IGNORE	10112	HTTP response body language differs from request
+WARN	10202	Absence of Anti-CSRF Tokens
+WARN	40018	SQL Injection
+WARN	40019	OS Command Injection
+WARN	40020	Potential IP Disclosure
+WARN	90027	Polynomial Regex Detection
