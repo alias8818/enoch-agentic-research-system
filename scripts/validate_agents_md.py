@@ -136,26 +136,31 @@ def check_ci_workflows(agents_content: str) -> None:
 
 
 def check_dependencies(agents_content: str) -> None:
-    """Verify key dependencies listed in AGENTS.md are in pyproject.toml."""
+    """Verify dependencies listed in AGENTS.md Key Dependencies section are in pyproject.toml."""
     pyproject_content = _read(PYPROJECT)
     if not pyproject_content:
         return
 
-    # Known deps from AGENTS.md "Key Dependencies" section
-    known_deps = {
-        "fastapi",
-        "langgraph",
-        "psycopg",
-        "pydantic",
-        "uvicorn",
-        "psutil",
-        "pynvml",
-        "tenacity",
-    }
-    for dep in known_deps:
-        if dep not in pyproject_content:
+    # Extract the "Key Dependencies" section
+    deps_section = re.search(
+        r"## Key Dependencies\s*\n((?:\s*-\s*`[^`]+`.*\n?)+)",
+        agents_content,
+    )
+    if not deps_section:
+        errors.append("AGENTS.md missing '## Key Dependencies' section")
+        return
+
+    section_text = deps_section.group(1)
+
+    # Extract backtick-quoted package names from the section.
+    # Handle forms like `psycopg[binary]` and `psutil` / `pynvml`.
+    for match in re.finditer(r"`([^`]+)`", section_text):
+        raw = match.group(1)
+        # Strip extraspecifiers like [binary] and take the base package name
+        base = re.split(r"[\[/\s]", raw)[0]
+        if base not in pyproject_content:
             errors.append(
-                f"Dependency '{dep}' referenced in AGENTS.md not found in pyproject.toml"
+                f"Dependency '{base}' listed in AGENTS.md Key Dependencies not found in pyproject.toml"
             )
 
 
