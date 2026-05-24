@@ -71,6 +71,34 @@ def test_weak_evidence_on_negative_mixed_result_is_warning_not_blocked() -> None
     assert status["report_mtime"] == "2026-05-11T00:00:01Z"
 
 
+def test_weak_evidence_on_needs_review_inconclusive_with_bounded_followup_is_warning() -> (
+    None
+):
+    report = _report_with_decision(
+        "weak_or_missing_evidence_strength",
+        decision="needs_review",
+        hypothesis_status="inconclusive",
+    )
+    report["decision_scores"][0].update(
+        {
+            "followup_recommended": True,
+            "followup_success_threshold": "Run a two-rater blinded adjudication and require agreement >= 0.60.",
+            "followup_stop_condition": "Stop if agreement is below 0.40 after calibration.",
+            "research_outcome": "needs_review",
+            "claim_scope": "Autonomous run generated review packets but cannot supply human labels.",
+            "scale_limits": "No human adjudications were obtained, so direct target evidence is missing.",
+            "bounded_paper_ready": False,
+        }
+    )
+
+    status = classify_quality_report(report)
+
+    assert status["ok"] is True
+    assert status["status"] == "warnings"
+    assert status["problem_counts"] == {"weak_or_missing_evidence_strength": 1}
+    assert status["severity_counts"] == {"warning": 1}
+
+
 def test_supported_negative_depth_capped_proxy_result_is_info_not_amber() -> None:
     report = _report_with_decision(
         "supported_but_negative_requires_review",
