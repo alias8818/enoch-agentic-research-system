@@ -26,7 +26,7 @@ jobs:
           # Verify server is up
           curl -sf http://127.0.0.1:8787/healthz || exit 1
       - name: ZAP baseline scan
-        uses: zaproxy/action-baseline@v0.12.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           target: "http://127.0.0.1:8787/healthz"
           rules_file_name: ".zap-rules.tsv"
