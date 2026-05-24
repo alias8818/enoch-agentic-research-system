@@ -4690,6 +4690,145 @@ class ControlPlaneRouterTests(unittest.TestCase):
         live_dispatch.assert_called_once()
         self.assertEqual(fake_store.events[-1]["event_type"], "research.run_cycle.live")
 
+    def test_research_facility_run_cycle_respects_dispatch_cap_before_followup(
+        self,
+    ) -> None:
+        class FakeSupabaseStore:
+            def __init__(self) -> None:
+                self.events = []
+                self.followup_launches = 0
+                self.queue = {
+                    "cpu-ready": {
+                        "project_id": "cpu-ready",
+                        "project_name": "CPU Ready",
+                        "project_dir": "cpu-ready",
+                        "status": "queued",
+                        "machine_target": "cpu-proxmox-1",
+                        "model": "gpt-5.5",
+                        "sandbox": "danger-full-access",
+                    }
+                }
+
+            def active_items(self) -> list[dict[str, str]]:
+                return [
+                    {
+                        "project_id": "active-gb10",
+                        "project_name": "Active GB10",
+                        "status": "awaiting_wake",
+                        "machine_target": "gb10",
+                        "current_run_id": "run-active-gb10",
+                    }
+                ]
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 1, "active": 1}
+
+            def flags(self):
+                return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
+            def queued_items_sql(self, *, limit: int = 200) -> list[dict[str, str]]:
+                return list(self.queue.values())[:limit]
+
+            def next_followup_candidate(
+                self, *, max_followup_depth: int = 4, project_id: str = ""
+            ) -> dict[str, str]:
+                return {"project_id": "parent-idea", "followup_title": "Bounded branch"}
+
+            def launch_followup_candidate(
+                self, *_args, **_kwargs
+            ):  # pragma: no cover - regression guard
+                self.followup_launches += 1
+                raise AssertionError(
+                    "follow-up launch should not run after dispatch cap is consumed"
+                )
+
+            def research_facility_workbench_projection(
+                self, *, limit: int = 100
+            ) -> list[dict[str, str]]:
+                return []
+
+            def promote_research_candidate(
+                self, *_args, **_kwargs
+            ):  # pragma: no cover - no promotions in this test
+                raise AssertionError("promotion should not run in this test")
+
+            def append_event(self, **kwargs):
+                self.events.append(kwargs)
+                return len(self.events), True
+
+        fake_store = FakeSupabaseStore()
+        config = GateConfig(
+            state_dir="/tmp/unused",
+            project_root="/tmp/unused-projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token=TOKEN,
+            completion_callback_url="http://example.invalid/callback",
+            completion_callback_token="unused",
+            control_plane_store_backend="supabase",
+            supabase_database_url="postgresql://example.invalid/postgres",
+            live_dispatch_enabled=True,
+            worker_wake_gate_url="http://gb10-worker:8787",
+            worker_wake_gate_bearer_token="gb10-token",
+            worker_targets={
+                "cpu-proxmox-1": {
+                    "wake_gate_url": "http://cpu-worker:8787",
+                    "bearer_token": "cpu-token",
+                    "role": "cpu_worker",
+                },
+                "gb10": {
+                    "wake_gate_url": "http://gb10-worker:8787",
+                    "bearer_token": "gb10-token",
+                    "role": "gpu_worker",
+                },
+            },
+        )
+        quota = {
+            "subscription": {"limit": 2500, "requests": 0},
+            "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+            "rollingFiveHourLimit": {"remaining": 2500, "max": 2500, "limited": False},
+        }
+
+        def fake_live_dispatch(candidate, *_args, **_kwargs):
+            updated = dict(candidate)
+            updated.update({"status": "awaiting_wake", "current_run_id": "run-cpu-ready"})
+            return {"run_id": "run-cpu-ready", "project_id": "cpu-ready"}, 1234, updated
+
+        with (
+            patch(
+                "enoch_control_plane.control_plane.router.SupabaseControlPlaneStore",
+                return_value=fake_store,
+            ),
+            patch("scripts.research_provider_budget.fetch_json", return_value=quota),
+            patch(
+                "enoch_control_plane.control_plane.router._execute_live_dispatch",
+                side_effect=fake_live_dispatch,
+            ) as live_dispatch,
+        ):
+            client = _client_with_config(config)
+            response = client.post(
+                "/control/api/research/run-cycle",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                json={
+                    "dry_run": False,
+                    "enabled": True,
+                    "max_provider_requests_per_run": 0,
+                    "max_promotions_per_run": 0,
+                    "max_dispatches_per_run": 1,
+                    "max_paper_drafts_per_run": 0,
+                    "requested_by": "pytest",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["dispatched_count"], 1)
+        self.assertEqual(body["dispatch"]["candidate"]["project_id"], "cpu-ready")
+        self.assertEqual(body["followup_launch"]["action"], "skipped")
+        self.assertIn("dispatch disabled", body["followup_launch"]["reason"])
+        self.assertEqual(fake_store.followup_launches, 0)
+        live_dispatch.assert_called_once()
+
     def test_research_facility_run_cycle_targets_largest_lane_queue_deficit(
         self,
     ) -> None:

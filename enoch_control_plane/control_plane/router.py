@@ -4216,11 +4216,14 @@ def _execute_live_research_cycle(
         response=response,
         dispatch_queued_project=dispatch_queued_project,
     )
+    remaining_dispatches = max(
+        0, params.max_dispatches - int(response.get("dispatched_count") or 0)
+    )
 
     response = _handle_followup_and_early_skips(
         store=params.store,
         generation_target_lane=params.generation_target_lane,
-        max_dispatches=params.max_dispatches,
+        max_dispatches=remaining_dispatches,
         max_provider_requests=params.max_provider_requests,
         fresh_generation_backlog_threshold=params.fresh_generation_backlog_threshold,
         initial_promotable=params.initial_promotable,
