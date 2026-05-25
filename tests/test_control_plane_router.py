@@ -2215,6 +2215,78 @@ class ControlPlaneRouterTests(unittest.TestCase):
             fake_store.events[0]["event_type"], "research.run_cycle.dry_run"
         )
 
+    def test_research_facility_run_cycle_writes_operator_trace(self) -> None:
+        class FakeSupabaseStore:
+            def active_items(self) -> list[dict[str, str]]:
+                return []
+
+            def status_counts(self) -> dict[str, int]:
+                return {"blocked": 0, "queued": 0, "active": 0}
+
+            def research_facility_workbench_projection(
+                self, *, limit: int = 100
+            ) -> list[dict[str, str]]:
+                return []
+
+            def record_research_facility_plans(self, *_args, **_kwargs):
+                raise AssertionError("dry-run must not write plans")
+
+            def promote_research_candidate(self, *_args, **_kwargs):
+                raise AssertionError("dry-run must not promote")
+
+            def append_event(self, **_kwargs):
+                return 1, True
+
+        with tempfile.TemporaryDirectory() as tmp:
+            trace_path = Path(tmp) / "operator_trace.jsonl"
+            config = GateConfig(
+                state_dir=str(Path(tmp) / "state"),
+                project_root=str(Path(tmp) / "projects"),
+                dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
+                control_api_bearer_token=TOKEN,
+                completion_callback_url="http://example.invalid/callback",
+                completion_callback_token="unused",
+                control_plane_store_backend="supabase",
+                supabase_database_url="postgresql://example.invalid/postgres",
+                operational_trace_enabled=True,
+                operational_trace_log_path=str(trace_path),
+            )
+            quota = {
+                "subscription": {"limit": 2500, "requests": 0},
+                "weeklyTokenLimit": {"remainingCredits": "$119.77"},
+                "rollingFiveHourLimit": {
+                    "remaining": 2500,
+                    "max": 2500,
+                    "limited": False,
+                },
+            }
+            with (
+                patch(
+                    "enoch_control_plane.control_plane.router.SupabaseControlPlaneStore",
+                    return_value=FakeSupabaseStore(),
+                ),
+                patch(
+                    "scripts.research_provider_budget.fetch_json", return_value=quota
+                ),
+            ):
+                client = _client_with_config(config)
+                response = client.post(
+                    "/control/api/research/run-cycle",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={"dry_run": True, "requested_by": "pytest"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["trace_id"].startswith("research-cycle-"))
+            text = trace_path.read_text(encoding="utf-8")
+            self.assertNotIn(TOKEN, text)
+            events = [json.loads(line)["event"] for line in text.splitlines()]
+            self.assertIn("research.run_cycle.start", events)
+            self.assertIn("research.lanes.before", events)
+            self.assertIn("research.generation_target.selected", events)
+            self.assertIn("research.run_cycle.end", events)
+
     def test_research_facility_run_cycle_ignores_empty_allowed_model_list(self) -> None:
         class FakeSupabaseStore:
             def __init__(self) -> None:
@@ -8852,7 +8924,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            config = _live_config(tmp)
+            trace_path = Path(tmp) / "queue_operator_trace.jsonl"
+            config = _live_config(tmp).model_copy(
+                update={
+                    "operational_trace_enabled": True,
+                    "operational_trace_log_path": str(trace_path),
+                }
+            )
             client = _client_with_config(config)
             headers = {"Authorization": f"Bearer {TOKEN}"}
             project_dir = Path(config.project_root) / "idea-auto-reconcile"
@@ -8929,7 +9007,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
             ).json()
 
             self.assertFalse(alert["should_alert"])
+            self.assertTrue(alert["trace_id"].startswith("queue-check-"))
             self.assertTrue(alert["auto_reconcile"][0]["ok"])
+            trace_text = trace_path.read_text(encoding="utf-8")
+            self.assertNotIn(TOKEN, trace_text)
+            trace_rows = [json.loads(line) for line in trace_text.splitlines()]
+            self.assertIn("queue_check.result", {row["event"] for row in trace_rows})
             status = client.get("/control/api/status", headers=headers).json()
             self.assertEqual(status["active_items"], [])
 
@@ -11130,11 +11213,14 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            trace_path = Path(tmp) / "dispatch_operator_trace.jsonl"
             config = _live_config(tmp).model_copy(
                 update={
                     "worker_wake_gate_url": "http://gb10-worker:8787",
                     "worker_wake_gate_bearer_token": "gb10-token",
                     "workload_machine_targets": {"cpu_only": "cpu-proxmox-1"},
+                    "operational_trace_enabled": True,
+                    "operational_trace_log_path": str(trace_path),
                     "worker_targets": {
                         "cpu-proxmox-1": {
                             "wake_gate_url": "http://cpu-proxmox-1:8787",
@@ -11230,6 +11316,14 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "worker preflight failed",
                 rows["dispatch-callback-mismatch"]["last_error"],
             )
+            trace_text = trace_path.read_text(encoding="utf-8")
+            self.assertNotIn(TOKEN, trace_text)
+            self.assertNotIn("cpu-token", trace_text)
+            trace_events = [
+                json.loads(line)["event"] for line in trace_text.splitlines()
+            ]
+            self.assertIn("dispatch.live.attempt", trace_events)
+            self.assertIn("dispatch.preflight.result", trace_events)
 
     def test_dispatch_next_allows_cpu_worker_while_gb10_lane_is_active(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

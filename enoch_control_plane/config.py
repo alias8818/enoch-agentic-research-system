@@ -100,6 +100,9 @@ class GateConfig(BaseModel):
     route_observability_log_path: str = ""
     route_observability_slow_ms: int = Field(default=1000, ge=0)
     route_observability_memory_warn_rss_mib: int = Field(default=0, ge=0)
+    operational_trace_enabled: bool = False
+    operational_trace_log_path: str = ""
+    operational_trace_max_payload_bytes: int = Field(default=16_384, ge=1024)
     control_plane_store_backend: str = "sqlite"
     enoch_core_store_backend: str = "control_plane"
     supabase_database_url: str = ""
