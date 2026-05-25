@@ -5222,15 +5222,12 @@ def _auto_reconcile_replay_wake_ready_for_row(
     evidence_sync: dict[str, Any],
     requested_by: str,
 ) -> dict[str, Any]:
-    if not gate.get("values"):
-        return {
-            "ok": False,
-            "project_id": project_id,
-            "run_id": run_id,
-            "reason": "missing project decision artifact",
-            "artifact_root": str(artifact_root),
-            "evidence_sync": evidence_sync,
-        }
+    has_decision_artifact = bool(gate.get("values"))
+    replay_reason = (
+        "auto replay: active row had no live worker run but durable decision artifact exists"
+        if has_decision_artifact
+        else "auto replay: active row had no live worker run and no durable decision artifact; lane released as no-paper completion"
+    )
     callback = GateCallback(
         event_type="wake_ready",
         run_id=run_id,
@@ -5249,8 +5246,9 @@ def _auto_reconcile_replay_wake_ready_for_row(
             "replayed_by": requested_by,
             "artifact_root": str(artifact_root),
             "evidence_sync": evidence_sync,
+            "missing_project_decision_artifact": not has_decision_artifact,
         },
-        reason="auto replay: active row had no live worker run but durable decision artifact exists",
+        reason=replay_reason,
         idempotency_key=f"{run_id}:wake_ready:auto-reconcile:{requested_by}",
     )
     try:
@@ -5263,7 +5261,7 @@ def _auto_reconcile_replay_wake_ready_for_row(
                 run_id=run_id,
                 artifact_root=artifact_root,
             )
-            if hasattr(store, "record_project_decision_gate")
+            if has_decision_artifact and hasattr(store, "record_project_decision_gate")
             else {}
         )
         if decision_record.get("persisted"):
@@ -5279,6 +5277,11 @@ def _auto_reconcile_replay_wake_ready_for_row(
             "evidence_sync": evidence_sync,
             "decision_gate": gate,
             "decision_record": decision_record,
+            "reason": (
+                "replayed missing project decision artifact"
+                if not has_decision_artifact
+                else "replayed wake_ready"
+            ),
         }
     except Exception as exc:
         return {

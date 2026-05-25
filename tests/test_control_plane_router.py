@@ -8924,6 +8924,85 @@ class ControlPlaneRouterTests(unittest.TestCase):
             status = client.get("/control/api/status", headers=headers).json()
             self.assertEqual(status["active_items"], [])
 
+    def test_queue_alert_auto_reconcile_releases_stale_active_without_decision_artifact(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            config.paper_evidence_sync_enabled = True
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_dir = Path(config.project_root) / "idea-auto-reconcile-no-decision"
+            project_dir.mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text(
+                "runner exited\n", encoding="utf-8"
+            )
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "auto-reconcile-no-decision-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-auto-reconcile-no-decision",
+                            "project_name": "Auto Reconcile No Decision",
+                            "project_dir": "idea-auto-reconcile-no-decision",
+                            "status": "awaiting_wake",
+                            "current_run_id": "run-auto-reconcile-no-decision",
+                        }
+                    ],
+                },
+            )
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="ok",
+                payload={
+                    "ok": True,
+                    "checks": [
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": True,
+                            "detail": "active_or_waiting=0, live=0",
+                            "data": {"active_or_waiting": 0, "live": 0},
+                        }
+                    ],
+                },
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api", status="ok", payload={"ok": True}
+            )
+
+            with patch(
+                "enoch_control_plane.control_plane.router._sync_remote_project_evidence",
+                return_value={
+                    "enabled": True,
+                    "synced": False,
+                    "reason": "worker_http_no_required_evidence",
+                    "local_evidence_present": False,
+                },
+            ):
+                alert = client.post(
+                    "/control/api/alerts/queue-check",
+                    headers=headers,
+                    json={"dry_run": False, "requested_by": "test"},
+                ).json()
+
+            self.assertFalse(alert["should_alert"])
+            self.assertTrue(alert["auto_reconcile"])
+            self.assertTrue(alert["auto_reconcile"][0]["ok"])
+            self.assertEqual(
+                alert["auto_reconcile"][0]["reason"],
+                "replayed missing project decision artifact",
+            )
+            status = client.get("/control/api/status", headers=headers).json()
+            self.assertEqual(status["active_items"], [])
+
     def test_queue_alert_auto_reconcile_requires_local_paper_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)
