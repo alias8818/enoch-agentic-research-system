@@ -107,6 +107,7 @@ def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None
         in service
     )
     assert "Environment=ENOCH_RESEARCH_QUALITY_LIMIT=100" in service
+    assert "Environment=ENOCH_RESEARCH_AUTOPILOT_WAIT=0" in service
     assert "ENOCH_ENABLE_RESEARCH_AUTOPILOT" in script
     assert "/control/api/research/run-cycle" in script
     assert "scripts" in script and "dspy_research_quality.py" in script
@@ -169,6 +170,8 @@ def test_research_autopilot_calls_bounded_run_cycle_when_enabled(
     assert calls[0]["payload"]["max_candidates"] == 5
     assert calls[0]["payload"]["min_queue_depth_per_lane"] == 25
     assert calls[0]["payload"]["max_dispatches_per_run"] == 2
+    assert calls[0]["payload"]["wait_for_completion"] is False
+    assert calls[0]["payload"]["max_wait_seconds"] == 0
     assert calls[0]["payload"]["max_paper_drafts_per_run"] == 1
     assert calls[0]["payload"]["max_publication_rewrites_per_run"] == 1
     assert json.loads(capsys.readouterr().out)["ok"] is True

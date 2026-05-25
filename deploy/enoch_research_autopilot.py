@@ -669,7 +669,7 @@ def _main_missing_token_exit(token: str) -> int | None:
 
 
 def _build_research_run_cycle_payload() -> tuple[dict, int]:
-    wait_for_completion = _truthy("ENOCH_RESEARCH_AUTOPILOT_WAIT", "1")
+    wait_for_completion = _truthy("ENOCH_RESEARCH_AUTOPILOT_WAIT", "0")
     max_wait_seconds = _bounded_int(
         "ENOCH_RESEARCH_AUTOPILOT_MAX_WAIT_SECONDS", 900, 0, 1800
     )
