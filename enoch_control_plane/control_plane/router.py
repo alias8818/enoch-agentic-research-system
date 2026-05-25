@@ -3311,9 +3311,7 @@ def _execute_provider_generation(
             generated_plans = params.research_facility.plan_candidates(
                 (generated.get("candidates") or [])[: params.max_candidates],
                 params.namespace_cls(
-                    default_machine=os.environ.get(
-                        "ENOCH_RESEARCH_DEFAULT_MACHINE", "research-facility-node"
-                    ),
+                    default_machine=generation_machine_target,
                     default_model=os.environ.get(
                         "ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"
                     ),

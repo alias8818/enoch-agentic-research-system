@@ -4530,8 +4530,12 @@ class ControlPlaneRouterTests(unittest.TestCase):
         generated_candidate = {
             "candidate_id": "generated-cpu",
             "title": "Generated CPU",
-            "machine_target": "cpu-proxmox-1",
         }
+
+        def fake_plan_candidates(candidates, args):
+            planned = dict(candidates[0])
+            planned.setdefault("machine_target", args.default_machine)
+            return [{"candidate": planned, "admission_decision": "admitted"}]
 
         with (
             patch(
@@ -4549,10 +4553,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             ) as generate,
             patch(
                 "scripts.research_facility.plan_candidates",
-                return_value=[
-                    {"candidate": generated_candidate, "admission_decision": "admitted"}
-                ],
-            ),
+                side_effect=fake_plan_candidates,
+            ) as plan_candidates,
         ):
             client = _client_with_config(config)
             response = client.post(
@@ -4586,6 +4588,13 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(body["generated_count"], 1)
         self.assertEqual(fake_store.followup_launches, 0)
         self.assertEqual(generate.call_args.kwargs["default_machine"], "cpu-proxmox-1")
+        self.assertEqual(
+            plan_candidates.call_args.args[1].default_machine, "cpu-proxmox-1"
+        )
+        self.assertEqual(
+            fake_store.ledger_plans[0]["candidate"]["machine_target"],
+            "cpu-proxmox-1",
+        )
         self.assertIn(
             "machine_target=cpu-proxmox-1", generate.call_args.kwargs["topic"]
         )
