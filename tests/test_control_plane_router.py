@@ -1560,6 +1560,41 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             mocked_preflight.assert_not_called()
 
+    def test_automation_readiness_writes_operator_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            trace_path = Path(tmp) / "automation_operator_trace.jsonl"
+            config = _live_config(tmp).model_copy(
+                update={
+                    "operational_trace_enabled": True,
+                    "operational_trace_log_path": str(trace_path),
+                }
+            )
+            client = _client_with_config(config)
+
+            with patch("scripts.research_provider_budget.fetch_json", return_value={}):
+                response = client.get(
+                    "/control/api/v1/automation-readiness",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["trace_id"].startswith("automation-readiness-"))
+            trace_text = trace_path.read_text(encoding="utf-8")
+            self.assertNotIn(TOKEN, trace_text)
+            trace_rows = [json.loads(line) for line in trace_text.splitlines()]
+            trace_row = next(
+                row
+                for row in trace_rows
+                if row["event"] == "automation_readiness.result"
+            )
+            self.assertEqual(trace_row["trace_id"], body["trace_id"])
+            self.assertEqual(
+                trace_row["requested_by"], "dashboard.automation_readiness"
+            )
+            self.assertEqual(trace_row["status"], body["status"])
+            self.assertEqual(trace_row["blockers"], body["blockers"][:20])
+
     def test_research_facility_api_returns_ledger_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
