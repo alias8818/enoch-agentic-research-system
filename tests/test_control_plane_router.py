@@ -3541,7 +3541,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(fake_store.promoted[0][0], "fresh-candidate")
         generate.assert_not_called()
 
-    def test_research_facility_run_cycle_provider_failure_still_promotes_existing_candidate(
+    def test_research_facility_run_cycle_no_lane_target_still_promotes_existing_candidate(
         self,
     ) -> None:
         class FakeSupabaseStore:
@@ -3638,7 +3638,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(body["queued_count"], 1)
         self.assertIn("provider generation skipped", body["warnings"][0])
         self.assertEqual(body["stages"][0]["stage"], "provider_generation")
-        self.assertFalse(body["stages"][0]["ok"])
+        self.assertTrue(body["stages"][0]["ok"])
+        self.assertEqual(body["stages"][0]["action"], "skipped")
+        self.assertEqual(body["stages"][0]["reason"], "no deficient lane feed target")
         self.assertEqual(
             fake_store.promoted[0], ("existing-candidate", "pytest", False)
         )
@@ -15460,6 +15462,153 @@ def test_generation_target_lane_extracted_no_duplication_in_giant():
     from enoch_control_plane.control_plane.router import _select_generation_target_lane
 
     assert callable(_select_generation_target_lane)
+
+
+def test_generation_target_lane_fills_under_depth_idle_queue_before_defaulting():
+    """An under-depth CPU lane with queued work still needs feed generation.
+
+    Regression guard for the live CPU=0/near-0 and GB10>25 imbalance: the old
+    selector ignored `dispatch_queued` lanes when dispatch capacity was
+    available, causing provider generation to fall back to the default GPU
+    target while CPU stayed underfilled.
+    """
+    from enoch_control_plane.control_plane.router import _select_generation_target_lane
+
+    target = _select_generation_target_lane(
+        {
+            "cpu-proxmox-1": {
+                "machine_target": "cpu-proxmox-1",
+                "lane_key": "http://cpu-worker:8787",
+                "queued_count": 2,
+                "queue_deficit": 23,
+                "promotable_count": 0,
+                "next_autopilot_action": "dispatch_queued",
+            },
+            "gb10": {
+                "machine_target": "gb10",
+                "lane_key": "http://gb10-worker:8787",
+                "queued_count": 85,
+                "queue_deficit": 0,
+                "promotable_count": 0,
+                "next_autopilot_action": "queue_depth_satisfied",
+            },
+        },
+        max_dispatches=2,
+    )
+
+    assert target is not None
+    assert target["machine_target"] == "cpu-proxmox-1"
+
+
+def test_generation_target_lane_skips_when_all_lanes_are_depth_satisfied():
+    from enoch_control_plane.control_plane.router import _select_generation_target_lane
+
+    assert (
+        _select_generation_target_lane(
+            {
+                "cpu-proxmox-1": {
+                    "machine_target": "cpu-proxmox-1",
+                    "queued_count": 25,
+                    "queue_deficit": 0,
+                    "promotable_count": 0,
+                    "next_autopilot_action": "queue_depth_satisfied",
+                },
+                "gb10": {
+                    "machine_target": "gb10",
+                    "queued_count": 85,
+                    "queue_deficit": 0,
+                    "promotable_count": 0,
+                    "next_autopilot_action": "queue_depth_satisfied",
+                },
+            },
+            max_dispatches=2,
+        )
+        is None
+    )
+
+
+def test_provider_generation_skips_without_lane_feed_target():
+    """Provider generation must not fall back to the default GPU target.
+
+    If every lane is depth-satisfied, the run-cycle should skip fresh provider
+    generation instead of creating more default-targeted GPU work.
+    """
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane=None,
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="gpt-5.5",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("provider generation should be skipped")
+            )
+        ),
+        research_facility=SimpleNamespace(plan_candidates=lambda *_args: []),
+        store=SimpleNamespace(
+            record_research_facility_plans=lambda *_args, **_kwargs: {}
+        ),
+        requested_by="pytest",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert response["generated_count"] == 0
+    assert response["fresh_generation_skipped"] is True
+    assert response["fresh_generation_skip_reason"] == "no deficient lane feed target"
+    assert response["stages"][0]["action"] == "skipped"
+
+
+def test_lane_feed_limited_promotion_candidates_do_not_overfill_satisfied_gpu_lane():
+    from enoch_control_plane.control_plane.router import (
+        _lane_feed_limited_promotion_candidates,
+    )
+
+    def worker_lane_key(row: dict[str, str]) -> str:
+        return {
+            "cpu-proxmox-1": "http://cpu-worker:8787",
+            "gb10": "http://gb10-worker:8787",
+        }.get(row.get("machine_target", ""), "")
+
+    selected = _lane_feed_limited_promotion_candidates(
+        promotion_candidates=[
+            {"candidate_id": "gpu-1", "machine_target": "gb10"},
+            {"candidate_id": "cpu-1", "machine_target": "cpu-proxmox-1"},
+            {"candidate_id": "cpu-2", "machine_target": "cpu-proxmox-1"},
+            {"candidate_id": "cpu-3", "machine_target": "cpu-proxmox-1"},
+        ],
+        lane_feed_pressure={
+            "cpu-proxmox-1": {
+                "machine_target": "cpu-proxmox-1",
+                "lane_key": "http://cpu-worker:8787",
+                "queued_count": 2,
+                "queue_deficit": 2,
+            },
+            "gb10": {
+                "machine_target": "gb10",
+                "lane_key": "http://gb10-worker:8787",
+                "queued_count": 85,
+                "queue_deficit": 0,
+            },
+        },
+        worker_lane_key=worker_lane_key,
+    )
+
+    assert [row["candidate_id"] for row in selected] == ["cpu-1", "cpu-2"]
 
 
 def test_promotable_rows_computed_extracted_no_duplication_in_giant():

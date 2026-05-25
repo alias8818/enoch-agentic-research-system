@@ -2907,9 +2907,7 @@ def _select_generation_target_lane(
     if not lane_feed_pressure:
         return None
 
-    generation_target_actions = {"generate_candidate"}
-    if max_dispatches <= 0:
-        generation_target_actions.add("dispatch_queued")
+    generation_target_actions = {"dispatch_queued", "generate_candidate"}
 
     generation_target_candidates = [
         item
@@ -3338,6 +3336,22 @@ def _execute_provider_generation(
     """
     generated_plans = []
     if params.max_provider_requests and not response.get("fresh_generation_skipped"):
+        if not params.generation_target_lane:
+            response["generated_count"] = 0
+            response["fresh_generation_skipped"] = True
+            response["fresh_generation_skip_reason"] = "no deficient lane feed target"
+            response.setdefault("warnings", []).append(
+                "provider generation skipped: no deficient lane feed target"
+            )
+            response["stages"].append(
+                {
+                    "stage": "provider_generation",
+                    "ok": True,
+                    "action": "skipped",
+                    "reason": response["fresh_generation_skip_reason"],
+                }
+            )
+            return response
         try:
             generation_machine_target = _provider_generation_machine_target(
                 params.generation_target_lane
@@ -3474,6 +3488,68 @@ def _promote_research_rows(
     return promoted
 
 
+def _lane_feed_limited_promotion_candidates(
+    *,
+    promotion_candidates: list[dict[str, Any]],
+    lane_feed_pressure: dict[str, Any],
+    worker_lane_key: Callable[[dict[str, Any]], str],
+) -> list[dict[str, Any]]:
+    if not lane_feed_pressure:
+        return promotion_candidates
+    lane_entries: list[tuple[str, int, int, str]] = []
+    for item in sorted(
+        lane_feed_pressure.values(),
+        key=lambda row: (
+            int(row.get("active_count") or 0),
+            -int(row.get("queue_deficit") or 0),
+            int(row.get("queued_count") or 0),
+            str(row.get("machine_target") or ""),
+        ),
+    ):
+        deficit = int(item.get("queue_deficit") or 0)
+        if deficit <= 0:
+            continue
+        lane_key = str(item.get("lane_key") or "")
+        if not lane_key:
+            lane_key = worker_lane_key(
+                {"machine_target": str(item.get("machine_target") or "")}
+            )
+        if lane_key:
+            lane_entries.append(
+                (
+                    lane_key,
+                    deficit,
+                    int(item.get("active_count") or 0),
+                    str(item.get("machine_target") or ""),
+                )
+            )
+    if not lane_entries:
+        return []
+
+    candidates_by_lane: dict[str, list[dict[str, Any]]] = {
+        lane_key: [] for lane_key, *_rest in lane_entries
+    }
+    for row in promotion_candidates:
+        lane_key = worker_lane_key(
+            {"machine_target": str(row.get("machine_target") or "")}
+        )
+        if lane_key in candidates_by_lane:
+            candidates_by_lane[lane_key].append(row)
+
+    open_lane_entries = [
+        entry
+        for entry in lane_entries
+        if entry[2] <= 0 and candidates_by_lane[entry[0]]
+    ]
+    if open_lane_entries:
+        lane_entries = open_lane_entries
+
+    selected: list[dict[str, Any]] = []
+    for lane_key, limit, _active_count, _machine_target in lane_entries:
+        selected.extend(candidates_by_lane[lane_key][:limit])
+    return selected
+
+
 def _promotion_success_count(promoted: list[dict[str, Any]]) -> int:
     return sum(
         1 for item in promoted if item.get("ok") and not item.get("already_promoted")
@@ -3538,12 +3614,22 @@ def _execute_promotion(
     """
     promoted: list[dict[str, Any]] = []
     if not response.get("fresh_promotion_skipped"):
-        promotion_candidates = _resolve_open_lane_promotion_candidates(
-            promotable_rows=promotable_rows,
-            open_lane_research_rows=open_lane_research_rows,
-            store=store,
-            _worker_lane_key=_worker_lane_key,
+        raw_promotion_candidates = promotable_rows()
+        lane_feed_pressure = response.get("lane_feed_pressure") or {}
+        promotion_candidates = _lane_feed_limited_promotion_candidates(
+            promotion_candidates=raw_promotion_candidates,
+            lane_feed_pressure=lane_feed_pressure
+            if isinstance(lane_feed_pressure, dict)
+            else {},
+            worker_lane_key=_worker_lane_key,
         )
+        if not lane_feed_pressure:
+            promotion_candidates = _resolve_open_lane_promotion_candidates(
+                promotable_rows=lambda: raw_promotion_candidates,
+                open_lane_research_rows=open_lane_research_rows,
+                store=store,
+                _worker_lane_key=_worker_lane_key,
+            )
         promoted = _promote_research_rows(
             store=store,
             promotion_candidates=promotion_candidates,
