@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import importlib.util
 import os
+import re
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -763,8 +764,12 @@ def test_research_default_machine_is_consistent_and_no_longer_hardcoded_ip() -> 
     # Must not contain the old IP as a default value for the research machine
     assert 'ENOCH_RESEARCH_DEFAULT_MACHINE", "192.168.1.77"' not in router_source
     assert "ENOCH_RESEARCH_DEFAULT_MACHINE', '192.168.1.77'" not in router_source
-    # The new canonical placeholder must be present in the research paths
-    assert router_source.count("research-facility-node") >= 6
+    default_machine_fallbacks = re.findall(
+        r"""ENOCH_RESEARCH_DEFAULT_MACHINE["'],\s*["']([^"']+)["']""",
+        router_source,
+    )
+    assert default_machine_fallbacks
+    assert set(default_machine_fallbacks) == {"research-facility-node"}
 
 
 def test_deploy_queue_alert_check_reasons_centralized_no_s1192_duplication() -> None:
