@@ -1594,6 +1594,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
             self.assertEqual(trace_row["status"], body["status"])
             self.assertEqual(trace_row["blockers"], body["blockers"][:20])
+            self.assertLessEqual(set(trace_row["summary"]), set(body["summary"]))
+            self.assertNotIn(
+                "research_quality_post_prompt_monitor", trace_row["summary"]
+            )
 
     def test_research_facility_api_returns_ledger_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
