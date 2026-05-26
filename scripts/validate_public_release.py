@@ -349,6 +349,14 @@ def _check_manifest_required_keys(committed: dict, failures: list[str]) -> None:
             fail(f"manifest missing required key: {key}", failures)
 
 
+def _manifest_int(committed: dict, key: str, failures: list[str]) -> int | None:
+    try:
+        return int(committed.get(key) or 0)
+    except (TypeError, ValueError):
+        fail(f"manifest {key} must be an integer", failures)
+        return None
+
+
 def _check_manifest_strict_claim_evidence(committed: dict, failures: list[str]) -> None:
     if (
         committed.get("strict_claim_evidence_gate_name")
@@ -358,8 +366,12 @@ def _check_manifest_strict_claim_evidence(committed: dict, failures: list[str]) 
             "manifest strict claim/evidence gate name is not strict_claim_evidence_audit",
             failures,
         )
-    strict_pass_count = int(committed.get("strict_claim_evidence_pass_count") or 0)
-    artifact_count = int(committed.get("artifact_count") or 0)
+    strict_pass_count = _manifest_int(
+        committed, "strict_claim_evidence_pass_count", failures
+    )
+    artifact_count = _manifest_int(committed, "artifact_count", failures)
+    if strict_pass_count is None or artifact_count is None:
+        return
     if strict_pass_count < 0 or strict_pass_count > artifact_count:
         fail(
             "manifest strict claim/evidence pass count must be between 0 and artifact count",

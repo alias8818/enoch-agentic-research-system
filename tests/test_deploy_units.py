@@ -1178,6 +1178,21 @@ def test_validate_supabase_readonly_adapter_draft_md_centralized_no_s1192_duplic
     )
 
 
+def test_validate_supabase_readonly_adapter_does_not_embed_bare_draft_md_sql() -> None:
+    src = (ROOT / "scripts" / "validate_supabase_readonly_adapter.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "DRAFT_MD, 'draft.tex'" not in src
+    assert "%s, 'draft.tex'" in src
+
+
+def test_wait_safe_restart_wake_gate_helper_is_executable() -> None:
+    mode = (ROOT / "deploy" / "wait_safe_restart_wake_gate.py").stat().st_mode
+
+    assert mode & 0o111
+
+
 def test_validate_supabase_readonly_adapter_draft_tex_centralized_no_s1192_duplication() -> (
     None
 ):

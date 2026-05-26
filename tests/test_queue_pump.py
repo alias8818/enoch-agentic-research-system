@@ -18,6 +18,20 @@ spec.loader.exec_module(queue_pump)
 
 
 class QueuePumpTests(unittest.TestCase):
+    def test_base_url_defaults_to_plain_http_for_uvicorn_service(self) -> None:
+        self.assertEqual(
+            queue_pump._base_url({"listen_host": "0.0.0.0", "listen_port": 8787}),
+            "http://127.0.0.1:8787",
+        )
+
+    def test_base_url_honors_explicit_control_url(self) -> None:
+        with patch.dict(
+            queue_pump.os.environ,
+            {"ENOCH_CONTROL_URL": "https://control.example:9443/"},
+            clear=False,
+        ):
+            self.assertEqual(queue_pump._base_url({}), "https://control.example:9443")
+
     def _run_main(self, *, status: dict | None = None) -> tuple[int, dict, list[str]]:
         calls: list[str] = []
         status = status or {

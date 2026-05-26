@@ -56,6 +56,17 @@ def test_default_generated_manifest_path_uses_private_temp_file(
         path.unlink(missing_ok=True)
 
 
+def test_parse_args_materializes_default_ledger_sql_output() -> None:
+    args = parse_args(["--root", "/tmp", "--dry-run"])
+    path = Path(args.ledger_sql_output)
+    try:
+        assert isinstance(args.ledger_sql_output, str)
+        assert path.name.startswith("enoch-sync-corpus-imports.")
+        assert path.suffix == ".sql"
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def test_release_plan_includes_validation_by_default(tmp_path: Path) -> None:
     args = parse_args(["--root", str(tmp_path), "--dry-run"])
     steps = build_steps(args)

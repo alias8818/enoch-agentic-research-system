@@ -189,6 +189,23 @@ def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
     )
 
 
+def test_manifest_strict_claim_evidence_reports_malformed_counts() -> None:
+    failures: list[str] = []
+
+    validate_public_release._check_manifest_strict_claim_evidence(
+        {
+            "artifact_count": "not-a-number",
+            "strict_claim_evidence_pass_count": -1,
+            "strict_claim_evidence_total_count": "not-a-number",
+            "strict_claim_evidence_gate_name": "strict_claim_evidence_audit",
+            "strict_claim_evidence_gate_status": "strict_fail",
+        },
+        failures,
+    )
+
+    assert "manifest artifact_count must be an integer" in failures
+
+
 def test_public_count_checks_reject_stale_svg_split_count(tmp_path) -> None:
     page = tmp_path / "social-card.svg"
     page.write_text(

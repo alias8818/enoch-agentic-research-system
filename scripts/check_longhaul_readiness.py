@@ -19,7 +19,7 @@ def _base_url(config: dict) -> str:
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"
-    return f"https://{host}:{int(config.get('listen_port') or 8787)}"
+    return f"http://{host}:{int(config.get('listen_port') or 8787)}"
 
 
 def _get_json(url: str, token: str, timeout: int = 30) -> dict:

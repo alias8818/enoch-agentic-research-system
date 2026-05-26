@@ -356,9 +356,9 @@ def postgres_fixture(database_url: str) -> None:
                   draft_markdown_path, draft_latex_path, evidence_bundle_path, claim_ledger_path,
                   manifest_path, generated_at, updated_at)
                 values ('paper-1', 'proj-1', 'run-1', 'arxiv_draft', 'publication_draft',
-                  DRAFT_MD, 'draft.tex', 'evidence.json', 'claims.json', 'manifest.json', %s, %s)
+                  %s, 'draft.tex', 'evidence.json', 'claims.json', 'manifest.json', %s, %s)
                 """,
-                (NOW, NOW),
+                (DRAFT_MD, NOW, NOW),
             )
             cur.execute(
                 """

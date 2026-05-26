@@ -438,7 +438,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--ledger-sql-output",
-        default=_default_ledger_sql_output,
+        default="",
     )
     parser.add_argument(
         "--dry-run",
@@ -448,6 +448,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.generated_manifest is None:
         args.generated_manifest = str(default_generated_manifest_path())
+    if not args.ledger_sql_output:
+        args.ledger_sql_output = _default_ledger_sql_output()
     if args.publish_hf:
         args.build_hf = True
     return args

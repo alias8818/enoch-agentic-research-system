@@ -29,7 +29,7 @@ def test_config_token_does_not_follow_env_control_url(monkeypatch, tmp_path):
 
     assert check_longhaul_readiness.main(["--live", "--config", str(config)]) == 0
     assert observed == {
-        "url": "https://127.0.0.1:8787/control/api/v1/automation-readiness",
+        "url": "http://127.0.0.1:8787/control/api/v1/automation-readiness",
         "token": "config-token",
     }
 

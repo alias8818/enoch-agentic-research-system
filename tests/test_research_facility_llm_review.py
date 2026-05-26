@@ -158,6 +158,30 @@ def test_llm_review_low_confidence_admit_is_deferred_not_admitted():
     )
 
 
+def test_apply_review_decision_treats_missing_decision_as_non_admit(monkeypatch):
+    calls = []
+
+    def fake_non_admit(*_args, **kwargs):
+        calls.append(kwargs)
+        return {"status_updates": 0, "admissions_inserted": 0}
+
+    monkeypatch.setattr(
+        research_facility_llm_review, "_apply_non_admit_decision", fake_non_admit
+    )
+
+    update, status_key = research_facility_llm_review._apply_review_decision(
+        None,
+        decision={"candidate_id": "candidate-1"},
+        janitor_action={},
+        requested_by="unit",
+        provider_model="model",
+    )
+
+    assert update == {"status_updates": 0, "admissions_inserted": 0}
+    assert status_key is None
+    assert calls[0]["candidate_id"] == "candidate-1"
+
+
 def test_llm_review_cli_exposes_stored_decision_backfill_flags():
     parser = research_facility_llm_review.build_arg_parser()
     args = parser.parse_args(

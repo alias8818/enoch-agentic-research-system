@@ -117,6 +117,24 @@ def test_update_text_rewrites_wrapped_strict_fail_phrases() -> None:
     assert "flags 7" not in updated
 
 
+def test_update_text_rewrites_strict_fail_denominator_after_large_fail_count() -> None:
+    stats = {
+        "artifact_count": 1000,
+        "packaging_pass": 1000,
+        "strict_pass": 500,
+        "strict_fail": 500,
+        "empty_claim_ledgers": 0,
+        "result_file_refs": 0,
+        "result_file_refs_missing": 0,
+        "post_dedupe_imports": 0,
+    }
+
+    updated = update_text("Strict audit flags 494 of its own 500 outputs.", stats)
+
+    assert "flags 500 of its own 1000 outputs" in updated
+    assert "flags 1000 of its own 500 outputs" not in updated
+
+
 def test_default_generated_manifest_path_uses_private_temp_file() -> None:
     path = default_generated_manifest_path()
     try:

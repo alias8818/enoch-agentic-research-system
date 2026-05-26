@@ -523,7 +523,8 @@ def _apply_review_decision(
     provider_model: str,
 ) -> tuple[dict[str, int], str | None]:
     candidate_id = decision["candidate_id"]
-    if decision["decision"] == "admit" and _confidence_allows_admit(decision):
+    decision_value = _as_text(decision.get("decision")).lower()
+    if decision_value == "admit" and _confidence_allows_admit(decision):
         update = _apply_admit_decision(
             cur,
             candidate_id=candidate_id,

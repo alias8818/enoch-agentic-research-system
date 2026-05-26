@@ -249,6 +249,63 @@ def test_followup_launch_does_not_skip_fresh_generation_for_empty_lane_queue() -
     assert "follow-up branch took priority" not in result.get("reason", "")
 
 
+def test_research_paper_stage_records_evidence_rewrite_error() -> None:
+    from enoch_control_plane.control_plane.models import DraftNextResponse
+    from enoch_control_plane.control_plane.router import (
+        PaperRewriteEvidenceRequiredError,
+        _execute_research_paper_stages,
+    )
+
+    class FakeStore:
+        def active_items(self) -> list[dict[str, str]]:
+            return []
+
+    paper = PaperRecord(paper_id="paper-1", project_id="project-1")
+    response = {"stages": []}
+
+    def draft_next(*_args: object, **_kwargs: object) -> DraftNextResponse:
+        return DraftNextResponse(
+            ok=True,
+            action="drafted",
+            reason="drafted",
+            paper=paper,
+            candidate={"project_id": "project-1"},
+        )
+
+    def rewrite_paper_review_draft(*_args: object, **_kwargs: object) -> object:
+        raise PaperRewriteEvidenceRequiredError(
+            {"ok": False, "reason": "missing local evidence"}
+        )
+
+    drafted, finalized = _execute_research_paper_stages(
+        store=FakeStore(),
+        response=response,
+        max_paper_drafts=1,
+        max_publication_rewrites=1,
+        wait_for_completion=False,
+        wait_result={},
+        requested_by="test",
+        draft_next=draft_next,
+        rewrite_paper_review_draft=rewrite_paper_review_draft,
+        control_api_bearer_token=TOKEN,
+    )
+
+    assert len(drafted) == 1
+    assert finalized == []
+    finalization_stage = response["stages"][-1]
+    assert finalization_stage["stage"] == "publication_finalization"
+    assert finalization_stage["ok"] is False
+    assert finalization_stage["paper_id"] == "paper-1"
+    assert finalization_stage["status_code"] == 424
+    assert (
+        finalization_stage["reason"] == "paper rewrite requires synced project evidence"
+    )
+    assert finalization_stage["evidence_sync"] == {
+        "ok": False,
+        "reason": "missing local evidence",
+    }
+
+
 class ControlPlaneRouterTests(unittest.TestCase):
     def test_deterministic_paper_writes_are_atomic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -10643,6 +10700,30 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertIn("configured worker_wake_gate_url", response.text)
             mocked_preflight.assert_not_called()
 
+    def test_dashboard_preflight_maps_unconfigured_worker_url_to_503(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = FastAPI()
+            config = _config(tmp)
+
+            def require(auth: str | None) -> None:
+                if auth != f"Bearer {TOKEN}":
+                    raise AssertionError("bad token")
+
+            app.include_router(create_control_plane_router(config, require))
+            client = TestClient(app, raise_server_exceptions=False)
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight"
+            ) as mocked_preflight:
+                response = client.post(
+                    "/control/api/preflight",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                    json={},
+                )
+
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("configured worker_wake_gate_url", response.text)
+            mocked_preflight.assert_not_called()
+
     def test_worker_preflight_supabase_readonly_skips_observation_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp).model_copy(
@@ -11240,8 +11321,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(
                 prepare_payload["metadata"]["machine_target"], "cpu-proxmox-1"
             )
-            self.assertTrue(
-                prepare_payload["metadata"]["dispatch_route"]["token_configured"]
+            self.assertIs(
+                prepare_payload["metadata"]["dispatch_route"]["token_configured"],
+                True,
             )
             self.assertNotIn(
                 "bearer_token", prepare_payload["metadata"]["dispatch_route"]
@@ -15783,6 +15865,14 @@ def test_lane_helpers_extracted_no_duplication_in_giant():
 
     assert callable(research_row_lane_key)
     assert callable(open_lane_research_rows)
+    assert research_row_lane_key({"machine_target": "gb10"}) == "gb10"
+    assert open_lane_research_rows(
+        [
+            {"project_id": "gpu", "machine_target": "gb10"},
+            {"project_id": "cpu", "machine_target": "cpu-proxmox-1"},
+        ],
+        {"gb10"},
+    ) == [{"project_id": "cpu", "machine_target": "cpu-proxmox-1"}]
 
 
 def test_research_lane_feed_pressure_extracted_no_duplication_in_giant():
