@@ -2980,6 +2980,9 @@ _REASON_FOLLOWUP_STARVES_TARGET_LANE = "bounded follow-up candidate targets a di
 _REASON_FOLLOWUP_DISPATCH_DISABLED = (
     "bounded follow-up candidate exists but dispatch is disabled for this run"
 )
+_REASON_FOLLOWUP_LANE_DEPTH_SATISFIED = (
+    "bounded follow-up candidate lane queue depth is already satisfied"
+)
 
 
 def _fetch_next_followup_candidate(store: Any) -> dict[str, Any] | None:
@@ -3089,6 +3092,59 @@ def _record_followup_dispatch_disabled(
     )
 
 
+def _lane_feed_pressure_entry_for_key(
+    lane_feed_pressure: dict[str, Any],
+    lane_key: str,
+) -> dict[str, Any] | None:
+    for key, entry in lane_feed_pressure.items():
+        if not isinstance(entry, dict):
+            continue
+        if lane_key in {
+            str(key or ""),
+            str(entry.get("lane_key") or ""),
+            str(entry.get("machine_target") or ""),
+        }:
+            return entry
+    return None
+
+
+def _followup_lane_depth_satisfied(
+    *,
+    lane_feed_pressure: dict[str, Any],
+    followup_lane_key: str,
+) -> bool:
+    if not lane_feed_pressure or not followup_lane_key:
+        return False
+    entry = _lane_feed_pressure_entry_for_key(lane_feed_pressure, followup_lane_key)
+    if entry is None:
+        return False
+    if int(entry.get("queue_deficit") or 0) > 0:
+        return False
+    return str(entry.get("next_autopilot_action") or "") == "queue_depth_satisfied"
+
+
+def _record_followup_lane_depth_satisfied(
+    response: dict[str, Any],
+    *,
+    followup_candidate: dict[str, Any],
+    followup_lane_key: str,
+) -> None:
+    response["followup_launch"] = {
+        "action": "skipped",
+        "reason": _REASON_FOLLOWUP_LANE_DEPTH_SATISFIED,
+        "candidate": followup_candidate,
+        "candidate_lane_key": followup_lane_key,
+    }
+    _append_followup_launch_stage(
+        response,
+        ok=True,
+        action="skipped",
+        reason=_REASON_FOLLOWUP_LANE_DEPTH_SATISFIED,
+        parent_project_id=followup_candidate.get("project_id"),
+        candidate_lane_key=followup_lane_key,
+    )
+
+
 def _launch_followup_and_record(
     response: dict[str, Any],
     *,
@@ -3185,6 +3241,7 @@ def _handle_followup_candidate(
     store: Any,
     followup_candidate: dict[str, Any],
     generation_target_lane: Any,
+    lane_feed_pressure: dict[str, Any],
     max_dispatches: int,
     max_provider_requests: int,
     requested_by: str,
@@ -3206,6 +3263,18 @@ def _handle_followup_candidate(
             generation_target_lane=generation_target_lane,
             followup_lane_key=followup_lane_key,
             generation_lane_key=generation_lane_key,
+        )
+        _apply_followup_branch_skip_flags(response, False)
+        return
+
+    if _followup_lane_depth_satisfied(
+        lane_feed_pressure=lane_feed_pressure,
+        followup_lane_key=followup_lane_key,
+    ):
+        _record_followup_lane_depth_satisfied(
+            response,
+            followup_candidate=followup_candidate,
+            followup_lane_key=followup_lane_key,
         )
         _apply_followup_branch_skip_flags(response, False)
         return
@@ -3254,6 +3323,9 @@ def _handle_followup_and_early_skips(
             store=store,
             followup_candidate=followup_candidate,
             generation_target_lane=generation_target_lane,
+            lane_feed_pressure=response.get("lane_feed_pressure")
+            if isinstance(response.get("lane_feed_pressure"), dict)
+            else {},
             max_dispatches=max_dispatches,
             max_provider_requests=max_provider_requests,
             requested_by=requested_by,
@@ -4808,6 +4880,11 @@ def _research_lane_feed_autopilot_plan(
     machine_target: str,
 ) -> tuple[str, str]:
     if not queue_deficit:
+        if queued_count > min_queue_depth:
+            return (
+                "queue_depth_satisfied",
+                f"{label} is above desired queued depth {queued_count}/{min_queue_depth}; dispatch queued work before feeding more.",
+            )
         return (
             "queue_depth_satisfied",
             f"{label} has queued depth {queued_count}/{min_queue_depth}; no feed action needed.",

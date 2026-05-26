@@ -249,6 +249,66 @@ def test_followup_launch_does_not_skip_fresh_generation_for_empty_lane_queue() -
     assert "follow-up branch took priority" not in result.get("reason", "")
 
 
+def test_followup_launch_respects_satisfied_lane_queue_depth() -> None:
+    class FakeStore:
+        launches = 0
+
+        def next_followup_candidate(
+            self, *, max_followup_depth: int = 4, project_id: str = ""
+        ):
+            return {
+                "project_id": "parent",
+                "machine_target": "cpu-proxmox-1",
+                "followup_title": "Bounded follow-up",
+            }
+
+        def launch_followup_candidate(self, **_kwargs):
+            self.launches += 1
+            return {
+                "action": "followup_queued",
+                "candidate": {"project_id": "parent"},
+                "followup": {"idea_id": "followup-child"},
+            }
+
+    response = {
+        "stages": [],
+        "lane_feed_pressure": {
+            "cpu-proxmox-1": {
+                "lane_key": "cpu-proxmox-1",
+                "machine_target": "cpu-proxmox-1",
+                "queued_count": 48,
+                "desired_queue_depth": 25,
+                "queue_deficit": 0,
+                "next_autopilot_action": "queue_depth_satisfied",
+            }
+        },
+    }
+    dispatched: list[str] = []
+    store = FakeStore()
+
+    result = _handle_followup_and_early_skips(
+        store=store,
+        generation_target_lane=None,
+        max_dispatches=2,
+        max_provider_requests=1,
+        fresh_generation_backlog_threshold=3,
+        initial_promotable=[],
+        response=response,
+        requested_by="pytest",
+        dispatch_queued_project=lambda project_id: (
+            dispatched.append(project_id) or True
+        ),
+        research_row_lane_key=lambda row: str(row.get("machine_target") or ""),
+    )
+
+    assert store.launches == 0
+    assert dispatched == []
+    assert result["followup_launch"]["action"] == "skipped"
+    assert "queue depth is already satisfied" in result["followup_launch"]["reason"]
+    assert result["fresh_generation_skipped"] is False
+    assert result["fresh_promotion_skipped"] is False
+
+
 def test_research_paper_stage_records_evidence_rewrite_error() -> None:
     from enoch_control_plane.control_plane.models import DraftNextResponse
     from enoch_control_plane.control_plane.router import (
@@ -15915,6 +15975,18 @@ def test_research_lane_feed_pressure_extracted_no_duplication_in_giant():
     )
     assert action == "generate_candidate"
     assert "GB10-targeted" in summary
+
+    action, summary = _research_lane_feed_autopilot_plan(
+        label="CPU lane",
+        queue_deficit=0,
+        queued_count=48,
+        active_count=0,
+        promotable_count=0,
+        min_queue_depth=25,
+        machine_target="cpu-proxmox-1",
+    )
+    assert action == "queue_depth_satisfied"
+    assert "above desired queued depth 48/25" in summary
 
     pressure_key, entry = _single_lane_feed_pressure_entry(
         {
