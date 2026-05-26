@@ -178,6 +178,25 @@ def _is_project_root_child(path: Path, root: Path) -> bool:
         return False
 
 
+def _candidate_and_prune_decision(
+    *,
+    child: Path,
+    dirname: str,
+    root: Path,
+    protected_projects: set[str],
+    names: set[str],
+) -> tuple[CleanupCandidate | None, bool]:
+    if _should_skip_child_directory(child, root):
+        return None, False
+    if dirname in names:
+        if _is_project_root_child(child, root):
+            return None, True
+        return _cleanup_candidate_for(child, dirname, root, protected_projects), False
+    if dirname in HIGH_VALUE_NAMES:
+        return None, False
+    return None, True
+
+
 def discover_candidates(
     project_root: Path,
     *,
@@ -196,22 +215,20 @@ def discover_candidates(
         pruned: list[str] = []
         for dirname in dirnames:
             child = current_path / dirname
-            if _should_skip_child_directory(child, root):
-                continue
-            if dirname in names:
-                if _is_project_root_child(child, root):
-                    pruned.append(dirname)
-                    continue
-                candidates.append(
-                    _cleanup_candidate_for(child, dirname, root, protected_projects)
-                )
+            candidate, should_descend = _candidate_and_prune_decision(
+                child=child,
+                dirname=dirname,
+                root=root,
+                protected_projects=protected_projects,
+                names=names,
+            )
+            if candidate is not None:
+                candidates.append(candidate)
                 # Critical: do not descend into a candidate. Its size already
                 # includes descendants, and selecting nested caches would
                 # double-count and risk repeated deletion attempts.
-                continue
-            if dirname in HIGH_VALUE_NAMES:
-                continue
-            pruned.append(dirname)
+            if should_descend:
+                pruned.append(dirname)
         dirnames[:] = pruned
     return sorted(candidates, key=lambda item: item.size_bytes, reverse=True)
 

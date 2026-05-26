@@ -24,16 +24,18 @@ class QueuePumpTests(unittest.TestCase):
             "http://127.0.0.1:8787",
         )
 
-    def test_base_url_honors_explicit_control_url(self) -> None:
+    def test_base_url_ignores_env_control_url_when_using_config_tokens(self) -> None:
         with patch.dict(
             queue_pump.os.environ,
             {"ENOCH_CONTROL_URL": "https://control.example:9443/"},
             clear=False,
         ):
-            self.assertEqual(queue_pump._base_url({}), "https://control.example:9443")
+            self.assertEqual(queue_pump._base_url({}), "http://127.0.0.1:8787")
 
-    def _run_main(self, *, status: dict | None = None) -> tuple[int, dict, list[str]]:
-        calls: list[str] = []
+    def _run_main(
+        self, *, status: dict | None = None
+    ) -> tuple[int, dict, list[tuple[str, str, str, dict]]]:
+        calls: list[tuple[str, str, str, dict]] = []
         status = status or {
             "flags": {"queue_paused": False, "maintenance_mode": False},
             "dispatch_safe": True,
@@ -46,7 +48,7 @@ class QueuePumpTests(unittest.TestCase):
         def fake_post(
             base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30
         ) -> dict:
-            calls.append(path)
+            calls.append((base_url, path, token, payload))
             if path == "/control/api/preflight":
                 return {
                     "ok": True,
@@ -94,6 +96,7 @@ class QueuePumpTests(unittest.TestCase):
                     "listen_host": "127.0.0.1",
                     "listen_port": 8787,
                     "control_api_bearer_token": "t",
+                    "worker_wake_gate_bearer_token": "worker-t",
                     "queue_pump_enabled": True,
                 },
             ),
@@ -107,9 +110,10 @@ class QueuePumpTests(unittest.TestCase):
 
     def test_queue_pump_dispatches_when_safe_and_candidate_exists(self) -> None:
         code, output, calls = self._run_main()
+        paths = [path for _base_url, path, _token, _payload in calls]
         self.assertEqual(code, 0)
-        self.assertNotIn("/control/papers/draft-next", calls)
-        self.assertIn("/control/dispatch-next", calls)
+        self.assertNotIn("/control/papers/draft-next", paths)
+        self.assertIn("/control/dispatch-next", paths)
         self.assertEqual(output["dispatch"]["action"], "live_dispatch")
         self.assertEqual(
             output["paper_draft"]["reason"], "queue pump paper drafting disabled"
@@ -183,9 +187,10 @@ class QueuePumpTests(unittest.TestCase):
             "conflicts": [],
         }
         code, output, calls = self._run_main(status=status)
+        paths = [path for _base_url, path, _token, _payload in calls]
         self.assertEqual(code, 0)
-        self.assertNotIn("/control/papers/draft-next", calls)
-        self.assertNotIn("/control/dispatch-next", calls)
+        self.assertNotIn("/control/papers/draft-next", paths)
+        self.assertNotIn("/control/dispatch-next", paths)
         self.assertEqual(output["dispatch"]["reason"], "no queued candidate")
         self.assertEqual(
             output["followup_launch"]["reason"], "queue pump follow-up launch disabled"
@@ -267,8 +272,9 @@ class QueuePumpTests(unittest.TestCase):
         self,
     ) -> None:
         code, output, calls = self._run_main()
+        paths = [path for _base_url, path, _token, _payload in calls]
         self.assertEqual(code, 0)
-        self.assertNotIn("/control/api/v1/followups/launch-next", calls)
+        self.assertNotIn("/control/api/v1/followups/launch-next", paths)
         self.assertEqual(
             output["followup_launch"]["reason"], "queued candidate already present"
         )
@@ -283,9 +289,10 @@ class QueuePumpTests(unittest.TestCase):
             "conflicts": [],
         }
         code, output, calls = self._run_main(status=status)
+        paths = [path for _base_url, path, _token, _payload in calls]
         self.assertEqual(code, 0)
-        self.assertNotIn("/control/api/v1/followups/launch-next", calls)
-        self.assertNotIn("/control/dispatch-next", calls)
+        self.assertNotIn("/control/api/v1/followups/launch-next", paths)
+        self.assertNotIn("/control/dispatch-next", paths)
         self.assertEqual(
             output["followup_launch"]["reason"], "active worker lane present"
         )
@@ -306,13 +313,37 @@ class QueuePumpTests(unittest.TestCase):
             "conflicts": [],
         }
         code, output, calls = self._run_main(status=status)
+        paths = [path for _base_url, path, _token, _payload in calls]
         self.assertEqual(code, 0)
-        self.assertNotIn("/control/api/v1/followups/launch-next", calls)
-        self.assertIn("/control/dispatch-next", calls)
+        self.assertNotIn("/control/api/v1/followups/launch-next", paths)
+        self.assertIn("/control/dispatch-next", paths)
         self.assertEqual(
             output["followup_launch"]["reason"], "queued candidate already present"
         )
         self.assertEqual(output["dispatch"]["action"], "live_dispatch")
+
+    def test_queue_pump_never_sends_config_tokens_to_env_control_url(self) -> None:
+        with patch.dict(
+            queue_pump.os.environ,
+            {"ENOCH_CONTROL_URL": "https://attacker.invalid:9443"},
+            clear=False,
+        ):
+            code, _output, calls = self._run_main()
+
+        self.assertEqual(code, 0)
+        self.assertTrue(calls)
+        self.assertEqual(
+            {base_url for base_url, _path, _token, _payload in calls},
+            {"http://127.0.0.1:8787"},
+        )
+        self.assertEqual({token for _base_url, _path, token, _payload in calls}, {"t"})
+        preflight_payloads = [
+            payload
+            for _base_url, path, _token, payload in calls
+            if path == "/control/api/preflight"
+        ]
+        self.assertEqual(len(preflight_payloads), 1)
+        self.assertEqual(preflight_payloads[0].get("bearer_token"), "worker-t")
 
 
 if __name__ == "__main__":

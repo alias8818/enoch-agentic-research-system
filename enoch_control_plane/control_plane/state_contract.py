@@ -173,12 +173,14 @@ PAPER_READINESS_HARD_GATE_REQUIREMENTS: Final[tuple[str, ...]] = (
     "no_unresolved_central_claim_contradiction",
 )
 
+PAPER_READINESS_BLOCKING_CLAIM_DESCRIPTION: Final[str] = "Blocks paper claims."
+
 PAPER_READINESS_CLAIM_VERDICTS: Final[dict[str, str]] = {
     "supported": "Allowed in paper claims.",
     "partial": "Allowed only as limitation or future-work language.",
-    "unsupported": "Blocks paper claims.",
-    "contradicted": "Blocks paper claims.",
-    "missing_evidence": "Blocks paper claims.",
+    "unsupported": PAPER_READINESS_BLOCKING_CLAIM_DESCRIPTION,
+    "contradicted": PAPER_READINESS_BLOCKING_CLAIM_DESCRIPTION,
+    "missing_evidence": PAPER_READINESS_BLOCKING_CLAIM_DESCRIPTION,
 }
 
 PAPER_READINESS_BLOCKING_CLAIM_VERDICTS: Final[set[str]] = {

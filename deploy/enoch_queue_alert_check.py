@@ -31,13 +31,6 @@ def _load_config() -> dict:
 
 
 def _base_url(config: dict) -> str:
-    explicit = (
-        os.environ.get("ENOCH_CONTROL_URL")
-        or os.environ.get("ENOCH_CONTROL_PLANE_URL")
-        or ""
-    ).strip()
-    if explicit:
-        return explicit.rstrip("/")
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
         host = "127.0.0.1"

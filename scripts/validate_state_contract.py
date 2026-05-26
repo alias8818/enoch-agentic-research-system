@@ -214,25 +214,28 @@ def _validate_surface_inventory() -> list[str]:
     return failures
 
 
-def _validate_paper_readiness_contract() -> list[str]:
+def _validate_paper_readiness_states(states: dict) -> list[str]:
     failures: list[str] = []
-    states = PAPER_READINESS_CONTRACT["maturity_states"]
-    transitions = PAPER_READINESS_CONTRACT["transitions"]
-    if not isinstance(states, dict) or not isinstance(transitions, tuple):
-        return ["paper readiness contract has invalid structure"]
+    required_fields = (
+        "definition",
+        "allowed_inputs",
+        "allowed_outputs",
+        "operator_lane",
+    )
     for state, definition in states.items():
         if not isinstance(definition, dict):
             failures.append(f"paper readiness state {state} has invalid definition")
             continue
-        for field in (
-            "definition",
-            "allowed_inputs",
-            "allowed_outputs",
-            "operator_lane",
-        ):
+        for field in required_fields:
             if not definition.get(field):
                 failures.append(f"paper readiness state {state} missing {field}")
-    known_nodes = set(states) | {"run_completed", "write_needed", "historical"}
+    return failures
+
+
+def _validate_paper_readiness_transitions(
+    transitions: tuple, known_nodes: set[str]
+) -> list[str]:
+    failures: list[str] = []
     for transition in transitions:
         source = transition.get("from")
         target = transition.get("to")
@@ -245,6 +248,18 @@ def _validate_paper_readiness_contract() -> list[str]:
                 f"paper readiness transition {source}->{target} missing condition"
             )
     return failures
+
+
+def _validate_paper_readiness_contract() -> list[str]:
+    states = PAPER_READINESS_CONTRACT["maturity_states"]
+    transitions = PAPER_READINESS_CONTRACT["transitions"]
+    if not isinstance(states, dict) or not isinstance(transitions, tuple):
+        return ["paper readiness contract has invalid structure"]
+    known_nodes = set(states) | {"run_completed", "write_needed", "historical"}
+    return [
+        *_validate_paper_readiness_states(states),
+        *_validate_paper_readiness_transitions(transitions, known_nodes),
+    ]
 
 
 def _validate_state_transition_doc() -> list[str]:

@@ -326,6 +326,32 @@ def _missing_evidence(payload: dict[str, Any], hard_gate: dict[str, Any]) -> lis
     return [*values, *list(hard_gate.get("missing") or [])]
 
 
+def _negative_nonpaper_decision(payload: dict[str, Any]) -> bool:
+    return _normal(payload.get("project_decision")) in {
+        "negative",
+        "finalize_negative",
+        "reject",
+    } and _normal(payload.get("research_outcome")) not in {
+        "useful_signal",
+        "paper_positive",
+        "positive",
+    }
+
+
+def _all_paper_gates_passed(
+    hard_gate: dict[str, Any], claim_ledger: dict[str, Any], scorecard: dict[str, Any]
+) -> bool:
+    return bool(hard_gate["passed"] and claim_ledger["passed"] and scorecard["passed"])
+
+
+def _has_paper_readiness_signal(
+    hard_gate: dict[str, Any], claim_ledger: dict[str, Any], scorecard: dict[str, Any]
+) -> bool:
+    return bool(
+        hard_gate["passed"] or claim_ledger["present"] or scorecard["scores"]["total"]
+    )
+
+
 def _readiness_state(
     payload: dict[str, Any],
     *,
@@ -335,24 +361,9 @@ def _readiness_state(
     missing_evidence: list[str],
 ) -> str:
     requested = _normal(payload.get("maturity_state"))
-    if _normal(payload.get("project_decision")) in {
-        "negative",
-        "finalize_negative",
-        "reject",
-    } and _normal(payload.get("research_outcome")) not in {
-        "useful_signal",
-        "paper_positive",
-        "positive",
-    }:
+    if _negative_nonpaper_decision(payload):
         return "archive_no_paper"
-    if (
-        requested == "paper_ready"
-        and hard_gate["passed"]
-        and claim_ledger["passed"]
-        and scorecard["passed"]
-    ):
-        return "paper_ready"
-    if hard_gate["passed"] and claim_ledger["passed"] and scorecard["passed"]:
+    if _all_paper_gates_passed(hard_gate, claim_ledger, scorecard):
         return "paper_ready"
     if missing_evidence and _normal(payload.get("research_outcome")) == "useful_signal":
         return "deepen_required"
@@ -365,7 +376,7 @@ def _readiness_state(
         return "pilot_signal"
     if requested in PAPER_READINESS_MATURITY_STATES:
         return requested
-    if hard_gate["passed"] or claim_ledger["present"] or scorecard["scores"]["total"]:
+    if _has_paper_readiness_signal(hard_gate, claim_ledger, scorecard):
         return "paper_candidate"
     return "execution_complete"
 

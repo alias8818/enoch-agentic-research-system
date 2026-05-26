@@ -2672,7 +2672,7 @@ def _build_research_yield_panel(
     paper_rows: Sequence[Mapping[str, Any]],
     paper_drought_days: int = 9,
 ) -> dict[str, Any]:
-    maturity_counts = {state: 0 for state in sorted(PAPER_READINESS_MATURITY_STATES)}
+    maturity_counts = dict.fromkeys(sorted(PAPER_READINESS_MATURITY_STATES), 0)
     completed_rows = [
         row
         for row in queue_rows

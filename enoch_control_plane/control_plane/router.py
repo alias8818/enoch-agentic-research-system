@@ -4508,14 +4508,8 @@ def _execute_research_paper_stages(
                 )
             except (
                 PublicationAutomationNotFoundError,
-                PaperRewriteBlockedReviewStatusError,
-                UnresolvableConfiguredProjectRootError,
-                PaperArtifactRootError,
                 PaperArtifactRootNotInspectableError,
-                PaperArtifactSnapshotReadError,
-                PaperRewriteIdempotencyReuseError,
                 PaperRewriteEvidenceRequiredError,
-                IdempotencyConflict,
                 ValueError,
             ) as exc:
                 response["stages"].append(_paper_rewrite_error_stage(paper_id, exc))
