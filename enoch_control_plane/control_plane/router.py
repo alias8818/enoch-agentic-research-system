@@ -4312,7 +4312,7 @@ def _refill_idle_lanes_during_wait(
 ) -> int:
     remaining_refills = max(
         0,
-        params.max_dispatches - int(response.get("wait_refill_dispatch_count") or 0),
+        params.max_dispatches - int(response.get("dispatched_count") or 0),
     )
     if remaining_refills <= 0:
         return 0

@@ -15963,6 +15963,43 @@ def test_wait_for_completion_refills_idle_lanes_while_other_lane_runs(monkeypatc
     assert response["wait"]["refill_dispatches"] == 1
 
 
+def test_refill_idle_lanes_during_wait_respects_total_dispatch_cap():
+    from enoch_control_plane.control_plane.router import _refill_idle_lanes_during_wait
+
+    class FakeStore:
+        def active_items(self) -> list[dict[str, str]]:
+            return []
+
+    dispatched_calls: list[str] = []
+
+    def dispatch_queued_project(project_id: str) -> bool:
+        dispatched_calls.append(project_id)
+        return True
+
+    params = SimpleNamespace(
+        max_dispatches=1,
+        store=FakeStore(),
+        queue_rows_for_lane_feed=lambda: [{"project_id": "queued-gb10"}],
+        worker_lane_capacity=lambda active, rows: [
+            {
+                "dispatch_available": True,
+                "next_candidate": {"project_id": "queued-gb10"},
+            }
+        ],
+    )
+    response = {"dispatched_count": 1, "stages": []}
+
+    dispatched = _refill_idle_lanes_during_wait(
+        params=params,
+        response=response,
+        dispatch_queued_project=dispatch_queued_project,
+    )
+
+    assert dispatched == 0
+    assert dispatched_calls == []
+    assert response.get("wait_refill_dispatch_count", 0) == 0
+
+
 def test_worker_settling_after_vm_completion_extracted_for_s3776():
     """AGENTS.md test-first for OPEN S3776 at router.py ~2064 (_worker_settling_after_vm_completion).
 
