@@ -197,8 +197,12 @@ async def lifespan(app: FastAPI):
     # shutdown logic (replaces deprecated @app.on_event("shutdown"))
     if reconcile_task is not None:
         reconcile_task.cancel()
-        await reconcile_task
-        reconcile_task = None
+        try:
+            await reconcile_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            reconcile_task = None
 
 
 app = FastAPI(title="enoch_worker_gate", version="0.1.0", lifespan=lifespan)
