@@ -114,6 +114,12 @@ def _ensure_systemd_env_file(service: str, env_file: Path) -> Path:
     return dropin
 
 
+class CutoverSwitchError(RuntimeError):
+    def __init__(self, message: str, *, dropin: Path | None = None) -> None:
+        super().__init__(message)
+        self.dropin = dropin
+
+
 def _run_preflight(control_url: str, token_file: str, database_url: str) -> int:
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
@@ -246,16 +252,21 @@ def _perform_cutover_switch(
     _atomic_write_json(config_path, config)
     _write_env_file(env_path, database_url)
     dropin = None
-    if not args.no_systemd:
-        dropin = _ensure_systemd_env_file(args.service, env_path)
-        _systemctl(["daemon-reload"])
-        _systemctl(["restart", args.service])
-        if not _service_active(args.service):
-            raise RuntimeError(f"service did not become active: {args.service}")
-        _wait_control_plane_ready(args.control_url, token_file)
-    post_rc = _run_preflight(args.control_url, token_file, database_url)
-    if post_rc != 0:
-        raise RuntimeError(f"preflight failed after cutover with exit code {post_rc}")
+    try:
+        if not args.no_systemd:
+            dropin = _ensure_systemd_env_file(args.service, env_path)
+            _systemctl(["daemon-reload"])
+            _systemctl(["restart", args.service])
+            if not _service_active(args.service):
+                raise RuntimeError(f"service did not become active: {args.service}")
+            _wait_control_plane_ready(args.control_url, token_file)
+        post_rc = _run_preflight(args.control_url, token_file, database_url)
+        if post_rc != 0:
+            raise RuntimeError(
+                f"preflight failed after cutover with exit code {post_rc}"
+            )
+    except Exception as exc:
+        raise CutoverSwitchError(str(exc), dropin=dropin) from exc
     return dropin
 
 
@@ -317,7 +328,9 @@ def cutover(args: argparse.Namespace) -> dict[str, Any]:
             database_url=database_url,
             token_file=token_file,
         )
-    except Exception:
+    except Exception as exc:
+        if dropin is None and isinstance(exc, CutoverSwitchError):
+            dropin = exc.dropin
         _rollback_cutover_switch(
             args,
             config_path=config_path,

@@ -131,6 +131,26 @@ def test_strict_public_count_checks_reject_personal_site_stale_fail_rate(
     ]
 
 
+def test_strict_public_count_checks_reject_wrapped_fail_rate(tmp_path) -> None:
+    page = tmp_path / "index.md"
+    page.write_text(
+        "Strict claim/evidence audit fails 999 of its own\n"
+        "500 canonical outputs.\n"
+        "The strict gate flags 7 of the\t500 outputs.\n",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_strict_public_counts(
+        [page], artifact_count=377, strict_pass_count=3, failures=failures
+    )
+
+    assert failures == [
+        f"strict audit fail count drift in {page}:1: 999 of 500 != 374 of 377",
+        f"strict audit fail count drift in {page}:3: 7 of 500 != 374 of 377",
+    ]
+
+
 def test_strict_public_count_checks_reject_stale_strict_pass_fraction(tmp_path) -> None:
     page = tmp_path / "index.html"
     page.write_text("<p>3/377 pass strict claim/evidence audit.</p>", encoding="utf-8")

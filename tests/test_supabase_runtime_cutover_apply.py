@@ -87,3 +87,32 @@ def test_cutover_rolls_back_config_and_env_on_post_preflight_failure(
     }
     assert not (tmp_path / "supabase.env").exists()
     assert list(tmp_path.glob("config.json.backup.*"))
+
+
+def test_cutover_rolls_back_systemd_dropin_after_post_preflight_failure(
+    tmp_path, monkeypatch
+) -> None:
+    outcomes = iter([0, 1])
+    dropin = (
+        tmp_path / "systemd" / "enoch-control-plane.service.d" / "10-supabase-env.conf"
+    )
+
+    def ensure_dropin(_service, env_file):
+        dropin.parent.mkdir(parents=True)
+        dropin.write_text(f"[Service]\nEnvironmentFile={env_file}\n", encoding="utf-8")
+        return dropin
+
+    monkeypatch.setattr(cutover.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(cutover, "_run_preflight", lambda *args: next(outcomes))
+    monkeypatch.setattr(cutover, "_ensure_systemd_env_file", ensure_dropin)
+    monkeypatch.setattr(cutover, "_systemctl", lambda _args: None)
+    monkeypatch.setattr(cutover, "_service_active", lambda _service: True)
+    monkeypatch.setattr(cutover, "_wait_control_plane_ready", lambda *_args: None)
+    args = _args(tmp_path, dry_run=False)
+    args.no_systemd = False
+
+    with pytest.raises(RuntimeError, match="preflight failed after cutover"):
+        cutover.cutover(args)
+
+    assert not (tmp_path / "supabase.env").exists()
+    assert not dropin.exists()

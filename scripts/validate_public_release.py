@@ -57,11 +57,11 @@ OF_PASS_PHRASE = re.compile(
 )
 _STRICT_FAIL_VERB = r"\b(?:fail|fails|flag|flags|reject|rejects)"
 _STRICT_FAIL_COUNTS = r"\s+(\d{1,5})\s+of\s+"
-_STRICT_FAIL_OUTPUTS = r"(\d{2,5})\s+(?:canonical )?outputs"
+_STRICT_FAIL_OUTPUTS = r"(\d{2,5})\s+(?:canonical\s+)?outputs"
 
 
 def _strict_fail_phrase_pattern(owner: str) -> re.Pattern[str]:
-    owner_fragment = re.escape(owner) if owner else ""
+    owner_fragment = re.escape(owner).replace(r"\ ", r"\s+") if owner else ""
     return re.compile(
         f"{_STRICT_FAIL_VERB}{_STRICT_FAIL_COUNTS}{owner_fragment}{_STRICT_FAIL_OUTPUTS}",
         re.I,

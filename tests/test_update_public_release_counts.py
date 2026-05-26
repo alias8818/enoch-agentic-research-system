@@ -92,6 +92,31 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
     assert "1,1,429" not in updated
 
 
+def test_update_text_rewrites_wrapped_strict_fail_phrases() -> None:
+    stats = {
+        "artifact_count": 500,
+        "packaging_pass": 500,
+        "strict_pass": 492,
+        "strict_fail": 8,
+        "empty_claim_ledgers": 0,
+        "result_file_refs": 0,
+        "result_file_refs_missing": 0,
+        "post_dedupe_imports": 0,
+    }
+    text = (
+        "Strict claim/evidence audit fails 999 of its own\n"
+        "500 canonical outputs.\n"
+        "The strict gate flags 7 of the\t500 outputs.\n"
+    )
+
+    updated = update_text(text, stats)
+
+    assert "fails 8 of its own\n500 canonical outputs" in updated
+    assert "flags 8 of the\t500 outputs" in updated
+    assert "999" not in updated
+    assert "flags 7" not in updated
+
+
 def test_default_generated_manifest_path_uses_private_temp_file() -> None:
     path = default_generated_manifest_path()
     try:
