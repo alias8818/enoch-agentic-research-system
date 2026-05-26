@@ -11,7 +11,11 @@ permissions:
 jobs:
   create-tracking-issue:
     name: Create tracking issue for error labels
-    if: contains(github.event.label.name, 'P0-critical') || contains(github.event.label.name, 'P1-high')
+    if: >
+      github.actor != 'github-actions[bot]' &&
+      !startsWith(github.event.issue.title, '[P0-critical] Tracking:') &&
+      !startsWith(github.event.issue.title, '[P1-high] Tracking:') &&
+      (contains(github.event.label.name, 'P0-critical') || contains(github.event.label.name, 'P1-high'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v9

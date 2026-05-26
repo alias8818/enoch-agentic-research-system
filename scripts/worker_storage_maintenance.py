@@ -171,6 +171,13 @@ def _should_skip_child_directory(child: Path, root: Path) -> bool:
     return not _is_relative_to(child.resolve(strict=False), root)
 
 
+def _is_project_root_child(path: Path, root: Path) -> bool:
+    try:
+        return len(path.relative_to(root).parts) == 1
+    except ValueError:
+        return False
+
+
 def discover_candidates(
     project_root: Path,
     *,
@@ -192,6 +199,9 @@ def discover_candidates(
             if _should_skip_child_directory(child, root):
                 continue
             if dirname in names:
+                if _is_project_root_child(child, root):
+                    pruned.append(dirname)
+                    continue
                 candidates.append(
                     _cleanup_candidate_for(child, dirname, root, protected_projects)
                 )

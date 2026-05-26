@@ -25,6 +25,28 @@ def test_discovers_recreatable_dirs_but_skips_artifacts(tmp_path: Path) -> None:
     assert sum(item.size_bytes for item in candidates) >= 10
 
 
+def test_reserved_name_project_directory_is_not_cleanup_candidate(
+    tmp_path: Path,
+) -> None:
+    reserved_project = tmp_path / ".venv"
+    (reserved_project / "evidence").mkdir(parents=True)
+    (reserved_project / "evidence" / "proof.txt").write_text(
+        "valuable evidence\n", encoding="utf-8"
+    )
+    (reserved_project / "artifacts").mkdir()
+    (reserved_project / "artifacts" / "output.bin").write_bytes(b"x" * 3)
+    (reserved_project / "src" / "__pycache__").mkdir(parents=True)
+    (reserved_project / "src" / "__pycache__" / "mod.pyc").write_bytes(b"x")
+
+    candidates = discover_candidates(tmp_path)
+    paths = {item.path.relative_to(tmp_path).as_posix() for item in candidates}
+
+    assert ".venv" not in paths
+    assert ".venv/evidence" not in paths
+    assert ".venv/artifacts" not in paths
+    assert ".venv/src/__pycache__" in paths
+
+
 def test_protects_named_projects(tmp_path: Path) -> None:
     (tmp_path / "queued-project" / ".venv").mkdir(parents=True)
     (tmp_path / "queued-project" / ".venv" / "payload.bin").write_bytes(b"x")

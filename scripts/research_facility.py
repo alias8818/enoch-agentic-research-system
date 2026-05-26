@@ -881,13 +881,16 @@ def load_candidates(path: Path) -> list[dict[str, Any]]:
         data = json.loads(text)
     except json.JSONDecodeError:
         match = re.search(
-            r"```(?:json)?\s*(\[[^\]]*\]|\{[^\}]*\})\s*```", text, flags=re.S
+            r"```(?:json)?[ \t]*\r?\n(?P<payload>.*?)\r?\n```", text, flags=re.S
         )
         if not match:
             match = re.search(r"(\[\s*\{.*\}\s*\])", text, flags=re.S)
         if not match:
             raise SystemExit(f"{path}: no JSON array/object found")
-        data = json.loads(match.group(1))
+        payload = (
+            match.group("payload") if "payload" in match.groupdict() else match.group(1)
+        )
+        data = json.loads(payload)
     if isinstance(data, dict):
         if "candidates" in data:
             data = data.get("candidates") or []

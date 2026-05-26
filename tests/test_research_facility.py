@@ -321,6 +321,24 @@ def test_research_facility_cli_extracts_json_from_markdown(tmp_path: Path) -> No
     assert payload["admitted_count"] == 1
 
 
+def test_load_candidates_parses_fenced_nested_json_object(tmp_path: Path) -> None:
+    source = tmp_path / "ideas.md"
+    payload = _strong_candidate(
+        source_records=[{"url": "https://example.test/source"}],
+        raw={"nested": {"score": 1}, "arrays": [{"kind": "metadata"}]},
+    )
+    source.write_text(
+        "Here is the batch:\n```json\n" + json.dumps(payload) + "\n```\n",
+        encoding="utf-8",
+    )
+
+    [candidate] = research_facility.load_candidates(source)
+
+    assert candidate["title"] == payload["title"]
+    assert candidate["source_records"] == payload["source_records"]
+    assert candidate["raw"] == payload["raw"]
+
+
 def test_research_facility_cli_keeps_empty_scanner_batch_empty(tmp_path: Path) -> None:
     source = tmp_path / "empty_scan.json"
     source.write_text(
