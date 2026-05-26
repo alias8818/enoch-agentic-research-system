@@ -11,6 +11,7 @@ from enoch_control_plane.enoch_core.logic import (
     draft_candidate_payload,
     eligible_paper_draft_candidates,
     eligible_paper_polish_candidates,
+    evaluate_paper_readiness_payload,
     followup_candidate_from_decision_payload,
     paper_draft_decision_gate,
     project_decision_payload,
@@ -305,6 +306,137 @@ class EnochCoreLogicTests(unittest.TestCase):
             )
             gate = paper_draft_decision_gate(root)
             self.assertFalse(gate["eligible"])
+
+    def test_project_decision_v2_missing_hard_gate_blocks_paper_ready(self) -> None:
+        payload = {
+            "project_decision": "finalize_positive",
+            "research_outcome": "positive",
+            "maturity_state": "paper_candidate",
+            "hard_gate": {
+                "hypothesis_declared": True,
+                "baseline_or_comparator_present": True,
+            },
+            "claim_ledger": [{"claim": "central", "verdict": "supported"}],
+            "scorecard": {
+                "total": 95,
+                "evidence_directness": 5,
+                "claim_support": 5,
+                "reproducibility": 5,
+                "limitations_honesty": 5,
+                "baseline_strength": 4,
+                "related_work_positioning": 4,
+            },
+        }
+
+        readiness = evaluate_paper_readiness_payload(payload)
+
+        self.assertFalse(readiness["paper_ready"])
+        self.assertEqual(readiness["maturity_state"], "paper_candidate")
+        self.assertIn(
+            "metric_result_table_present",
+            readiness["hard_gate"]["missing"],
+        )
+
+    def test_project_decision_v2_proxy_signal_routes_to_deepen_not_paper(self) -> None:
+        payload = {
+            "project_decision": "finalize_positive",
+            "research_outcome": "useful_signal",
+            "maturity_state": "pilot_signal",
+            "proxy_only": True,
+            "missing_evidence": ["direct target-stack baseline"],
+            "hard_gate": {"hypothesis_declared": True},
+            "claim_ledger": [{"claim": "central", "verdict": "supported"}],
+            "scorecard": {"total": 80, "evidence_directness": 2},
+        }
+
+        readiness = evaluate_paper_readiness_payload(payload)
+
+        self.assertFalse(readiness["paper_ready"])
+        self.assertEqual(readiness["maturity_state"], "deepen_required")
+        self.assertEqual(readiness["output_lane"], "follow_up")
+
+    def test_project_decision_v2_supported_direct_evidence_is_paper_ready(
+        self,
+    ) -> None:
+        payload = {
+            "project_decision": "finalize_positive",
+            "research_outcome": "positive",
+            "hard_gate": {
+                "hypothesis_declared": True,
+                "baseline_or_comparator_present": True,
+                "metric_result_table_present": True,
+                "success_threshold_declared": True,
+                "artifact_manifest_present": True,
+                "claim_ledger_present": True,
+                "failure_cases_present": True,
+                "reproduction_command_or_bounded_replay_present": True,
+                "related_work_or_novelty_check_present": True,
+                "claim_scope_and_scale_limits_present": True,
+                "no_unresolved_central_claim_contradiction": True,
+            },
+            "claim_ledger": [
+                {"claim": "central result", "central": True, "verdict": "supported"},
+                {"claim": "limitation", "central": False, "verdict": "partial"},
+            ],
+            "scorecard": {
+                "total": 82,
+                "evidence_directness": 4,
+                "claim_support": 4,
+                "reproducibility": 4,
+                "limitations_honesty": 5,
+                "baseline_strength": 3,
+                "related_work_positioning": 3,
+            },
+        }
+
+        readiness = evaluate_paper_readiness_payload(payload)
+
+        self.assertTrue(readiness["paper_ready"])
+        self.assertEqual(readiness["maturity_state"], "paper_ready")
+        self.assertEqual(readiness["output_lane"], "paper")
+
+    def test_project_decision_v2_unsupported_central_claim_blocks_paper(
+        self,
+    ) -> None:
+        payload = {
+            "project_decision": "finalize_positive",
+            "research_outcome": "positive",
+            "hard_gate": {
+                "hypothesis_declared": True,
+                "baseline_or_comparator_present": True,
+                "metric_result_table_present": True,
+                "success_threshold_declared": True,
+                "artifact_manifest_present": True,
+                "claim_ledger_present": True,
+                "failure_cases_present": True,
+                "reproduction_command_or_bounded_replay_present": True,
+                "related_work_or_novelty_check_present": True,
+                "claim_scope_and_scale_limits_present": True,
+                "no_unresolved_central_claim_contradiction": True,
+            },
+            "claim_ledger": [
+                {
+                    "claim": "central result",
+                    "central": True,
+                    "verdict": "unsupported",
+                }
+            ],
+            "scorecard": {
+                "total": 95,
+                "evidence_directness": 5,
+                "claim_support": 5,
+                "reproducibility": 5,
+                "limitations_honesty": 5,
+                "baseline_strength": 5,
+                "related_work_positioning": 5,
+            },
+        }
+
+        readiness = evaluate_paper_readiness_payload(payload)
+
+        self.assertFalse(readiness["paper_ready"])
+        self.assertEqual(readiness["maturity_state"], "paper_candidate")
+        self.assertIn("unsupported", readiness["claim_ledger"]["blocking_verdicts"])
 
     def test_wake_ready_negative_decision_artifacts_fail_paper_gate(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -31,6 +31,7 @@ from .state_contract import (
     ATTENTION_QUEUE_STATUSES,
     DRAFT_PAPER_STATUSES,
     PAPER_DRAFT_NEXT_ACTION,
+    PAPER_READINESS_MATURITY_STATES,
     PUBLICATION_READY_AUTOMATION_STATUSES,
     OperatorLane,
     WAKE_GATE_COMPLETION_STATES,
@@ -2436,9 +2437,15 @@ def _gated_write_candidates(
     write_candidates: list[dict[str, Any]] = []
     gate_rejected: list[dict[str, Any]] = []
     for candidate in raw_write_candidates:
-        gate = _paper_draft_gate_from_row_decision(
-            candidate
-        ) or _paper_draft_gate_for_row(candidate)
+        artifact_gate = _paper_draft_gate_for_row(candidate)
+        row_gate = _paper_draft_gate_from_row_decision(candidate)
+        gate = (
+            artifact_gate
+            if artifact_gate
+            and _text(artifact_gate.get("reason"))
+            != MISSING_PROJECT_DECISION_ARTIFACT_REASON
+            else row_gate or artifact_gate
+        )
         if gate is None or not bool(gate.get("eligible")):
             gate_rejected.append(
                 {
@@ -2619,6 +2626,101 @@ def _build_paper_pipeline(
     }
 
 
+def _maturity_state_for_row(row: Mapping[str, Any]) -> str:
+    state = _text(row.get("maturity_state"))
+    if state in PAPER_READINESS_MATURITY_STATES:
+        return state
+    gate = _text(row.get("decision_gate_state"))
+    if gate in {"missing", "malformed", "unknown"}:
+        return "execution_complete"
+    if gate == "negative":
+        if _text(row.get("research_outcome")) == "useful_signal":
+            return "pilot_signal"
+        return "archive_no_paper"
+    if gate == "positive":
+        return "paper_candidate"
+    return "execution_complete"
+
+
+def _missing_evidence_reason(row: Mapping[str, Any]) -> str:
+    for key in (
+        "missing_evidence_reason",
+        "dominant_missing_evidence_reason",
+        "gate_reason",
+        "blocked_reason",
+    ):
+        if value := _text(row.get(key)):
+            return value
+    required = row.get("followup_required_evidence")
+    if isinstance(required, list) and required:
+        return _text(required[0])
+    return ""
+
+
+def _latest_paper_age_days(paper_rows: Sequence[Mapping[str, Any]]) -> int | None:
+    ages = [
+        row_age_seconds(dict(row)) // 86400
+        for row in paper_rows
+        if row_age_seconds(dict(row)) is not None
+    ]
+    return min(ages) if ages else None
+
+
+def _build_research_yield_panel(
+    *,
+    queue_rows: Sequence[Mapping[str, Any]],
+    paper_rows: Sequence[Mapping[str, Any]],
+    paper_drought_days: int = 9,
+) -> dict[str, Any]:
+    maturity_counts = {state: 0 for state in sorted(PAPER_READINESS_MATURITY_STATES)}
+    completed_rows = [
+        row
+        for row in queue_rows
+        if _text(row.get("status")) == QueueStatus.COMPLETED.value
+    ]
+    for row in completed_rows:
+        maturity_counts[_maturity_state_for_row(row)] += 1
+
+    deepen_rows = [
+        row
+        for row in completed_rows
+        if _maturity_state_for_row(row) == "deepen_required"
+    ]
+    deepen_rows.sort(
+        key=lambda row: _text(row.get("updated_at") or row.get("updatedAt")),
+        reverse=True,
+    )
+    reason_counts: dict[str, int] = {}
+    for row in completed_rows:
+        reason = _missing_evidence_reason(row)
+        if reason:
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+    latest_age = _latest_paper_age_days(paper_rows)
+    drought_warning = latest_age is None or latest_age >= paper_drought_days
+    return {
+        "latest_paper_age_days": latest_age,
+        "paper_drought": {
+            "warning": drought_warning,
+            "threshold_days": paper_drought_days,
+            "explanation": "Paper drought is a visibility warning, not an operational-readiness blocker.",
+        },
+        "maturity_counts": maturity_counts,
+        "top_deepen_required_candidate": (
+            draft_candidate_payload(dict(deepen_rows[0])) if deepen_rows else None
+        ),
+        "dominant_missing_evidence_reason": max(
+            reason_counts.items(), key=lambda item: item[1]
+        )[0]
+        if reason_counts
+        else "",
+        "definitions": {
+            "maturity_counts": "completed runs grouped by paper-readiness evidence maturity",
+            "top_deepen_required_candidate": "highest-priority completed run with a concrete evidence gap",
+            "paper_drought": "visibility condition only; unattended automation readiness is evaluated separately",
+        },
+    }
+
+
 def _overview_events_page(
     store: ControlPlaneStore,
     batched_parts: Mapping[str, Any] | None,
@@ -2685,6 +2787,10 @@ def overview(
         operator_detail_counts=operator_detail_counts,
         paper_rows=paper_rows,
     )
+    research_yield = _build_research_yield_panel(
+        queue_rows=raw_queue_rows,
+        paper_rows=paper_rows,
+    )
     events, next_cursor, has_more = _overview_events_page(
         store, batched_parts, event_limit=event_limit
     )
@@ -2715,6 +2821,7 @@ def overview(
         "operator_detail_counts": operator_detail_counts,
         "flags": _flags_payload(flags),
         "paper_pipeline": paper_pipeline,
+        "research_yield": research_yield,
         "investigation_pipeline": investigation_pipeline,
         "operator_model": {
             "source": "control_plane.read_models.operator_stage_for_record",

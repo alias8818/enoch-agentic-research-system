@@ -13,6 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from enoch_control_plane.control_plane.state_contract import (  # noqa: E402
+    PAPER_READINESS_CONTRACT,
     STATE_CONTRACT,
     STATE_DISPOSITIONS,
     STATE_LIKE_COLUMN_NAMES,
@@ -21,6 +22,7 @@ from enoch_control_plane.control_plane.state_contract import (  # noqa: E402
 )
 
 MIGRATION_GLOBS = ("supabase/migrations/*.sql",)
+STATE_TRANSITION_MAP = REPO_ROOT / "docs/state-transition-map.md"
 
 
 def _extract_in_values(sql: str, column: str) -> set[str]:
@@ -212,6 +214,67 @@ def _validate_surface_inventory() -> list[str]:
     return failures
 
 
+def _validate_paper_readiness_contract() -> list[str]:
+    failures: list[str] = []
+    states = PAPER_READINESS_CONTRACT["maturity_states"]
+    transitions = PAPER_READINESS_CONTRACT["transitions"]
+    if not isinstance(states, dict) or not isinstance(transitions, tuple):
+        return ["paper readiness contract has invalid structure"]
+    for state, definition in states.items():
+        if not isinstance(definition, dict):
+            failures.append(f"paper readiness state {state} has invalid definition")
+            continue
+        for field in (
+            "definition",
+            "allowed_inputs",
+            "allowed_outputs",
+            "operator_lane",
+        ):
+            if not definition.get(field):
+                failures.append(f"paper readiness state {state} missing {field}")
+    known_nodes = set(states) | {"run_completed", "write_needed", "historical"}
+    for transition in transitions:
+        source = transition.get("from")
+        target = transition.get("to")
+        if source not in known_nodes:
+            failures.append(f"paper readiness transition has unknown source: {source}")
+        if target not in known_nodes:
+            failures.append(f"paper readiness transition has unknown target: {target}")
+        if not transition.get("condition"):
+            failures.append(
+                f"paper readiness transition {source}->{target} missing condition"
+            )
+    return failures
+
+
+def _validate_state_transition_doc() -> list[str]:
+    if not STATE_TRANSITION_MAP.exists():
+        return ["missing docs/state-transition-map.md"]
+    text = STATE_TRANSITION_MAP.read_text(encoding="utf-8")
+    failures: list[str] = []
+    for state in PAPER_READINESS_CONTRACT["maturity_states"]:
+        if state not in text:
+            failures.append(f"state transition map missing maturity state: {state}")
+    for transition in PAPER_READINESS_CONTRACT["transitions"]:
+        mermaid_edge = f"{transition['from']} --> {transition['to']}"
+        table_edge = f"`{transition['from']}` -> `{transition['to']}`"
+        if mermaid_edge not in text and table_edge not in text:
+            failures.append(
+                "state transition map missing paper readiness transition: "
+                f"{transition['from']} -> {transition['to']}"
+            )
+    for required in (
+        "Claim readiness gate",
+        "Evidence maturity",
+        "Only `paper_ready` enters `paper_pipeline.write_needed`",
+    ):
+        if required not in text:
+            failures.append(
+                f"state transition map missing paper readiness text: {required}"
+            )
+    return failures
+
+
 def _live_distincts(database_url: str) -> dict[str, list[tuple[str, int]]]:
     import psycopg
 
@@ -251,6 +314,8 @@ def validate(*, database_url: str = "") -> dict[str, Any]:
         _validate_migrations()
         + _validate_reduction_plan()
         + _validate_surface_inventory()
+        + _validate_paper_readiness_contract()
+        + _validate_state_transition_doc()
     )
     live: dict[str, Any] = {}
     if database_url:
@@ -271,6 +336,7 @@ def validate(*, database_url: str = "") -> dict[str, Any]:
         },
         "state_surface_inventory": STATE_SURFACE_INVENTORY,
         "reduction_plan": STATE_REDUCTION_PLAN,
+        "paper_readiness_contract": PAPER_READINESS_CONTRACT,
         "live_distincts": live,
     }
 

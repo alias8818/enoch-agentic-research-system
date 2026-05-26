@@ -6,6 +6,14 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from enoch_control_plane.control_plane.state_contract import (
+    PAPER_READINESS_BLOCKING_CLAIM_VERDICTS,
+    PAPER_READINESS_CONTRACT,
+    PAPER_READINESS_HARD_GATE_REQUIREMENTS,
+    PAPER_READINESS_MATURITY_STATES,
+    PAPER_READINESS_SCORE_FLOORS,
+)
+
 ACTIVE_QUEUE_STATUSES = {
     "dispatching",
     "awaiting_wake",
@@ -60,6 +68,13 @@ PAPER_USEFUL_SIGNAL_FIELDS = (
     "scale_limits",
     "useful_signal_summary",
     "compute_scale_blocked",
+)
+PAPER_READINESS_DECISION_FIELDS = (
+    "maturity_state",
+    "hard_gate",
+    "claim_ledger",
+    "scorecard",
+    "next_transition",
 )
 # Worker-produced artifacts are untrusted. Decision files should be tiny JSON
 # documents, so cap reads to avoid control-plane CPU/memory exhaustion.
@@ -153,6 +168,7 @@ def _paper_decision_json_values(
             *PAPER_PRIMARY_DECISION_FIELDS,
             *PAPER_SUPPORTING_DECISION_FIELDS,
             *PAPER_USEFUL_SIGNAL_FIELDS,
+            *PAPER_READINESS_DECISION_FIELDS,
         ):
             if field in payload:
                 values.append((relative, field, text(payload.get(field))))
@@ -195,6 +211,205 @@ def _bounded_useful_signal_ready(payload: dict[str, Any]) -> bool:
     if not text(payload.get("scale_limits")):
         return False
     return True
+
+
+def _has_paper_readiness_v2(payload: dict[str, Any]) -> bool:
+    return any(
+        key in payload
+        for key in (
+            "maturity_state",
+            "hard_gate",
+            "claim_ledger",
+            "scorecard",
+            "next_transition",
+        )
+    )
+
+
+def _score(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _hard_gate_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = payload.get("hard_gate")
+    hard_gate = raw if isinstance(raw, dict) else {}
+    missing = [
+        requirement
+        for requirement in PAPER_READINESS_HARD_GATE_REQUIREMENTS
+        if not truthy(hard_gate.get(requirement) or payload.get(requirement))
+    ]
+    return {
+        "passed": not missing,
+        "missing": missing,
+        "requirements": list(PAPER_READINESS_HARD_GATE_REQUIREMENTS),
+    }
+
+
+def _claim_ledger_rows(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    if isinstance(raw, dict):
+        claims = raw.get("claims")
+        if isinstance(claims, list):
+            return [item for item in claims if isinstance(item, dict)]
+        return [raw]
+    return []
+
+
+def _claim_ledger_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    rows = _claim_ledger_rows(payload.get("claim_ledger"))
+    verdicts = [_normal(row.get("verdict")) for row in rows if row.get("verdict")]
+    central_rows = [row for row in rows if truthy(row.get("central"))]
+    central_verdicts = [
+        _normal(row.get("verdict")) for row in central_rows if row.get("verdict")
+    ]
+    blocking = sorted(
+        {
+            verdict
+            for verdict in verdicts
+            if verdict in PAPER_READINESS_BLOCKING_CLAIM_VERDICTS
+        }
+    )
+    central_blocking = sorted(
+        {
+            verdict
+            for verdict in central_verdicts
+            if verdict in PAPER_READINESS_BLOCKING_CLAIM_VERDICTS
+        }
+    )
+    return {
+        "present": bool(rows),
+        "claim_count": len(rows),
+        "central_claim_count": len(central_rows),
+        "verdicts": verdicts,
+        "blocking_verdicts": blocking,
+        "central_blocking_verdicts": central_blocking,
+        "passed": bool(rows) and not central_blocking and not blocking,
+    }
+
+
+def _scorecard_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = payload.get("scorecard")
+    scorecard = raw if isinstance(raw, dict) else {}
+    below = [
+        field
+        for field, floor in PAPER_READINESS_SCORE_FLOORS.items()
+        if _score(scorecard.get(field) or payload.get(field)) < floor
+    ]
+    return {
+        "passed": not below,
+        "below_floor": below,
+        "floors": dict(PAPER_READINESS_SCORE_FLOORS),
+        "scores": {
+            field: _score(scorecard.get(field) or payload.get(field))
+            for field in PAPER_READINESS_SCORE_FLOORS
+        },
+    }
+
+
+def _missing_evidence(payload: dict[str, Any], hard_gate: dict[str, Any]) -> list[str]:
+    raw = (
+        payload.get("missing_evidence")
+        or payload.get("missing_evidence_reasons")
+        or payload.get("followup_required_evidence")
+        or []
+    )
+    if isinstance(raw, str):
+        values = split_numbered_list_text(raw)
+    elif isinstance(raw, list):
+        values = [part for item in raw for part in split_numbered_list_text(text(item))]
+    else:
+        values = []
+    return [*values, *list(hard_gate.get("missing") or [])]
+
+
+def _readiness_state(
+    payload: dict[str, Any],
+    *,
+    hard_gate: dict[str, Any],
+    claim_ledger: dict[str, Any],
+    scorecard: dict[str, Any],
+    missing_evidence: list[str],
+) -> str:
+    requested = _normal(payload.get("maturity_state"))
+    if (
+        requested == "paper_ready"
+        and hard_gate["passed"]
+        and claim_ledger["passed"]
+        and scorecard["passed"]
+    ):
+        return "paper_ready"
+    if hard_gate["passed"] and claim_ledger["passed"] and scorecard["passed"]:
+        return "paper_ready"
+    if _normal(payload.get("project_decision")) in {
+        "negative",
+        "finalize_negative",
+        "reject",
+    } and _normal(payload.get("research_outcome")) not in {
+        "useful_signal",
+        "paper_positive",
+        "positive",
+    }:
+        return "archive_no_paper"
+    if missing_evidence and _normal(payload.get("research_outcome")) == "useful_signal":
+        return "deepen_required"
+    if missing_evidence and requested in {"analysis_ready", "paper_candidate"}:
+        return "deepen_required" if requested == "analysis_ready" else "paper_candidate"
+    if (
+        truthy(payload.get("proxy_only"))
+        or _normal(payload.get("maturity_state")) == "pilot_signal"
+    ):
+        return "pilot_signal"
+    if requested in PAPER_READINESS_MATURITY_STATES:
+        return requested
+    if hard_gate["passed"] or claim_ledger["present"] or scorecard["scores"]["total"]:
+        return "paper_candidate"
+    return "execution_complete"
+
+
+def evaluate_paper_readiness_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Evaluate the project_decision_v2 paper-readiness contract.
+
+    Legacy fields remain readable, but once a decision artifact supplies any v2
+    paper-readiness field, only `paper_ready` may enter paper writing.
+    """
+
+    hard_gate = _hard_gate_summary(payload)
+    claim_ledger = _claim_ledger_summary(payload)
+    scorecard = _scorecard_summary(payload)
+    missing_evidence = _missing_evidence(payload, hard_gate)
+    maturity_state = _readiness_state(
+        payload,
+        hard_gate=hard_gate,
+        claim_ledger=claim_ledger,
+        scorecard=scorecard,
+        missing_evidence=missing_evidence,
+    )
+    output_lane_by_state = {
+        "paper_ready": "paper",
+        "pilot_signal": "promising_signal",
+        "deepen_required": "follow_up",
+        "archive_no_paper": "archive",
+        "execution_complete": "archive",
+        "analysis_ready": "archive",
+        "paper_candidate": "archive",
+    }
+    paper_ready = maturity_state == "paper_ready"
+    return {
+        "contract_version": PAPER_READINESS_CONTRACT["version"],
+        "paper_ready": paper_ready,
+        "maturity_state": maturity_state,
+        "hard_gate": hard_gate,
+        "claim_ledger": claim_ledger,
+        "scorecard": scorecard,
+        "missing_evidence": missing_evidence,
+        "next_transition": payload.get("next_transition")
+        or ("paper_pipeline.write_needed" if paper_ready else maturity_state),
+        "output_lane": output_lane_by_state[maturity_state],
+    }
 
 
 def bounded_useful_signal_row_gate(row: dict[str, Any]) -> dict[str, Any]:
@@ -408,6 +623,53 @@ def _paper_draft_gate_continue_primary(
     }
 
 
+def _paper_draft_gate_scan_readiness_v2(
+    payload_by_source: dict[str, dict[str, Any]],
+    values: list[tuple[str, str, str]],
+) -> dict[str, Any] | None:
+    v2_payloads = [
+        (source, payload)
+        for source, payload in payload_by_source.items()
+        if _has_paper_readiness_v2(payload)
+    ]
+    if not v2_payloads:
+        return None
+    rejected: list[dict[str, Any]] = []
+    for source, payload in v2_payloads:
+        readiness = evaluate_paper_readiness_payload(payload)
+        if readiness["paper_ready"]:
+            return {
+                "eligible": True,
+                "reason": "project decision v2 is paper-ready",
+                "source": source,
+                "field": "maturity_state",
+                "decision": readiness["maturity_state"],
+                "values": values,
+                "paper_readiness": readiness,
+            }
+        rejected.append(
+            {
+                "source": source,
+                "maturity_state": readiness["maturity_state"],
+                "missing_evidence": readiness["missing_evidence"],
+                "hard_gate_missing": readiness["hard_gate"]["missing"],
+                "blocking_claim_verdicts": readiness["claim_ledger"][
+                    "blocking_verdicts"
+                ],
+                "scorecard_below_floor": readiness["scorecard"]["below_floor"],
+            }
+        )
+    return {
+        "eligible": False,
+        "reason": "project decision v2 is not paper-ready",
+        "source": v2_payloads[0][0],
+        "field": "maturity_state",
+        "decision": rejected[0]["maturity_state"],
+        "values": values,
+        "paper_readiness_rejections": rejected,
+    }
+
+
 def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     """Return whether local project decision artifacts support paper drafting.
 
@@ -418,16 +680,18 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
     become publication drafts merely because the worker session completed.
     """
     values = _paper_decision_json_values(artifact_root)
-    if not values:
+    payload_by_source = dict(_paper_decision_json_payloads(artifact_root))
+    if not values and not payload_by_source:
         return {
             "eligible": False,
             "reason": "missing project decision artifact",
             "values": [],
         }
 
-    payload_by_source = dict(_paper_decision_json_payloads(artifact_root))
     primary = _paper_decision_primary_rows(values)
 
+    if readiness_v2 := _paper_draft_gate_scan_readiness_v2(payload_by_source, values):
+        return readiness_v2
     if blocked := _paper_draft_gate_scan_primary_blocked(
         primary, payload_by_source, values
     ):

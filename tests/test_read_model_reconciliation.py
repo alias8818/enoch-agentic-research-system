@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from hypothesis import given, settings, strategies as st
 
 from enoch_control_plane.control_plane.read_models import (
@@ -510,6 +512,124 @@ def test_overview_operator_cards_match_reconciled_pipeline_counts(tmp_path) -> N
         overview["paper_pipeline"]["next_write_candidate"]["project_id"]
         == "write-project"
     )
+
+
+def test_overview_write_needed_only_counts_paper_ready_maturity(tmp_path) -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    candidate_dir = tmp_path / "candidate"
+    candidate_dir.mkdir()
+    (candidate_dir / "project_decision.json").write_text(
+        json.dumps(
+            {
+                "project_decision": "finalize_positive",
+                "research_outcome": "positive",
+                "maturity_state": "paper_candidate",
+                "hard_gate": {"hypothesis_declared": True},
+                "claim_ledger": [{"claim": "central", "verdict": "supported"}],
+                "scorecard": {"total": 95, "evidence_directness": 5},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    ready_dir = tmp_path / "ready"
+    ready_dir.mkdir()
+    (ready_dir / "project_decision.json").write_text(
+        json.dumps(
+            {
+                "project_decision": "finalize_positive",
+                "research_outcome": "positive",
+                "hard_gate": {
+                    "hypothesis_declared": True,
+                    "baseline_or_comparator_present": True,
+                    "metric_result_table_present": True,
+                    "success_threshold_declared": True,
+                    "artifact_manifest_present": True,
+                    "claim_ledger_present": True,
+                    "failure_cases_present": True,
+                    "reproduction_command_or_bounded_replay_present": True,
+                    "related_work_or_novelty_check_present": True,
+                    "claim_scope_and_scale_limits_present": True,
+                    "no_unresolved_central_claim_contradiction": True,
+                },
+                "claim_ledger": [
+                    {
+                        "claim": "central result",
+                        "central": True,
+                        "verdict": "supported",
+                    }
+                ],
+                "scorecard": {
+                    "total": 80,
+                    "evidence_directness": 4,
+                    "claim_support": 4,
+                    "reproducibility": 4,
+                    "limitations_honesty": 4,
+                    "baseline_strength": 3,
+                    "related_work_positioning": 3,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    store = _OverviewStore(
+        [
+            _completed_draft_ready(
+                "candidate-project", "candidate-run", project_dir=str(candidate_dir)
+            ),
+            _completed_draft_ready(
+                "ready-project", "ready-run", project_dir=str(ready_dir)
+            ),
+        ],
+        [],
+    )
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    assert overview["paper_pipeline"]["write_needed"] == 1
+    assert (
+        overview["paper_pipeline"]["next_write_candidate"]["project_id"]
+        == "ready-project"
+    )
+    assert (
+        overview["paper_pipeline"]["gate_rejected_sample"][0]["project_id"]
+        == "candidate-project"
+    )
+
+
+def test_research_yield_panel_surfaces_drought_and_top_deepen_candidate() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    rows = [
+        _completed_draft_ready(
+            "deepen-project",
+            "deepen-run",
+            decision_gate_state="negative",
+            maturity_state="deepen_required",
+            missing_evidence_reason="baseline_or_comparator_present",
+            updated_at="2026-05-24T00:00:00Z",
+        ),
+        _completed_draft_ready(
+            "pilot-project",
+            "pilot-run",
+            decision_gate_state="negative",
+            maturity_state="pilot_signal",
+            missing_evidence_reason="metric_result_table_present",
+            updated_at="2026-05-23T00:00:00Z",
+        ),
+    ]
+    store = _OverviewStore(rows, [])
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    panel = overview["research_yield"]
+    assert panel["maturity_counts"]["deepen_required"] == 1
+    assert panel["maturity_counts"]["pilot_signal"] == 1
+    assert panel["paper_drought"]["warning"] is True
+    assert panel["top_deepen_required_candidate"]["project_id"] == "deepen-project"
+    assert panel["dominant_missing_evidence_reason"] == "baseline_or_comparator_present"
 
 
 def test_overview_treats_unexpandable_project_dir_as_missing_decision_artifact() -> (

@@ -149,6 +149,189 @@ PROJECT_DECISION_GATE_STATES: Final[set[str]] = {
     "unknown",
 }
 
+PAPER_READINESS_MATURITY_STATES: Final[set[str]] = {
+    "execution_complete",
+    "pilot_signal",
+    "analysis_ready",
+    "deepen_required",
+    "paper_candidate",
+    "paper_ready",
+    "archive_no_paper",
+}
+
+PAPER_READINESS_HARD_GATE_REQUIREMENTS: Final[tuple[str, ...]] = (
+    "hypothesis_declared",
+    "baseline_or_comparator_present",
+    "metric_result_table_present",
+    "success_threshold_declared",
+    "artifact_manifest_present",
+    "claim_ledger_present",
+    "failure_cases_present",
+    "reproduction_command_or_bounded_replay_present",
+    "related_work_or_novelty_check_present",
+    "claim_scope_and_scale_limits_present",
+    "no_unresolved_central_claim_contradiction",
+)
+
+PAPER_READINESS_CLAIM_VERDICTS: Final[dict[str, str]] = {
+    "supported": "Allowed in paper claims.",
+    "partial": "Allowed only as limitation or future-work language.",
+    "unsupported": "Blocks paper claims.",
+    "contradicted": "Blocks paper claims.",
+    "missing_evidence": "Blocks paper claims.",
+}
+
+PAPER_READINESS_BLOCKING_CLAIM_VERDICTS: Final[set[str]] = {
+    "unsupported",
+    "contradicted",
+    "missing_evidence",
+}
+
+PAPER_READINESS_SCORE_FLOORS: Final[dict[str, int]] = {
+    "total": 78,
+    "evidence_directness": 4,
+    "claim_support": 4,
+    "reproducibility": 4,
+    "limitations_honesty": 4,
+    "baseline_strength": 3,
+    "related_work_positioning": 3,
+}
+
+PAPER_READINESS_TRANSITIONS: Final[tuple[dict[str, str], ...]] = (
+    {
+        "from": "run_completed",
+        "to": "execution_complete",
+        "condition": "run finished before a complete decision/evidence packet exists",
+    },
+    {
+        "from": "execution_complete",
+        "to": "pilot_signal",
+        "condition": "decision artifact reports bounded or proxy-only useful signal",
+    },
+    {
+        "from": "execution_complete",
+        "to": "analysis_ready",
+        "condition": "artifacts are sufficient for review/scoring but not paper evidence",
+    },
+    {
+        "from": "execution_complete",
+        "to": "archive_no_paper",
+        "condition": "negative result with no useful follow-up signal",
+    },
+    {
+        "from": "pilot_signal",
+        "to": "deepen_required",
+        "condition": "useful signal names concrete missing evidence",
+    },
+    {
+        "from": "analysis_ready",
+        "to": "deepen_required",
+        "condition": "review identifies a concrete evidence gap",
+    },
+    {
+        "from": "analysis_ready",
+        "to": "paper_candidate",
+        "condition": "minimum paper evidence exists and claim audit can run",
+    },
+    {
+        "from": "paper_candidate",
+        "to": "paper_ready",
+        "condition": "hard gate, central claim ledger, and score floors pass",
+    },
+    {
+        "from": "paper_candidate",
+        "to": "deepen_required",
+        "condition": "claim audit or scorecard identifies concrete missing evidence",
+    },
+    {
+        "from": "paper_candidate",
+        "to": "archive_no_paper",
+        "condition": "central claim is unsupported or contradicted with no bounded follow-up",
+    },
+)
+
+PAPER_READINESS_CONTRACT: Final[dict[str, object]] = {
+    "version": "paper_readiness_contract_v1",
+    "axes": {
+        "queue_run_lifecycle": "Existing raw lifecycle states remain in STATE_CONTRACT.",
+        "decision_gate": "Existing compact project decision gate states remain unchanged.",
+        "evidence_maturity": "Derived from decision artifacts and projections.",
+        "output_lane": "Paper, promising-signal, or bounded follow-up work.",
+    },
+    "maturity_states": {
+        "execution_complete": {
+            "definition": "Run finished, but no complete decision/evidence packet exists.",
+            "allowed_inputs": ["run_completed"],
+            "allowed_outputs": ["pilot_signal", "analysis_ready", "archive_no_paper"],
+            "operator_lane": OperatorLane.COMPLETE_NO_PAPER.value,
+        },
+        "pilot_signal": {
+            "definition": "Useful bounded/proxy signal only; preserve it outside paper writing.",
+            "allowed_inputs": ["execution_complete"],
+            "allowed_outputs": [
+                "analysis_ready",
+                "deepen_required",
+                "archive_no_paper",
+            ],
+            "operator_lane": OperatorLane.USEFUL_SIGNAL.value,
+        },
+        "analysis_ready": {
+            "definition": "Artifacts are sufficient for review/scoring, not paper-ready.",
+            "allowed_inputs": ["execution_complete", "pilot_signal"],
+            "allowed_outputs": [
+                "deepen_required",
+                "paper_candidate",
+                "archive_no_paper",
+            ],
+            "operator_lane": OperatorLane.COMPLETE_NO_PAPER.value,
+        },
+        "deepen_required": {
+            "definition": "Promising signal with concrete missing evidence.",
+            "allowed_inputs": ["pilot_signal", "analysis_ready", "paper_candidate"],
+            "allowed_outputs": [
+                "analysis_ready",
+                "paper_candidate",
+                "archive_no_paper",
+            ],
+            "operator_lane": OperatorLane.FOLLOWUP_INVESTIGATION.value,
+        },
+        "paper_candidate": {
+            "definition": "Minimum paper evidence exists, pending claim/novelty audit.",
+            "allowed_inputs": ["analysis_ready", "deepen_required"],
+            "allowed_outputs": ["paper_ready", "deepen_required", "archive_no_paper"],
+            "operator_lane": OperatorLane.COMPLETE_NO_PAPER.value,
+        },
+        "paper_ready": {
+            "definition": "All hard gates and conservative score floors pass.",
+            "allowed_inputs": ["paper_candidate"],
+            "allowed_outputs": ["write_needed"],
+            "operator_lane": OperatorLane.WRITE_PAPER.value,
+        },
+        "archive_no_paper": {
+            "definition": "No useful follow-up remains or the result is intentionally closed.",
+            "allowed_inputs": [
+                "execution_complete",
+                "pilot_signal",
+                "analysis_ready",
+                "paper_candidate",
+            ],
+            "allowed_outputs": ["historical"],
+            "operator_lane": OperatorLane.COMPLETE_NO_PAPER.value,
+        },
+    },
+    "hard_gate_requirements": PAPER_READINESS_HARD_GATE_REQUIREMENTS,
+    "claim_ledger_verdicts": PAPER_READINESS_CLAIM_VERDICTS,
+    "blocking_claim_verdicts": sorted(PAPER_READINESS_BLOCKING_CLAIM_VERDICTS),
+    "score_floors": PAPER_READINESS_SCORE_FLOORS,
+    "transitions": PAPER_READINESS_TRANSITIONS,
+    "output_lanes": {
+        "paper": ["write_needed", "finalize_needed", "publish_ready", "published"],
+        "promising_signal": ["export_promising_signal"],
+        "follow_up": ["deepen", "branch", "retry"],
+        "archive": ["archive_no_paper"],
+    },
+}
+
 IDEA_STATUSES: Final[set[str]] = {
     "unknown",
     "exploring",

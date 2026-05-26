@@ -27,8 +27,32 @@ def test_transition_map_documents_every_lifecycle_edge() -> None:
         "Validation gate",
         "Invalid/impossible transition",
         "Operator lane shown",
+        "Paper readiness decision tree",
+        "Evidence maturity",
+        "Claim readiness gate",
     ]:
         assert required in text
+
+
+def test_transition_map_documents_paper_readiness_contract() -> None:
+    text = DOC.read_text(encoding="utf-8")
+    for state in [
+        "execution_complete",
+        "pilot_signal",
+        "analysis_ready",
+        "deepen_required",
+        "paper_candidate",
+        "paper_ready",
+        "archive_no_paper",
+    ]:
+        assert state in text
+    for edge in [
+        "run_completed --> execution_complete",
+        "execution_complete --> pilot_signal",
+        "analysis_ready --> deepen_required",
+        "paper_candidate --> paper_ready",
+    ]:
+        assert edge in text
 
 
 def test_transition_map_matches_decision_gate_operator_invariants() -> None:
