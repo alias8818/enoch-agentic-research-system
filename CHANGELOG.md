@@ -2,6 +2,30 @@
 
 Enoch uses semantic versioning for the control-plane package and runtime. The canonical package version is stored in both `VERSION` and `pyproject.toml`; release work should update both, update this changelog, run validation, and then tag the commit when publishing.
 
+## [1.4.0] - 2026-05-26
+
+### Added
+
+- Added the paper-readiness state contract, evidence maturity axis, hard paper gate, claim ledger evaluation, and research-yield read-model coverage.
+
+### Fixed
+
+- Suppressed expected shutdown cancellation noise from the control-plane lifespan task.
+- Blocked negative or rejected project decisions from being overridden by v2 paper-readiness fields.
+- Enforced the shared per-run dispatch cap during wait-time idle-lane refills.
+
+## [1.3.1] - 2026-05-25
+
+### Fixed
+
+- Balanced lane queue feed targets so queued research work stays aligned with worker-lane capacity.
+
+## [1.3.0] - 2026-05-25
+
+### Changed
+
+- Released the 1.3.0 control-plane metadata update.
+
 ## [1.0.1] - 2026-05-24
 
 ### Changed
