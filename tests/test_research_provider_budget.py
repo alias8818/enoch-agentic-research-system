@@ -150,7 +150,7 @@ def test_budget_cli_missing_key_can_emit_json_without_secret(
 
 
 def test_budget_cli_can_use_exedev_proxy_without_local_api_key(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, capsys
 ) -> None:
     output = tmp_path / "budget.json"
     calls: list[tuple[str, str]] = []
@@ -176,10 +176,13 @@ def test_budget_cli_can_use_exedev_proxy_without_local_api_key(
     )
 
     result = json.loads(output.read_text(encoding="utf-8"))
+    console = json.loads(capsys.readouterr().out)
     assert calls == [("https://synthetic.int.exe.xyz/v2/quotas", "")]
     assert result["ok"] is True
     assert result["auth_mode"] == "exe_http_proxy"
     assert result["base_url"] == "https://synthetic.int.exe.xyz"
+    assert "base_url" not in console
+    assert "payload_json" not in console
 
 
 def test_fetch_json_rejects_non_http_url_before_urlopen(monkeypatch) -> None:

@@ -51,6 +51,8 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: coverage
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0

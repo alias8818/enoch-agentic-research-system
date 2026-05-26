@@ -642,6 +642,13 @@ class EnochCoreLogicTests(unittest.TestCase):
             }
         )
         self.assertTrue(ok)
+        ok, _ = validate_branch_queued(
+            {
+                "next_action_hint": "branch_queued",
+                "last_result_summary": "Branch successor queued: idea-12345678abcdef\nNotion: https://attacker.test/redirect?next=https://www.notion.so/example",
+            }
+        )
+        self.assertFalse(ok)
 
     def test_queue_projection_counts_candidates_and_warnings(self) -> None:
         projection = queue_projection(

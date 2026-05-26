@@ -1955,7 +1955,6 @@ def _trim_event(event: dict[str, Any], max_chars: int = 1600) -> dict[str, Any]:
         if key in event
     }
     trimmed["truncated"] = True
-    trimmed["raw_preview"] = _truncate(encoded, max_chars)
     return trimmed
 
 

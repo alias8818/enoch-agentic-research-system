@@ -76,6 +76,7 @@ def test_sonar_workflow_isolates_coverage_from_secret_bearing_scan_and_uses_node
     assert "coverage:" in workflow
     assert "sonar:" in workflow
     assert "needs: coverage" in workflow
+    assert "permissions:\n      contents: read" in workflow
     assert (
         "actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808" in workflow
     )

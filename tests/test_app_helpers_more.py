@@ -318,7 +318,7 @@ def test_activity_and_event_helpers(
     large = {"kind": "big", "payload": "x" * 5000, "run_id": "run"}
     trimmed = appmod._trim_event(large, max_chars=200)
     assert trimmed["truncated"] is True
-    assert "raw_preview" in trimmed
+    assert "raw_preview" not in trimmed
 
 
 def test_snapshot_and_event_reads_treat_access_failures_as_empty(

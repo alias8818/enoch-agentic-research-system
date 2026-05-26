@@ -231,11 +231,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _console_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in result.items()
+        if key not in {"payload_json", "base_url"}
+    }
+
+
 def _emit_result(result: dict[str, Any], output: Path | None) -> None:
     text = json.dumps(result, indent=2, sort_keys=True)
     if output:
         output.write_text(text + "\n", encoding="utf-8")
-    print(text)
+    print(json.dumps(_console_result(result), indent=2, sort_keys=True))
 
 
 def _missing_api_key_result(args: argparse.Namespace, base_url: str) -> dict[str, Any]:
