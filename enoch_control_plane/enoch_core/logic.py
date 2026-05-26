@@ -749,6 +749,17 @@ def assert_single_active_lane(queue_rows: list[dict[str, Any]]) -> tuple[bool, s
     return False, f"multiple active GB10 lane rows: {names}"
 
 
+def _summary_has_notion_url(summary: str) -> bool:
+    for match in re.finditer(r"https://[^\s<>\"]+", summary):
+        try:
+            hostname = (urlparse(match.group(0)).hostname or "").lower()
+        except ValueError:
+            continue
+        if hostname in {"notion.so", "www.notion.so"}:
+            return True
+    return False
+
+
 def validate_branch_queued(row: dict[str, Any]) -> tuple[bool, str]:
     if (
         text(row.get("next_action_hint")) != "branch_queued"
@@ -760,10 +771,8 @@ def validate_branch_queued(row: dict[str, Any]) -> tuple[bool, str]:
         text(row.get("successor_project_id"))
         or re.search(r"\bidea-[0-9a-f]{8,}\b", summary)
     )
-    has_successor_url = bool(text(row.get("successor_notion_url"))) or any(
-        (urlparse(match.group(0)).hostname or "").lower()
-        in {"notion.so", "www.notion.so"}
-        for match in re.finditer(r"https://[^\s<>\"]+", summary)
+    has_successor_url = bool(text(row.get("successor_notion_url"))) or (
+        _summary_has_notion_url(summary)
     )
     if has_successor_id and has_successor_url:
         return True, "branch_queued has concrete successor evidence"
