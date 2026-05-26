@@ -395,6 +395,58 @@ class EnochCoreLogicTests(unittest.TestCase):
         self.assertEqual(readiness["maturity_state"], "paper_ready")
         self.assertEqual(readiness["output_lane"], "paper")
 
+    def test_project_decision_v2_finalize_negative_cannot_bypass_paper_gate(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".enoch").mkdir()
+            payload = {
+                "project_decision": "finalize_negative",
+                "research_outcome": "negative",
+                "maturity_state": "paper_ready",
+                "hard_gate": {
+                    "hypothesis_declared": True,
+                    "baseline_or_comparator_present": True,
+                    "metric_result_table_present": True,
+                    "success_threshold_declared": True,
+                    "artifact_manifest_present": True,
+                    "claim_ledger_present": True,
+                    "failure_cases_present": True,
+                    "reproduction_command_or_bounded_replay_present": True,
+                    "related_work_or_novelty_check_present": True,
+                    "claim_scope_and_scale_limits_present": True,
+                    "no_unresolved_central_claim_contradiction": True,
+                },
+                "claim_ledger": [
+                    {
+                        "claim": "central result",
+                        "central": True,
+                        "verdict": "supported",
+                    }
+                ],
+                "scorecard": {
+                    "total": 95,
+                    "evidence_directness": 5,
+                    "claim_support": 5,
+                    "reproducibility": 5,
+                    "limitations_honesty": 5,
+                    "baseline_strength": 5,
+                    "related_work_positioning": 5,
+                },
+            }
+            (root / ".enoch" / "project_decision.json").write_text(
+                json.dumps(payload) + "\n", encoding="utf-8"
+            )
+
+            readiness = evaluate_paper_readiness_payload(payload)
+            gate = paper_draft_decision_gate(root)
+
+            self.assertFalse(readiness["paper_ready"])
+            self.assertEqual(readiness["maturity_state"], "archive_no_paper")
+            self.assertFalse(gate["eligible"])
+            self.assertEqual(gate["reason"], "project decision is not positive")
+
     def test_project_decision_v2_unsupported_central_claim_blocks_paper(
         self,
     ) -> None:

@@ -335,15 +335,6 @@ def _readiness_state(
     missing_evidence: list[str],
 ) -> str:
     requested = _normal(payload.get("maturity_state"))
-    if (
-        requested == "paper_ready"
-        and hard_gate["passed"]
-        and claim_ledger["passed"]
-        and scorecard["passed"]
-    ):
-        return "paper_ready"
-    if hard_gate["passed"] and claim_ledger["passed"] and scorecard["passed"]:
-        return "paper_ready"
     if _normal(payload.get("project_decision")) in {
         "negative",
         "finalize_negative",
@@ -354,6 +345,15 @@ def _readiness_state(
         "positive",
     }:
         return "archive_no_paper"
+    if (
+        requested == "paper_ready"
+        and hard_gate["passed"]
+        and claim_ledger["passed"]
+        and scorecard["passed"]
+    ):
+        return "paper_ready"
+    if hard_gate["passed"] and claim_ledger["passed"] and scorecard["passed"]:
+        return "paper_ready"
     if missing_evidence and _normal(payload.get("research_outcome")) == "useful_signal":
         return "deepen_required"
     if missing_evidence and requested in {"analysis_ready", "paper_candidate"}:
@@ -690,12 +690,12 @@ def paper_draft_decision_gate(artifact_root: str | Path) -> dict[str, Any]:
 
     primary = _paper_decision_primary_rows(values)
 
-    if readiness_v2 := _paper_draft_gate_scan_readiness_v2(payload_by_source, values):
-        return readiness_v2
     if blocked := _paper_draft_gate_scan_primary_blocked(
         primary, payload_by_source, values
     ):
         return blocked
+    if readiness_v2 := _paper_draft_gate_scan_readiness_v2(payload_by_source, values):
+        return readiness_v2
     if positive := _paper_draft_gate_scan_primary_positive(
         primary, payload_by_source, values
     ):
