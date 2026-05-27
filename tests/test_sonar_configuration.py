@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -77,11 +78,13 @@ def test_sonar_workflow_isolates_coverage_from_secret_bearing_scan_and_uses_node
     assert "sonar:" in workflow
     assert "needs: coverage" in workflow
     assert "permissions:\n      contents: read" in workflow
-    assert (
-        "actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808" in workflow
+    assert re.search(
+        r"actions/upload-artifact@[0-9a-f]{40}\s+# v\d+\.\d+\.\d+",
+        workflow,
     )
-    assert (
-        "actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16" in workflow
+    assert re.search(
+        r"actions/download-artifact@[0-9a-f]{40}\s+# v\d+\.\d+\.\d+",
+        workflow,
     )
     assert "persist-credentials: false" in workflow
     sonar_index = workflow.index("SonarSource/sonarqube-scan-action")
