@@ -1,0 +1,29 @@
+name: SonarQube Linear Sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 13 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v6.7.0
+
+      - name: Sync open SonarQube issues to Linear
+        env:
+          SONARQUBE_URL: ${{ secrets.SONARQUBE_URL }}
+          SONARQUBE_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}
+          SONARQUBE_PROJECT_KEY: ${{ vars.SONARQUBE_PROJECT_KEY }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ vars.LINEAR_TEAM_ID }}
+          LINEAR_PROJECT_ID: ${{ vars.LINEAR_PROJECT_ID }}
+          LINEAR_PARENT_ISSUE_ID: ${{ vars.LINEAR_PARENT_ISSUE_ID }}
+          LINEAR_LABEL_IDS: ${{ vars.LINEAR_LABEL_IDS }}
+        run: uv run python scripts/sync_sonarqube_linear.py --skip-if-unconfigured

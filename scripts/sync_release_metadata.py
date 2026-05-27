@@ -11,21 +11,21 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_NAME = "enoch-control-plane"
-VERSION_ASSIGNMENT = re.compile(
-    r"^version\s*=\s*(?:\"|')?(?P<version>\d+\.\d+\.\d+(?:(?:-|\+)(?:[A-Za-z0-9]|\.|-)+)?)(?:\"|')?\s*$",
-    re.IGNORECASE,
-)
+SEMVER = re.compile(r"^\d+\.\d+\.\d+([+-][A-Za-z0-9.-]+)?$")
 
 
 def read_version_file_text(raw: str) -> str:
     text = raw.strip()
-    if match := VERSION_ASSIGNMENT.match(text):
-        return match.group("version")
+    left, separator, right = text.partition("=")
+    if separator and left.strip().lower() == "version":
+        text = right.strip().strip("\"'")
     return text
 
 
 def project_version(root: Path = ROOT) -> str:
     version = read_version_file_text((root / "VERSION").read_text(encoding="utf-8"))
+    if not SEMVER.match(version):
+        raise ValueError(f"VERSION is not semver-like: {version!r}")
     pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     pyproject_version = str(pyproject.get("project", {}).get("version") or "")
     if pyproject_version != version:

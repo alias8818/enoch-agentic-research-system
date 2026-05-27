@@ -76,6 +76,20 @@ def test_sync_release_metadata_fails_on_version_mismatch(tmp_path: Path) -> None
         sync_release_metadata.project_version(tmp_path)
 
 
+def test_sync_release_metadata_fails_on_invalid_version(tmp_path: Path) -> None:
+    _write_release_fixture(tmp_path, version="1.4.9", locked_version="1.4.8")
+    (tmp_path / "VERSION").write_text("version = not-a-version\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="VERSION is not semver-like"):
+        sync_release_metadata.project_version(tmp_path)
+
+
+def test_sync_release_metadata_accepts_prerelease_version(tmp_path: Path) -> None:
+    _write_release_fixture(tmp_path, version="1.4.9-rc.1", locked_version="1.4.8")
+
+    assert sync_release_metadata.project_version(tmp_path) == "1.4.9-rc.1"
+
+
 def test_semantic_release_tracks_metadata_sync_assets() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
 
