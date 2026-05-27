@@ -253,7 +253,7 @@ def _missing_api_key_result(args: argparse.Namespace, base_url: str) -> dict[str
         "checked_at": utc_now(),
         "base_url": base_url,
         "auth_mode": "env_bearer",
-        "failures": ["missing configured provider API key environment variable"],
+        "failures": ["missing configured provider credential"],
     }
 
 
