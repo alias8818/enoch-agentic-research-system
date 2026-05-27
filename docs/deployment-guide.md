@@ -530,3 +530,34 @@ scripts/install-codex-enoch-worker-skill.sh
 ```
 
 The skill installs to `$CODEX_HOME/skills/enoch-worker/SKILL.md` and documents the required `run_notes.md`, preferred `.enoch/project_decision.json` path, legacy `.omx/project_decision.json` compatibility path, positive/negative paper gate, follow-up rules, and GB10 smoke-first expectations.
+
+In the reference multi-worker deployment, GB10 is the canonical interactive
+Codex worker account and the CPU worker runs as the locked-down
+`enoch-cpu-worker` system user. After updating GB10 Codex config, plugins, or
+skills, sync the CPU worker before dispatching CPU-lane jobs:
+
+```bash
+scripts/sync-codex-worker-config.sh
+```
+
+The script backs up the CPU `.codex` directory, copies GB10's Codex runtime
+surface, preserves CPU project trust entries, repairs ownership, and validates
+the merged config.
+
+For routine source rollouts, use:
+
+```bash
+scripts/deploy-enoch-runtime.sh --profile control
+scripts/deploy-enoch-runtime.sh --profile gb10-worker
+scripts/deploy-enoch-runtime.sh --profile cpu-worker
+```
+
+After rollouts or Codex upgrades, capture a non-secret drift snapshot:
+
+```bash
+scripts/enoch-runtime-drift-report.sh \
+  --output reports/runtime-drift/$(date -u +%Y%m%dT%H%M%SZ).json
+```
+
+Use these snapshots to compare deployed code, Codex versions, worker config
+fingerprints, lane counts, and recent experiment mix over time.

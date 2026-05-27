@@ -10,6 +10,7 @@ import heapq
 import html
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 import time
@@ -53,6 +54,11 @@ from .telemetry import TelemetryCollector
 PROJECT_DIRECTORY_LABEL = "project directory"
 PROJECT_JSON_FILENAME = "project.json"
 ENOCH_PROJECT_DIRNAME = ".enoch"
+_TRACEBACK_LINE = re.compile(
+    r"^\s*(traceback \(most recent call last\)|file \"[^\"]+\", line \d+|"
+    r"[a-zA-Z_][\w.]*(?:Error|Exception):)",
+    re.I,
+)
 
 
 class ControlPlaneHttpError(Exception):
@@ -1074,6 +1080,11 @@ def _resolve_under_root(path_str: str, root: Path) -> Path:
     return resolved
 
 
+def _safe_path_for_detail(path: str) -> str:
+    name = Path(path).name
+    return name if name else "[path]"
+
+
 def _write_text(path: Path, text: str, overwrite: bool) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if _checked_exists(path, label="file target") and not overwrite:
@@ -1105,7 +1116,7 @@ def _checked_exists(path: Path, *, label: str, status_code: int = 500) -> bool:
         return path.exists()
     except (OSError, RuntimeError, ValueError) as exc:
         raise ControlPlaneHttpError(
-            status_code=status_code, detail=f"{label} could not be inspected: {path}"
+            status_code=status_code, detail=f"{label} could not be inspected"
         ) from exc
 
 
@@ -1114,7 +1125,7 @@ def _checked_is_dir(path: Path, *, label: str, status_code: int = 500) -> bool:
         return path.is_dir()
     except (OSError, RuntimeError, ValueError) as exc:
         raise ControlPlaneHttpError(
-            status_code=status_code, detail=f"{label} could not be inspected: {path}"
+            status_code=status_code, detail=f"{label} could not be inspected"
         ) from exc
 
 
@@ -1259,27 +1270,28 @@ def _read_project_paper_artifact_entry(
     too_large_detail: str | None = None,
 ) -> dict[str, Any]:
     path = _resolve_project_relative_path(project_dir, relative_path)
+    safe_relative_path = _safe_path_for_detail(relative_path)
     try:
         artifact_exists = path.exists() and path.is_file()
     except OSError as exc:
         raise HTTPException(
             status_code=403,
-            detail=f"paper artifact is not readable: {relative_path}",
+            detail=f"paper artifact is not readable: {safe_relative_path}",
         ) from exc
     if not artifact_exists:
         raise HTTPException(
-            status_code=404, detail=f"paper artifact not found: {relative_path}"
+            status_code=404, detail=f"paper artifact not found: {safe_relative_path}"
         )
     try:
         size = path.stat().st_size
     except OSError as exc:
         raise HTTPException(
             status_code=403,
-            detail=f"paper artifact is not readable: {relative_path}",
+            detail=f"paper artifact is not readable: {safe_relative_path}",
         ) from exc
     if size > max_bytes:
         detail = too_large_detail or (
-            f"paper artifact too large to read: {relative_path}"
+            f"paper artifact too large to read: {safe_relative_path}"
         )
         raise HTTPException(status_code=413, detail=detail)
     try:
@@ -1287,12 +1299,12 @@ def _read_project_paper_artifact_entry(
     except OSError as exc:
         raise HTTPException(
             status_code=403,
-            detail=f"paper artifact is not readable: {relative_path}",
+            detail=f"paper artifact is not readable: {safe_relative_path}",
         ) from exc
     except UnicodeDecodeError as exc:
         raise HTTPException(
             status_code=415,
-            detail=f"paper artifact is not UTF-8 text: {relative_path}",
+            detail=f"paper artifact is not UTF-8 text: {safe_relative_path}",
         ) from exc
     return {
         "path": path.relative_to(project_dir).as_posix(),
@@ -1936,7 +1948,27 @@ def _truncate(value: str | None, max_chars: int) -> str:
     return text[: max(0, max_chars - 20)].rstrip() + "\n[truncated]"
 
 
+def _redact_stack_trace_text(value: str) -> str:
+    lines = value.splitlines()
+    if any(_TRACEBACK_LINE.search(line) for line in lines):
+        return "[stack trace redacted]"
+    return value
+
+
+def _sanitize_dashboard_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return _redact_stack_trace_text(value)
+    if isinstance(value, list):
+        return [_sanitize_dashboard_value(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            str(key): _sanitize_dashboard_value(item) for key, item in value.items()
+        }
+    return value
+
+
 def _trim_event(event: dict[str, Any], max_chars: int = 1600) -> dict[str, Any]:
+    event = _sanitize_dashboard_value(event)
     encoded = json.dumps(event, sort_keys=True)
     if len(encoded) <= max_chars:
         return event
@@ -2301,7 +2333,8 @@ def _run_dashboard_item(
         "project_decision": project_decision.model_dump() if project_decision else None,
         "decision_error": decision_error,
         "run_notes_tail": [
-            _truncate(line, 900 if detail else 360) for line in run_notes_tail
+            _truncate(_redact_stack_trace_text(line), 900 if detail else 360)
+            for line in run_notes_tail
         ],
         "recent_files": recent_files,
         "result_files": result_files,
