@@ -115,6 +115,8 @@ reportUntypedBaseClass = "warning"
 ignore = ["scripts", "deploy"]
 
 [tool.semantic_release]
+assets = ["CHANGELOG.md", "uv.lock"]
+build_command = "python3 scripts/sync_release_metadata.py"
 version_toml = ["pyproject.toml:project.version"]
 version_variables = ["VERSION:version"]
 changelog_file = "CHANGELOG.md"

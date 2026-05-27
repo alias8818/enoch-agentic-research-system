@@ -50,6 +50,9 @@ jobs:
               echo "released=false" >> "${GITHUB_OUTPUT}"
             fi
           fi
+      - name: Validate release metadata
+        if: steps.semantic-release.outputs.released == 'true'
+        run: uv run python scripts/validate_versioning.py
       - name: Publish release
         if: steps.semantic-release.outputs.released == 'true'
         run: uv run semantic-release publish
