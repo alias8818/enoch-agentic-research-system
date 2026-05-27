@@ -145,7 +145,8 @@ def test_budget_cli_missing_key_can_emit_json_without_secret(
     assert research_provider_budget.main(["--allow-missing-key"]) == 0
 
     output = capsys.readouterr().out
-    assert "SYNTHETIC_API_KEY" in output
+    assert "provider API key" in output
+    assert "SYNTHETIC_API_KEY" not in output
     assert "syn_" not in output
 
 

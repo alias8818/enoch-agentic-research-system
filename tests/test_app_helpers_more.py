@@ -320,6 +320,26 @@ def test_activity_and_event_helpers(
     assert trimmed["truncated"] is True
     assert "raw_preview" not in trimmed
 
+    traceback_event = {
+        "kind": "error",
+        "payload": "Traceback (most recent call last):\n"
+        '  File "/srv/app.py", line 1, in <module>\n'
+        "RuntimeError: sensitive local stack",
+    }
+    sanitized = appmod._trim_event(traceback_event)
+    assert sanitized["payload"] == "[stack trace redacted]"
+    assert "/srv/app.py" not in json.dumps(sanitized)
+
+
+def test_dashboard_run_notes_redact_stack_trace_lines() -> None:
+    assert (
+        appmod._redact_stack_trace_text(
+            '  File "/srv/private/app.py", line 1, in <module>'
+        )
+        == "[stack trace redacted]"
+    )
+    assert appmod._redact_stack_trace_text("ordinary run note") == "ordinary run note"
+
 
 def test_snapshot_and_event_reads_treat_access_failures_as_empty(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -85,6 +85,67 @@ python3 /opt/enoch-control-plane/scripts/dashboard_v2_smoke.py \
 
 Expect `"ok": true` from runtime validation and a passing smoke summary (V2 shell marker, current hashed assets from `index.html`, legacy redirect check, overview, and events index/detail).
 
+For repeatable rollouts, prefer the scripted wrapper from the source checkout:
+
+```bash
+scripts/deploy-enoch-runtime.sh --profile control
+scripts/deploy-enoch-runtime.sh --profile gb10-worker
+scripts/deploy-enoch-runtime.sh --profile cpu-worker
+```
+
+Set `ENOCH_CONTROL_SMOKE=1` for the control profile when the dashboard smoke
+should run as part of the deployment. The wrapper performs the rsync, editable
+install, service restart, runtime validation, and profile-specific health check.
+
+### Worker Codex config sync
+
+The CPU worker runs as the `enoch-cpu-worker` system account. That account uses
+`/usr/sbin/nologin`, so `sudo su enoch-cpu-worker` is expected to fail with
+`This account is currently not available.` Use an explicit shell for probes:
+
+```bash
+sudo -u enoch-cpu-worker -H bash -lc 'export HOME=/var/lib/enoch-cpu-worker; codex --version'
+```
+
+When GB10 Codex configuration changes, sync its worker runtime surface to the
+CPU worker before dispatching CPU-lane work:
+
+```bash
+scripts/sync-codex-worker-config.sh
+```
+
+The sync script copies GB10's Codex auth/config/plugin/skill runtime files,
+backs up the CPU worker `.codex` directory, preserves CPU project trust entries,
+repairs ownership to `enoch-cpu-worker:enoch-cpu-worker`, and validates the
+merged TOML. After syncing, verify Codex under the service account:
+
+```bash
+ssh root@enoch-worker-cpu-1 \
+  'sudo -u enoch-cpu-worker -H bash -lc '"'"'export HOME=/var/lib/enoch-cpu-worker; export PATH=$HOME/.nvm/versions/node/v22.22.1/bin:$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin; codex exec --skip-git-repo-check --json -C /tmp "Return exactly: ok"'"'"''
+```
+
+Do not dispatch a CPU job until this smoke returns `ok`; otherwise an expired
+or partially owned `.codex` tree can fail the run after the queue row has
+already been claimed.
+
+### Runtime Drift Tracking
+
+Track drift explicitly after deployments, Codex upgrades, worker config syncs,
+and new experiment intake batches:
+
+```bash
+scripts/enoch-runtime-drift-report.sh \
+  --output reports/runtime-drift/$(date -u +%Y%m%dT%H%M%SZ).json
+```
+
+The report is read-only and records source/runtime commits, package versions,
+service status, worker lane counts, recent experiment labels, Codex versions,
+and non-secret Codex config/auth fingerprints. Compare consecutive reports when
+queue behavior changes, Codex behavior shifts, or a worker starts failing after
+a rollout. Treat unexpected drift in deployed code, Codex versions, plugin
+fingerprints, worker queue depth, or experiment mix as an operator question
+before widening automation.
+
 ## Dashboard questions
 
 | Question | Trust this | Meaning |

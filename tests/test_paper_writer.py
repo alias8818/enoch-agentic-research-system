@@ -150,9 +150,11 @@ class PaperWriterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
             project.mkdir(parents=True)
+            synthetic_token = "syn_" + "abcdefghijklmnopqrstuvwxyz1234567890"
+            openai_key = "sk-proj-" + "abcdefghijklmnopqrstuvwxyz1234567890abcdefghijkl"
             secret_text = (
-                "Authorization: Bearer syn_abcdefghijklmnopqrstuvwxyz1234567890\n"
-                "OPENAI_API_KEY=sk-proj-abcdefghijklmnopqrstuvwxyz1234567890abcdefghijkl\n"
+                f"Authorization: Bearer {synthetic_token}\n"
+                f"OPENAI_API_KEY={openai_key}\n"
                 "normal_metric=1.23\n"
             )
             (project / "run_notes.md").write_text(secret_text, encoding="utf-8")
