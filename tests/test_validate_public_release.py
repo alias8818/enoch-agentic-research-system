@@ -163,6 +163,21 @@ def test_strict_public_count_checks_reject_stale_strict_pass_fraction(tmp_path) 
     assert failures == [f"strict audit pass count drift in {page}:1: 3/377 != 3/385"]
 
 
+def test_public_release_check_rejects_stale_codex_cli_link(tmp_path) -> None:
+    page = tmp_path / "index.html"
+    page.write_text(
+        '<a href="https://github.com/Yeachan-Heo/Codex CLI">Codex CLI</a>',
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_stale_public_links([page], failures)
+
+    assert failures == [
+        f"stale public link in {page}:1: https://github.com/Yeachan-Heo/Codex CLI -> https://github.com/openai/codex"
+    ]
+
+
 def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
     hf = tmp_path / "hf"
     hf.mkdir()

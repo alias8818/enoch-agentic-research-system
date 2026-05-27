@@ -39,6 +39,9 @@ PERSONAL_SITE_FILES = [
     "writing/index.html",
     "writing/ai-research-failure-rate.html",
 ]
+STALE_PUBLIC_LINKS = {
+    "https://github.com/Yeachan-Heo/Codex CLI": "https://github.com/openai/codex",
+}
 HISTORIC_STALE_COUNT = re.compile(r"\b120\b|120/120")
 COUNT_PHRASE = re.compile(
     r"\b(\d{2,5})\b(?:\s|<[^>]+>)+(canonical AI-generated artifacts indexed|canonical AI-generated artifacts|AI-generated artifacts indexed|indexed AI artifacts|AI artifacts|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts)",
@@ -324,6 +327,18 @@ def check_required_copy(paths: list[Path], failures: list[str]) -> None:
         and "independent replication" not in combined
     ):
         fail("missing independent-replication caveat", failures)
+
+
+def check_stale_public_links(paths: list[Path], failures: list[str]) -> None:
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for stale, replacement in STALE_PUBLIC_LINKS.items():
+            offset = text.find(stale)
+            if offset != -1:
+                fail(
+                    f"stale public link in {path}:{line_for(text, offset)}: {stale} -> {replacement}",
+                    failures,
+                )
 
 
 MANIFEST_REQUIRED_KEYS = [
@@ -828,6 +843,7 @@ def _run_public_surface_validation(
     )
     check_quality_scope(public_paths, failures)
     check_required_copy(public_paths, failures)
+    check_stale_public_links(public_paths, failures)
     check_corpus_public_trust_validator(
         corpus, failures, execute=execute_corpus_validator
     )
