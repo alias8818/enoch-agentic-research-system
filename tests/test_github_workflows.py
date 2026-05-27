@@ -23,3 +23,8 @@ def test_sonarqube_linear_sync_workflow_uses_guarded_script() -> None:
     assert "scripts/sync_sonarqube_linear.py --skip-if-unconfigured" in workflow
     assert "SONARQUBE_TOKEN: ${{ secrets.SONARQUBE_TOKEN }}" in workflow
     assert "LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}" in workflow
+    assert (
+        "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)"
+        in workflow
+    )
+    assert "ref: ${{ github.event.repository.default_branch }}" in workflow
