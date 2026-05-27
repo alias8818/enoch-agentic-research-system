@@ -15,6 +15,8 @@ Environment overrides:
   ENOCH_DEPLOY_UV            Remote uv binary. Default: uv, or /root/.local/bin/uv for cpu-worker.
   ENOCH_DEPLOY_SOURCE        Local source checkout. Default: current working directory.
   ENOCH_CONTROL_SMOKE        For control profile, run dashboard_v2_smoke.py when set to 1.
+  ENOCH_CONTROL_LONGHAUL_GUARD
+                              For control profile, run enoch-longhaul-guard.sh when set to 1.
 EOF
 }
 
@@ -109,6 +111,10 @@ case "$profile" in
     if [[ "${ENOCH_CONTROL_SMOKE:-0}" == "1" ]]; then
       echo "running control dashboard smoke on $host"
       ssh "$host" "set -euo pipefail; token=\$(sudo jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json); cd '$runtime'; ENOCH_CONTROL_TOKEN=\"\$token\" python3 scripts/dashboard_v2_smoke.py --base-url http://127.0.0.1:8787 --check-legacy-dashboard-redirect"
+    fi
+    if [[ "${ENOCH_CONTROL_LONGHAUL_GUARD:-0}" == "1" ]]; then
+      echo "running long-haul guard from local operator machine"
+      "$source_dir/scripts/enoch-longhaul-guard.sh"
     fi
     ;;
   cpu-worker|gb10-worker)

@@ -204,9 +204,9 @@ async def lifespan(app: FastAPI):
     if reconcile_task is not None:
         reconcile_task.cancel()
         try:
-            await reconcile_task
-        except asyncio.CancelledError:
-            pass
+            results = await asyncio.gather(reconcile_task, return_exceptions=True)
+            if results and isinstance(results[0], Exception):
+                raise results[0]
         finally:
             reconcile_task = None
 

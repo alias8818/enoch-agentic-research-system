@@ -86,8 +86,38 @@ fi
 
 echo "copying GB10 Codex runtime surface to CPU"
 printf '%s\n' "${runtime_paths[@]}" \
-  | ssh "$gb10_host" "set -euo pipefail; cd '$gb10_codex_home'; keep=\$(mktemp); while IFS= read -r path; do [[ -e \"\$path\" ]] && printf '%s\n' \"\$path\" >> \"\$keep\"; done; tar -cf - -T \"\$keep\"; rm -f \"\$keep\"" \
-  | ssh "$cpu_host" "set -euo pipefail; mkdir -p '$cpu_codex_home'; tar -C '$cpu_codex_home' -xf -"
+  | ssh "$gb10_host" "set -euo pipefail; cd '$gb10_codex_home'; keep=\$(mktemp); trap 'rm -f \"\$keep\"' EXIT; while IFS= read -r path; do
+      [[ -e \"\$path\" ]] || continue
+      if [[ -L \"\$path\" ]]; then echo \"error: symlink entries are not allowed in sync payload: \$path\" >&2; exit 1; fi
+      if [[ -f \"\$path\" && \$(stat -c %h \"\$path\") -gt 1 ]]; then echo \"error: hardlink entries are not allowed in sync payload: \$path\" >&2; exit 1; fi
+      if [[ -d \"\$path\" ]]; then
+        if find \"\$path\" -type l -print -quit | grep -q .; then echo \"error: symlink entries are not allowed in sync payload: \$path\" >&2; exit 1; fi
+        if find \"\$path\" -type f -links +1 -print -quit | grep -q .; then echo \"error: hardlink entries are not allowed in sync payload: \$path\" >&2; exit 1; fi
+      elif [[ ! -f \"\$path\" ]]; then
+        echo \"error: unsupported sync payload entry type: \$path\" >&2
+        exit 1
+      fi
+      printf '%s\n' \"\$path\" >> \"\$keep\"
+    done
+    [[ -f auth.json ]] || { echo 'error: auth.json must be a regular file' >&2; exit 1; }
+    [[ -f config.toml ]] || { echo 'error: config.toml must be a regular file' >&2; exit 1; }
+    tar -cf - -T \"\$keep\"" \
+  | ssh "$cpu_host" "set -euo pipefail; stage=\$(mktemp -d); trap 'rm -rf \"\$stage\"' EXIT; tar -C \"\$stage\" -xf -; if find \"\$stage\" -type l -print -quit | grep -q .; then echo 'error: symlink entries are not allowed in sync payload' >&2; exit 1; fi; if find \"\$stage\" -type f -links +1 -print -quit | grep -q .; then echo 'error: hardlink entries are not allowed in sync payload' >&2; exit 1; fi; [[ -f \"\$stage/auth.json\" ]] || { echo 'error: auth.json must be a regular file' >&2; exit 1; }; [[ -f \"\$stage/config.toml\" ]] || { echo 'error: config.toml must be a regular file' >&2; exit 1; }; mkdir -p '$cpu_codex_home' '$cpu_codex_home/.tmp'; while IFS= read -r path; do rm -rf '$cpu_codex_home/'\"\$path\"; if [[ -e \"\$stage/\$path\" ]]; then parent=\$(dirname '$cpu_codex_home/'\"\$path\"); mkdir -p \"\$parent\"; mv \"\$stage/\$path\" '$cpu_codex_home/'\"\$path\"; fi; done <<'EOF'
+auth.json
+config.toml
+models_cache.json
+version.json
+installation_id
+skills
+plugins
+.tmp/plugins
+.tmp/plugins.sha
+packages
+vendor_imports
+rules
+superpowers
+prompts
+EOF"
 
 if [[ "$preserve_cpu_projects" == "1" ]]; then
   echo "appending preserved CPU project trust entries"

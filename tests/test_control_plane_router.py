@@ -15635,7 +15635,6 @@ def test_generation_target_lane_fills_under_depth_idle_queue_before_defaulting()
                 "next_autopilot_action": "queue_depth_satisfied",
             },
         },
-        max_dispatches=2,
     )
 
     assert target is not None
@@ -15663,7 +15662,6 @@ def test_generation_target_lane_skips_when_all_lanes_are_depth_satisfied():
                     "next_autopilot_action": "queue_depth_satisfied",
                 },
             },
-            max_dispatches=2,
         )
         is None
     )
