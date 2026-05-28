@@ -5646,18 +5646,50 @@ def _append_dashboard_worker_lane_confirmation_findings(
     conflicts: list[DashboardFinding],
 ) -> None:
     for lane in worker_lanes:
-        confirmation = lane.get("active_confirmation")
-        if not isinstance(confirmation, dict):
-            continue
-        state = str(confirmation.get("state") or "")
-        if state not in {"stale_active", "active_unconfirmed_grace"}:
-            continue
         lane_label = str(
             lane.get("worker_role")
             or lane.get("machine_target")
             or lane.get("lane_key")
             or "worker lane"
         )
+        worker_observations = lane.get("worker_observations")
+        lane_preflight = (
+            worker_observations.get("worker_preflight")
+            if isinstance(worker_observations, dict)
+            else None
+        )
+        no_live = _worker_no_live_failed_check(lane_preflight)
+        if not int(lane.get("active_count") or 0) and no_live:
+            finding = DashboardFinding(
+                severity="critical",
+                source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
+                authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
+                message=(
+                    f"{lane_label} worker reports live work but the control plane "
+                    "has no active row for that lane"
+                ),
+                suggested_action=(
+                    "pause dispatch and reconcile the orphan worker run before "
+                    "starting another job on this lane"
+                ),
+                data={
+                    "lane_key": lane.get("lane_key"),
+                    "machine_target": lane.get("machine_target"),
+                    "worker_check": no_live,
+                },
+            )
+            warnings.append(finding)
+            conflicts.append(finding)
+            blockers.append(
+                f"worker live run without active control-plane row: {lane_label}"
+            )
+            continue
+        confirmation = lane.get("active_confirmation")
+        if not isinstance(confirmation, dict):
+            continue
+        state = str(confirmation.get("state") or "")
+        if state not in {"stale_active", "active_unconfirmed_grace"}:
+            continue
         active_item = (
             lane.get("active_item") if isinstance(lane.get("active_item"), dict) else {}
         )
