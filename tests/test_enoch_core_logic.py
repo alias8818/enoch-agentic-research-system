@@ -10,6 +10,7 @@ from enoch_control_plane.enoch_core.logic import (
     bounded_useful_signal_row_gate,
     draft_candidate_payload,
     eligible_paper_draft_candidates,
+    eligible_projected_paper_draft_candidates,
     eligible_paper_polish_candidates,
     evaluate_paper_readiness_payload,
     followup_candidate_from_decision_payload,
@@ -59,6 +60,55 @@ class EnochCoreLogicTests(unittest.TestCase):
         ]
         candidates = eligible_paper_draft_candidates(queue_rows, [])
         self.assertEqual([row["project_id"] for row in candidates], ["idea-wake"])
+
+    def test_projected_paper_draft_candidates_require_db_paper_gate(self) -> None:
+        queue_rows = [
+            {
+                "project_id": "raw-wake",
+                "project_name": "Raw Wake",
+                "project_dir": "raw-wake",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-raw",
+            },
+            {
+                "project_id": "scout-ready",
+                "project_name": "Scout Ready",
+                "project_dir": "scout-ready",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-scout",
+                "decision_gate_state": "negative",
+                "project_decision": "finalize_negative",
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": True,
+                "hypothesis_status": "supported",
+                "evidence_strength": "strong",
+                "claim_scope": "single local benchmark",
+                "scale_limits": "toy-sized reproduction only",
+            },
+            {
+                "project_id": "db-positive",
+                "project_name": "DB Positive",
+                "project_dir": "db-positive",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-positive",
+                "decision_gate_state": "positive",
+            },
+        ]
+
+        raw = eligible_paper_draft_candidates(queue_rows, [])
+        projected = eligible_projected_paper_draft_candidates(queue_rows, [])
+
+        self.assertEqual(len(raw), 3)
+        self.assertEqual(
+            {row["project_id"] for row in projected},
+            {"scout-ready", "db-positive"},
+        )
 
     def test_bounded_paper_ready_candidate_sorts_before_raw_recent_no_paper(
         self,

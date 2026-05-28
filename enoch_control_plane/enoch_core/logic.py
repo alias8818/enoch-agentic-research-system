@@ -847,6 +847,42 @@ def eligible_paper_draft_candidates(
     )
 
 
+def _row_project_decision_positive(row: dict[str, Any]) -> bool:
+    state = _normal(row.get("decision_gate_state"))
+    if state == "positive":
+        return True
+    decision = _normal(row.get("project_decision") or row.get("decision"))
+    return _has_decision_token(decision, PAPER_DRAFT_POSITIVE_DECISION_TOKENS)
+
+
+def _row_project_decision_paper_ready(row: dict[str, Any]) -> bool:
+    if text(row.get("last_run_state")) == "finalize_positive":
+        return True
+    if bounded_useful_signal_row_gate(row).get("eligible"):
+        return True
+    return _row_project_decision_positive(row)
+
+
+def eligible_projected_paper_draft_candidates(
+    queue_rows: list[dict[str, Any]],
+    paper_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return core projection candidates that are already DB decision-gated.
+
+    The live draft endpoint can still inspect local artifact gates, but the
+    Enoch-core projection is a DB read model. It should not report every raw
+    wake-ready completion as paper writable; it should only surface rows whose
+    control-plane DB state already carries a paper-positive or paper-scouted
+    bounded useful-signal decision.
+    """
+
+    return [
+        row
+        for row in eligible_paper_draft_candidates(queue_rows, paper_rows)
+        if _row_project_decision_paper_ready(row)
+    ]
+
+
 def draft_candidate_payload(candidate: dict[str, Any]) -> dict[str, Any]:
     run_id = text(candidate.get("current_run_id") or candidate.get("run_id"))
     return {
@@ -927,7 +963,7 @@ def queue_projection(snapshot: dict[str, Any]) -> dict[str, Any]:
         "run_state_counts": run_state_counts(queue_rows),
         "active_rows": active_queue_rows(queue_rows),
         "draft_candidate_count": len(
-            eligible_paper_draft_candidates(queue_rows, paper_rows)
+            eligible_projected_paper_draft_candidates(queue_rows, paper_rows)
         ),
         "polish_candidate_count": len(eligible_paper_polish_candidates(paper_rows)),
         "warnings": warnings,

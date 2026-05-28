@@ -9,7 +9,7 @@ from ..config import GateConfig
 from ..control_plane.supabase_store import resolve_supabase_database_url
 from .logic import (
     draft_candidate_payload,
-    eligible_paper_draft_candidates,
+    eligible_projected_paper_draft_candidates,
     eligible_paper_polish_candidates,
     polish_candidate_payload,
     queue_projection,
@@ -122,7 +122,7 @@ def create_enoch_core_router(
         authorize(authorization)
         effective_mode = current_mode(mode)
         snapshot = latest_snapshot_or_empty()
-        candidates = eligible_paper_draft_candidates(
+        candidates = eligible_projected_paper_draft_candidates(
             list(snapshot.get("queue_rows") or []),
             list(snapshot.get("paper_rows") or []),
         )

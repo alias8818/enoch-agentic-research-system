@@ -126,6 +126,58 @@ class EnochCoreRouterTests(unittest.TestCase):
             self.assertIsNone(body.candidate)
             self.assertFalse(body.would_apply)
 
+    def test_paper_draft_endpoint_uses_db_gated_projection_candidates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            endpoints = self.make_endpoints(tmp)
+            payload = QueueSnapshotRequest(
+                idempotency_key="snap-paper-gated",
+                source="test",
+                queue_rows=[
+                    {
+                        "project_id": "raw-wake",
+                        "project_name": "Raw Wake",
+                        "project_dir": "raw-wake",
+                        "status": "completed",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-raw",
+                    },
+                    {
+                        "project_id": "scout-ready",
+                        "project_name": "Scout Ready",
+                        "project_dir": "scout-ready",
+                        "status": "completed",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-scout",
+                        "decision_gate_state": "negative",
+                        "project_decision": "finalize_negative",
+                        "research_outcome": "useful_signal",
+                        "bounded_paper_ready": True,
+                        "hypothesis_status": "supported",
+                        "evidence_strength": "strong",
+                        "claim_scope": "single local benchmark",
+                        "scale_limits": "toy-sized reproduction only",
+                    },
+                ],
+                paper_rows=[],
+            )
+            endpoints["/enoch-core/snapshots/n8n-queue"](
+                payload=payload, authorization="Bearer secret"
+            )
+
+            projection = endpoints["/enoch-core/projections/queue"](
+                authorization="Bearer secret", mode=None
+            )
+            draft = endpoints["/enoch-core/candidates/paper-draft"](
+                authorization="Bearer secret", mode=None
+            )
+
+            self.assertEqual(projection.draft_candidate_count, 1)
+            self.assertEqual(draft.action, "draft")
+            self.assertEqual(draft.candidate_count, 1)
+            self.assertEqual(draft.candidate["project_id"], "scout-ready")
+
 
 if __name__ == "__main__":
     unittest.main()
