@@ -39,6 +39,8 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
             "3/377 pass strict claim/evidence audit",
             '<span class="stat">3/377</span><span>pass strict claim/evidence audit</span>',
             "3 / 377 pass strict claim and evidence audit.",
+            '<span class="value">377</span><span class="label">pass my strict audit</span>',
+            "Publishes 377 canonical papers after cleanup.",
             "Strict audit passes 3/377; the failed claims stay visible.",
             "Current status: **3 / 377 artifacts pass**.",
             "flags 374 of 377 canonical outputs",
@@ -75,6 +77,11 @@ def test_update_text_rewrites_current_public_count_phrases_without_touching_hist
         in updated
     )
     assert "3/385 pass strict claim and evidence audit." in updated
+    assert (
+        '<span class="value">3</span><span class="label">pass my strict audit</span>'
+        in updated
+    )
+    assert "Publishes 385 canonical papers after cleanup." in updated
     assert "Strict audit passes 3/385" in updated
     assert "Current status: **3 / 385 artifacts pass**" in updated
     assert "flags 382 of 385 canonical outputs" in updated

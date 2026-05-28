@@ -149,7 +149,7 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     # HTML landing pages often split the number and phrase across adjacent tags.
     html_gap = r"(?:\s|<[^>]+>)*"
     count_phrase = re.compile(
-        rf"\b\d{{2,5}}\b(?={html_gap}(?:canonical AI-generated artifacts indexed|canonical AI-generated artifacts|canonical AI-generated research artifacts|canonical indexed artifacts|AI-generated artifacts indexed|indexed AI artifacts|AI artifacts|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical artifacts|canonical outputs|artifacts|canonical generated research artifacts))",
+        rf"\b\d{{2,5}}\b(?={html_gap}(?:canonical AI-generated artifacts indexed|canonical AI-generated artifacts|canonical AI-generated research artifacts|canonical indexed artifacts|AI-generated artifacts indexed|indexed AI artifacts|AI artifacts|AI-generated research artifacts|generated research artifacts|indexed artifacts|canonical AI-generated papers|canonical papers|canonical artifacts|canonical outputs|artifacts|canonical generated research artifacts))",
         re.I,
     )
     text = count_phrase.sub(str(n), text)
@@ -257,17 +257,17 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     strict_prose_patterns = [
         (
             re.compile(
-                r"\b\d{1,5}\s+pass(?:es)?\s+my strict audit\b",
+                rf"\b\d{{1,5}}\b(?={html_gap}pass(?:es)?{html_gap}my strict audit)",
                 re.I,
             ),
-            f"{sp} pass my strict audit",
+            str(sp),
         ),
         (
             re.compile(
-                r"\b\d{1,5}\s+pass(?:es)?\s+the strict claim/evidence audit\b",
+                rf"\b\d{{1,5}}\b(?={html_gap}pass(?:es)?{html_gap}the strict claim/evidence audit)",
                 re.I,
             ),
-            f"{sp} pass the strict claim/evidence audit",
+            str(sp),
         ),
         (
             re.compile(
