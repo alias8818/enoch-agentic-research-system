@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -449,6 +450,19 @@ def check_manifest(
     _check_manifest_repo_drift(committed, generated, failures)
 
 
+def _github_token() -> str:
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    if token:
+        return token.strip()
+    token_file = os.environ.get("ENOCH_GITHUB_TOKEN_FILE")
+    if not token_file:
+        return ""
+    try:
+        return Path(token_file).expanduser().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def fetch_github_repo_metadata(repo: str) -> dict:
     try:
         result = subprocess.run(
@@ -462,13 +476,14 @@ def fetch_github_repo_metadata(repo: str) -> dict:
             return json.loads(result.stdout)
     except (OSError, json.JSONDecodeError):
         pass
-    req = Request(
-        f"https://api.github.com/repos/{repo}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "enoch-public-release-validator/1.0",
-        },
-    )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "enoch-public-release-validator/1.0",
+    }
+    token = _github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = Request(f"https://api.github.com/repos/{repo}", headers=headers)
     try:
         with urlopen(req, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))

@@ -78,6 +78,45 @@ def test_github_metadata_fetch_falls_back_to_authenticated_gh_on_rate_limit(
     assert metadata["description"].startswith("497 AI-generated research artifacts")
 
 
+def test_github_metadata_fetch_uses_configured_token_file(
+    monkeypatch, tmp_path
+) -> None:
+    import subprocess
+
+    token_file = tmp_path / "github-token"
+    token_file.write_text("ghp_test_token\n", encoding="utf-8")
+
+    def fake_run(cmd, text, stdout, stderr, check):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not logged in")
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self) -> bytes:
+            return b'{"description":"Public Enoch release surface.","homepage":""}'
+
+    def fake_urlopen(req, timeout):
+        assert timeout == 30
+        assert req.get_header("Authorization") == "Bearer ghp_test_token"
+        return FakeResponse()
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.setenv("ENOCH_GITHUB_TOKEN_FILE", str(token_file))
+    monkeypatch.setattr(validate_public_release.subprocess, "run", fake_run)
+    monkeypatch.setattr(validate_public_release, "urlopen", fake_urlopen)
+
+    metadata = validate_public_release.fetch_github_repo_metadata(
+        "alias8818/enoch-ai-research-corpus"
+    )
+
+    assert metadata["description"] == "Public Enoch release surface."
+
+
 def test_public_count_checks_reject_personal_site_stale_canonical_count(
     tmp_path,
 ) -> None:
