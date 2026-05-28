@@ -15306,6 +15306,107 @@ def test_draft_next_revalidates_decision_gate_after_evidence_sync() -> None:
         assert snapshot["paper_rows"] == []
 
 
+def test_draft_next_preserves_paper_scout_row_readiness_after_evidence_sync() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        project_dir = Path(tmp) / "projects" / "paper-scout-ready-sync"
+        (project_dir / ".enoch").mkdir(parents=True)
+        (project_dir / "run_notes.md").write_text(
+            "Measured useful signal with a bounded baseline and explicit limits.\n",
+            encoding="utf-8",
+        )
+        (project_dir / ".enoch" / "project_decision.json").write_text(
+            json.dumps(
+                {
+                    "project_decision": "finalize_negative",
+                    "research_outcome": "useful_signal",
+                    "hypothesis_status": "supported",
+                    "evidence_strength": "strong",
+                    "claim_scope": "single local benchmark",
+                    "scale_limits": "toy-sized reproduction only",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        imported = client.post(
+            "/control/import/legacy-snapshot",
+            headers=headers,
+            json={
+                "idempotency_key": "import-paper-scout-ready-sync",
+                "queue_rows": [
+                    {
+                        "project_id": "paper-scout-ready-sync",
+                        "project_name": "Paper Scout Ready Sync",
+                        "project_dir": "paper-scout-ready-sync",
+                        "status": "completed",
+                        "last_run_state": "wake_ready",
+                        "next_action_hint": "draft_paper_or_select_next_project",
+                        "current_run_id": "run-paper-scout-ready-sync",
+                        "manual_review_required": False,
+                        "project_decision": "finalize_negative",
+                        "research_outcome": "useful_signal",
+                        "bounded_paper_ready": True,
+                        "hypothesis_status": "supported",
+                        "evidence_strength": "strong",
+                        "claim_scope": "single local benchmark",
+                        "scale_limits": "toy-sized reproduction only",
+                    }
+                ],
+                "paper_rows": [],
+            },
+        )
+        assert imported.status_code == 200
+
+        original_queue_rows = ControlPlaneStore.queue_rows
+
+        def queue_rows_with_paper_scout_fields(self):  # noqa: ANN001
+            rows = original_queue_rows(self)
+            for row in rows:
+                if row.get("project_id") == "paper-scout-ready-sync":
+                    row.update(
+                        {
+                            "project_decision": "finalize_negative",
+                            "research_outcome": "useful_signal",
+                            "bounded_paper_ready": True,
+                            "hypothesis_status": "supported",
+                            "evidence_strength": "strong",
+                            "claim_scope": "single local benchmark",
+                            "scale_limits": "toy-sized reproduction only",
+                        }
+                    )
+            return rows
+
+        with (
+            patch(
+                "enoch_control_plane.control_plane.router._sync_remote_project_evidence",
+                return_value={
+                    "enabled": True,
+                    "synced": True,
+                    "method": "worker_http",
+                },
+            ),
+            patch.object(
+                ControlPlaneStore, "queue_rows", new=queue_rows_with_paper_scout_fields
+            ),
+        ):
+            response = client.post(
+                "/control/papers/draft-next", headers=headers, json={"force": True}
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["action"] == "drafted"
+        decision_gate = body["candidate"]["writer"]["decision_gate"]
+        assert decision_gate["eligible"] is True
+        assert decision_gate["source"] == "control_plane_row"
+        assert decision_gate["field"] == "bounded_paper_ready"
+        assert decision_gate["artifact_gate"]["eligible"] is False
+        snapshot = client.get("/control/export/snapshot", headers=headers).json()
+        assert len(snapshot["paper_rows"]) == 1
+
+
 def test_paper_draft_event_failure_does_not_publish_partial_paper_row() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         client = _client(tmp)
