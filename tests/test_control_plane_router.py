@@ -6210,12 +6210,29 @@ class ControlPlaneRouterTests(unittest.TestCase):
                         detail="active_or_waiting=0, live=0",
                         data={"active_or_waiting": 0, "live": 0},
                     ),
+                    WorkerPreflightCheck(
+                        name="wake_gate_dashboard_api",
+                        ok=True,
+                        detail="cpu dashboard API reachable",
+                        data={
+                            "body": {
+                                "timestamp": "2026-05-28T12:00:00Z",
+                                "totals": {"active_or_waiting": 0, "live": 0},
+                                "runs": [],
+                            }
+                        },
+                    ),
                 ],
             )
 
             store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
             store.upsert_dashboard_observation(
                 source="worker_preflight",
+                status="ok",
+                payload={"target": "http://gb10-worker:8787", "ok": True},
+            )
+            store.upsert_dashboard_observation(
+                source="worker_dashboard_api",
                 status="ok",
                 payload={"target": "http://gb10-worker:8787", "ok": True},
             )
@@ -6238,12 +6255,43 @@ class ControlPlaneRouterTests(unittest.TestCase):
             scoped = store.latest_dashboard_observation(
                 source="worker_preflight", scope="lane:http://cpu-proxmox-1:8787"
             )
+            global_dashboard = store.latest_dashboard_observation(
+                source="worker_dashboard_api"
+            )
+            scoped_dashboard = store.latest_dashboard_observation(
+                source="worker_dashboard_api",
+                scope="lane:http://cpu-proxmox-1:8787",
+            )
             self.assertIsNotNone(global_observation)
             self.assertEqual(
                 global_observation.payload["target"], "http://gb10-worker:8787"
             )
             self.assertIsNotNone(scoped)
             self.assertEqual(scoped.payload["target"], "http://cpu-proxmox-1:8787")
+            self.assertIsNotNone(global_dashboard)
+            self.assertEqual(
+                global_dashboard.payload["target"], "http://gb10-worker:8787"
+            )
+            self.assertIsNotNone(scoped_dashboard)
+            self.assertEqual(scoped_dashboard.status, "ok")
+            self.assertEqual(
+                scoped_dashboard.payload["data"]["body"]["timestamp"],
+                "2026-05-28T12:00:00Z",
+            )
+            status = client.get("/control/api/status", headers=headers).json()
+            cpu_lane = next(
+                lane
+                for lane in status["worker_lanes"]
+                if lane["machine_target"] == "cpu-proxmox-1"
+            )
+            self.assertEqual(
+                cpu_lane["worker_observations"]["worker_dashboard_api"]["scope"],
+                "lane:http://cpu-proxmox-1:8787",
+            )
+            self.assertEqual(
+                cpu_lane["worker_observations"]["worker_dashboard_api"]["status"],
+                "ok",
+            )
 
     def test_dashboard_status_refreshes_worker_preflight_when_requested(
         self,
@@ -15999,6 +16047,25 @@ def test_research_lane_feed_pressure_extracted_no_duplication_in_giant():
     )
     assert pressure_key == "gb10-worker"
     assert entry["next_autopilot_action"] == "generate_candidate"
+    _, satisfied_entry = _single_lane_feed_pressure_entry(
+        {
+            "lane_key": "cpu-proxmox-1",
+            "machine_target": "cpu-proxmox-1",
+            "worker_role": "cpu",
+            "active_count": 0,
+        },
+        queued_by_lane={
+            "cpu-proxmox-1": [
+                {"project_id": f"cpu-{idx}", "machine_target": "cpu-proxmox-1"}
+                for idx in range(26)
+            ]
+        },
+        promotable_by_lane={"cpu-proxmox-1": []},
+        min_queue_depth=25,
+    )
+    assert satisfied_entry["queue_deficit"] == 0
+    assert satisfied_entry["queue_depth_status"] == "above_desired"
+    assert satisfied_entry["above_desired_depth"] is True
 
 
 def test_research_lane_feed_pressure_helpers_extracted_for_s3776():

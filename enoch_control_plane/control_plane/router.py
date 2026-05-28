@@ -5038,6 +5038,12 @@ def _single_lane_feed_pressure_entry(
     promotable_count = len(promotable_by_lane.get(lane_key, []))
     active_count = int(lane.get("active_count") or 0)
     queue_deficit = max(0, min_queue_depth - queued_count)
+    if queued_count > min_queue_depth:
+        queue_depth_status = "above_desired"
+    elif queue_deficit:
+        queue_depth_status = "below_desired"
+    else:
+        queue_depth_status = "at_desired"
     next_action, summary = _research_lane_feed_autopilot_plan(
         label=label,
         queue_deficit=queue_deficit,
@@ -5057,6 +5063,8 @@ def _single_lane_feed_pressure_entry(
         "queued_count": queued_count,
         "promotable_count": promotable_count,
         "queue_deficit": queue_deficit,
+        "queue_depth_status": queue_depth_status,
+        "above_desired_depth": queue_depth_status == "above_desired",
         "next_autopilot_action": next_action,
         "operator_summary": summary,
     }
@@ -6120,6 +6128,7 @@ def _cp_mount_worker_lane_capacity_entry(
     worker_preflight_lane_key: str = "",
     lane_worker_preflight: DashboardObservationRecord | None = None,
     lane_worker_preflight_key: str = "",
+    lane_worker_dashboard: DashboardObservationRecord | None = None,
 ) -> dict[str, Any]:
     lane_key = str(lane["lane_key"])
     confirmation_preflight = lane_worker_preflight or worker_preflight
@@ -6152,6 +6161,10 @@ def _cp_mount_worker_lane_capacity_entry(
             lane_key=lane_key,
             active_row=active_item,
         ),
+        "worker_observations": {
+            "worker_preflight": lane_worker_preflight,
+            "worker_dashboard_api": lane_worker_dashboard,
+        },
         "queued_count": len(lane_queued),
         "next_candidate": _worker_lane_summary_row(next_candidate),
         "dispatch_available": dispatch_available,
@@ -6189,9 +6202,13 @@ def _cp_mount_worker_lane_capacity(
     for lane in sorted(lanes_by_key.values(), key=_cp_mount_worker_lane_sort_key):
         lane_key = str(lane.get("lane_key") or "")
         lane_preflight = None
+        lane_dashboard = None
         if callable(latest_observation) and lane_key:
             lane_preflight = latest_observation(
                 source="worker_preflight", scope=f"lane:{lane_key}"
+            )
+            lane_dashboard = latest_observation(
+                source="worker_dashboard_api", scope=f"lane:{lane_key}"
             )
         lane_preflight_key = (
             _cp_mount_preflight_observation_lane_key(config, lane_preflight)
@@ -6208,6 +6225,7 @@ def _cp_mount_worker_lane_capacity(
                 worker_preflight_lane_key=worker_preflight_lane_key,
                 lane_worker_preflight=lane_preflight,
                 lane_worker_preflight_key=lane_preflight_key,
+                lane_worker_dashboard=lane_dashboard,
             )
         )
     return capacity
