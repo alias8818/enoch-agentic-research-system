@@ -202,7 +202,96 @@ class SupabaseEnochCoreStore:
         )
         return [self._json_payload(row["payload_json"]) for row in rows]
 
+    def _live_queue_rows(self) -> list[dict[str, Any]]:
+        return self._query(
+            """
+            select
+              q.*,
+              p.project_name,
+              p.project_dir,
+              p.notion_page_url,
+              p.notion_page_id,
+              p.origin_idea_status,
+              coalesce(d.decision_gate_state, '') as decision_gate_state,
+              coalesce(d.decision_summary, '') as decision_summary,
+              coalesce(d.payload_json #>> '{project_decision,project_decision}', d.payload_json->>'project_decision', '') as project_decision,
+              coalesce(d.payload_json #>> '{project_decision,research_outcome}', d.payload_json->>'research_outcome', '') as research_outcome,
+              coalesce(d.payload_json #>> '{project_decision,hypothesis_status}', d.payload_json->>'hypothesis_status', '') as hypothesis_status,
+              coalesce(d.payload_json #>> '{project_decision,evidence_strength}', d.payload_json->>'evidence_strength', '') as evidence_strength,
+              coalesce(d.payload_json #>> '{project_decision,claim_scope}', d.payload_json->>'claim_scope', '') as claim_scope,
+              coalesce(d.payload_json #>> '{project_decision,scale_limits}', d.payload_json->>'scale_limits', '') as scale_limits,
+              coalesce(d.payload_json #>> '{project_decision,useful_signal_summary}', d.payload_json->>'useful_signal_summary', '') as useful_signal_summary,
+              lower(coalesce(d.payload_json #>> '{project_decision,bounded_paper_ready}', d.payload_json->>'bounded_paper_ready', 'false')) in ('true', '1', 'yes') as bounded_paper_ready,
+              lower(coalesce(d.payload_json #>> '{project_decision,compute_scale_blocked}', d.payload_json->>'compute_scale_blocked', 'false')) in ('true', '1', 'yes') as compute_scale_blocked,
+              coalesce(d.payload_json #>> '{project_decision,recommended_next_action}', d.payload_json->>'recommended_next_action', '') as recommended_next_action,
+              coalesce(d.payload_json #>> '{project_decision,stop_reason}', d.payload_json->>'stop_reason', '') as stop_reason,
+              coalesce(d.followup_recommended, false) as followup_recommended,
+              coalesce(d.followup_type, '') as followup_type,
+              coalesce(d.followup_title, '') as followup_title,
+              coalesce(d.followup_hypothesis, '') as followup_hypothesis,
+              coalesce(d.followup_required_evidence, '[]'::jsonb) as followup_required_evidence,
+              coalesce(d.followup_success_threshold, '') as followup_success_threshold,
+              coalesce(d.followup_stop_condition, '') as followup_stop_condition,
+              coalesce(d.followup_depth, 0) as followup_depth
+            from queue_items q
+            join projects p using(project_id)
+            left join lateral (
+              select d.*
+              from project_decisions d
+              where d.project_id = q.project_id
+                and (d.run_id = nullif(q.current_run_id, '') or d.run_id is null)
+              order by
+                case when d.run_id = nullif(q.current_run_id, '') then 0 else 1 end,
+                d.decided_at desc nulls last,
+                d.decision_id desc nulls last
+              limit 1
+            ) d on true
+            order by q.dispatch_priority asc, q.updated_at desc
+            """
+        )
+
+    def _live_paper_rows(self) -> list[dict[str, Any]]:
+        return self._query(
+            """
+            select
+              pa.*,
+              p.project_name,
+              p.project_dir,
+              p.notion_page_url,
+              p.notion_page_id,
+              rv.automation_status as review_status,
+              rv.finalization_package_path,
+              rv.finalized_at,
+              ci.corpus_import_id,
+              ci.artifact_slug,
+              ci.commit_sha as corpus_commit_sha,
+              ci.manifest_path as corpus_manifest_path,
+              ci.manifest_hash as corpus_manifest_hash,
+              ci.source_record_fingerprint,
+              ci.hf_dataset_synced,
+              ci.imported_at as corpus_imported_at,
+              (ci.paper_id is not null) as corpus_imported
+            from papers pa
+            left join projects p using(project_id)
+            left join publication_automation_items rv using(paper_id)
+            left join corpus_imports ci using(paper_id)
+            order by pa.updated_at desc
+            """
+        )
+
+    def _live_queue_projection(self) -> dict[str, Any]:
+        return {
+            "source": "control_plane_db",
+            "queue_rows": self._live_queue_rows(),
+            "paper_rows": self._live_paper_rows(),
+            "captured_at": utc_now(),
+        }
+
     def rebuild_queue_projection(self) -> dict[str, Any]:
+        try:
+            return self._live_queue_projection()
+        except Exception:
+            pass
         return self.latest_snapshot("n8n_queue") or {
             "source": "none",
             "queue_rows": [],

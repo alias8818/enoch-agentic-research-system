@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from enoch_control_plane.enoch_core.logic import eligible_paper_draft_candidates
 from enoch_control_plane.enoch_core.supabase_store import SupabaseEnochCoreStore
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
@@ -53,6 +54,15 @@ class Cursor:
         raise AssertionError(self.sql)
 
     def fetchall(self):
+        normalized = " ".join(str(self.sql).lower().split())
+        if "from queue_items q" in normalized:
+            if "live_queue_rows" not in self.state:
+                raise RuntimeError("live queue projection unavailable")
+            return self.state["live_queue_rows"]
+        if "from papers pa" in normalized:
+            if "live_paper_rows" not in self.state:
+                raise RuntimeError("live paper projection unavailable")
+            return self.state["live_paper_rows"]
         if "from core_snapshots" in self.sql and "order by id desc" in self.sql:
             rows = [
                 row
@@ -177,3 +187,46 @@ def test_core_supabase_store_json_helpers_and_empty_projection() -> None:
     }
     with pytest.raises(ValueError):
         SupabaseEnochCoreStore(" ")
+
+
+def test_core_supabase_projection_rebuilds_from_live_control_plane_rows() -> None:
+    state = {
+        "events": {},
+        "snapshots": [],
+        "snapshots_by_key": {},
+        "live_queue_rows": [
+            {
+                "project_id": "paper-scout-live",
+                "project_name": "Paper Scout Live",
+                "project_dir": "paper-scout-live",
+                "notion_page_url": "",
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-paper-scout-live",
+                "manual_review_required": False,
+                "project_decision": "finalize_negative",
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": True,
+                "hypothesis_status": "supported",
+                "evidence_strength": "strong",
+                "claim_scope": "single local benchmark",
+                "scale_limits": "toy-sized reproduction only",
+            }
+        ],
+        "live_paper_rows": [],
+    }
+    store = SupabaseEnochCoreStore("postgres://example", connect=lambda: Conn(state))
+
+    rebuilt = store.rebuild_queue_projection()
+
+    assert rebuilt["source"] == "control_plane_db"
+    assert rebuilt["queue_rows"] == state["live_queue_rows"]
+    assert rebuilt["paper_rows"] == []
+    assert rebuilt["captured_at"]
+    candidates = eligible_paper_draft_candidates(
+        rebuilt["queue_rows"], rebuilt["paper_rows"]
+    )
+    assert len(candidates) == 1
+    assert candidates[0]["project_id"] == "paper-scout-live"
+    assert candidates[0]["bounded_paper_ready"] is True
