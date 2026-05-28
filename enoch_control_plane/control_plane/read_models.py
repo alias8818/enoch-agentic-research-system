@@ -2670,6 +2670,8 @@ def _build_research_yield_panel(
     *,
     queue_rows: Sequence[Mapping[str, Any]],
     paper_rows: Sequence[Mapping[str, Any]],
+    paper_pipeline: Mapping[str, Any] | None = None,
+    investigation_pipeline: Mapping[str, Any] | None = None,
     paper_drought_days: int = 9,
 ) -> dict[str, Any]:
     maturity_counts = dict.fromkeys(sorted(PAPER_READINESS_MATURITY_STATES), 0)
@@ -2697,6 +2699,12 @@ def _build_research_yield_panel(
             reason_counts[reason] = reason_counts.get(reason, 0) + 1
     latest_age = _latest_paper_age_days(paper_rows)
     drought_warning = latest_age is None or latest_age >= paper_drought_days
+    paper_recovery = _paper_drought_recovery_action(
+        drought_warning=drought_warning,
+        paper_pipeline=paper_pipeline or {},
+        investigation_pipeline=investigation_pipeline or {},
+        top_deepen_candidate=deepen_rows[0] if deepen_rows else None,
+    )
     return {
         "latest_paper_age_days": latest_age,
         "paper_drought": {
@@ -2704,6 +2712,7 @@ def _build_research_yield_panel(
             "threshold_days": paper_drought_days,
             "explanation": "Paper drought is a visibility warning, not an operational-readiness blocker.",
         },
+        "paper_recovery": paper_recovery,
         "maturity_counts": maturity_counts,
         "top_deepen_required_candidate": (
             draft_candidate_payload(dict(deepen_rows[0])) if deepen_rows else None
@@ -2717,7 +2726,66 @@ def _build_research_yield_panel(
             "maturity_counts": "completed runs grouped by paper-readiness evidence maturity",
             "top_deepen_required_candidate": "highest-priority completed run with a concrete evidence gap",
             "paper_drought": "visibility condition only; unattended automation readiness is evaluated separately",
+            "paper_recovery": "deterministic next action when a paper drought is visible",
         },
+    }
+
+
+def _paper_drought_recovery_action(
+    *,
+    drought_warning: bool,
+    paper_pipeline: Mapping[str, Any],
+    investigation_pipeline: Mapping[str, Any],
+    top_deepen_candidate: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    if not drought_warning:
+        return {
+            "status": "recent_paper",
+            "next_action": "monitor",
+            "count": 0,
+            "target": None,
+            "reason": "latest paper is inside the drought threshold",
+        }
+    write_needed = _safe_count(paper_pipeline.get("write_needed"))
+    if write_needed:
+        target = paper_pipeline.get("next_write_candidate") or {}
+        return {
+            "status": "write_needed",
+            "next_action": "draft_paper",
+            "count": write_needed,
+            "target": _candidate_target(target)
+            or draft_candidate_payload(dict(target)),
+            "reason": "paper-ready completed runs are waiting for first draft",
+        }
+    followup_ready = _safe_count(investigation_pipeline.get("ranked_followup_ready"))
+    if followup_ready:
+        target = (
+            investigation_pipeline.get("next_ranked_followup_candidate")
+            or investigation_pipeline.get("next_followup_candidate")
+            or {}
+        )
+        return {
+            "status": "ranked_followup_ready",
+            "next_action": "queue_followup",
+            "count": followup_ready,
+            "target": _candidate_target(target)
+            or draft_candidate_payload(dict(target)),
+            "reason": "recent useful signals need bounded follow-up evidence before paper drafting",
+        }
+    if top_deepen_candidate:
+        return {
+            "status": "deepen_required",
+            "next_action": "deepen_evidence",
+            "count": 1,
+            "target": draft_candidate_payload(dict(top_deepen_candidate)),
+            "reason": "top completed run has a concrete evidence gap before paper readiness",
+        }
+    return {
+        "status": "no_recovery_candidate",
+        "next_action": "generate_better_candidate",
+        "count": 0,
+        "target": None,
+        "reason": "no paper-ready or ranked follow-up candidate is currently visible",
     }
 
 
@@ -2790,6 +2858,8 @@ def overview(
     research_yield = _build_research_yield_panel(
         queue_rows=raw_queue_rows,
         paper_rows=paper_rows,
+        paper_pipeline=paper_pipeline,
+        investigation_pipeline=investigation_pipeline,
     )
     events, next_cursor, has_more = _overview_events_page(
         store, batched_parts, event_limit=event_limit

@@ -7792,6 +7792,69 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertLessEqual(len(queued["top_actions"]), 3)
             self.assertTrue(top["action_hash"].startswith("#"))
 
+    def test_overview_research_yield_names_paper_drought_recovery_action(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            rows = [
+                {
+                    "project_id": "useful-signal-followup",
+                    "project_name": "Useful Signal Follow-up",
+                    "project_dir": "useful-signal-followup",
+                    "status": "completed",
+                    "current_run_id": "run-useful-signal",
+                    "decision_gate_state": "negative",
+                    "research_outcome": "useful_signal",
+                    "hypothesis_status": "supported",
+                    "evidence_strength": "moderate",
+                    "bounded_paper_ready": False,
+                    "followup_recommended": True,
+                    "followup_type": "deepen",
+                    "followup_title": "Real trace replay follow-up",
+                    "followup_hypothesis": "Real traces will validate the bounded signal.",
+                    "followup_required_evidence": [
+                        "real trace integration",
+                        "baseline comparison",
+                        "failure analysis",
+                    ],
+                    "followup_success_threshold": "Blocks 90% of unsafe calls.",
+                    "followup_stop_condition": "Stop if traces cannot be collected.",
+                    "followup_depth": 0,
+                    "updated_at": "2026-05-28T00:00:00Z",
+                }
+            ]
+
+            with (
+                patch.object(
+                    ControlPlaneStore,
+                    "queue_counts_sql",
+                    return_value={"completed": 1},
+                ),
+                patch.object(ControlPlaneStore, "paper_counts_sql", return_value={}),
+                patch.object(ControlPlaneStore, "active_items_sql", return_value=[]),
+                patch.object(
+                    ControlPlaneStore, "next_candidate_sql", return_value=None
+                ),
+                patch.object(
+                    ControlPlaneStore, "operator_queue_rows_sql", return_value=rows
+                ),
+                patch.object(
+                    ControlPlaneStore, "operator_paper_rows_sql", return_value=[]
+                ),
+            ):
+                overview = client.get(
+                    "/control/api/v1/overview", headers=headers
+                ).json()
+
+            recovery = overview["research_yield"]["paper_recovery"]
+            self.assertTrue(overview["research_yield"]["paper_drought"]["warning"])
+            self.assertEqual(recovery["status"], "ranked_followup_ready")
+            self.assertEqual(recovery["next_action"], "queue_followup")
+            self.assertEqual(recovery["count"], 1)
+            self.assertEqual(recovery["target"]["project_id"], "useful-signal-followup")
+
     def test_overview_top_actions_dispatch_is_lane_aware(self) -> None:
         # PR 42 review acceptance criterion: dispatch action must be
         # lane-aware. Configure CPU + GB10 lanes, mark the CPU lane busy by

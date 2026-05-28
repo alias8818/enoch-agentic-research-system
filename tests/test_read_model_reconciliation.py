@@ -632,6 +632,45 @@ def test_research_yield_panel_surfaces_drought_and_top_deepen_candidate() -> Non
     assert panel["dominant_missing_evidence_reason"] == "baseline_or_comparator_present"
 
 
+def test_research_yield_panel_names_ranked_followup_as_drought_recovery() -> None:
+    from enoch_control_plane.control_plane import read_models
+
+    rows = [
+        _completed_draft_ready(
+            "followup-project",
+            "followup-run",
+            decision_gate_state="negative",
+            research_outcome="useful_signal",
+            hypothesis_status="supported",
+            evidence_strength="moderate",
+            bounded_paper_ready=False,
+            followup_recommended=True,
+            followup_type="deepen",
+            followup_title="Real trace replay follow-up",
+            followup_hypothesis="Real traces will validate the bounded signal.",
+            followup_required_evidence=[
+                "real trace integration",
+                "baseline comparison",
+                "failure analysis",
+            ],
+            followup_success_threshold="Blocks 90% of unsafe calls.",
+            followup_stop_condition="Stop if real traces cannot be collected.",
+            followup_depth=0,
+            updated_at="2026-05-28T00:00:00Z",
+        )
+    ]
+    store = _OverviewStore(rows, [])
+
+    overview = read_models.overview(store)  # type: ignore[arg-type]
+
+    panel = overview["research_yield"]
+    assert panel["paper_drought"]["warning"] is True
+    assert panel["paper_recovery"]["status"] == "ranked_followup_ready"
+    assert panel["paper_recovery"]["next_action"] == "queue_followup"
+    assert panel["paper_recovery"]["count"] == 1
+    assert panel["paper_recovery"]["target"]["project_id"] == "followup-project"
+
+
 def test_overview_treats_unexpandable_project_dir_as_missing_decision_artifact() -> (
     None
 ):
