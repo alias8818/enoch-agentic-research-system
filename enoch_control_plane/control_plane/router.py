@@ -2188,6 +2188,16 @@ def _queue_row_recent_callback(
     return now <= observed + grace
 
 
+def _preflight_predates_active_dispatch(
+    preflight: DashboardObservationRecord | None, row: dict[str, Any]
+) -> bool:
+    preflight_observed = _parse_ts(preflight.observed_at if preflight else None)
+    dispatch_observed = _parse_ts(str(row.get("last_dispatch_at") or "") or None)
+    if preflight_observed is None or dispatch_observed is None:
+        return False
+    return preflight_observed < dispatch_observed
+
+
 def _worker_dashboard_runs_from_preflight(
     preflight: DashboardObservationRecord | None,
 ) -> list[dict[str, Any]]:
@@ -2277,6 +2287,13 @@ def _active_lane_worker_confirmation(
             }
     no_live = _preflight_check(preflight, "worker_no_live_runs")
     if no_live and no_live.get("ok") is True:
+        if _preflight_predates_active_dispatch(preflight, active_row):
+            return {
+                "state": "active_unconfirmed",
+                "matched": False,
+                "reason": "worker preflight observation predates active control-plane dispatch",
+                "worker_check": no_live,
+            }
         return _active_confirmation_for_no_live_check(
             preflight=preflight, active_row=active_row, no_live=no_live
         )

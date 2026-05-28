@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import (
+    _active_lane_worker_confirmation,
     _handle_followup_and_early_skips,
     _project_prompt,
     _write_deterministic_paper,
@@ -30,6 +31,7 @@ from enoch_control_plane.control_plane.models import (
     PaperReviewBackfillRequest,
     WorkerPreflightCheck,
     WorkerPreflightResponse,
+    DashboardObservationRecord,
 )
 from enoch_control_plane.control_plane.worker_adapter import HttpResult
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
@@ -1634,6 +1636,44 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
             self.assertFalse(check["ok"])
             self.assertEqual(check["data"]["stale_active_lanes"], ["default"])
+
+    def test_pre_dispatch_no_live_preflight_does_not_mark_new_active_row_stale(
+        self,
+    ) -> None:
+        preflight_time = datetime.now(timezone.utc) - timedelta(minutes=10)
+        dispatch_time = datetime.now(timezone.utc)
+        preflight = DashboardObservationRecord(
+            source="worker_preflight",
+            observed_at=preflight_time.isoformat(),
+            payload={
+                "ok": True,
+                "target": "http://cpu-worker:8787",
+                "checks": [
+                    {
+                        "name": "worker_no_live_runs",
+                        "ok": True,
+                        "detail": "active_or_waiting=0, live=0",
+                        "data": {"active_or_waiting": 0, "live": 0},
+                    }
+                ],
+            },
+        )
+        active_row = {
+            "project_id": "cpu-project",
+            "current_run_id": "cpu-run",
+            "status": "awaiting_wake",
+            "last_dispatch_at": dispatch_time.isoformat(),
+        }
+
+        confirmation = _active_lane_worker_confirmation(
+            preflight=preflight,
+            preflight_lane_key="http://cpu-worker:8787",
+            lane_key="http://cpu-worker:8787",
+            active_row=active_row,
+        )
+
+        self.assertEqual(confirmation["state"], "active_unconfirmed")
+        self.assertIn("predates", confirmation["reason"])
 
     def test_automation_readiness_does_not_refresh_worker_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
