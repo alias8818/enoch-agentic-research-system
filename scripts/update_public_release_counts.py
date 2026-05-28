@@ -19,6 +19,7 @@ from scripts.validate_public_release import (
     DOC_FILES,
     OWNER_PROFILE_FILES,
     PERSONAL_SITE_FILES,
+    PROMISING_COUNT_PHRASES,
     PROFILE_FILES,
     PUBLIC_FILES,
     STRICT_FAIL_PHRASES,
@@ -119,6 +120,7 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     p = stats["packaging_pass"]
     sp = stats["strict_pass"]
     sf = stats["strict_fail"]
+    promising = stats.get("promising_signal_count", 0)
     empty = stats["empty_claim_ledgers"]
     refs = stats["result_file_refs"]
     missing = stats["result_file_refs_missing"]
@@ -265,6 +267,19 @@ def update_text(text: str, stats: dict[str, int]) -> str:
 
     for pattern in STRICT_FAIL_PHRASES:
         text = pattern.sub(replace_strict_fail_counts, text)
+
+    def replace_promising_count(match: re.Match[str]) -> str:
+        phrase = match.group(0)
+        offset = match.start()
+        return (
+            phrase[: match.start(1) - offset]
+            + str(promising)
+            + phrase[match.end(1) - offset :]
+        )
+
+    for pattern in PROMISING_COUNT_PHRASES:
+        text = pattern.sub(replace_promising_count, text)
+
     text = re.sub(
         r"\b(?:fails?|rejects)\s+\d{1,5}\s+of\s+them\b",
         lambda m: re.sub(r"\d{1,5}", str(sf), m.group(0), count=1),
@@ -367,6 +382,10 @@ def main(argv: list[str] | None = None) -> int:
         if generated_manifest is None:
             generated_manifest = default_generated_manifest_path()
         generate_manifest(root, generated_manifest)
+        stats["promising_signal_count"] = require_nonnegative_int(
+            load_json(generated_manifest).get("promising_signal_count", 0),
+            label="promising_signal_count",
+        )
     changed: list[str] = []
     for path in public_files(root):
         old = path.read_text(encoding="utf-8", errors="replace")

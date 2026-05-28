@@ -117,6 +117,37 @@ def test_update_text_rewrites_wrapped_strict_fail_phrases() -> None:
     assert "flags 7" not in updated
 
 
+def test_update_text_rewrites_promising_signal_count_phrases() -> None:
+    stats = {
+        "artifact_count": 389,
+        "packaging_pass": 389,
+        "strict_pass": 389,
+        "strict_fail": 0,
+        "promising_signal_count": 0,
+        "empty_claim_ledgers": 0,
+        "result_file_refs": 0,
+        "result_file_refs_missing": 0,
+        "post_dedupe_imports": 13,
+    }
+    text = "\n".join(
+        [
+            "A separate repo preserves 519 bounded promising signals outside the paper corpus.",
+            "<strong>519</strong><span>bounded promising</span><span>signals outside the corpus</span>",
+            "There are 519 useful/scale-blocked leads preserved for later review.",
+        ]
+    )
+
+    updated = update_text(text, stats)
+
+    assert "preserves 0 bounded promising signals outside" in updated
+    assert (
+        "<strong>0</strong><span>bounded promising</span><span>signals outside"
+        in updated
+    )
+    assert "0 useful/scale-blocked leads preserved" in updated
+    assert "519" not in updated
+
+
 def test_update_text_rewrites_strict_fail_denominator_after_large_fail_count() -> None:
     stats = {
         "artifact_count": 1000,
