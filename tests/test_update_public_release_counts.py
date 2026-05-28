@@ -148,6 +148,38 @@ def test_update_text_rewrites_promising_signal_count_phrases() -> None:
     assert "519" not in updated
 
 
+def test_update_text_rewrites_strict_pass_prose_counts() -> None:
+    stats = {
+        "artifact_count": 389,
+        "packaging_pass": 389,
+        "strict_pass": 389,
+        "strict_fail": 0,
+        "promising_signal_count": 0,
+        "empty_claim_ledgers": 0,
+        "result_file_refs": 0,
+        "result_file_refs_missing": 0,
+        "post_dedupe_imports": 13,
+    }
+    text = "\n".join(
+        [
+            "Its strict audit now passes all 388.",
+            "388 pass my strict audit.",
+            "388 pass the strict claim/evidence audit.",
+            '"388 of 388" is the kind of headline number that can imply correctness.',
+            "The later evidence-sync work moved the strict pass count to 388.",
+        ]
+    )
+
+    updated = update_text(text, stats)
+
+    assert "passes all 389" in updated
+    assert "389 pass my strict audit" in updated
+    assert "389 pass the strict claim/evidence audit" in updated
+    assert '"389 of 389" is the kind' in updated
+    assert "strict pass count to 389" in updated
+    assert "388" not in updated
+
+
 def test_update_text_rewrites_strict_fail_denominator_after_large_fail_count() -> None:
     stats = {
         "artifact_count": 1000,

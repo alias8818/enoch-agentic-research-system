@@ -254,6 +254,40 @@ def update_text(text: str, stats: dict[str, int]) -> str:
     for pattern, replacement in strict_patterns:
         text = pattern.sub(replacement, text)
 
+    strict_prose_patterns = [
+        (
+            re.compile(
+                r"\b\d{1,5}\s+pass(?:es)?\s+my strict audit\b",
+                re.I,
+            ),
+            f"{sp} pass my strict audit",
+        ),
+        (
+            re.compile(
+                r"\b\d{1,5}\s+pass(?:es)?\s+the strict claim/evidence audit\b",
+                re.I,
+            ),
+            f"{sp} pass the strict claim/evidence audit",
+        ),
+        (
+            re.compile(
+                r"\bstrict (?:claim/evidence )?audit now passes all \d{1,5}\b",
+                re.I,
+            ),
+            lambda _m: f"{_m.group(0).rsplit(' ', 1)[0]} {sp}",
+        ),
+        (
+            re.compile(r"\bstrict pass count to \d{1,5}\b", re.I),
+            f"strict pass count to {sp}",
+        ),
+        (
+            re.compile(r"(?<=\")\d{1,5}\s+of\s+\d{2,5}(?=\" is the kind)", re.I),
+            f"{sp} of {n}",
+        ),
+    ]
+    for pattern, replacement in strict_prose_patterns:
+        text = pattern.sub(replacement, text)
+
     def replace_strict_fail_counts(match: re.Match[str]) -> str:
         phrase = match.group(0)
         offset = match.start()
