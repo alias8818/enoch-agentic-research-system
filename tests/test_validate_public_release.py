@@ -421,3 +421,17 @@ def test_promising_signal_count_checks_allow_formatted_whitespace(tmp_path) -> N
     )
 
     assert failures == [f"promising signal count drift in {page}:1: 3 != 4"]
+
+
+def test_strict_all_pass_prose_rejects_overclaim_when_failures_exist(tmp_path) -> None:
+    page = tmp_path / "README.md"
+    page.write_text("Its strict audit now passes all 3.", encoding="utf-8")
+    failures: list[str] = []
+
+    validate_public_release.check_strict_public_counts(
+        [page], artifact_count=385, strict_pass_count=3, failures=failures
+    )
+
+    assert failures == [
+        f"strict audit all-pass prose drift in {page}:1: all 3 != 3/385"
+    ]

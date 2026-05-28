@@ -289,3 +289,37 @@ def test_ecosystem_manifest_path_default_uses_private_temp_file():
         assert path.stat().st_mode & 0o777 == 0o600
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_validate_release_includes_promising_signals_repo_when_present(tmp_path):
+    system = tmp_path / "enoch-agentic-research-system"
+    corpus = tmp_path / "enoch-ai-research-corpus"
+    docs = tmp_path / "enoch-docs"
+    profile = tmp_path / "alias8818.github.io"
+    owner = tmp_path / "alias8818"
+    personal = tmp_path / "jeremyblankenship.dev"
+    promising = tmp_path / "enoch-promising-signals"
+    for path in [system, corpus, docs, profile, owner, personal, promising]:
+        path.mkdir()
+    manifest = tmp_path / "ecosystem.json"
+    calls = []
+
+    def fake_run(cmd, *, cwd, env=None):
+        del env
+        calls.append((cmd, cwd))
+        return CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    with patch.object(autopilot, "_run", side_effect=fake_run):
+        autopilot._validate_release(
+            system,
+            tmp_path,
+            corpus,
+            manifest,
+            skip_github_metadata=True,
+        )
+
+    generate_cmd, validate_cmd = calls[0][0], calls[1][0]
+    assert "--promising" in generate_cmd
+    assert str(promising) in generate_cmd
+    assert "--promising" in validate_cmd
+    assert str(promising) in validate_cmd

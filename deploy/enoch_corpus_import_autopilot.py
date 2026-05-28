@@ -435,6 +435,9 @@ def _validate_release(
         "--output",
         str(manifest),
     ]
+    promising = root / "enoch-promising-signals"
+    if promising.exists():
+        cmd.extend(["--promising", str(promising)])
     gen = _run(cmd, cwd=system)
     validate_cmd = [
         sys.executable,
@@ -454,6 +457,8 @@ def _validate_release(
         "--generated-manifest",
         str(manifest),
     ]
+    if promising.exists():
+        validate_cmd.extend(["--promising", str(promising)])
     if skip_github_metadata:
         validate_cmd.append("--skip-github-metadata")
     val = _run(validate_cmd, cwd=system)

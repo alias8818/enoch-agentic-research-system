@@ -85,17 +85,21 @@ def generate_manifest(root: Path, output: Path) -> None:
     system = root / "enoch-agentic-research-system"
     committed_path = system / "site" / "ecosystem.json"
     previous = load_json(committed_path) if committed_path.exists() else {}
+    cmd = [
+        sys.executable,
+        "scripts/generate_ecosystem_manifest.py",
+        "--corpus",
+        str(root / "enoch-ai-research-corpus"),
+        "--docs",
+        str(root / "enoch-docs"),
+        "--output",
+        str(output),
+    ]
+    promising = root / "enoch-promising-signals"
+    if promising.exists():
+        cmd.extend(["--promising", str(promising)])
     subprocess.run(
-        [
-            sys.executable,
-            "scripts/generate_ecosystem_manifest.py",
-            "--corpus",
-            str(root / "enoch-ai-research-corpus"),
-            "--docs",
-            str(root / "enoch-docs"),
-            "--output",
-            str(output),
-        ],
+        cmd,
         cwd=system,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -274,7 +278,9 @@ def update_text(text: str, stats: dict[str, int]) -> str:
                 r"\bstrict (?:claim/evidence )?audit now passes all \d{1,5}\b",
                 re.I,
             ),
-            lambda _m: f"{_m.group(0).rsplit(' ', 1)[0]} {sp}",
+            (lambda _m: f"{_m.group(0).rsplit(' ', 1)[0]} {sp}")
+            if sp == n
+            else f"strict audit now passes {sp}/{n}",
         ),
         (
             re.compile(r"\bstrict pass count to \d{1,5}\b", re.I),

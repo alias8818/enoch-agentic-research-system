@@ -9,6 +9,7 @@ import pytest
 from scripts.update_public_release_counts import (
     artifact_stats,
     default_generated_manifest_path,
+    generate_manifest,
     update_text,
 )
 
@@ -185,6 +186,63 @@ def test_update_text_rewrites_strict_pass_prose_counts() -> None:
     assert '"389 of 389" is the kind' in updated
     assert "strict pass count to 389" in updated
     assert "388" not in updated
+
+
+def test_update_text_does_not_overclaim_strict_pass_prose_when_failures_exist() -> None:
+    stats = {
+        "artifact_count": 385,
+        "packaging_pass": 385,
+        "strict_pass": 3,
+        "strict_fail": 382,
+        "promising_signal_count": 0,
+        "empty_claim_ledgers": 0,
+        "result_file_refs": 0,
+        "result_file_refs_missing": 0,
+        "post_dedupe_imports": 9,
+    }
+
+    updated = update_text("Its strict audit now passes all 388.", stats)
+
+    assert "passes all 3" not in updated
+    assert "strict audit now passes 3/385" in updated
+
+
+def test_generate_manifest_includes_promising_signals_repo_when_present(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path
+    system = root / "enoch-agentic-research-system"
+    corpus = root / "enoch-ai-research-corpus"
+    docs = root / "enoch-docs"
+    promising = root / "enoch-promising-signals"
+    system.mkdir()
+    (system / "site").mkdir()
+    corpus.mkdir()
+    docs.mkdir()
+    promising.mkdir()
+    output = tmp_path / "ecosystem.json"
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        output.write_text(
+            json.dumps({"artifact_count": 1, "promising_signal_count": 2}),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr("scripts.update_public_release_counts.subprocess.run", fake_run)
+
+    generate_manifest(root, output)
+
+    cmd = calls[0][0]
+    assert "--promising" in cmd
+    assert str(promising) in cmd
+    assert (
+        json.loads((system / "site" / "ecosystem.json").read_text())[
+            "promising_signal_count"
+        ]
+        == 2
+    )
 
 
 def test_update_text_rewrites_strict_fail_denominator_after_large_fail_count() -> None:

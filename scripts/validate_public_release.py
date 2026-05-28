@@ -79,6 +79,9 @@ STRICT_FAIL_PHRASES: tuple[re.Pattern[str], ...] = (
     _strict_fail_phrase_pattern(""),
 )
 STRICT_FAIL_PHRASE = STRICT_FAIL_PHRASES[-1]
+STRICT_PASSES_ALL_PHRASE = re.compile(
+    r"\bstrict (?:claim/evidence )?audit now passes all (\d{1,5})\b", re.I
+)
 _HTML_GAP = r"(?:\s|<[^>]+>)+"
 _PROMISING_LEADS = r"(?:leads|signals)"
 _PROMISING_TAIL = r"(?:preserved|outside|that are not|repo|records)"
@@ -266,6 +269,13 @@ def _check_strict_public_pass_phrases(
         ):
             fail(
                 f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}",
+                failures,
+            )
+    for match in STRICT_PASSES_ALL_PHRASE.finditer(text):
+        count = int(match.group(1))
+        if strict_pass_count != artifact_count or count != artifact_count:
+            fail(
+                f"strict audit all-pass prose drift in {path}:{line_for(text, match.start())}: all {count} != {strict_pass_count}/{artifact_count}",
                 failures,
             )
 
