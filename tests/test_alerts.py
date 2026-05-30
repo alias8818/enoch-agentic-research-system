@@ -155,12 +155,20 @@ def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
             "problem_details": [
                 {
                     "section": "decision_scores",
+                    "severity": "info",
+                    "problem": "supported_but_negative_requires_review",
+                    "project_id": "project-info",
+                    "run_id": "run-info",
+                    "title": "Informational Project",
+                },
+                {
+                    "section": "decision_scores",
                     "severity": "warning",
                     "problem": "weak_or_missing_evidence_strength",
                     "project_id": "project-1",
                     "run_id": "run-1",
                     "title": "Weak Evidence Project",
-                }
+                },
             ],
         },
     )

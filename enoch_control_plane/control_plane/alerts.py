@@ -414,12 +414,15 @@ def _research_quality_problem_details(quality: dict[str, Any]) -> list[dict[str,
     for detail in quality.get("problem_details") or []:
         if not isinstance(detail, dict):
             continue
+        severity = str(detail.get("severity") or "").strip()
+        if severity not in {"blocked", "warning"}:
+            continue
         problem = str(detail.get("problem") or "").strip()
         if not problem:
             continue
         details.append(
             {
-                "severity": str(detail.get("severity") or "").strip(),
+                "severity": severity,
                 "problem": problem,
                 "project_id": str(detail.get("project_id") or "").strip(),
                 "run_id": str(detail.get("run_id") or "").strip(),
