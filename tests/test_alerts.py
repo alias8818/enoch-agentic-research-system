@@ -134,8 +134,10 @@ def test_queue_alert_findings_suppresses_live_dispatch_noise_during_hold() -> No
 
 
 def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
-    monkeypatch,
+    monkeypatch, tmp_path
 ) -> None:
+    report_path = tmp_path / "research-quality.json"
+    report_path.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
         alerts,
         "load_latest_quality_status",
@@ -145,7 +147,7 @@ def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
             "label": "warnings",
             "severity_counts": {"warning": 2},
             "problem_counts": {"weak_or_missing_evidence_strength": 2},
-            "report_path": "/tmp/research-quality.json",
+            "report_path": str(report_path),
             "post_prompt_monitor": {
                 "malformed_provider_response_count": 7,
                 "useful_adjacent_followup_delta": -4.0,

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
+from pathlib import Path
 from typing import Any
 from urllib import parse, request
 
@@ -333,9 +334,20 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
-def _latest_research_quality_status() -> dict[str, Any]:
+def _research_quality_report_paths(status: DashboardStatusResponse) -> tuple[str, ...]:
     configured = os.environ.get("ENOCH_RESEARCH_QUALITY_REPORT_PATH", "").strip()
-    paths = (configured, *DEFAULT_REPORT_PATHS) if configured else DEFAULT_REPORT_PATHS
+    if configured:
+        return (configured, *DEFAULT_REPORT_PATHS)
+    state_dir = str(getattr(status.config, "state_dir", "") or "").strip()
+    if state_dir:
+        return (str(Path(state_dir) / "research-quality" / "latest-report.json"),)
+    return DEFAULT_REPORT_PATHS
+
+
+def _latest_research_quality_status(
+    status: DashboardStatusResponse,
+) -> dict[str, Any]:
+    paths = _research_quality_report_paths(status)
     try:
         return load_latest_quality_status(
             paths,
@@ -352,9 +364,12 @@ def _latest_research_quality_status() -> dict[str, Any]:
         return {}
 
 
-def _research_quality_alert_finding() -> DashboardFinding | None:
-    quality = _latest_research_quality_status()
-    if not quality.get("report_path"):
+def _research_quality_alert_finding(
+    status: DashboardStatusResponse,
+) -> DashboardFinding | None:
+    quality = _latest_research_quality_status(status)
+    report_path = str(quality.get("report_path") or "")
+    if not report_path or not Path(report_path).is_file():
         return None
     status = str(quality.get("status") or "unknown").strip().lower()
     problem_counts = quality.get("problem_counts") or {}
@@ -398,7 +413,7 @@ def _research_quality_alert_finding() -> DashboardFinding | None:
         data={
             "status": status,
             "label": quality.get("label") or "",
-            "report_path": quality.get("report_path") or "",
+            "report_path": report_path,
             "warning_problem_count": warning_count,
             "blocked_problem_count": blocked_count,
             "weak_evidence_count": weak_evidence_count,
@@ -412,7 +427,7 @@ def queue_alert_findings(
     status: DashboardStatusResponse, *, hang_after_sec: int
 ) -> list[DashboardFinding]:
     findings: list[DashboardFinding] = list(status.conflicts)
-    research_quality_finding = _research_quality_alert_finding()
+    research_quality_finding = _research_quality_alert_finding(status)
     if research_quality_finding is not None:
         findings.append(research_quality_finding)
     flags = status.flags
