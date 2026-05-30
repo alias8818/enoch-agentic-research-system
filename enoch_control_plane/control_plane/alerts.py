@@ -316,12 +316,12 @@ def _dedupe_alert_findings(findings: list[DashboardFinding]) -> list[DashboardFi
 def queue_alert_findings(
     status: DashboardStatusResponse, *, hang_after_sec: int
 ) -> list[DashboardFinding]:
+    findings: list[DashboardFinding] = list(status.conflicts)
     flags = status.flags
     intentional_hold = flags.queue_paused or flags.maintenance_mode
     if intentional_hold:
-        return []
+        return _dedupe_alert_findings(findings)
 
-    findings: list[DashboardFinding] = list(status.conflicts)
     if status.config.live_dispatch_enabled:
         findings.extend(
             _collect_live_dispatch_alert_findings(status, hang_after_sec=hang_after_sec)

@@ -68,7 +68,77 @@ def test_queue_alert_findings_treats_naive_database_timestamps_as_utc() -> None:
     assert findings[0].observed_at == updated_at
 
 
-def test_queue_alert_findings_suppresses_conflicts_during_intentional_hold() -> None:
+def test_queue_alert_findings_preserves_conflicts_during_intentional_hold() -> None:
+    conflict = SimpleNamespace(
+        severity="critical",
+        source="control_plane_db+worker_preflight",
+        authority="cross-source active-lane reconciliation",
+        message=(
+            "cpu_worker worker reports live work but the control plane "
+            "has no active row for that lane"
+        ),
+        observed_at=None,
+        suggested_action="reconcile the orphan worker run",
+        model_dump=lambda mode="json": {},
+    )
+
+    for queue_paused, maintenance_mode in (
+        (True, False),
+        (False, True),
+        (True, True),
+    ):
+        status = SimpleNamespace(
+            flags=SimpleNamespace(
+                queue_paused=queue_paused, maintenance_mode=maintenance_mode
+            ),
+            config=SimpleNamespace(live_dispatch_enabled=True),
+            conflicts=[conflict],
+            active_items=[],
+            warnings=[],
+            source_freshness={},
+        )
+
+        findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+        assert findings == [conflict]
+
+
+def test_queue_alert_findings_suppresses_live_dispatch_noise_during_hold() -> None:
+    updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=1)  # type: ignore[arg-type]
+
+    assert findings == []
+
+
+def test_queue_alert_notify_alerts_on_conflict_during_intentional_hold(tmp_path) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane.alerts import (
+        evaluate_and_notify_queue_alerts,
+    )
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        live_dispatch_enabled=True,
+        queue_alert_hang_after_sec=300,
+        queue_alert_cooldown_sec=3600,
+        pushover_alerts_enabled=False,
+    )
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
         config=SimpleNamespace(live_dispatch_enabled=True),
@@ -83,17 +153,45 @@ def test_queue_alert_findings_suppresses_conflicts_during_intentional_hold() -> 
                 ),
                 observed_at=None,
                 suggested_action="reconcile the orphan worker run",
-                model_dump=lambda mode="json": {},
+                model_dump=lambda mode="json": {
+                    "severity": "critical",
+                    "source": "control_plane_db+worker_preflight",
+                    "authority": "cross-source active-lane reconciliation",
+                    "message": (
+                        "cpu_worker worker reports live work but the control "
+                        "plane has no active row for that lane"
+                    ),
+                    "observed_at": None,
+                    "suggested_action": "reconcile the orphan worker run",
+                    "data": {},
+                },
             )
         ],
         active_items=[],
         warnings=[],
         source_freshness={},
+        dispatch_safe=False,
+        dispatch_blockers=["maintenance mode is enabled"],
     )
 
-    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+    class Store:
+        def event_rows(self, limit=100):  # noqa: ANN001 - alert store fake
+            return []
 
-    assert findings == []
+        def append_event(self, **_kwargs):  # noqa: ANN003 - alert store fake
+            return ("evt-1", True)
+
+    result = evaluate_and_notify_queue_alerts(
+        config=config,
+        store=Store(),
+        status=status,
+        dry_run=True,
+        force_notify=False,
+        requested_by="test",
+    )  # type: ignore[arg-type]
+
+    assert result["should_alert"] is True
+    assert result["findings"][0]["severity"] == "critical"
 
 
 def test_queue_alert_findings_suppresses_old_active_row_when_worker_is_live() -> None:
