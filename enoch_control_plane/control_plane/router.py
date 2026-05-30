@@ -3458,7 +3458,11 @@ def _provider_generation_event_payload(
     error_type: str = "",
     reason: str = "",
 ) -> dict[str, Any]:
-    lane = params.generation_target_lane if isinstance(params.generation_target_lane, dict) else {}
+    lane = (
+        params.generation_target_lane
+        if isinstance(params.generation_target_lane, dict)
+        else {}
+    )
     return {
         "status": status,
         "provider": "synthetic.new",
