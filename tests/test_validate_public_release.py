@@ -202,6 +202,27 @@ def test_strict_public_count_checks_reject_stale_strict_pass_fraction(tmp_path) 
     assert failures == [f"strict audit pass count drift in {page}:1: 3/377 != 3/385"]
 
 
+def test_strict_public_count_checks_reject_stale_strict_pass_of_metadata(
+    tmp_path,
+) -> None:
+    page = tmp_path / "index.html"
+    page.write_text(
+        '<meta name="description" content="Strict-audit gate passes 388 of 389 canonical outputs.">\n'
+        '<meta property="og:description" content="A strict audit gate that passes 388 of 389 canonical AI-generated artifacts.">\n',
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_strict_public_counts(
+        [page], artifact_count=389, strict_pass_count=389, failures=failures
+    )
+
+    assert failures == [
+        f"strict audit pass count drift in {page}:1: 388 of 389 != 389 of 389",
+        f"strict audit pass count drift in {page}:2: 388 of 389 != 389 of 389",
+    ]
+
+
 def test_public_release_check_rejects_stale_codex_cli_link(tmp_path) -> None:
     page = tmp_path / "index.html"
     page.write_text(

@@ -175,6 +175,8 @@ def test_update_text_rewrites_strict_pass_prose_counts() -> None:
             "388 pass the strict claim/evidence audit.",
             '"388 of 388" is the kind of headline number that can imply correctness.',
             "The later evidence-sync work moved the strict pass count to 388.",
+            "The strict-audit gate passes 388 of 389 canonical outputs.",
+            "A strict audit gate that passes 388 of 389 canonical AI-generated artifacts.",
         ]
     )
 
@@ -185,6 +187,11 @@ def test_update_text_rewrites_strict_pass_prose_counts() -> None:
     assert "389 pass the strict claim/evidence audit" in updated
     assert '"389 of 389" is the kind' in updated
     assert "strict pass count to 389" in updated
+    assert "strict-audit gate passes 389 of 389 canonical outputs" in updated
+    assert (
+        "strict audit gate that passes 389 of 389 canonical AI-generated artifacts"
+        in updated
+    )
     assert "388" not in updated
 
 
