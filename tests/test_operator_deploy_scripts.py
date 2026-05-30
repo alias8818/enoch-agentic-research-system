@@ -196,6 +196,7 @@ def test_runtime_drift_report_checks_gb10_user_service() -> None:
     assert 'service_scope: str = "system"' in script
     assert 'systemctl = "systemctl --user" if service_scope == "user"' in script
     assert 'service_scope="user"' in script
+    assert "'mcp_servers': sorted(" in script
 
 
 def test_deploy_script_restarts_gb10_user_service() -> None:

@@ -231,6 +231,7 @@ payload = {{
   'auth_size': size('auth.json'),
   'plugins_sha': (home / '.tmp/plugins.sha').read_text().strip() if (home / '.tmp/plugins.sha').exists() else '',
   'skills_present': sorted([p.name for p in (home / 'skills').iterdir()]) if (home / 'skills').exists() else [],
+  'mcp_servers': sorted((__import__('tomllib').loads((home / 'config.toml').read_text()).get('mcp_servers') or {{}}).keys()) if (home / 'config.toml').exists() else [],
 }}
 print(json.dumps(payload, sort_keys=True))
 PYREMOTE"""
