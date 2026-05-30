@@ -2749,6 +2749,60 @@ def _quality_value(mapping: Mapping[str, Any], key: str, default: Any = "") -> A
     return mapping.get(key, default)
 
 
+def _quality_problem_action(detail: Mapping[str, Any]) -> str:
+    target = _text(detail.get("title")) or _text(detail.get("project_id"))
+    if target:
+        return f"inspect {target} before resuming unattended automation"
+    return "inspect this quality finding before resuming unattended automation"
+
+
+def _quality_problem_detail(detail: Any) -> dict[str, Any] | None:
+    if not isinstance(detail, Mapping):
+        return None
+    problem = _text(detail.get("problem"))
+    severity = _text(detail.get("severity"))
+    if not problem:
+        return None
+    return {
+        "section": _text(detail.get("section")),
+        "severity": severity,
+        "problem": problem,
+        "project_id": _text(detail.get("project_id")),
+        "candidate_id": _text(detail.get("candidate_id")),
+        "run_id": _text(detail.get("run_id")),
+        "title": _text(detail.get("title")),
+        "decision": _text(detail.get("decision")),
+        "hypothesis_status": _text(detail.get("hypothesis_status")),
+        "operator_action": _quality_problem_action(detail),
+    }
+
+
+def _quality_problem_details(
+    quality: Mapping[str, Any], *, limit: int = 3
+) -> list[dict[str, Any]]:
+    details = []
+    for detail in quality.get("problem_details") or []:
+        normalized = _quality_problem_detail(detail)
+        if normalized is not None and normalized["severity"] in {"blocked", "warning"}:
+            details.append(normalized)
+        if len(details) >= limit:
+            break
+    return details
+
+
+def _quality_recommendations(
+    quality: Mapping[str, Any], *, limit: int = 3
+) -> list[str]:
+    recommendations: list[str] = []
+    for item in quality.get("recommendations") or []:
+        text = _text(item)
+        if text:
+            recommendations.append(text)
+        if len(recommendations) >= limit:
+            break
+    return recommendations
+
+
 def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, Any]:
     problem_counts = _quality_mapping(quality.get("problem_counts"))
     severity_counts = _quality_mapping(quality.get("severity_counts"))
@@ -2796,6 +2850,8 @@ def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, An
         ),
         "last_malformed_at": _quality_value(monitor, "last_malformed_at", ""),
         "last_checked_at": _quality_value(monitor, "last_checked_at", ""),
+        "top_problem_details": _quality_problem_details(quality),
+        "recommendations": _quality_recommendations(quality),
         "operator_summary": "; ".join(parts),
     }
 

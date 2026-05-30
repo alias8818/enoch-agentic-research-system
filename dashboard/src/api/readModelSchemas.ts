@@ -175,6 +175,19 @@ const researchSignalQualitySchema = z.object({
   malformed_provider_response_ticks: z.number().optional(),
   last_malformed_at: z.string().optional(),
   last_checked_at: z.string().optional(),
+  top_problem_details: z.array(z.object({
+    section: z.string().optional(),
+    severity: z.string().optional(),
+    problem: z.string().optional(),
+    project_id: z.string().optional(),
+    candidate_id: z.string().optional(),
+    run_id: z.string().optional(),
+    title: z.string().optional(),
+    decision: z.string().optional(),
+    hypothesis_status: z.string().optional(),
+    operator_action: z.string().optional(),
+  }).passthrough()).optional(),
+  recommendations: z.array(z.string()).optional(),
   operator_summary: z.string().optional(),
 }).passthrough()
 

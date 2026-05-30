@@ -89,6 +89,15 @@ it('shows research signal quality in the overview side rail', async () => {
         malformed_provider_response_count: 7,
         useful_adjacent_followup_delta: -4,
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
+        recommendations: ['Run a bounded follow-up before treating this as paper-ready.'],
+        top_problem_details: [{
+          severity: 'warning',
+          problem: 'weak_or_missing_evidence_strength',
+          project_id: 'project-1',
+          run_id: 'run-1',
+          title: 'Weak Evidence Project',
+          operator_action: 'inspect Weak Evidence Project before resuming unattended automation',
+        }],
       },
       recent_events: [],
     }), { status: 200 }))
@@ -105,6 +114,10 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('7')).toBeInTheDocument()
   expect(within(quality).getByText('Useful trend')).toBeInTheDocument()
   expect(within(quality).getByText('-4')).toBeInTheDocument()
+  expect(within(quality).getByText('Affected artifact')).toBeInTheDocument()
+  expect(within(quality).getByText('Weak Evidence Project')).toBeInTheDocument()
+  expect(within(quality).getByText('weak_or_missing_evidence_strength')).toBeInTheDocument()
+  expect(within(quality).getByText('Run a bounded follow-up before treating this as paper-ready.')).toBeInTheDocument()
 })
 
 it('surfaces the movement diagnosis before lane and action controls', async () => {

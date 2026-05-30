@@ -71,6 +71,19 @@ def test_weak_evidence_on_negative_mixed_result_is_warning_not_blocked() -> None
     assert status["report_mtime"] == "2026-05-11T00:00:01Z"
 
 
+def test_quality_report_recommendations_survive_classification() -> None:
+    report = _report_with_decision("weak_or_missing_evidence_strength")
+    report["recommendations"] = [
+        "Run a bounded follow-up before treating this as paper-ready."
+    ]
+
+    status = classify_quality_report(report)
+
+    assert status["recommendations"] == [
+        "Run a bounded follow-up before treating this as paper-ready."
+    ]
+
+
 def test_weak_evidence_on_needs_review_inconclusive_with_bounded_followup_is_warning() -> (
     None
 ):

@@ -106,6 +106,19 @@ export interface OverviewResponse {
     malformed_provider_response_ticks?: number
     last_malformed_at?: string
     last_checked_at?: string
+    top_problem_details?: {
+      section?: string
+      severity?: string
+      problem?: string
+      project_id?: string
+      candidate_id?: string
+      run_id?: string
+      title?: string
+      decision?: string
+      hypothesis_status?: string
+      operator_action?: string
+    }[]
+    recommendations?: string[]
     operator_summary?: string
   }
   movement_diagnosis?: MovementDiagnosis

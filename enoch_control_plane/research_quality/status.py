@@ -246,6 +246,11 @@ def classify_quality_report(
         "raw_problem_counts": raw_problem_counts,
         "severity_counts": dict(severity_counts),
         "problem_details": problem_details[:25],
+        "recommendations": [
+            str(item)
+            for item in report.get("recommendations") or []
+            if str(item).strip()
+        ][:10],
     }
 
 

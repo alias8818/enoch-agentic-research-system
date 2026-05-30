@@ -41,6 +41,21 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
                 "malformed_provider_response_ticks": 4,
                 "last_malformed_at": "2026-05-30T03:00:30Z",
             },
+            "problem_details": [
+                {
+                    "section": "decision_scores",
+                    "severity": "warning",
+                    "problem": "weak_or_missing_evidence_strength",
+                    "project_id": "project-1",
+                    "run_id": "run-1",
+                    "title": "Weak Evidence Project",
+                    "decision": "needs_review",
+                    "hypothesis_status": "inconclusive",
+                }
+            ],
+            "recommendations": [
+                "Run a bounded follow-up before treating this as paper-ready."
+            ],
         }
     )
 
@@ -52,6 +67,23 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
         snapshot["operator_summary"]
         == "quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0"
     )
+    assert snapshot["top_problem_details"] == [
+        {
+            "section": "decision_scores",
+            "severity": "warning",
+            "problem": "weak_or_missing_evidence_strength",
+            "project_id": "project-1",
+            "candidate_id": "",
+            "run_id": "run-1",
+            "title": "Weak Evidence Project",
+            "decision": "needs_review",
+            "hypothesis_status": "inconclusive",
+            "operator_action": "inspect Weak Evidence Project before resuming unattended automation",
+        }
+    ]
+    assert snapshot["recommendations"] == [
+        "Run a bounded follow-up before treating this as paper-ready."
+    ]
 
 
 def _active_queue(project_id: str, run_id: str, **extra: object) -> dict[str, object]:

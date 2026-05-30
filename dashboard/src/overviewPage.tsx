@@ -208,6 +208,8 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
       </section>
     )
   }
+  const affected = quality.top_problem_details?.[0]
+  const recommendation = quality.recommendations?.[0]
   return (
     <section className="quality-snapshot" aria-label="Research signal quality">
       <div>
@@ -229,6 +231,20 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
         </div>
       </dl>
       <p>{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
+      {affected ? (
+        <div className="quality-snapshot-detail">
+          <h4>Affected artifact</h4>
+          <p>{displayText(affected.title || affected.project_id || affected.candidate_id, 'Unnamed artifact')}</p>
+          <p>{displayText(affected.problem, 'No quality problem returned.')}</p>
+          <p>{displayText(affected.operator_action, 'Inspect the affected artifact before resuming unattended automation.')}</p>
+        </div>
+      ) : null}
+      {recommendation ? (
+        <div className="quality-snapshot-detail">
+          <h4>Recommended action</h4>
+          <p>{recommendation}</p>
+        </div>
+      ) : null}
     </section>
   )
 }
