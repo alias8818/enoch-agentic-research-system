@@ -470,6 +470,70 @@ def test_open_lane_queued_work_requires_top_level_next_candidate() -> None:
     assert check["ok"] is False
 
 
+def test_paused_maintenance_suppresses_idle_dispatch_expectation() -> None:
+    payload = _ready_payload()
+    payload["state"]["flags"].update({"queue_paused": True, "maintenance_mode": True})
+    payload["state"]["counts"].update({"queued": 50, "active": 0})
+    payload["state"]["next_candidate"] = None
+    payload["state"]["worker_lanes"] = [
+        {
+            "configured": True,
+            "machine_target": "cpu-proxmox-1",
+            "status": "idle",
+            "active_count": 0,
+            "queued_count": 26,
+            "dispatch_available": False,
+        },
+        {
+            "configured": True,
+            "machine_target": "gb10",
+            "status": "idle",
+            "active_count": 0,
+            "queued_count": 24,
+            "dispatch_available": False,
+        },
+    ]
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "queue_paused=true" in result["blockers"]
+    assert "maintenance_mode=true" in result["blockers"]
+    assert "queued/active state inconsistent" not in result["blockers"]
+    check = next(
+        item for item in result["checks"] if item["name"] == "queue_counts_consistent"
+    )
+    assert check["ok"] is True
+    assert check["data"]["dispatch_expectation_suppressed"] is True
+
+
+def test_paused_open_lane_still_requires_top_level_next_candidate() -> None:
+    payload = _ready_payload()
+    payload["state"]["flags"]["queue_paused"] = True
+    payload["state"]["counts"].update({"queued": 1, "active": 0})
+    payload["state"]["next_candidate"] = None
+    payload["state"]["worker_lanes"] = [
+        {
+            "configured": True,
+            "machine_target": "gb10",
+            "status": "idle",
+            "active_count": 0,
+            "queued_count": 1,
+            "dispatch_available": True,
+        },
+    ]
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "queued/active state inconsistent" in result["blockers"]
+    check = next(
+        item for item in result["checks"] if item["name"] == "queue_counts_consistent"
+    )
+    assert check["ok"] is False
+    assert check["data"]["dispatch_expectation_suppressed"] is True
+
+
 def test_multi_active_without_lane_capacity_blocks_queue_count_consistency() -> None:
     payload = _ready_payload()
     payload["state"]["counts"].update({"queued": 3, "active": 2})

@@ -142,6 +142,7 @@ def _queued_state_consistent(
     next_candidate: Any,
     open_lane_has_queued_work: bool,
     active: int,
+    dispatch_expectation_suppressed: bool = False,
 ) -> bool:
     if queued == 0:
         return True
@@ -149,6 +150,8 @@ def _queued_state_consistent(
         return True
     if open_lane_has_queued_work:
         return False
+    if dispatch_expectation_suppressed:
+        return True
     return active > 0
 
 
@@ -320,6 +323,8 @@ def _add_queue_consistency_check(
     acc: _ReadinessAccumulator,
     state: dict[str, Any],
     counts: dict[str, Any],
+    *,
+    dispatch_expectation_suppressed: bool = False,
 ) -> tuple[int, int]:
     active = int(counts.get("active") or 0)
     queued = int(counts.get("queued") or 0)
@@ -331,7 +336,11 @@ def _add_queue_consistency_check(
         _worker_lane_metrics(worker_lanes)
     )
     queued_state_consistent = _queued_state_consistent(
-        queued, next_candidate, open_lane_has_queued_work, active
+        queued,
+        next_candidate,
+        open_lane_has_queued_work,
+        active,
+        dispatch_expectation_suppressed=dispatch_expectation_suppressed,
     )
     queue_consistent = (
         active <= worker_lane_capacity and queued_state_consistent and not lane_conflict
@@ -348,6 +357,7 @@ def _add_queue_consistency_check(
                 "worker_lane_capacity": worker_lane_capacity,
                 "open_lane_has_queued_work": open_lane_has_queued_work,
                 "lane_conflict": lane_conflict,
+                "dispatch_expectation_suppressed": dispatch_expectation_suppressed,
             },
         ),
         "queued/active state inconsistent",
@@ -683,7 +693,12 @@ def evaluate_longhaul_readiness(
     blocked, needs_attention = _add_blocked_attention_check(
         acc, counts, operator_counts
     )
-    active, queued = _add_queue_consistency_check(acc, state, counts)
+    active, queued = _add_queue_consistency_check(
+        acc,
+        state,
+        counts,
+        dispatch_expectation_suppressed=queue_paused or maintenance_mode,
+    )
     _add_active_worker_confirmation_check(acc, state)
     write_needed = _add_paper_gate_check(acc, pipeline)
     _add_provider_budget_check(acc, provider_budget)
