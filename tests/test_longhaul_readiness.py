@@ -226,6 +226,52 @@ def test_provider_budget_must_be_checked_and_ok() -> None:
     assert "provider budget below threshold or unavailable" in result["blockers"]
 
 
+def test_latest_provider_generation_failure_blocks_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["overview"]["provider_generation_attempts"] = {
+        "ok": False,
+        "status": "blocked",
+        "attempt_count": 3,
+        "recent_failed_count": 2,
+        "latest_status": "failed",
+        "latest_failure_kind": "rate_limited",
+        "latest_reason": "provider generation skipped: 429 Too Many Requests",
+    }
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "latest provider generation attempt failed" in result["blockers"]
+    check = next(
+        item
+        for item in result["checks"]
+        if item["name"] == "provider_generation_attempts_ok"
+    )
+    assert check["ok"] is False
+    assert check["data"]["latest_failure_kind"] == "rate_limited"
+    assert result["summary"]["provider_generation_attempt_status"] == "blocked"
+    assert result["summary"]["provider_generation_latest_status"] == "failed"
+
+
+def test_latest_provider_generation_success_clears_previous_failures() -> None:
+    payload = _ready_payload()
+    payload["overview"]["provider_generation_attempts"] = {
+        "ok": True,
+        "status": "ok",
+        "attempt_count": 4,
+        "recent_failed_count": 3,
+        "latest_status": "success",
+        "latest_failure_kind": "",
+    }
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is True
+    assert "latest provider generation attempt failed" not in result["blockers"]
+    assert result["summary"]["provider_generation_recent_failed_count"] == 3
+    assert result["summary"]["provider_generation_latest_status"] == "success"
+
+
 def test_tick_freshness_uses_latest_timer_trigger_not_stale_inactive_timestamp() -> (
     None
 ):

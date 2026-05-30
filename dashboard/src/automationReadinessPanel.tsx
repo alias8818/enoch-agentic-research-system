@@ -28,6 +28,13 @@ function readinessCheckStatusLabel(ok: boolean | undefined): string {
   return 'blocked'
 }
 
+function visibleReadinessChecks(checks: NonNullable<AutomationReadiness['checks']>) {
+  return [...checks].sort((left, right) => {
+    if (left.ok === right.ok) return 0
+    return left.ok ? 1 : -1
+  }).slice(0, 8)
+}
+
 function ReadinessFacts({ summary }: Readonly<{ summary: NonNullable<AutomationReadiness['summary']> }>) {
   return (
     <div className="readiness-facts">
@@ -57,7 +64,7 @@ function ReadinessChecksList({ checks }: Readonly<{ checks: NonNullable<Automati
   if (checks.length === 0) return null
   return (
     <div className="readiness-checks" aria-label="Automation readiness checks">
-      {checks.slice(0, 8).map((check) => (
+      {visibleReadinessChecks(checks).map((check) => (
         <span key={String(check.name)} className={readinessPillClass(check.ok)}>
           {String(check.name || 'check')}: {readinessCheckStatusLabel(check.ok)}
         </span>

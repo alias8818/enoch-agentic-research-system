@@ -2806,6 +2806,73 @@ def _overview_next_candidate(next_candidate: Any) -> dict[str, Any] | None:
     return summarize_queue_row(next_candidate)
 
 
+PROVIDER_GENERATION_ATTEMPT_EVENT = "research.provider_generation.attempt"
+
+
+def _provider_generation_attempt_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+    payload = row.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
+def _provider_generation_attempt_record(row: Mapping[str, Any]) -> dict[str, Any]:
+    payload = _provider_generation_attempt_payload(row)
+    return {
+        "event_id": row.get("event_id") or row.get("id"),
+        "created_at": row.get("created_at") or row.get("updated_at") or "",
+        "recorded_at": payload.get("recorded_at") or row.get("created_at") or "",
+        "status": _text(payload.get("status")) or "unknown",
+        "failure_kind": _text(payload.get("failure_kind")),
+        "reason": _text(payload.get("reason")),
+        "provider": _text(payload.get("provider")),
+        "provider_model": _text(payload.get("provider_model")),
+        "machine_target": _text(payload.get("machine_target")),
+        "lane_key": _text(payload.get("lane_key")),
+        "run_cycle_id": _text(payload.get("run_cycle_id")),
+        "candidate_count": int(payload.get("candidate_count") or 0),
+        "planned_count": int(payload.get("planned_count") or 0),
+        "latency_ms": int(payload.get("latency_ms") or 0),
+    }
+
+
+def provider_generation_attempt_summary(
+    store: ControlPlaneStore, *, limit: int = 20
+) -> dict[str, Any]:
+    page_reader = getattr(store, "event_page", None)
+    row_reader = getattr(store, "event_rows", None)
+    if callable(page_reader):
+        rows, _next_cursor, _has_more = page_reader(
+            page_size=limit,
+            event_type=PROVIDER_GENERATION_ATTEMPT_EVENT,
+            include_payload=True,
+        )
+    elif callable(row_reader):
+        rows = row_reader(limit=limit, event_type=PROVIDER_GENERATION_ATTEMPT_EVENT)
+    else:
+        return {
+            "ok": True,
+            "status": "unavailable",
+            "attempt_count": 0,
+            "recent_failed_count": 0,
+            "latest": None,
+            "reason": "event read model unavailable",
+        }
+    attempts = [_provider_generation_attempt_record(row) for row in rows]
+    latest = attempts[0] if attempts else None
+    latest_status = _text((latest or {}).get("status")) or "none"
+    failed_count = sum(1 for attempt in attempts if attempt.get("status") == "failed")
+    ok = latest_status not in {"failed"}
+    return {
+        "ok": ok,
+        "status": "no_attempts" if latest is None else ("blocked" if not ok else "ok"),
+        "attempt_count": len(attempts),
+        "recent_failed_count": failed_count,
+        "latest_status": latest_status,
+        "latest_failure_kind": _text((latest or {}).get("failure_kind")),
+        "latest_reason": _text((latest or {}).get("reason")),
+        "latest": latest,
+    }
+
+
 def overview(
     store: ControlPlaneStore,
     *,
@@ -2892,6 +2959,7 @@ def overview(
         "flags": _flags_payload(flags),
         "paper_pipeline": paper_pipeline,
         "research_yield": research_yield,
+        "provider_generation_attempts": provider_generation_attempt_summary(store),
         "investigation_pipeline": investigation_pipeline,
         "operator_model": {
             "source": "control_plane.read_models.operator_stage_for_record",

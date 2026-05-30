@@ -1717,6 +1717,47 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             mocked_preflight.assert_not_called()
 
+    def test_automation_readiness_surfaces_latest_provider_generation_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.append_event(
+                idempotency_key="provider-attempt-failure",
+                event_type="research.provider_generation.attempt",
+                entity_type="research_provider",
+                entity_id="run-cycle-test",
+                payload={
+                    "status": "failed",
+                    "failure_kind": "timeout",
+                    "reason": "provider generation skipped: timed out",
+                    "provider_model": "synthetic-test",
+                    "machine_target": "cpu-proxmox-1",
+                    "recorded_at": "2026-05-30T15:00:00Z",
+                },
+            )
+
+            with patch("scripts.research_provider_budget.fetch_json", return_value={}):
+                response = client.get(
+                    "/control/api/v1/automation-readiness",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertIn("latest provider generation attempt failed", body["blockers"])
+            check = next(
+                item
+                for item in body["checks"]
+                if item["name"] == "provider_generation_attempts_ok"
+            )
+            self.assertFalse(check["ok"])
+            self.assertEqual(check["data"]["latest_failure_kind"], "timeout")
+            self.assertEqual(
+                body["summary"]["provider_generation_latest_status"], "failed"
+            )
+
     def test_automation_readiness_writes_operator_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             trace_path = Path(tmp) / "automation_operator_trace.jsonl"

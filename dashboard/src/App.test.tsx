@@ -342,8 +342,19 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
     .mockResolvedValueOnce(new Response(JSON.stringify({
       ok: false,
       label: 'Long-haul mode: BLOCKED — queued/active state inconsistent',
-      blockers: ['queue_counts_consistent: blocked'],
-      checks: [{ name: 'queue_unpaused', ok: true }, { name: 'queue_counts_consistent', ok: false }],
+      blockers: ['queue_counts_consistent: blocked', 'latest provider generation attempt failed'],
+      checks: [
+        { name: 'queue_unpaused', ok: true },
+        { name: 'maintenance_off', ok: true },
+        { name: 'research_timer_active', ok: true },
+        { name: 'corpus_timer_active', ok: true },
+        { name: 'research_last_result_success', ok: true },
+        { name: 'corpus_last_result_success', ok: true },
+        { name: 'research_tick_recent', ok: true },
+        { name: 'corpus_tick_recent_when_needed', ok: true },
+        { name: 'queue_counts_consistent', ok: false },
+        { name: 'provider_generation_attempts_ok', ok: false },
+      ],
       summary: { queued: 3, active: 2, queue_paused: false, maintenance_mode: false },
     }), { status: 200 }))
   saveToken('test-token')
@@ -360,6 +371,7 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
   expect(await within(secondaryReadiness).findByText('Automation readiness')).toBeInTheDocument()
   expect(await within(secondaryReadiness).findByText('Long-haul mode: BLOCKED — queued/active state inconsistent')).toBeInTheDocument()
   expect(within(secondaryReadiness).getAllByText('queue_counts_consistent: blocked')).toHaveLength(2)
+  expect(within(secondaryReadiness).getByText('provider_generation_attempts_ok: blocked')).toBeInTheDocument()
   expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/v1/automation-readiness', expect.any(Object))
 })
 

@@ -418,6 +418,37 @@ def _add_provider_budget_check(
     )
 
 
+def _add_provider_generation_attempt_check(
+    acc: _ReadinessAccumulator, overview: dict[str, Any]
+) -> tuple[dict[str, Any], str]:
+    attempts = overview.get("provider_generation_attempts")
+    if not isinstance(attempts, dict):
+        attempts = {
+            "ok": True,
+            "status": "not_reported",
+            "attempt_count": 0,
+            "recent_failed_count": 0,
+            "latest_status": "none",
+        }
+    attempt_status = str(attempts.get("status") or "unknown")
+    latest_status = str(attempts.get("latest_status") or "unknown")
+    attempts_ok = bool(attempts.get("ok"))
+    if attempt_status in {"no_attempts", "not_reported", "unavailable"}:
+        detail = f"provider generation attempts status={attempt_status}"
+    else:
+        detail = f"latest provider generation attempt={latest_status}"
+    acc.add(
+        check(
+            "provider_generation_attempts_ok",
+            attempts_ok,
+            detail,
+            data=attempts,
+        ),
+        "latest provider generation attempt failed",
+    )
+    return attempts, attempt_status
+
+
 def _add_research_quality_check(
     acc: _ReadinessAccumulator, research_quality: dict[str, Any] | None
 ) -> tuple[dict[str, Any], str]:
@@ -554,6 +585,8 @@ class _ReadinessSummaryInput:
     quality_status: str
     lineage: dict[str, Any]
     lineage_status: str
+    provider_generation: dict[str, Any]
+    provider_generation_status: str
     resource: dict[str, Any]
     resource_ok: bool
     resource_count: int
@@ -580,6 +613,21 @@ def _build_readiness_summary(inp: _ReadinessSummaryInput) -> dict[str, Any]:
         "corpus_tick_max_age_seconds": inp.corpus_max_age_seconds,
         **_readiness_research_quality_summary(inp.quality, inp.quality_status),
         **_readiness_source_lineage_summary(inp.lineage, inp.lineage_status),
+        "provider_generation_attempt_status": inp.provider_generation_status,
+        "provider_generation_attempt_count": int(
+            inp.provider_generation.get("attempt_count") or 0
+        ),
+        "provider_generation_recent_failed_count": int(
+            inp.provider_generation.get("recent_failed_count") or 0
+        ),
+        "provider_generation_latest_status": inp.provider_generation.get(
+            "latest_status"
+        )
+        or "none",
+        "provider_generation_latest_failure_kind": inp.provider_generation.get(
+            "latest_failure_kind"
+        )
+        or "",
         **_readiness_resource_utilization_summary(
             inp.resource, inp.resource_ok, inp.resource_count
         ),
@@ -639,6 +687,9 @@ def evaluate_longhaul_readiness(
     _add_active_worker_confirmation_check(acc, state)
     write_needed = _add_paper_gate_check(acc, pipeline)
     _add_provider_budget_check(acc, provider_budget)
+    provider_generation, provider_generation_status = (
+        _add_provider_generation_attempt_check(acc, overview)
+    )
     quality, quality_status = _add_research_quality_check(acc, research_quality)
     lineage, lineage_status = _add_source_lineage_check(acc, source_lineage)
     resource, resource_ok, resource_count = _add_resource_utilization_check(
@@ -678,6 +729,8 @@ def evaluate_longhaul_readiness(
                 quality_status=quality_status,
                 lineage=lineage,
                 lineage_status=lineage_status,
+                provider_generation=provider_generation,
+                provider_generation_status=provider_generation_status,
                 resource=resource,
                 resource_ok=resource_ok,
                 resource_count=resource_count,
