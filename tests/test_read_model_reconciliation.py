@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from datetime import datetime, timezone
+
 from hypothesis import given, settings, strategies as st
 
 from enoch_control_plane.control_plane.read_models import (
@@ -56,7 +58,9 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
             "recommendations": [
                 "Run a bounded follow-up before treating this as paper-ready."
             ],
-        }
+            "report_mtime": "2026-05-25T00:00:00Z",
+        },
+        now=datetime(2026, 5, 30, tzinfo=timezone.utc),
     )
 
     assert snapshot["status"] == "warnings"
@@ -84,6 +88,13 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
     assert snapshot["recommendations"] == [
         "Run a bounded follow-up before treating this as paper-ready."
     ]
+    assert snapshot["report_age_hours"] == 120.0
+    assert snapshot["report_stale_after_hours"] == 48.0
+    assert snapshot["report_is_stale"] is True
+    assert (
+        snapshot["freshness_summary"]
+        == "quality report stale: 120.0h old; refresh before relying on unattended automation"
+    )
 
 
 def _active_queue(project_id: str, run_id: str, **extra: object) -> dict[str, object]:

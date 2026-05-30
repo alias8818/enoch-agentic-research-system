@@ -147,6 +147,7 @@ def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
             "label": "warnings",
             "severity_counts": {"warning": 2},
             "problem_counts": {"weak_or_missing_evidence_strength": 2},
+            "report_mtime": "2000-01-01T00:00:00Z",
             "report_path": str(report_path),
             "post_prompt_monitor": {
                 "malformed_provider_response_count": 7,
@@ -194,6 +195,9 @@ def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
     assert finding.data["weak_evidence_count"] == 2
     assert finding.data["malformed_provider_response_count"] == 7
     assert finding.data["useful_adjacent_followup_delta"] == -4.0
+    assert finding.data["report_is_stale"] is True
+    assert finding.data["report_stale_after_hours"] == 48.0
+    assert "quality report stale:" in finding.data["freshness_summary"]
     assert finding.data["top_problem_details"] == [
         {
             "severity": "warning",

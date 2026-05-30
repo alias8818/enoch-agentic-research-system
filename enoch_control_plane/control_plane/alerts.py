@@ -21,6 +21,7 @@ from ..research_quality.status import (
 from ..timeutils import parse_utc_datetime
 from ..url_safety import validate_http_url
 from .models import DashboardFinding, DashboardStatusResponse
+from .research_quality_freshness import research_quality_report_freshness
 from .store import ControlPlaneStore
 
 
@@ -457,6 +458,7 @@ def _research_quality_alert_finding(
             "status": status,
             "label": quality.get("label") or "",
             "report_path": report_path,
+            **research_quality_report_freshness(quality.get("report_mtime")),
             **counts,
             "top_problem_details": _research_quality_problem_details(quality),
         },

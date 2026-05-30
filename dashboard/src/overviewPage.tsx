@@ -190,6 +190,12 @@ function qualityDeltaLabel(value: unknown): string {
   return String(number)
 }
 
+function qualityAgeLabel(value: unknown): string {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 'unknown'
+  return `${number.toFixed(1)}h`
+}
+
 function qualityStatusClass(status: string | undefined, ok: boolean | undefined): string {
   if (status === 'blocked' || ok === false) return 'quality-pill quality-pill--bad'
   if (status === 'warnings') return 'quality-pill quality-pill--warn'
@@ -229,8 +235,18 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
           <dt>Useful trend</dt>
           <dd>{qualityDeltaLabel(quality.useful_adjacent_followup_delta)}</dd>
         </div>
+        <div>
+          <dt>Report age</dt>
+          <dd>{qualityAgeLabel(quality.report_age_hours)}</dd>
+        </div>
       </dl>
       <p>{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
+      {quality.freshness_summary ? (
+        <div className="quality-snapshot-detail">
+          <h4>Report freshness</h4>
+          <p>{quality.freshness_summary}</p>
+        </div>
+      ) : null}
       {affected ? (
         <div className="quality-snapshot-detail">
           <h4>Affected artifact</h4>

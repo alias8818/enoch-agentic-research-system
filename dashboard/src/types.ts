@@ -104,6 +104,10 @@ export interface OverviewResponse {
     moonshot_avg_score_delta?: number
     malformed_provider_response_count?: number
     malformed_provider_response_ticks?: number
+    report_age_hours?: number | null
+    report_stale_after_hours?: number
+    report_is_stale?: boolean
+    freshness_summary?: string
     last_malformed_at?: string
     last_checked_at?: string
     top_problem_details?: {

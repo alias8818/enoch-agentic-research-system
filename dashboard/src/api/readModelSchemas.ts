@@ -173,6 +173,10 @@ const researchSignalQualitySchema = z.object({
   moonshot_avg_score_delta: z.number().optional(),
   malformed_provider_response_count: z.number().optional(),
   malformed_provider_response_ticks: z.number().optional(),
+  report_age_hours: z.number().nullable().optional(),
+  report_stale_after_hours: z.number().optional(),
+  report_is_stale: z.boolean().optional(),
+  freshness_summary: z.string().optional(),
   last_malformed_at: z.string().optional(),
   last_checked_at: z.string().optional(),
   top_problem_details: z.array(z.object({

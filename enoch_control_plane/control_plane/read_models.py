@@ -32,6 +32,7 @@ from .promising_signal_priority import (
     promising_signal_bucket,
     ranked_followup_readiness,
 )
+from .research_quality_freshness import research_quality_report_freshness
 from .state_contract import (
     ACTIVE_QUEUE_STATUSES,
     ATTENTION_QUEUE_STATUSES,
@@ -2803,7 +2804,9 @@ def _quality_recommendations(
     return recommendations
 
 
-def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, Any]:
+def research_signal_quality_snapshot(
+    quality: Mapping[str, Any], *, now: datetime | None = None
+) -> dict[str, Any]:
     problem_counts = _quality_mapping(quality.get("problem_counts"))
     severity_counts = _quality_mapping(quality.get("severity_counts"))
     monitor = _quality_mapping(quality.get("post_prompt_monitor"))
@@ -2821,6 +2824,7 @@ def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, An
         f"malformed provider responses={malformed_count}",
         f"useful follow-up delta={useful_delta}",
     ]
+    report_mtime = quality.get("report_mtime") or ""
     return {
         "status": status,
         "ok": bool(quality.get("ok")),
@@ -2832,7 +2836,8 @@ def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, An
         "blocked_problem_count": blocked_count,
         "problem_counts": dict(problem_counts),
         "report_path": quality.get("report_path") or "",
-        "report_mtime": quality.get("report_mtime") or "",
+        "report_mtime": report_mtime,
+        **research_quality_report_freshness(report_mtime, now=now),
         "post_prompt_available": bool(_quality_value(monitor, "available", False)),
         "decision_coverage": _quality_value(monitor, "decision_coverage", 0.0),
         "proxy_only_positive": _quality_count(monitor, "proxy_only_positive"),
