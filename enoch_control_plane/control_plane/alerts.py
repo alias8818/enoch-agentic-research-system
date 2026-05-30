@@ -364,6 +364,51 @@ def _latest_research_quality_status(
         return {}
 
 
+def _safe_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _research_quality_signal_counts(quality: dict[str, Any]) -> dict[str, Any]:
+    problem_counts = _safe_dict(quality.get("problem_counts"))
+    severity_counts = _safe_dict(quality.get("severity_counts"))
+    monitor = _safe_dict(quality.get("post_prompt_monitor"))
+    return {
+        "warning_problem_count": _safe_int(severity_counts.get("warning")),
+        "blocked_problem_count": _safe_int(severity_counts.get("blocked")),
+        "weak_evidence_count": _safe_int(
+            problem_counts.get("weak_or_missing_evidence_strength")
+        ),
+        "malformed_provider_response_count": _safe_int(
+            monitor.get("malformed_provider_response_count")
+        ),
+        "useful_adjacent_followup_delta": _safe_float(
+            monitor.get("useful_adjacent_followup_delta")
+        ),
+    }
+
+
+def _research_quality_degraded(status: str, counts: dict[str, Any]) -> bool:
+    return (
+        status in {"blocked", "warnings"}
+        or counts["blocked_problem_count"] > 0
+        or counts["warning_problem_count"] > 0
+        or counts["malformed_provider_response_count"] > 0
+        or counts["useful_adjacent_followup_delta"] < 0
+    )
+
+
+def _research_quality_alert_heading(
+    quality: dict[str, Any], status: str, counts: dict[str, Any]
+) -> tuple[str, str]:
+    if (
+        status == "blocked"
+        or counts["blocked_problem_count"] > 0
+        or not quality.get("ok")
+    ):
+        return "critical", "research quality is blocked"
+    return "warn", "research quality warnings present"
+
+
 def _research_quality_alert_finding(
     status: DashboardStatusResponse,
 ) -> DashboardFinding | None:
@@ -372,37 +417,10 @@ def _research_quality_alert_finding(
     if not report_path or not Path(report_path).is_file():
         return None
     status = str(quality.get("status") or "unknown").strip().lower()
-    problem_counts = quality.get("problem_counts") or {}
-    severity_counts = quality.get("severity_counts") or {}
-    monitor = quality.get("post_prompt_monitor") or {}
-    if not isinstance(problem_counts, dict):
-        problem_counts = {}
-    if not isinstance(severity_counts, dict):
-        severity_counts = {}
-    if not isinstance(monitor, dict):
-        monitor = {}
-    warning_count = _safe_int(severity_counts.get("warning"))
-    blocked_count = _safe_int(severity_counts.get("blocked"))
-    weak_evidence_count = _safe_int(
-        problem_counts.get("weak_or_missing_evidence_strength")
-    )
-    malformed_count = _safe_int(monitor.get("malformed_provider_response_count"))
-    useful_delta = _safe_float(monitor.get("useful_adjacent_followup_delta"))
-    degraded = (
-        status in {"blocked", "warnings"}
-        or blocked_count > 0
-        or warning_count > 0
-        or malformed_count > 0
-        or useful_delta < 0
-    )
-    if not degraded:
+    counts = _research_quality_signal_counts(quality)
+    if not _research_quality_degraded(status, counts):
         return None
-    if status == "blocked" or blocked_count > 0 or not bool(quality.get("ok")):
-        severity = "critical"
-        message = "research quality is blocked"
-    else:
-        severity = "warn"
-        message = "research quality warnings present"
+    severity, message = _research_quality_alert_heading(quality, status, counts)
     return DashboardFinding(
         severity=severity,
         source="research_quality",
@@ -414,11 +432,7 @@ def _research_quality_alert_finding(
             "status": status,
             "label": quality.get("label") or "",
             "report_path": report_path,
-            "warning_problem_count": warning_count,
-            "blocked_problem_count": blocked_count,
-            "weak_evidence_count": weak_evidence_count,
-            "malformed_provider_response_count": malformed_count,
-            "useful_adjacent_followup_delta": useful_delta,
+            **counts,
         },
     )
 
