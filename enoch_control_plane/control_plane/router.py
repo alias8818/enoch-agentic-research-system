@@ -3509,166 +3509,182 @@ def _record_provider_generation_attempt(
     )
 
 
+def _skip_provider_generation_without_lane(response: dict[str, Any]) -> dict[str, Any]:
+    response["generated_count"] = 0
+    response["fresh_generation_skipped"] = True
+    response["fresh_generation_skip_reason"] = "no deficient lane feed target"
+    response.setdefault("warnings", []).append(
+        "provider generation skipped: no deficient lane feed target"
+    )
+    response["stages"].append(
+        {
+            "stage": "provider_generation",
+            "ok": True,
+            "action": "skipped",
+            "reason": response["fresh_generation_skip_reason"],
+        }
+    )
+    return response
+
+
+def _apply_provider_generation_failure(
+    *,
+    params: _ProviderGenerationParams,
+    response: dict[str, Any],
+    exc: Exception,
+    generation_machine_target: str,
+    started: float,
+) -> dict[str, Any]:
+    warning = f"provider generation skipped: {exc}"
+    attempt_payload = _provider_generation_event_payload(
+        params=params,
+        status="failed",
+        generation_machine_target=generation_machine_target,
+        latency_ms=int((time.monotonic() - started) * 1000),
+        failure_kind=_provider_generation_failure_kind(exc),
+        error_type=type(exc).__name__,
+        reason=warning,
+    )
+    _record_provider_generation_attempt(params=params, payload=attempt_payload)
+    response["provider_generation_attempt"] = attempt_payload
+    response.setdefault("warnings", []).append(warning)
+    response["stages"].append(
+        {
+            "stage": "provider_generation",
+            "ok": False,
+            "reason": warning,
+            "provider_attempt_status": attempt_payload["status"],
+            "provider_failure_kind": attempt_payload["failure_kind"],
+        }
+    )
+    return response
+
+
+def _execute_provider_generation_attempt(
+    *,
+    params: _ProviderGenerationParams,
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    started = time.monotonic()
+    generation_machine_target = _provider_generation_machine_target(
+        params.generation_target_lane
+    )
+    try:
+        generation_topic = _provider_generation_topic(
+            topic=params.topic,
+            generation_target_lane=params.generation_target_lane,
+            generation_machine_target=generation_machine_target,
+        )
+        generated = params.research_provider_generate.generate_provider_candidates(
+            base_url=params.provider_openai_base_url,
+            model=params.provider_model,
+            api_key="",
+            max_candidates=params.max_candidates,
+            topic=generation_topic,
+            temperature=params.temperature,
+            seed=params.seed,
+            timeout=params.generation_timeout,
+            max_tokens=params.generation_max_tokens,
+            attempts=params.generation_attempts,
+            default_machine=generation_machine_target,
+            default_model=os.environ.get(
+                "ENOCH_RESEARCH_DEFAULT_MODEL", _DEFAULT_RESEARCH_MODEL
+            ),
+            default_sandbox=os.environ.get(
+                "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
+            ),
+        )
+    except Exception as exc:
+        return _apply_provider_generation_failure(
+            params=params,
+            response=response,
+            exc=exc,
+            generation_machine_target=generation_machine_target,
+            started=started,
+        )
+
+    candidate_count = len(generated.get("candidates") or [])
+    if params.operator_trace is not None:
+        params.operator_trace.record(
+            "research.provider_generation.result",
+            trace_id=params.trace_id,
+            run_cycle_id=params.run_cycle_id,
+            requested_by=params.requested_by,
+            machine_target=generation_machine_target,
+            provider_model=params.provider_model,
+            candidate_count=candidate_count,
+            provider_response_id=generated.get("provider_response_id", ""),
+        )
+    generated_plans = params.research_facility.plan_candidates(
+        (generated.get("candidates") or [])[: params.max_candidates],
+        params.namespace_cls(
+            default_machine=generation_machine_target,
+            default_model=os.environ.get("ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"),
+            default_sandbox=os.environ.get(
+                "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
+            ),
+            admit_threshold=params.min_admission_score,
+            review_threshold=params.bounded_float("review_threshold", 58.0, 0.0, 100.0),
+            history=[],
+        ),
+    )
+    if params.operator_trace is not None:
+        params.operator_trace.record(
+            "research.plan_candidates.result",
+            trace_id=params.trace_id,
+            run_cycle_id=params.run_cycle_id,
+            requested_by=params.requested_by,
+            machine_target=generation_machine_target,
+            default_machine=generation_machine_target,
+            planned_count=len(generated_plans),
+        )
+    ledger_result = params.store.record_research_facility_plans(
+        generated_plans,
+        requested_by=params.requested_by,
+        queue_admitted=False,
+    )
+    response["generated_count"] = len(generated_plans)
+    response["provider_response_id"] = generated.get("provider_response_id", "")
+    response["attempts_used"] = generated.get("attempts_used", 1)
+    response["generation_target_lane"] = params.generation_target_lane
+    response["ledger_result"] = ledger_result
+    attempt_payload = _provider_generation_event_payload(
+        params=params,
+        status="success",
+        generation_machine_target=generation_machine_target,
+        latency_ms=int((time.monotonic() - started) * 1000),
+        candidate_count=candidate_count,
+        planned_count=len(generated_plans),
+        provider_response_id=str(generated.get("provider_response_id") or ""),
+    )
+    _record_provider_generation_attempt(params=params, payload=attempt_payload)
+    response["provider_generation_attempt"] = attempt_payload
+    response["stages"].append(
+        {
+            "stage": "provider_generation",
+            "ok": True,
+            "candidate_count": len(generated_plans),
+            "ledger_result": ledger_result,
+            "generation_target_lane": str(
+                (params.generation_target_lane or {}).get("machine_target") or ""
+            ),
+            "provider_attempt_status": attempt_payload["status"],
+        }
+    )
+    return response
+
+
 def _execute_provider_generation(
     *,
     params: _ProviderGenerationParams,
     response: dict[str, Any],
 ) -> dict[str, Any]:
-    """Extracted from dashboard_research_run_cycle (large live execution path contributing to 1595/remaining S3776).
-
-    Handles lane-pressure-aware topic construction, provider candidate generation call,
-    planning, ledger recording, stages append, and error handling. Thin delegation left in the giant.
-    """
-    generated_plans = []
-    if params.max_provider_requests and not response.get("fresh_generation_skipped"):
-        if not params.generation_target_lane:
-            response["generated_count"] = 0
-            response["fresh_generation_skipped"] = True
-            response["fresh_generation_skip_reason"] = "no deficient lane feed target"
-            response.setdefault("warnings", []).append(
-                "provider generation skipped: no deficient lane feed target"
-            )
-            response["stages"].append(
-                {
-                    "stage": "provider_generation",
-                    "ok": True,
-                    "action": "skipped",
-                    "reason": response["fresh_generation_skip_reason"],
-                }
-            )
-            return response
-        try:
-            started = time.monotonic()
-            generation_machine_target = _provider_generation_machine_target(
-                params.generation_target_lane
-            )
-            generation_topic = _provider_generation_topic(
-                topic=params.topic,
-                generation_target_lane=params.generation_target_lane,
-                generation_machine_target=generation_machine_target,
-            )
-            generated = params.research_provider_generate.generate_provider_candidates(
-                base_url=params.provider_openai_base_url,
-                model=params.provider_model,
-                api_key="",
-                max_candidates=params.max_candidates,
-                topic=generation_topic,
-                temperature=params.temperature,
-                seed=params.seed,
-                timeout=params.generation_timeout,
-                max_tokens=params.generation_max_tokens,
-                attempts=params.generation_attempts,
-                default_machine=generation_machine_target,
-                default_model=os.environ.get(
-                    "ENOCH_RESEARCH_DEFAULT_MODEL", _DEFAULT_RESEARCH_MODEL
-                ),
-                default_sandbox=os.environ.get(
-                    "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
-                ),
-            )
-            candidate_count = len(generated.get("candidates") or [])
-            if params.operator_trace is not None:
-                params.operator_trace.record(
-                    "research.provider_generation.result",
-                    trace_id=params.trace_id,
-                    run_cycle_id=params.run_cycle_id,
-                    requested_by=params.requested_by,
-                    machine_target=generation_machine_target,
-                    provider_model=params.provider_model,
-                    candidate_count=candidate_count,
-                    provider_response_id=generated.get("provider_response_id", ""),
-                )
-            generated_plans = params.research_facility.plan_candidates(
-                (generated.get("candidates") or [])[: params.max_candidates],
-                params.namespace_cls(
-                    default_machine=generation_machine_target,
-                    default_model=os.environ.get(
-                        "ENOCH_RESEARCH_DEFAULT_MODEL", "gpt-5.5"
-                    ),
-                    default_sandbox=os.environ.get(
-                        "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
-                    ),
-                    admit_threshold=params.min_admission_score,
-                    review_threshold=params.bounded_float(
-                        "review_threshold", 58.0, 0.0, 100.0
-                    ),
-                    history=[],
-                ),
-            )
-            if params.operator_trace is not None:
-                params.operator_trace.record(
-                    "research.plan_candidates.result",
-                    trace_id=params.trace_id,
-                    run_cycle_id=params.run_cycle_id,
-                    requested_by=params.requested_by,
-                    machine_target=generation_machine_target,
-                    default_machine=generation_machine_target,
-                    planned_count=len(generated_plans),
-                )
-            ledger_result = params.store.record_research_facility_plans(
-                generated_plans,
-                requested_by=params.requested_by,
-                queue_admitted=False,
-            )
-            response["generated_count"] = len(generated_plans)
-            response["provider_response_id"] = generated.get("provider_response_id", "")
-            response["attempts_used"] = generated.get("attempts_used", 1)
-            response["generation_target_lane"] = params.generation_target_lane
-            response["ledger_result"] = ledger_result
-            attempt_payload = _provider_generation_event_payload(
-                params=params,
-                status="success",
-                generation_machine_target=generation_machine_target,
-                latency_ms=int((time.monotonic() - started) * 1000),
-                candidate_count=candidate_count,
-                planned_count=len(generated_plans),
-                provider_response_id=str(generated.get("provider_response_id") or ""),
-            )
-            _record_provider_generation_attempt(params=params, payload=attempt_payload)
-            response["provider_generation_attempt"] = attempt_payload
-            response["stages"].append(
-                {
-                    "stage": "provider_generation",
-                    "ok": True,
-                    "candidate_count": len(generated_plans),
-                    "ledger_result": ledger_result,
-                    "generation_target_lane": str(
-                        (params.generation_target_lane or {}).get("machine_target")
-                        or ""
-                    ),
-                    "provider_attempt_status": attempt_payload["status"],
-                }
-            )
-        except Exception as exc:  # noqa: BLE001 - provider output is external and must not break long-haul ticks
-            warning = f"provider generation skipped: {exc}"
-            generation_machine_target = _provider_generation_machine_target(
-                params.generation_target_lane
-            )
-            attempt_payload = _provider_generation_event_payload(
-                params=params,
-                status="failed",
-                generation_machine_target=generation_machine_target,
-                latency_ms=int((time.monotonic() - started) * 1000)
-                if "started" in locals()
-                else 0,
-                failure_kind=_provider_generation_failure_kind(exc),
-                error_type=type(exc).__name__,
-                reason=warning,
-            )
-            _record_provider_generation_attempt(params=params, payload=attempt_payload)
-            response["provider_generation_attempt"] = attempt_payload
-            response.setdefault("warnings", []).append(warning)
-            response["stages"].append(
-                {
-                    "stage": "provider_generation",
-                    "ok": False,
-                    "reason": warning,
-                    "provider_attempt_status": attempt_payload["status"],
-                    "provider_failure_kind": attempt_payload["failure_kind"],
-                }
-            )
-
-    return response
+    """Run one provider-generation stage and record a durable attempt event."""
+    if not params.max_provider_requests or response.get("fresh_generation_skipped"):
+        return response
+    if not params.generation_target_lane:
+        return _skip_provider_generation_without_lane(response)
+    return _execute_provider_generation_attempt(params=params, response=response)
 
 
 def _resolve_open_lane_promotion_candidates(

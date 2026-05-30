@@ -80,9 +80,28 @@ STRICT_FAIL_PHRASES: tuple[re.Pattern[str], ...] = (
     _strict_fail_phrase_pattern(""),
 )
 STRICT_FAIL_PHRASE = STRICT_FAIL_PHRASES[-1]
-STRICT_PASS_OF_PHRASE = re.compile(
-    r"\bstrict[-\s]+(?:claim/evidence[-\s]+)?audit(?:[-\s]+gate)?(?:\s+that)?\s+pass(?:es)?\s+(\d{1,5})\s+of\s+(\d{2,5})\s+(?:canonical\s+)?(?:AI-generated\s+)?(?:artifacts|outputs)\b",
-    re.I,
+_STRICT_PASS_COUNTS = (
+    r"\s+pass(?:es)?\s+(\d{1,5})\s+of\s+(\d{2,5})\s+"
+    r"(?:canonical\s+)?(?:AI-generated\s+)?(?:artifacts|outputs)\b"
+)
+STRICT_PASS_OF_PHRASES: tuple[re.Pattern[str], ...] = (
+    re.compile(rf"\bstrict[-\s]+audit{_STRICT_PASS_COUNTS}", re.I),
+    re.compile(rf"\bstrict[-\s]+audit[-\s]+gate{_STRICT_PASS_COUNTS}", re.I),
+    re.compile(rf"\bstrict[-\s]+audit\s+that{_STRICT_PASS_COUNTS}", re.I),
+    re.compile(rf"\bstrict[-\s]+audit[-\s]+gate\s+that{_STRICT_PASS_COUNTS}", re.I),
+    re.compile(rf"\bstrict[-\s]+claim/evidence[-\s]+audit{_STRICT_PASS_COUNTS}", re.I),
+    re.compile(
+        rf"\bstrict[-\s]+claim/evidence[-\s]+audit[-\s]+gate{_STRICT_PASS_COUNTS}",
+        re.I,
+    ),
+    re.compile(
+        rf"\bstrict[-\s]+claim/evidence[-\s]+audit\s+that{_STRICT_PASS_COUNTS}",
+        re.I,
+    ),
+    re.compile(
+        rf"\bstrict[-\s]+claim/evidence[-\s]+audit[-\s]+gate\s+that{_STRICT_PASS_COUNTS}",
+        re.I,
+    ),
 )
 STRICT_PASSES_ALL_PHRASE = re.compile(
     r"\bstrict (?:claim/evidence )?audit now passes all (\d{1,5})\b", re.I
@@ -276,13 +295,14 @@ def _check_strict_public_pass_phrases(
                 f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left}/{right} != {strict_pass_count}/{artifact_count}",
                 failures,
             )
-    for match in STRICT_PASS_OF_PHRASE.finditer(text):
-        left, right = int(match.group(1)), int(match.group(2))
-        if (left, right) != (strict_pass_count, artifact_count):
-            fail(
-                f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_pass_count} of {artifact_count}",
-                failures,
-            )
+    for pattern in STRICT_PASS_OF_PHRASES:
+        for match in pattern.finditer(text):
+            left, right = int(match.group(1)), int(match.group(2))
+            if (left, right) != (strict_pass_count, artifact_count):
+                fail(
+                    f"strict audit pass count drift in {path}:{line_for(text, match.start())}: {left} of {right} != {strict_pass_count} of {artifact_count}",
+                    failures,
+                )
     for match in STRICT_PASSES_ALL_PHRASE.finditer(text):
         count = int(match.group(1))
         if strict_pass_count != artifact_count or count != artifact_count:

@@ -23,7 +23,7 @@ from scripts.validate_public_release import (
     PROFILE_FILES,
     PUBLIC_FILES,
     STRICT_FAIL_PHRASES,
-    STRICT_PASS_OF_PHRASE,
+    STRICT_PASS_OF_PHRASES,
 )
 
 DEDUPE_BASELINE = 376
@@ -306,7 +306,8 @@ def update_text(text: str, stats: dict[str, int]) -> str:
             + phrase[match.end(2) - offset :]
         )
 
-    text = STRICT_PASS_OF_PHRASE.sub(replace_strict_pass_of_counts, text)
+    for pattern in STRICT_PASS_OF_PHRASES:
+        text = pattern.sub(replace_strict_pass_of_counts, text)
 
     def replace_strict_fail_counts(match: re.Match[str]) -> str:
         phrase = match.group(0)
