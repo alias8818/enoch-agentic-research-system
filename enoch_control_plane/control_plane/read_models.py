@@ -2822,9 +2822,7 @@ def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, An
 
 def _latest_research_quality_for_overview() -> dict[str, Any]:
     configured = os.environ.get("ENOCH_RESEARCH_QUALITY_REPORT_PATH", "").strip()
-    paths = (
-        (configured, *DEFAULT_REPORT_PATHS) if configured else DEFAULT_REPORT_PATHS
-    )
+    paths = (configured, *DEFAULT_REPORT_PATHS) if configured else DEFAULT_REPORT_PATHS
     try:
         return load_latest_quality_status(
             paths,
@@ -3100,9 +3098,7 @@ def overview(
         "flags": _flags_payload(flags),
         "paper_pipeline": paper_pipeline,
         "research_yield": research_yield,
-        "research_signal_quality": research_signal_quality_snapshot(
-            research_quality
-        ),
+        "research_signal_quality": research_signal_quality_snapshot(research_quality),
         "provider_generation_attempts": provider_generation_attempt_summary(store),
         "investigation_pipeline": investigation_pipeline,
         "operator_model": {
