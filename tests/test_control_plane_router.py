@@ -16310,6 +16310,205 @@ def test_provider_generation_records_timeout_attempt_event():
     assert payload["error_type"] == "TimeoutError"
 
 
+def test_provider_generation_contains_plan_candidate_exception() -> None:
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+
+    class _Store:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> None:
+            self.events.append(kwargs)
+
+        def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
+            raise AssertionError("ledger persistence should not run after plan failure")
+
+    store = _Store()
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={
+            "machine_target": "cpu-proxmox-1",
+            "lane_key": "http://cpu-worker:8787",
+            "worker_role": "cpu",
+        },
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="gpt-5.5",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=lambda **_kwargs: {
+                "provider_response_id": "resp-plan-failure",
+                "attempts_used": 1,
+                "candidates": [{"title": "candidate"}],
+            }
+        ),
+        research_facility=SimpleNamespace(
+            plan_candidates=lambda *_args: (_ for _ in ()).throw(
+                ValueError("malformed provider candidate")
+            )
+        ),
+        store=store,
+        requested_by="pytest",
+        trace_id="trace-plan-failure",
+        run_cycle_id="run-cycle-plan-failure",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert response["provider_generation_attempt"]["status"] == "failed"
+    assert response["provider_generation_attempt"]["error_type"] == "ValueError"
+    assert "malformed provider candidate" in response["warnings"][0]
+    assert response["stages"][0]["ok"] is False
+    assert store.events[0]["event_type"] == "research.provider_generation.attempt"
+
+
+def test_provider_generation_contains_ledger_exception() -> None:
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+
+    class _Plan:
+        admission_decision = "admitted"
+
+        def to_json(self) -> dict[str, str]:
+            return {"candidate_id": "candidate-1"}
+
+    class _Store:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> None:
+            self.events.append(kwargs)
+
+        def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
+            raise ValueError("invalid input syntax for type timestamp")
+
+    store = _Store()
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={
+            "machine_target": "cpu-proxmox-1",
+            "lane_key": "http://cpu-worker:8787",
+            "worker_role": "cpu",
+        },
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="gpt-5.5",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=lambda **_kwargs: {
+                "provider_response_id": "resp-ledger-failure",
+                "attempts_used": 1,
+                "candidates": [
+                    {
+                        "title": "candidate",
+                        "source_records": [
+                            {
+                                "source_id": "source-1",
+                                "retrieved_at": "not-a-timestamp",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        research_facility=SimpleNamespace(plan_candidates=lambda *_args: [_Plan()]),
+        store=store,
+        requested_by="pytest",
+        trace_id="trace-ledger-failure",
+        run_cycle_id="run-cycle-ledger-failure",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert response["provider_generation_attempt"]["status"] == "failed"
+    assert response["provider_generation_attempt"]["error_type"] == "ValueError"
+    assert "invalid input syntax for type timestamp" in response["warnings"][0]
+    assert response["stages"][0]["provider_attempt_status"] == "failed"
+    assert store.events[0]["event_type"] == "research.provider_generation.attempt"
+
+
+def test_provider_generation_contains_attempt_recording_exception() -> None:
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+
+    class _Plan:
+        admission_decision = "admitted"
+
+        def to_json(self) -> dict[str, str]:
+            return {"candidate_id": "candidate-1"}
+
+    class _Store:
+        def append_event(self, **_kwargs: object) -> None:
+            raise RuntimeError("event store unavailable")
+
+        def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
+            return {"inserted": 1}
+
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={
+            "machine_target": "cpu-proxmox-1",
+            "lane_key": "http://cpu-worker:8787",
+            "worker_role": "cpu",
+        },
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="gpt-5.5",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=lambda **_kwargs: {
+                "provider_response_id": "resp-record-failure",
+                "attempts_used": 1,
+                "candidates": [{"title": "candidate"}],
+            }
+        ),
+        research_facility=SimpleNamespace(plan_candidates=lambda *_args: [_Plan()]),
+        store=_Store(),
+        requested_by="pytest",
+        trace_id="trace-record-failure",
+        run_cycle_id="run-cycle-record-failure",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert response["provider_generation_attempt"]["status"] == "success"
+    assert response["provider_generation_attempt_record_error"] == (
+        "RuntimeError: event store unavailable"
+    )
+    assert "attempt event recording failed" in response["warnings"][0]
+
+
 def test_provider_generation_records_success_attempt_event():
     from enoch_control_plane.control_plane.router import (
         _ProviderGenerationParams,
