@@ -2737,31 +2737,29 @@ def _build_research_yield_panel(
     }
 
 
+def _quality_mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _quality_count(mapping: Mapping[str, Any], key: str) -> int:
+    return _safe_count(mapping.get(key))
+
+
+def _quality_value(mapping: Mapping[str, Any], key: str, default: Any = "") -> Any:
+    return mapping.get(key, default)
+
+
 def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, Any]:
-    problem_counts = quality.get("problem_counts") or {}
-    severity_counts = quality.get("severity_counts") or {}
-    monitor = quality.get("post_prompt_monitor") or {}
-    weak_evidence_count = _safe_count(
-        problem_counts.get("weak_or_missing_evidence_strength")
-        if isinstance(problem_counts, Mapping)
-        else 0
+    problem_counts = _quality_mapping(quality.get("problem_counts"))
+    severity_counts = _quality_mapping(quality.get("severity_counts"))
+    monitor = _quality_mapping(quality.get("post_prompt_monitor"))
+    weak_evidence_count = _quality_count(
+        problem_counts, "weak_or_missing_evidence_strength"
     )
-    warning_count = _safe_count(
-        severity_counts.get("warning") if isinstance(severity_counts, Mapping) else 0
-    )
-    blocked_count = _safe_count(
-        severity_counts.get("blocked") if isinstance(severity_counts, Mapping) else 0
-    )
-    malformed_count = _safe_count(
-        monitor.get("malformed_provider_response_count")
-        if isinstance(monitor, Mapping)
-        else 0
-    )
-    useful_delta = (
-        monitor.get("useful_adjacent_followup_delta")
-        if isinstance(monitor, Mapping)
-        else 0.0
-    )
+    warning_count = _quality_count(severity_counts, "warning")
+    blocked_count = _quality_count(severity_counts, "blocked")
+    malformed_count = _quality_count(monitor, "malformed_provider_response_count")
+    useful_delta = _quality_value(monitor, "useful_adjacent_followup_delta", 0.0)
     status = _text(quality.get("status")) or "unknown"
     parts = [
         f"quality={status}",
@@ -2778,44 +2776,28 @@ def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, An
         "weak_evidence_count": weak_evidence_count,
         "warning_problem_count": warning_count,
         "blocked_problem_count": blocked_count,
-        "problem_counts": dict(problem_counts)
-        if isinstance(problem_counts, Mapping)
-        else {},
+        "problem_counts": dict(problem_counts),
         "report_path": quality.get("report_path") or "",
         "report_mtime": quality.get("report_mtime") or "",
-        "post_prompt_available": bool(
-            monitor.get("available") if isinstance(monitor, Mapping) else False
+        "post_prompt_available": bool(_quality_value(monitor, "available", False)),
+        "decision_coverage": _quality_value(monitor, "decision_coverage", 0.0),
+        "proxy_only_positive": _quality_count(monitor, "proxy_only_positive"),
+        "proxy_only_positive_delta": _quality_value(
+            monitor, "proxy_only_positive_delta", 0.0
         ),
-        "decision_coverage": monitor.get("decision_coverage", 0.0)
-        if isinstance(monitor, Mapping)
-        else 0.0,
-        "proxy_only_positive": _safe_count(
-            monitor.get("proxy_only_positive") if isinstance(monitor, Mapping) else 0
-        ),
-        "proxy_only_positive_delta": monitor.get("proxy_only_positive_delta", 0.0)
-        if isinstance(monitor, Mapping)
-        else 0.0,
-        "useful_adjacent_followup": _safe_count(
-            monitor.get("useful_adjacent_followup")
-            if isinstance(monitor, Mapping)
-            else 0
+        "useful_adjacent_followup": _quality_count(
+            monitor, "useful_adjacent_followup"
         ),
         "useful_adjacent_followup_delta": useful_delta,
-        "moonshot_avg_score_delta": monitor.get("moonshot_avg_score_delta", 0.0)
-        if isinstance(monitor, Mapping)
-        else 0.0,
+        "moonshot_avg_score_delta": _quality_value(
+            monitor, "moonshot_avg_score_delta", 0.0
+        ),
         "malformed_provider_response_count": malformed_count,
         "malformed_provider_response_ticks": _safe_count(
-            monitor.get("malformed_provider_response_ticks")
-            if isinstance(monitor, Mapping)
-            else 0
+            _quality_value(monitor, "malformed_provider_response_ticks", 0)
         ),
-        "last_malformed_at": monitor.get("last_malformed_at", "")
-        if isinstance(monitor, Mapping)
-        else "",
-        "last_checked_at": monitor.get("last_checked_at", "")
-        if isinstance(monitor, Mapping)
-        else "",
+        "last_malformed_at": _quality_value(monitor, "last_malformed_at", ""),
+        "last_checked_at": _quality_value(monitor, "last_checked_at", ""),
         "operator_summary": "; ".join(parts),
     }
 
