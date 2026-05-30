@@ -2867,9 +2867,14 @@ def provider_generation_attempt_summary(
     latest_status = _text((latest or {}).get("status")) or "none"
     failed_count = sum(1 for attempt in attempts if attempt.get("status") == "failed")
     ok = latest_status not in {"failed"}
+    status = "ok"
+    if latest is None:
+        status = "no_attempts"
+    elif not ok:
+        status = "blocked"
     return {
         "ok": ok,
-        "status": "no_attempts" if latest is None else ("blocked" if not ok else "ok"),
+        "status": status,
         "attempt_count": len(attempts),
         "recent_failed_count": failed_count,
         "latest_status": latest_status,
