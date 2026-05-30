@@ -217,6 +217,10 @@ def test_public_release_check_rejects_stale_codex_cli_link(tmp_path) -> None:
     ]
 
 
+def test_system_workflow_is_part_of_public_validation_surface() -> None:
+    assert "docs/system-workflow.md" in validate_public_release.PUBLIC_FILES
+
+
 def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
     hf = tmp_path / "hf"
     hf.mkdir()

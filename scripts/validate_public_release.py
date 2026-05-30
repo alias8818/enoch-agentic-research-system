@@ -22,6 +22,7 @@ PUBLIC_FILES = [
     "site/assets/social-card.svg",
     "docs/launch-todo.md",
     "docs/launch-checklist.md",
+    "docs/system-workflow.md",
     "docs/outreach/launch-announcement.md",
 ]
 PROFILE_FILES = ["index.html", README_MD, "assets/social-card.svg"]

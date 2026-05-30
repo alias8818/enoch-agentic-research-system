@@ -46,7 +46,7 @@ Dashboard, corpus export, and release artifacts
 
 ## Tooling boundary
 
-Enoch Control Plane is built around a FastAPI service, a LangGraph-era control-plane state/graph model, and Codex execution hooks. [Codex CLI](https://github.com/Yeachan-Heo/Codex CLI) is credited as part of the Codex-native execution layer used to operate local agents. Enoch Control Plane owns queue safety, worker completion evidence, artifact packaging, and release framing; legacy orchestration wrappers do not own or author the generated papers.
+Enoch Control Plane is built around a FastAPI service, a LangGraph-era control-plane state/graph model, and Codex execution hooks. [Codex CLI](https://github.com/openai/codex) is credited as part of the Codex-native execution layer used to operate local agents. Enoch Control Plane owns queue safety, worker completion evidence, artifact packaging, and release framing; legacy orchestration wrappers do not own or author the generated papers.
 
 
 ## Intake boundary
