@@ -2837,8 +2837,14 @@ def _provider_generation_attempt_record(row: Mapping[str, Any]) -> dict[str, Any
 def provider_generation_attempt_summary(
     store: ControlPlaneStore, *, limit: int = 20
 ) -> dict[str, Any]:
-    page_reader = getattr(store, "event_page", None)
-    row_reader = getattr(store, "event_rows", None)
+    try:
+        page_reader = object.__getattribute__(store, "event_page")
+    except AttributeError:
+        page_reader = None
+    try:
+        row_reader = object.__getattribute__(store, "event_rows")
+    except AttributeError:
+        row_reader = None
     if callable(page_reader):
         rows, _next_cursor, _has_more = page_reader(
             page_size=limit,
