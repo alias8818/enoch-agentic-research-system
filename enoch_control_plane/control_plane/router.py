@@ -2089,6 +2089,16 @@ def _is_stale(observed_at: str | None, ttl_seconds: int | None) -> bool:
     return datetime.now(timezone.utc) > observed + timedelta(seconds=ttl_seconds)
 
 
+def _fresh_observation(
+    observation: DashboardObservationRecord | None,
+) -> DashboardObservationRecord | None:
+    if observation is None:
+        return None
+    if _is_stale(observation.observed_at, observation.ttl_seconds):
+        return None
+    return observation
+
+
 def _preflight_check(
     preflight: DashboardObservationRecord | None, name: str
 ) -> dict | None:
@@ -6244,7 +6254,7 @@ def _cp_mount_worker_lane_capacity(
     )
     blockers = [str(item) for item in (global_blockers or []) if str(item)]
     worker_preflight_lane_key = _cp_mount_preflight_observation_lane_key(
-        config, worker_preflight
+        config, _fresh_observation(worker_preflight)
     )
     capacity: list[dict[str, Any]] = []
     latest_observation = getattr(store, "latest_dashboard_observation", None)
@@ -6259,6 +6269,8 @@ def _cp_mount_worker_lane_capacity(
             lane_dashboard = latest_observation(
                 source="worker_dashboard_api", scope=f"lane:{lane_key}"
             )
+        lane_preflight = _fresh_observation(lane_preflight)
+        lane_dashboard = _fresh_observation(lane_dashboard)
         lane_preflight_key = (
             _cp_mount_preflight_observation_lane_key(config, lane_preflight)
             if lane_preflight is not None
@@ -6270,7 +6282,7 @@ def _cp_mount_worker_lane_capacity(
                 active_by_lane=active_by_lane,
                 queued_by_lane=queued_by_lane,
                 global_blockers=blockers,
-                worker_preflight=worker_preflight,
+                worker_preflight=_fresh_observation(worker_preflight),
                 worker_preflight_lane_key=worker_preflight_lane_key,
                 lane_worker_preflight=lane_preflight,
                 lane_worker_preflight_key=lane_preflight_key,

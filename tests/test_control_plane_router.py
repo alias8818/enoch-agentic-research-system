@@ -6851,6 +6851,70 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 status["dispatch_blockers"],
             )
 
+    def test_dashboard_status_ignores_expired_lane_preflight_for_live_worker_conflict(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-worker:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+            old = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                scope="lane:http://cpu-worker:8787",
+                status="warn",
+                observed_at=old,
+                ttl_seconds=300,
+                payload={
+                    "ok": False,
+                    "target": "http://cpu-worker:8787",
+                    "checks": [
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        }
+                    ],
+                },
+            )
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertFalse(
+                any(
+                    "worker reports live work" in item["message"]
+                    for item in status["conflicts"]
+                )
+            )
+            self.assertNotIn(
+                "worker live run without active control-plane row: cpu_worker",
+                status["dispatch_blockers"],
+            )
+
     def test_dashboard_status_does_not_treat_cpu_active_as_default_worker_conflict(
         self,
     ) -> None:
