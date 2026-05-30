@@ -2261,6 +2261,44 @@ def _active_confirmation_for_no_live_check(
     }
 
 
+def _matched_worker_run_confirmation(run: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "state": "active_confirmed"
+        if _worker_run_is_live_marker(run)
+        else "active_unconfirmed",
+        "matched": True,
+        "matched_run_id": str(run.get("run_id") or ""),
+        "matched_project_id": str(run.get("project_id") or ""),
+        "active_process_count": _int_or_none(run.get("active_process_count")),
+        "reason": "matched worker run/session marker",
+    }
+
+
+def _unmatched_worker_run_confirmation(
+    *,
+    preflight: DashboardObservationRecord,
+    active_row: dict[str, Any],
+    no_live: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if no_live and no_live.get("ok") is True:
+        if _preflight_predates_active_dispatch(preflight, active_row):
+            return {
+                "state": "active_unconfirmed",
+                "matched": False,
+                "reason": "worker preflight observation predates active control-plane dispatch",
+                "worker_check": no_live,
+            }
+        return _active_confirmation_for_no_live_check(
+            preflight=preflight, active_row=active_row, no_live=no_live
+        )
+    return {
+        "state": "active_unconfirmed",
+        "matched": False,
+        "reason": "worker preflight did not include a matching live run marker",
+        "worker_check": no_live,
+    }
+
+
 def _active_lane_worker_confirmation(
     *,
     preflight: DashboardObservationRecord | None,
@@ -2285,34 +2323,11 @@ def _active_lane_worker_confirmation(
         }
     for run in _worker_dashboard_runs_from_preflight(preflight):
         if _worker_run_matches_queue_row(run, active_row):
-            return {
-                "state": "active_confirmed"
-                if _worker_run_is_live_marker(run)
-                else "active_unconfirmed",
-                "matched": True,
-                "matched_run_id": str(run.get("run_id") or ""),
-                "matched_project_id": str(run.get("project_id") or ""),
-                "active_process_count": _int_or_none(run.get("active_process_count")),
-                "reason": "matched worker run/session marker",
-            }
+            return _matched_worker_run_confirmation(run)
     no_live = _preflight_check(preflight, "worker_no_live_runs")
-    if no_live and no_live.get("ok") is True:
-        if _preflight_predates_active_dispatch(preflight, active_row):
-            return {
-                "state": "active_unconfirmed",
-                "matched": False,
-                "reason": "worker preflight observation predates active control-plane dispatch",
-                "worker_check": no_live,
-            }
-        return _active_confirmation_for_no_live_check(
-            preflight=preflight, active_row=active_row, no_live=no_live
-        )
-    return {
-        "state": "active_unconfirmed",
-        "matched": False,
-        "reason": "worker preflight did not include a matching live run marker",
-        "worker_check": no_live,
-    }
+    return _unmatched_worker_run_confirmation(
+        preflight=preflight, active_row=active_row, no_live=no_live
+    )
 
 
 def _terminal_run_states_for_worker_settling() -> set[str]:
@@ -5648,6 +5663,78 @@ def _status_has_no_live_worker_conflict(status: DashboardStatusResponse) -> bool
     )
 
 
+def _worker_lane_label(lane: dict[str, Any]) -> str:
+    return str(
+        lane.get("worker_role")
+        or lane.get("machine_target")
+        or lane.get("lane_key")
+        or "worker lane"
+    )
+
+
+def _orphan_worker_lane_finding(
+    lane: dict[str, Any], *, lane_label: str, no_live: dict[str, Any]
+) -> DashboardFinding:
+    return DashboardFinding(
+        severity="critical",
+        source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
+        authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
+        message=(
+            f"{lane_label} worker reports live work but the control plane "
+            "has no active row for that lane"
+        ),
+        suggested_action=(
+            "pause dispatch and reconcile the orphan worker run before "
+            "starting another job on this lane"
+        ),
+        data={
+            "lane_key": lane.get("lane_key"),
+            "machine_target": lane.get("machine_target"),
+            "worker_check": no_live,
+        },
+    )
+
+
+def _stale_worker_lane_finding(
+    lane: dict[str, Any],
+    *,
+    lane_label: str,
+    confirmation: dict[str, Any],
+    state: str,
+) -> DashboardFinding:
+    active_item = (
+        lane.get("active_item") if isinstance(lane.get("active_item"), dict) else {}
+    )
+    return DashboardFinding(
+        severity="warn",
+        source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
+        authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
+        message=(
+            f"{lane_label} has an active control-plane row without a matching worker run"
+            if state == "stale_active"
+            else f"{lane_label} active row is unconfirmed during worker reconcile grace"
+        ),
+        suggested_action=(
+            "run a live queue alert check to safely reconcile the stale active row"
+            if state == "stale_active"
+            else "wait for the worker observation grace window before reconciling"
+        ),
+        data={
+            "lane_key": lane.get("lane_key"),
+            "machine_target": lane.get("machine_target"),
+            "active_item": active_item,
+            "active_confirmation": confirmation,
+        },
+    )
+
+
+def _worker_lane_confirmation_state(lane: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    confirmation = lane.get("active_confirmation")
+    if not isinstance(confirmation, dict):
+        return "", {}
+    return str(confirmation.get("state") or ""), confirmation
+
+
 def _append_dashboard_worker_lane_confirmation_findings(
     worker_lanes: list[dict[str, Any]],
     *,
@@ -5656,12 +5743,7 @@ def _append_dashboard_worker_lane_confirmation_findings(
     conflicts: list[DashboardFinding],
 ) -> None:
     for lane in worker_lanes:
-        lane_label = str(
-            lane.get("worker_role")
-            or lane.get("machine_target")
-            or lane.get("lane_key")
-            or "worker lane"
-        )
+        lane_label = _worker_lane_label(lane)
         worker_observations = lane.get("worker_observations")
         lane_preflight = (
             worker_observations.get("worker_preflight")
@@ -5670,23 +5752,8 @@ def _append_dashboard_worker_lane_confirmation_findings(
         )
         no_live = _worker_no_live_failed_check(lane_preflight)
         if not int(lane.get("active_count") or 0) and no_live:
-            finding = DashboardFinding(
-                severity="critical",
-                source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
-                authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
-                message=(
-                    f"{lane_label} worker reports live work but the control plane "
-                    "has no active row for that lane"
-                ),
-                suggested_action=(
-                    "pause dispatch and reconcile the orphan worker run before "
-                    "starting another job on this lane"
-                ),
-                data={
-                    "lane_key": lane.get("lane_key"),
-                    "machine_target": lane.get("machine_target"),
-                    "worker_check": no_live,
-                },
+            finding = _orphan_worker_lane_finding(
+                lane, lane_label=lane_label, no_live=no_live
             )
             warnings.append(finding)
             conflicts.append(finding)
@@ -5694,35 +5761,11 @@ def _append_dashboard_worker_lane_confirmation_findings(
                 f"worker live run without active control-plane row: {lane_label}"
             )
             continue
-        confirmation = lane.get("active_confirmation")
-        if not isinstance(confirmation, dict):
-            continue
-        state = str(confirmation.get("state") or "")
+        state, confirmation = _worker_lane_confirmation_state(lane)
         if state not in {"stale_active", "active_unconfirmed_grace"}:
             continue
-        active_item = (
-            lane.get("active_item") if isinstance(lane.get("active_item"), dict) else {}
-        )
-        finding = DashboardFinding(
-            severity="warn",
-            source=CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
-            authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
-            message=(
-                f"{lane_label} has an active control-plane row without a matching worker run"
-                if state == "stale_active"
-                else f"{lane_label} active row is unconfirmed during worker reconcile grace"
-            ),
-            suggested_action=(
-                "run a live queue alert check to safely reconcile the stale active row"
-                if state == "stale_active"
-                else "wait for the worker observation grace window before reconciling"
-            ),
-            data={
-                "lane_key": lane.get("lane_key"),
-                "machine_target": lane.get("machine_target"),
-                "active_item": active_item,
-                "active_confirmation": confirmation,
-            },
+        finding = _stale_worker_lane_finding(
+            lane, lane_label=lane_label, confirmation=confirmation, state=state
         )
         warnings.append(finding)
         if state == "stale_active":
