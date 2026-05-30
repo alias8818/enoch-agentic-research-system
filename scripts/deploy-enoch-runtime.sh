@@ -134,7 +134,7 @@ case "$profile" in
     ;;
   cpu-worker|gb10-worker)
     echo "checking worker health on $host"
-    ssh "$host" "curl -fsS http://127.0.0.1:8787/healthz >/dev/null"
+    ssh "$host" "set -euo pipefail; for attempt in \$(seq 1 30); do curl -fsS http://127.0.0.1:8787/healthz >/dev/null && exit 0; sleep 1; done; curl -fsS http://127.0.0.1:8787/healthz >/dev/null"
     ;;
 esac
 
