@@ -68,6 +68,34 @@ def test_queue_alert_findings_treats_naive_database_timestamps_as_utc() -> None:
     assert findings[0].observed_at == updated_at
 
 
+def test_queue_alert_findings_suppresses_conflicts_during_intentional_hold() -> None:
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[
+            SimpleNamespace(
+                severity="critical",
+                source="control_plane_db+worker_preflight",
+                authority="cross-source active-lane reconciliation",
+                message=(
+                    "cpu_worker worker reports live work but the control plane "
+                    "has no active row for that lane"
+                ),
+                observed_at=None,
+                suggested_action="reconcile the orphan worker run",
+                model_dump=lambda mode="json": {},
+            )
+        ],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+    assert findings == []
+
+
 def test_queue_alert_findings_suppresses_old_active_row_when_worker_is_live() -> None:
     updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
     status = SimpleNamespace(

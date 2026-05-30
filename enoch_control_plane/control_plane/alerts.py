@@ -318,9 +318,11 @@ def queue_alert_findings(
 ) -> list[DashboardFinding]:
     flags = status.flags
     intentional_hold = flags.queue_paused or flags.maintenance_mode
-    findings: list[DashboardFinding] = list(status.conflicts)
+    if intentional_hold:
+        return []
 
-    if not intentional_hold and status.config.live_dispatch_enabled:
+    findings: list[DashboardFinding] = list(status.conflicts)
+    if status.config.live_dispatch_enabled:
         findings.extend(
             _collect_live_dispatch_alert_findings(status, hang_after_sec=hang_after_sec)
         )
