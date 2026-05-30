@@ -7,6 +7,7 @@ from hypothesis import given, settings, strategies as st
 from enoch_control_plane.control_plane.read_models import (
     operator_counts_from_rows,
     operator_detail_counts_from_rows,
+    research_signal_quality_snapshot,
 )
 from enoch_control_plane.control_plane.state_contract import OperatorLane
 
@@ -17,6 +18,40 @@ safe_id = st.text(
     min_size=1,
     max_size=40,
 ).filter(lambda value: value.strip("-_"))
+
+
+def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() -> None:
+    snapshot = research_signal_quality_snapshot(
+        {
+            "ok": True,
+            "status": "warnings",
+            "decisions_checked": 20,
+            "candidates_checked": 25,
+            "problem_counts": {"weak_or_missing_evidence_strength": 2},
+            "severity_counts": {"warning": 2},
+            "post_prompt_monitor": {
+                "available": True,
+                "decision_coverage": 0.8,
+                "useful_adjacent_followup": 3,
+                "useful_adjacent_followup_delta": -4.0,
+                "proxy_only_positive": 5,
+                "proxy_only_positive_delta": -1.0,
+                "moonshot_avg_score_delta": 1.2,
+                "malformed_provider_response_count": 7,
+                "malformed_provider_response_ticks": 4,
+                "last_malformed_at": "2026-05-30T03:00:30Z",
+            },
+        }
+    )
+
+    assert snapshot["status"] == "warnings"
+    assert snapshot["weak_evidence_count"] == 2
+    assert snapshot["malformed_provider_response_count"] == 7
+    assert snapshot["useful_adjacent_followup_delta"] == -4.0
+    assert (
+        snapshot["operator_summary"]
+        == "quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0"
+    )
 
 
 def _active_queue(project_id: str, run_id: str, **extra: object) -> dict[str, object]:

@@ -72,6 +72,41 @@ it('requests live worker refresh for overview lane status', async () => {
   expect(screen.queryByText('Stale active: worker reports no matching live run.')).not.toBeInTheDocument()
 })
 
+it('shows research signal quality in the overview side rail', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] },
+      flags: {},
+      research_signal_quality: {
+        status: 'warnings',
+        ok: true,
+        decisions_checked: 20,
+        weak_evidence_count: 2,
+        malformed_provider_response_count: 7,
+        useful_adjacent_followup_delta: -4,
+        operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
+      },
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  const quality = await screen.findByLabelText('Research signal quality')
+  expect(within(quality).getByText('warnings')).toBeInTheDocument()
+  expect(within(quality).getByText('Weak evidence')).toBeInTheDocument()
+  expect(within(quality).getByText('2')).toBeInTheDocument()
+  expect(within(quality).getByText('Malformed provider')).toBeInTheDocument()
+  expect(within(quality).getByText('7')).toBeInTheDocument()
+  expect(within(quality).getByText('Useful trend')).toBeInTheDocument()
+  expect(within(quality).getByText('-4')).toBeInTheDocument()
+})
+
 it('surfaces the movement diagnosis before lane and action controls', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({

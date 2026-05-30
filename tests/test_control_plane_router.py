@@ -545,6 +545,50 @@ class ControlPlaneRouterTests(unittest.TestCase):
             body["problem_counts"], {"weak_or_missing_evidence_strength": 1}
         )
 
+    def test_overview_includes_research_signal_quality_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "research-quality.json"
+            report.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "enoch_research_quality_report_v1",
+                        "generated_at": "2026-05-11T00:00:00Z",
+                        "summary": {
+                            "candidate_count": 0,
+                            "decision_count": 1,
+                            "problem_counts": {"weak_or_missing_evidence_strength": 1},
+                        },
+                        "candidate_scores": [],
+                        "decision_scores": [
+                            {
+                                "project_id": "p1",
+                                "project_name": "Project 1",
+                                "run_id": "r1",
+                                "decision": "finalize_negative",
+                                "hypothesis_status": "mixed",
+                                "problems": ["weak_or_missing_evidence_strength"],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch.dict(
+                os.environ, {"ENOCH_RESEARCH_QUALITY_REPORT_PATH": str(report)}
+            ):
+                client = _client(tmp)
+                response = client.get(
+                    "/control/api/v1/overview",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        quality = response.json()["research_signal_quality"]
+        self.assertEqual(quality["status"], "warnings")
+        self.assertEqual(quality["decisions_checked"], 1)
+        self.assertEqual(quality["weak_evidence_count"], 1)
+        self.assertIn("weak evidence=1", quality["operator_summary"])
+
     def test_source_lineage_endpoint_and_readiness_use_configured_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             report = Path(tmp) / "source-lineage.json"

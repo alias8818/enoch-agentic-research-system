@@ -283,6 +283,7 @@ button:disabled { cursor: not-allowed; }
 .command-hero,
 .lane-console,
 .primary-action,
+.quality-snapshot,
 .paper-strip,
 .movement-panel,
 .readiness-check-card,
@@ -600,6 +601,18 @@ button:disabled { cursor: not-allowed; }
 .active-work-snapshot span,
 .active-work-snapshot p { margin: 0.18rem 0 0; color: #b8afa2; font-size: 0.84rem; }
 .active-work-snapshot li a { padding: 0.55rem 0.65rem; font-size: 0.78rem; white-space: nowrap; }
+.quality-snapshot { border-radius: 1.1rem; padding: 0.95rem; }
+.quality-snapshot > div:first-child { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; }
+.quality-snapshot h3 { margin: 0; color: #efe7da; font-size: 0.92rem; }
+.quality-snapshot dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.45rem; margin: 0.75rem 0 0; }
+.quality-snapshot dl div { border: 1px solid rgba(244,241,234,0.1); border-radius: 0.75rem; padding: 0.62rem; background: rgba(244,241,234,0.035); min-width: 0; }
+.quality-snapshot dt { color: #9e978e; font-size: 0.66rem; font-weight: 850; text-transform: uppercase; }
+.quality-snapshot dd { margin: 0.18rem 0 0; color: #efe7da; font-size: 1.05rem; font-weight: 900; }
+.quality-snapshot p { margin: 0.7rem 0 0; color: #b8afa2; font-size: 0.8rem; line-height: 1.4; }
+.quality-pill { border: 1px solid rgba(244,241,234,0.12); border-radius: 999px; padding: 0.34rem 0.55rem; color: #b8afa2; font-size: 0.72rem; font-weight: 850; white-space: nowrap; }
+.quality-pill--good { border-color: rgba(70,180,124,0.35); color: #aee4c4; }
+.quality-pill--warn { border-color: rgba(226,177,91,0.35); color: #e8c58a; }
+.quality-pill--bad { border-color: rgba(194,80,70,0.42); color: #f0aaa0; }
 .readiness-snapshot { margin-top: 0.9rem; border: 1px solid rgba(244,241,234,0.1); border-radius: 1rem; padding: 0.9rem; background: rgba(0,0,0,0.16); }
 .readiness-snapshot > div:first-child { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; }
 .readiness-snapshot h3 { margin: 0; color: #efe7da; font-size: 0.92rem; }
@@ -634,7 +647,8 @@ button:disabled { cursor: not-allowed; }
   .secondary-links,
   .active-work-snapshot li,
   .activity-snapshot li,
-  .operator-snapshot dl { grid-template-columns: 1fr; }
+  .operator-snapshot dl,
+  .quality-snapshot dl { grid-template-columns: 1fr; }
   .lane-facts div { grid-template-columns: 1fr; gap: 0.15rem; }
   .auth-form { grid-template-columns: 1fr; }
   .nav-menu { left: 0; right: auto; }

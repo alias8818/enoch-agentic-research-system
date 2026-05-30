@@ -57,6 +57,14 @@ it('parses command-center overview, status, and readiness payloads', () => {
   const overview = parseOverviewResponse(overviewFixture)
   expect(overview.movement_diagnosis?.status).toBe('actionable')
   expect(overview.primary_operator_action?.kind).toBe('dispatch_next')
+  expect(parseOverviewResponse({
+    research_signal_quality: {
+      status: 'warnings',
+      weak_evidence_count: 1,
+      malformed_provider_response_count: 16,
+      useful_adjacent_followup_delta: -4,
+    },
+  }).research_signal_quality?.malformed_provider_response_count).toBe(16)
   expect(parseStatusResponse(statusFixture).worker_lanes?.[0]?.machine_target).toBe('cpu-proxmox-1')
   expect(parseAutomationReadiness({ ok: true, label: 'Long-haul mode: READY' }).label).toBe('Long-haul mode: READY')
 })

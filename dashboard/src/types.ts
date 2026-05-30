@@ -89,6 +89,25 @@ export interface OverviewResponse {
     paper_write_blocked?: number
     paper_gate_archive_summary?: string
   }
+  research_signal_quality?: {
+    status?: string
+    ok?: boolean
+    decisions_checked?: number
+    weak_evidence_count?: number
+    warning_problem_count?: number
+    blocked_problem_count?: number
+    decision_coverage?: number
+    proxy_only_positive?: number
+    proxy_only_positive_delta?: number
+    useful_adjacent_followup?: number
+    useful_adjacent_followup_delta?: number
+    moonshot_avg_score_delta?: number
+    malformed_provider_response_count?: number
+    malformed_provider_response_ticks?: number
+    last_malformed_at?: string
+    last_checked_at?: string
+    operator_summary?: string
+  }
   movement_diagnosis?: MovementDiagnosis
   flags?: { queue_paused?: boolean; maintenance_mode?: boolean; [key: string]: unknown }
 }

@@ -14,6 +14,12 @@ from enoch_control_plane.enoch_core.logic import (
     eligible_paper_draft_candidates,
     paper_draft_decision_gate,
 )
+from enoch_control_plane.research_quality.status import (
+    DEFAULT_AUTOPILOT_HISTORY_PATH,
+    DEFAULT_REPORT_PATHS,
+    DEFAULT_WINDOW_REPORT_PATH,
+    load_latest_quality_status,
+)
 from enoch_control_plane.timeutils import parse_utc_datetime
 
 from .models import PaperStatus, QueueStatus
@@ -2731,6 +2737,129 @@ def _build_research_yield_panel(
     }
 
 
+def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, Any]:
+    problem_counts = quality.get("problem_counts") or {}
+    severity_counts = quality.get("severity_counts") or {}
+    monitor = quality.get("post_prompt_monitor") or {}
+    weak_evidence_count = _safe_count(
+        problem_counts.get("weak_or_missing_evidence_strength")
+        if isinstance(problem_counts, Mapping)
+        else 0
+    )
+    warning_count = _safe_count(
+        severity_counts.get("warning") if isinstance(severity_counts, Mapping) else 0
+    )
+    blocked_count = _safe_count(
+        severity_counts.get("blocked") if isinstance(severity_counts, Mapping) else 0
+    )
+    malformed_count = _safe_count(
+        monitor.get("malformed_provider_response_count")
+        if isinstance(monitor, Mapping)
+        else 0
+    )
+    useful_delta = (
+        monitor.get("useful_adjacent_followup_delta")
+        if isinstance(monitor, Mapping)
+        else 0.0
+    )
+    status = _text(quality.get("status")) or "unknown"
+    parts = [
+        f"quality={status}",
+        f"weak evidence={weak_evidence_count}",
+        f"malformed provider responses={malformed_count}",
+        f"useful follow-up delta={useful_delta}",
+    ]
+    return {
+        "status": status,
+        "ok": bool(quality.get("ok")),
+        "label": quality.get("label") or "",
+        "decisions_checked": _safe_count(quality.get("decisions_checked")),
+        "candidates_checked": _safe_count(quality.get("candidates_checked")),
+        "weak_evidence_count": weak_evidence_count,
+        "warning_problem_count": warning_count,
+        "blocked_problem_count": blocked_count,
+        "problem_counts": dict(problem_counts)
+        if isinstance(problem_counts, Mapping)
+        else {},
+        "report_path": quality.get("report_path") or "",
+        "report_mtime": quality.get("report_mtime") or "",
+        "post_prompt_available": bool(
+            monitor.get("available") if isinstance(monitor, Mapping) else False
+        ),
+        "decision_coverage": monitor.get("decision_coverage", 0.0)
+        if isinstance(monitor, Mapping)
+        else 0.0,
+        "proxy_only_positive": _safe_count(
+            monitor.get("proxy_only_positive") if isinstance(monitor, Mapping) else 0
+        ),
+        "proxy_only_positive_delta": monitor.get("proxy_only_positive_delta", 0.0)
+        if isinstance(monitor, Mapping)
+        else 0.0,
+        "useful_adjacent_followup": _safe_count(
+            monitor.get("useful_adjacent_followup")
+            if isinstance(monitor, Mapping)
+            else 0
+        ),
+        "useful_adjacent_followup_delta": useful_delta,
+        "moonshot_avg_score_delta": monitor.get("moonshot_avg_score_delta", 0.0)
+        if isinstance(monitor, Mapping)
+        else 0.0,
+        "malformed_provider_response_count": malformed_count,
+        "malformed_provider_response_ticks": _safe_count(
+            monitor.get("malformed_provider_response_ticks")
+            if isinstance(monitor, Mapping)
+            else 0
+        ),
+        "last_malformed_at": monitor.get("last_malformed_at", "")
+        if isinstance(monitor, Mapping)
+        else "",
+        "last_checked_at": monitor.get("last_checked_at", "")
+        if isinstance(monitor, Mapping)
+        else "",
+        "operator_summary": "; ".join(parts),
+    }
+
+
+def _latest_research_quality_for_overview() -> dict[str, Any]:
+    configured = os.environ.get("ENOCH_RESEARCH_QUALITY_REPORT_PATH", "").strip()
+    paths = (
+        (configured, *DEFAULT_REPORT_PATHS) if configured else DEFAULT_REPORT_PATHS
+    )
+    try:
+        return load_latest_quality_status(
+            paths,
+            window_report_path=os.environ.get(
+                "ENOCH_RESEARCH_QUALITY_WINDOW_REPORT_PATH",
+                DEFAULT_WINDOW_REPORT_PATH,
+            ),
+            autopilot_history_path=os.environ.get(
+                "ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH",
+                DEFAULT_AUTOPILOT_HISTORY_PATH,
+            ),
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "label": "Research quality: BLOCKED",
+            "decisions_checked": 0,
+            "candidates_checked": 0,
+            "problem_counts": {"unreadable_quality_report": 1},
+            "severity_counts": {"blocked": 1},
+            "report_path": paths[0] if paths else "",
+            "report_mtime": "",
+            "post_prompt_monitor": {},
+            "problem_details": [
+                {
+                    "section": "report",
+                    "severity": "blocked",
+                    "problem": "unreadable_quality_report",
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            ],
+        }
+
+
 def _paper_drought_recovery_action(
     *,
     drought_warning: bool,
@@ -2939,6 +3068,7 @@ def overview(
         paper_pipeline=paper_pipeline,
         investigation_pipeline=investigation_pipeline,
     )
+    research_quality = _latest_research_quality_for_overview()
     events, next_cursor, has_more = _overview_events_page(
         store, batched_parts, event_limit=event_limit
     )
@@ -2970,6 +3100,9 @@ def overview(
         "flags": _flags_payload(flags),
         "paper_pipeline": paper_pipeline,
         "research_yield": research_yield,
+        "research_signal_quality": research_signal_quality_snapshot(
+            research_quality
+        ),
         "provider_generation_attempts": provider_generation_attempt_summary(store),
         "investigation_pipeline": investigation_pipeline,
         "operator_model": {

@@ -158,6 +158,26 @@ const movementDiagnosisSchema = z.object({
   blockers: z.array(movementBlockerSchema),
 }).passthrough()
 
+const researchSignalQualitySchema = z.object({
+  status: z.string().optional(),
+  ok: z.boolean().optional(),
+  decisions_checked: z.number().optional(),
+  weak_evidence_count: z.number().optional(),
+  warning_problem_count: z.number().optional(),
+  blocked_problem_count: z.number().optional(),
+  decision_coverage: z.number().optional(),
+  proxy_only_positive: z.number().optional(),
+  proxy_only_positive_delta: z.number().optional(),
+  useful_adjacent_followup: z.number().optional(),
+  useful_adjacent_followup_delta: z.number().optional(),
+  moonshot_avg_score_delta: z.number().optional(),
+  malformed_provider_response_count: z.number().optional(),
+  malformed_provider_response_ticks: z.number().optional(),
+  last_malformed_at: z.string().optional(),
+  last_checked_at: z.string().optional(),
+  operator_summary: z.string().optional(),
+}).passthrough()
+
 export const overviewResponseSchema = z.object({
   ok: z.boolean().optional(),
   generated_at: z.string().optional(),
@@ -180,6 +200,7 @@ export const overviewResponseSchema = z.object({
     paper_write_blocked: z.number().optional(),
     paper_gate_archive_summary: z.string().optional(),
   }).passthrough().optional(),
+  research_signal_quality: researchSignalQualitySchema.optional(),
   movement_diagnosis: movementDiagnosisSchema.optional(),
   flags: z.record(z.unknown()).optional(),
 }).passthrough()

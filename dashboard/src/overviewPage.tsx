@@ -165,6 +165,7 @@ function OverviewPageBody({
             onRefresh={refresh}
             onCheckReadiness={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
           />
+          <ResearchSignalQualityCard quality={data.research_signal_quality} />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
         </div>
       </div>
@@ -179,6 +180,56 @@ function OverviewPageBody({
         onSecondaryOpenChange={onSecondaryOpenChange}
       />
     </div>
+  )
+}
+
+function qualityDeltaLabel(value: unknown): string {
+  const number = Number(value ?? 0)
+  if (!Number.isFinite(number)) return '0'
+  if (number > 0) return `+${number}`
+  return String(number)
+}
+
+function qualityStatusClass(status: string | undefined, ok: boolean | undefined): string {
+  if (status === 'blocked' || ok === false) return 'quality-pill quality-pill--bad'
+  if (status === 'warnings') return 'quality-pill quality-pill--warn'
+  return 'quality-pill quality-pill--good'
+}
+
+function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResponse['research_signal_quality'] }>) {
+  if (!quality) {
+    return (
+      <section className="quality-snapshot" aria-label="Research signal quality">
+        <div>
+          <h3>Research signal quality</h3>
+          <span className="quality-pill quality-pill--warn">unavailable</span>
+        </div>
+        <p>No quality snapshot returned in the bounded overview.</p>
+      </section>
+    )
+  }
+  return (
+    <section className="quality-snapshot" aria-label="Research signal quality">
+      <div>
+        <h3>Research signal quality</h3>
+        <span className={qualityStatusClass(quality.status, quality.ok)}>{displayText(quality.status, 'unknown')}</span>
+      </div>
+      <dl>
+        <div>
+          <dt>Weak evidence</dt>
+          <dd>{String(quality.weak_evidence_count ?? 0)}</dd>
+        </div>
+        <div>
+          <dt>Malformed provider</dt>
+          <dd>{String(quality.malformed_provider_response_count ?? 0)}</dd>
+        </div>
+        <div>
+          <dt>Useful trend</dt>
+          <dd>{qualityDeltaLabel(quality.useful_adjacent_followup_delta)}</dd>
+        </div>
+      </dl>
+      <p>{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
+    </section>
   )
 }
 
