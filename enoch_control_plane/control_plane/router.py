@@ -3411,6 +3411,15 @@ def _provider_generation_topic(
     ).strip()
 
 
+def _provider_generation_failure_kind(exc: Exception) -> str:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    if isinstance(exc, TimeoutError) or "timeout" in text or "timed out" in text:
+        return "timeout"
+    if "429" in text or "rate limit" in text or "rate_limited" in text:
+        return "rate_limited"
+    return "exception"
+
+
 @dataclass(frozen=True)
 class _ProviderGenerationParams:
     max_provider_requests: int
@@ -3434,6 +3443,66 @@ class _ProviderGenerationParams:
     operator_trace: OperatorTrace | None = None
     trace_id: str = ""
     run_cycle_id: str = ""
+
+
+def _provider_generation_event_payload(
+    *,
+    params: _ProviderGenerationParams,
+    status: str,
+    generation_machine_target: str,
+    latency_ms: int,
+    candidate_count: int = 0,
+    planned_count: int = 0,
+    provider_response_id: str = "",
+    failure_kind: str = "",
+    error_type: str = "",
+    reason: str = "",
+) -> dict[str, Any]:
+    lane = params.generation_target_lane if isinstance(params.generation_target_lane, dict) else {}
+    return {
+        "status": status,
+        "provider": "synthetic.new",
+        "provider_model": params.provider_model,
+        "machine_target": generation_machine_target,
+        "lane_key": str(lane.get("lane_key") or ""),
+        "worker_role": str(lane.get("worker_role") or ""),
+        "requested_by": params.requested_by,
+        "trace_id": params.trace_id,
+        "run_cycle_id": params.run_cycle_id,
+        "latency_ms": max(0, latency_ms),
+        "timeout_sec": params.generation_timeout,
+        "attempts_configured": params.generation_attempts,
+        "max_candidates": params.max_candidates,
+        "max_tokens": params.generation_max_tokens,
+        "candidate_count": candidate_count,
+        "planned_count": planned_count,
+        "provider_response_id": provider_response_id,
+        "failure_kind": failure_kind,
+        "error_type": error_type,
+        "reason": reason,
+        "recorded_at": utc_now(),
+    }
+
+
+def _record_provider_generation_attempt(
+    *,
+    params: _ProviderGenerationParams,
+    payload: dict[str, Any],
+) -> None:
+    append_event = getattr(params.store, "append_event", None)
+    if not callable(append_event):
+        return
+    run_key = params.run_cycle_id or params.trace_id or utc_now()
+    append_event(
+        idempotency_key=(
+            f"research-provider-generation:{run_key}:"
+            f"{payload.get('status')}:{payload.get('recorded_at')}"
+        ),
+        event_type="research.provider_generation.attempt",
+        entity_type="research_provider",
+        entity_id=str(params.run_cycle_id or "run-cycle"),
+        payload=jsonable_encoder(payload),
+    )
 
 
 def _execute_provider_generation(
@@ -3465,6 +3534,7 @@ def _execute_provider_generation(
             )
             return response
         try:
+            started = time.monotonic()
             generation_machine_target = _provider_generation_machine_target(
                 params.generation_target_lane
             )
@@ -3541,6 +3611,17 @@ def _execute_provider_generation(
             response["attempts_used"] = generated.get("attempts_used", 1)
             response["generation_target_lane"] = params.generation_target_lane
             response["ledger_result"] = ledger_result
+            attempt_payload = _provider_generation_event_payload(
+                params=params,
+                status="success",
+                generation_machine_target=generation_machine_target,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                candidate_count=candidate_count,
+                planned_count=len(generated_plans),
+                provider_response_id=str(generated.get("provider_response_id") or ""),
+            )
+            _record_provider_generation_attempt(params=params, payload=attempt_payload)
+            response["provider_generation_attempt"] = attempt_payload
             response["stages"].append(
                 {
                     "stage": "provider_generation",
@@ -3551,13 +3632,36 @@ def _execute_provider_generation(
                         (params.generation_target_lane or {}).get("machine_target")
                         or ""
                     ),
+                    "provider_attempt_status": attempt_payload["status"],
                 }
             )
         except Exception as exc:  # noqa: BLE001 - provider output is external and must not break long-haul ticks
             warning = f"provider generation skipped: {exc}"
+            generation_machine_target = _provider_generation_machine_target(
+                params.generation_target_lane
+            )
+            attempt_payload = _provider_generation_event_payload(
+                params=params,
+                status="failed",
+                generation_machine_target=generation_machine_target,
+                latency_ms=int((time.monotonic() - started) * 1000)
+                if "started" in locals()
+                else 0,
+                failure_kind=_provider_generation_failure_kind(exc),
+                error_type=type(exc).__name__,
+                reason=warning,
+            )
+            _record_provider_generation_attempt(params=params, payload=attempt_payload)
+            response["provider_generation_attempt"] = attempt_payload
             response.setdefault("warnings", []).append(warning)
             response["stages"].append(
-                {"stage": "provider_generation", "ok": False, "reason": warning}
+                {
+                    "stage": "provider_generation",
+                    "ok": False,
+                    "reason": warning,
+                    "provider_attempt_status": attempt_payload["status"],
+                    "provider_failure_kind": attempt_payload["failure_kind"],
+                }
             )
 
     return response

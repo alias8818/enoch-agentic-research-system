@@ -3203,7 +3203,18 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(
             fake_store.promoted[0], ("generated-candidate", "pytest", False)
         )
-        self.assertEqual(fake_store.events[0]["event_type"], "research.run_cycle.live")
+        self.assertTrue(
+            any(
+                event["event_type"] == "research.provider_generation.attempt"
+                for event in fake_store.events
+            )
+        )
+        self.assertTrue(
+            any(
+                event["event_type"] == "research.run_cycle.live"
+                for event in fake_store.events
+            )
+        )
         self.assertEqual(generate.call_args.kwargs["attempts"], 2)
 
     def test_research_facility_run_cycle_generates_backlog_for_active_lane(
@@ -16092,6 +16103,193 @@ def test_provider_generation_skips_without_lane_feed_target():
     assert response["fresh_generation_skipped"] is True
     assert response["fresh_generation_skip_reason"] == "no deficient lane feed target"
     assert response["stages"][0]["action"] == "skipped"
+
+
+def test_provider_generation_records_rate_limit_attempt_event():
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+
+    class _Store:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> None:
+            self.events.append(kwargs)
+
+        def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
+            return {}
+
+    store = _Store()
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={
+            "machine_target": "cpu-proxmox-1",
+            "lane_key": "http://cpu-worker:8787",
+            "worker_role": "cpu",
+        },
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="gpt-5.5",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=lambda **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("provider returned HTTP 429")
+            )
+        ),
+        research_facility=SimpleNamespace(plan_candidates=lambda *_args: []),
+        store=store,
+        requested_by="pytest",
+        trace_id="trace-test",
+        run_cycle_id="run-cycle-test",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert response["provider_generation_attempt"]["status"] == "failed"
+    assert response["provider_generation_attempt"]["failure_kind"] == "rate_limited"
+    assert response["provider_generation_attempt"]["machine_target"] == "cpu-proxmox-1"
+    assert store.events[0]["event_type"] == "research.provider_generation.attempt"
+    assert store.events[0]["entity_type"] == "research_provider"
+    payload = store.events[0]["payload"]
+    assert payload["failure_kind"] == "rate_limited"
+    assert payload["provider_model"] == "gpt-5.5"
+    assert payload["lane_key"] == "http://cpu-worker:8787"
+
+
+def test_provider_generation_records_timeout_attempt_event():
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+
+    class _Store:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> None:
+            self.events.append(kwargs)
+
+        def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
+            return {}
+
+    store = _Store()
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={
+            "machine_target": "gb10",
+            "lane_key": "http://gb10-worker:8787",
+            "worker_role": "gpu",
+        },
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="gpt-5.5",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=lambda **_kwargs: (_ for _ in ()).throw(
+                TimeoutError("provider request timed out")
+            )
+        ),
+        research_facility=SimpleNamespace(plan_candidates=lambda *_args: []),
+        store=store,
+        requested_by="pytest",
+        trace_id="trace-timeout",
+        run_cycle_id="run-cycle-timeout",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert response["provider_generation_attempt"]["status"] == "failed"
+    assert response["provider_generation_attempt"]["failure_kind"] == "timeout"
+    assert store.events[0]["event_type"] == "research.provider_generation.attempt"
+    payload = store.events[0]["payload"]
+    assert payload["failure_kind"] == "timeout"
+    assert payload["machine_target"] == "gb10"
+    assert payload["error_type"] == "TimeoutError"
+
+
+def test_provider_generation_records_success_attempt_event():
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+
+    class _Plan:
+        admission_decision = "admitted"
+
+        def to_json(self) -> dict[str, str]:
+            return {"candidate_id": "candidate-1"}
+
+    class _Store:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> None:
+            self.events.append(kwargs)
+
+        def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
+            return {"inserted": 1}
+
+    store = _Store()
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={
+            "machine_target": "cpu-proxmox-1",
+            "lane_key": "http://cpu-worker:8787",
+            "worker_role": "cpu",
+        },
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="gpt-5.5",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=lambda **_kwargs: {
+                "provider_response_id": "resp-1",
+                "attempts_used": 1,
+                "candidates": [{"title": "candidate"}],
+            }
+        ),
+        research_facility=SimpleNamespace(plan_candidates=lambda *_args: [_Plan()]),
+        store=store,
+        requested_by="pytest",
+        trace_id="trace-success",
+        run_cycle_id="run-cycle-success",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert response["provider_generation_attempt"]["status"] == "success"
+    assert response["provider_generation_attempt"]["candidate_count"] == 1
+    assert response["provider_generation_attempt"]["planned_count"] == 1
+    payload = store.events[0]["payload"]
+    assert payload["status"] == "success"
+    assert payload["provider_response_id"] == "resp-1"
+    assert payload["planned_count"] == 1
 
 
 def test_lane_feed_limited_promotion_candidates_do_not_overfill_satisfied_gpu_lane():
