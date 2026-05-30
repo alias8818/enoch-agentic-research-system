@@ -198,6 +198,16 @@ def test_runtime_drift_report_checks_gb10_user_service() -> None:
     assert 'service_scope="user"' in script
 
 
+def test_deploy_script_restarts_gb10_user_service() -> None:
+    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'default_service_scope="user"' in script
+    assert 'service_scope="${ENOCH_DEPLOY_SERVICE_SCOPE:-$default_service_scope}"' in script
+    assert "systemctl --user restart" in script
+
+
 def test_operator_scripts_expose_help_without_network_calls() -> None:
     for script_name in (
         "deploy-enoch-runtime.sh",

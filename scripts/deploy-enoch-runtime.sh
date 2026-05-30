@@ -50,18 +50,21 @@ case "$profile" in
     default_runtime="/opt/enoch-control-plane"
     default_service="enoch-control-plane.service"
     default_uv="uv"
+    default_service_scope="system"
     ;;
   cpu-worker)
     default_host="root@enoch-worker-cpu-1"
     default_runtime="/opt/enoch-control-plane"
     default_service="enoch-cpu-worker.service"
     default_uv="/root/.local/bin/uv"
+    default_service_scope="system"
     ;;
   gb10-worker)
     default_host="100.92.44.26"
     default_runtime="/home/jeremy/projects/enoch_testing_ground/enoch-control-plane"
     default_service="enoch-worker-gate.service"
     default_uv="uv"
+    default_service_scope="user"
     ;;
   *)
     echo "unknown profile: $profile" >&2
@@ -73,6 +76,7 @@ esac
 host="${ENOCH_DEPLOY_HOST:-$default_host}"
 runtime="${ENOCH_DEPLOY_RUNTIME:-$default_runtime}"
 service="${ENOCH_DEPLOY_SERVICE:-$default_service}"
+service_scope="${ENOCH_DEPLOY_SERVICE_SCOPE:-$default_service_scope}"
 uv_bin="${ENOCH_DEPLOY_UV:-$default_uv}"
 source_dir="${ENOCH_DEPLOY_SOURCE:-$(pwd)}"
 
@@ -101,7 +105,18 @@ echo "installing editable package on $host"
 ssh "$host" "set -euo pipefail; cd '$runtime'; '$uv_bin' pip install --python .venv/bin/python -e ."
 
 echo "restarting $service on $host"
-ssh "$host" "sudo systemctl restart '$service'"
+case "$service_scope" in
+  system)
+    ssh "$host" "sudo systemctl restart '$service'"
+    ;;
+  user)
+    ssh "$host" "systemctl --user restart '$service'"
+    ;;
+  *)
+    echo "unknown ENOCH_DEPLOY_SERVICE_SCOPE: $service_scope" >&2
+    exit 2
+    ;;
+esac
 
 echo "validating runtime deploy on $host"
 ssh "$host" "set -euo pipefail; cd '$runtime'; python3 scripts/validate_runtime_deploy.py --source '$runtime' --runtime '$runtime' --summary-only"
