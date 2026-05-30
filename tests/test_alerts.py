@@ -3,8 +3,20 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import pytest
+
+from enoch_control_plane.control_plane import alerts
 from enoch_control_plane.control_plane.alerts import queue_alert_findings
 from enoch_control_plane.control_plane.models import DashboardObservationRecord
+
+
+@pytest.fixture(autouse=True)
+def no_research_quality_report(monkeypatch) -> None:
+    monkeypatch.setattr(
+        alerts,
+        "load_latest_quality_status",
+        lambda *_args, **_kwargs: {},
+    )
 
 
 def test_queue_alert_findings_normalizes_datetime_freshness_observed_at() -> None:
@@ -117,6 +129,79 @@ def test_queue_alert_findings_suppresses_live_dispatch_noise_during_hold() -> No
     )
 
     findings = queue_alert_findings(status, hang_after_sec=1)  # type: ignore[arg-type]
+
+    assert findings == []
+
+
+def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        alerts,
+        "load_latest_quality_status",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "status": "warnings",
+            "label": "warnings",
+            "severity_counts": {"warning": 2},
+            "problem_counts": {"weak_or_missing_evidence_strength": 2},
+            "report_path": "/tmp/research-quality.json",
+            "post_prompt_monitor": {
+                "malformed_provider_response_count": 7,
+                "useful_adjacent_followup_delta": -4.0,
+            },
+        },
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.severity == "warn"
+    assert finding.source == "research_quality"
+    assert finding.authority == "latest read-only DSPy/research-quality report"
+    assert finding.message == "research quality warnings present"
+    assert finding.data["status"] == "warnings"
+    assert finding.data["warning_problem_count"] == 2
+    assert finding.data["weak_evidence_count"] == 2
+    assert finding.data["malformed_provider_response_count"] == 7
+    assert finding.data["useful_adjacent_followup_delta"] == -4.0
+
+
+def test_queue_alert_findings_ignores_clean_research_quality(monkeypatch) -> None:
+    monkeypatch.setattr(
+        alerts,
+        "load_latest_quality_status",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "status": "clean",
+            "label": "clean",
+            "severity_counts": {},
+            "problem_counts": {},
+            "post_prompt_monitor": {
+                "malformed_provider_response_count": 0,
+                "useful_adjacent_followup_delta": 0.0,
+            },
+        },
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
 
     assert findings == []
 

@@ -11,6 +11,12 @@ from urllib import parse, request
 from ..config import GateConfig
 from ..enoch_core.store import IdempotencyConflict
 from ..models import utc_now
+from ..research_quality.status import (
+    DEFAULT_AUTOPILOT_HISTORY_PATH,
+    DEFAULT_REPORT_PATHS,
+    DEFAULT_WINDOW_REPORT_PATH,
+    load_latest_quality_status,
+)
 from ..timeutils import parse_utc_datetime
 from ..url_safety import validate_http_url
 from .models import DashboardFinding, DashboardStatusResponse
@@ -313,10 +319,104 @@ def _dedupe_alert_findings(findings: list[DashboardFinding]) -> list[DashboardFi
     return list(deduped.values())
 
 
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _latest_research_quality_status() -> dict[str, Any]:
+    configured = os.environ.get("ENOCH_RESEARCH_QUALITY_REPORT_PATH", "").strip()
+    paths = (
+        (configured, *DEFAULT_REPORT_PATHS) if configured else DEFAULT_REPORT_PATHS
+    )
+    try:
+        return load_latest_quality_status(
+            paths,
+            window_report_path=os.environ.get(
+                "ENOCH_RESEARCH_QUALITY_WINDOW_REPORT_PATH",
+                DEFAULT_WINDOW_REPORT_PATH,
+            ),
+            autopilot_history_path=os.environ.get(
+                "ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH",
+                DEFAULT_AUTOPILOT_HISTORY_PATH,
+            ),
+        )
+    except Exception:
+        return {}
+
+
+def _research_quality_alert_finding() -> DashboardFinding | None:
+    quality = _latest_research_quality_status()
+    if not quality.get("report_path"):
+        return None
+    status = str(quality.get("status") or "unknown").strip().lower()
+    problem_counts = quality.get("problem_counts") or {}
+    severity_counts = quality.get("severity_counts") or {}
+    monitor = quality.get("post_prompt_monitor") or {}
+    if not isinstance(problem_counts, dict):
+        problem_counts = {}
+    if not isinstance(severity_counts, dict):
+        severity_counts = {}
+    if not isinstance(monitor, dict):
+        monitor = {}
+    warning_count = _safe_int(severity_counts.get("warning"))
+    blocked_count = _safe_int(severity_counts.get("blocked"))
+    weak_evidence_count = _safe_int(
+        problem_counts.get("weak_or_missing_evidence_strength")
+    )
+    malformed_count = _safe_int(monitor.get("malformed_provider_response_count"))
+    useful_delta = _safe_float(monitor.get("useful_adjacent_followup_delta"))
+    degraded = (
+        status in {"blocked", "warnings"}
+        or blocked_count > 0
+        or warning_count > 0
+        or malformed_count > 0
+        or useful_delta < 0
+    )
+    if not degraded:
+        return None
+    if status == "blocked" or blocked_count > 0 or not bool(quality.get("ok")):
+        severity = "critical"
+        message = "research quality is blocked"
+    else:
+        severity = "warn"
+        message = "research quality warnings present"
+    return DashboardFinding(
+        severity=severity,
+        source="research_quality",
+        authority="latest read-only DSPy/research-quality report",
+        message=message,
+        observed_at=str(quality.get("report_mtime") or ""),
+        suggested_action="inspect the latest research-quality report before resuming unattended automation",
+        data={
+            "status": status,
+            "label": quality.get("label") or "",
+            "report_path": quality.get("report_path") or "",
+            "warning_problem_count": warning_count,
+            "blocked_problem_count": blocked_count,
+            "weak_evidence_count": weak_evidence_count,
+            "malformed_provider_response_count": malformed_count,
+            "useful_adjacent_followup_delta": useful_delta,
+        },
+    )
+
+
 def queue_alert_findings(
     status: DashboardStatusResponse, *, hang_after_sec: int
 ) -> list[DashboardFinding]:
     findings: list[DashboardFinding] = list(status.conflicts)
+    research_quality_finding = _research_quality_alert_finding()
+    if research_quality_finding is not None:
+        findings.append(research_quality_finding)
     flags = status.flags
     intentional_hold = flags.queue_paused or flags.maintenance_mode
     if intentional_hold:
