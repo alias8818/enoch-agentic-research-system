@@ -2785,9 +2785,7 @@ def research_signal_quality_snapshot(quality: Mapping[str, Any]) -> dict[str, An
         "proxy_only_positive_delta": _quality_value(
             monitor, "proxy_only_positive_delta", 0.0
         ),
-        "useful_adjacent_followup": _quality_count(
-            monitor, "useful_adjacent_followup"
-        ),
+        "useful_adjacent_followup": _quality_count(monitor, "useful_adjacent_followup"),
         "useful_adjacent_followup_delta": useful_delta,
         "moonshot_avg_score_delta": _quality_value(
             monitor, "moonshot_avg_score_delta", 0.0

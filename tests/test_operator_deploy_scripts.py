@@ -200,19 +200,18 @@ def test_runtime_drift_report_checks_gb10_user_service() -> None:
 
 
 def test_deploy_script_restarts_gb10_user_service() -> None:
-    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(
-        encoding="utf-8"
-    )
+    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
 
     assert 'default_service_scope="user"' in script
-    assert 'service_scope="${ENOCH_DEPLOY_SERVICE_SCOPE:-$default_service_scope}"' in script
+    assert (
+        'service_scope="${ENOCH_DEPLOY_SERVICE_SCOPE:-$default_service_scope}"'
+        in script
+    )
     assert "systemctl --user restart" in script
 
 
 def test_deploy_script_retries_worker_health_after_restart() -> None:
-    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(
-        encoding="utf-8"
-    )
+    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
 
     assert "for attempt in \\$(seq 1 30)" in script
     assert "curl -fsS http://127.0.0.1:8787/healthz" in script

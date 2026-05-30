@@ -206,7 +206,9 @@ def test_queue_alert_findings_ignores_clean_research_quality(monkeypatch) -> Non
     assert findings == []
 
 
-def test_queue_alert_notify_alerts_on_conflict_during_intentional_hold(tmp_path) -> None:
+def test_queue_alert_notify_alerts_on_conflict_during_intentional_hold(
+    tmp_path,
+) -> None:
     from enoch_control_plane.config import GateConfig
     from enoch_control_plane.control_plane.alerts import (
         evaluate_and_notify_queue_alerts,

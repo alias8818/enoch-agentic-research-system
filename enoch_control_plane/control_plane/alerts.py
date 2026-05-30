@@ -335,9 +335,7 @@ def _safe_float(value: Any) -> float:
 
 def _latest_research_quality_status() -> dict[str, Any]:
     configured = os.environ.get("ENOCH_RESEARCH_QUALITY_REPORT_PATH", "").strip()
-    paths = (
-        (configured, *DEFAULT_REPORT_PATHS) if configured else DEFAULT_REPORT_PATHS
-    )
+    paths = (configured, *DEFAULT_REPORT_PATHS) if configured else DEFAULT_REPORT_PATHS
     try:
         return load_latest_quality_status(
             paths,
