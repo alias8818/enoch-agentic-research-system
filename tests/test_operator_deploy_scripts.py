@@ -188,6 +188,16 @@ def test_runtime_drift_report_script_has_valid_bash_syntax() -> None:
     subprocess.run(["bash", "-n", str(script)], check=True)
 
 
+def test_runtime_drift_report_checks_gb10_user_service() -> None:
+    script = (ROOT / "scripts" / "enoch-runtime-drift-report.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'service_scope: str = "system"' in script
+    assert 'systemctl = "systemctl --user" if service_scope == "user"' in script
+    assert 'service_scope="user"' in script
+
+
 def test_operator_scripts_expose_help_without_network_calls() -> None:
     for script_name in (
         "deploy-enoch-runtime.sh",

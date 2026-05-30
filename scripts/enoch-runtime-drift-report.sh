@@ -182,7 +182,13 @@ PYREMOTE"""
     }
 
 
-def codex_snapshot(host: str, codex_home: str, *, service: str | None = None) -> dict[str, Any]:
+def codex_snapshot(
+    host: str,
+    codex_home: str,
+    *,
+    service: str | None = None,
+    service_scope: str = "system",
+) -> dict[str, Any]:
     command = rf"""python3 - <<'PYREMOTE'
 import hashlib, json, pathlib, shutil, subprocess
 home = pathlib.Path({codex_home!r})
@@ -237,7 +243,8 @@ PYREMOTE"""
         "error": remote["stderr"] or remote["stdout"],
     }
     if service:
-        active = ssh(host, f"systemctl is-active {service}", timeout=10)
+        systemctl = "systemctl --user" if service_scope == "user" else "systemctl"
+        active = ssh(host, f"{systemctl} is-active {service}", timeout=10)
         payload["service_active"] = active["stdout"] if active["ok"] else ""
     return payload
 
@@ -247,7 +254,12 @@ report = {
     "source": source_snapshot(),
     "control": control_snapshot(),
     "workers": {
-        "gb10": codex_snapshot(gb10_host, gb10_codex_home, service="enoch-worker-gate.service"),
+        "gb10": codex_snapshot(
+            gb10_host,
+            gb10_codex_home,
+            service="enoch-worker-gate.service",
+            service_scope="user",
+        ),
         "cpu": codex_snapshot(cpu_host, cpu_codex_home, service="enoch-cpu-worker.service"),
     },
 }

@@ -23,6 +23,7 @@ config.json
 *.sqlite3
 state/
 logs/
+reports/
 secrets/
 .DS_Store
 
