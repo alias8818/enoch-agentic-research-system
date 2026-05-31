@@ -3115,6 +3115,20 @@ def _quality_candidate_sample(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _quality_candidate_samples(value: Any, *, limit: int = 3) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    samples: list[dict[str, Any]] = []
+    for row in value:
+        if isinstance(row, Mapping):
+            sample = _quality_candidate_sample(row)
+            if sample["candidate_id"]:
+                samples.append(sample)
+        if len(samples) >= limit:
+            break
+    return samples
+
+
 def _quality_candidate_status_samples(value: Any) -> dict[str, list[dict[str, Any]]]:
     if not isinstance(value, Mapping):
         return {}
@@ -3123,17 +3137,7 @@ def _quality_candidate_status_samples(value: Any) -> dict[str, list[dict[str, An
         status_label = _text(status)
         if not status_label:
             continue
-        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
-            continue
-        status_samples: list[dict[str, Any]] = []
-        for row in rows:
-            if not isinstance(row, Mapping):
-                continue
-            sample = _quality_candidate_sample(row)
-            if sample["candidate_id"]:
-                status_samples.append(sample)
-            if len(status_samples) >= 3:
-                break
+        status_samples = _quality_candidate_samples(rows)
         if status_samples:
             samples[status_label] = status_samples
     return samples
@@ -3153,34 +3157,40 @@ def _quality_decision_sample(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _quality_decision_samples(value: Any, *, limit: int = 3) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    samples: list[dict[str, Any]] = []
+    for row in value:
+        if isinstance(row, Mapping):
+            sample = _quality_decision_sample(row)
+            if sample["project_id"] or sample["run_id"]:
+                samples.append(sample)
+        if len(samples) >= limit:
+            break
+    return samples
+
+
+def _quality_decision_outcome_sample(raw: Mapping[str, Any]) -> dict[str, Any] | None:
+    samples = _quality_decision_samples(raw.get("samples"))
+    if not samples:
+        return None
+    return {
+        "decision": _text(raw.get("decision")),
+        "hypothesis_status": _text(raw.get("hypothesis_status")),
+        "samples": samples,
+    }
+
+
 def _quality_decision_outcome_samples(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return []
     outcomes: list[dict[str, Any]] = []
     for raw in value:
-        if not isinstance(raw, Mapping):
-            continue
-        samples: list[dict[str, Any]] = []
-        raw_samples = raw.get("samples")
-        if isinstance(raw_samples, Sequence) and not isinstance(
-            raw_samples, (str, bytes)
-        ):
-            for row in raw_samples:
-                if not isinstance(row, Mapping):
-                    continue
-                sample = _quality_decision_sample(row)
-                if sample["project_id"] or sample["run_id"]:
-                    samples.append(sample)
-                if len(samples) >= 3:
-                    break
-        if samples:
-            outcomes.append(
-                {
-                    "decision": _text(raw.get("decision")),
-                    "hypothesis_status": _text(raw.get("hypothesis_status")),
-                    "samples": samples,
-                }
-            )
+        if isinstance(raw, Mapping):
+            outcome = _quality_decision_outcome_sample(raw)
+            if outcome:
+                outcomes.append(outcome)
     return outcomes
 
 
