@@ -423,6 +423,53 @@ it('shows research signal quality in the overview side rail', async () => {
           },
           operator_action: 'Global ranked follow-up and Research Quality window priority are different scopes; use the global action for queue selection and the quality-window sample for quality review.',
         },
+        research_output_readiness: {
+          state: 'blocked_by_quality_decline',
+          label: 'Research output readiness: blocked by quality decline',
+          blocked_by: 'research_quality',
+          hold_state: 'maintenance_hold',
+          failed_invariants: [
+            {
+              code: 'useful_followup_decline',
+              label: 'Useful follow-up signal must not decline',
+              current: 2,
+              required: '>= 6',
+              previous: 6,
+              delta: -4,
+            },
+            {
+              code: 'no_paper_ready_outputs',
+              label: 'At least one bounded paper-ready output is required',
+              current: 0,
+              required: '>= 1',
+              useful_signal_count: 2,
+              publication_posture: 'followup_only',
+            },
+          ],
+          affected_artifacts: [
+            {
+              source: 'useful_adjacent_followup_evidence.current',
+              project_id: 'post-project',
+              project_name: 'Current Project',
+              run_id: 'post-run',
+              title: 'Current follow-up',
+              case_id: 'useful_adjacent_followup:post-run',
+            },
+          ],
+          next_bounded_action: {
+            kind: 'investigate_followup',
+            title: 'Queue a follow-up investigation',
+            summary: '733 ranked follow-ups ready. Next: Exact-anchor ledger in a real tool-calling agent harness.',
+            action_label: 'Queue follow-up',
+            action_hash: '#research',
+            target: {
+              project_id: 'exact-anchor-ledger',
+              run_id: 'exact-anchor-ledger-run',
+              name: 'Exact-anchor ledger in a real tool-calling agent harness',
+            },
+          },
+          operator_action: 'Useful follow-up signal declined from 6 to 2; no bounded paper-ready outputs are available; queue bounded follow-up investigation: Queue a follow-up investigation. Maintenance mode is holding automation; clear it only after the research-quality blockers are resolved.',
+        },
         window_comparison: {
           cutoff: '2026-05-11T09:58:00Z',
           limit: 20,
@@ -483,6 +530,14 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('Useful trend')).toBeInTheDocument()
   expect(within(quality).getByText('-4')).toBeInTheDocument()
   expect(within(quality).getByText('quality=warnings; quality floor=review 2 below 0.70; quality-window posture=followup only (2 useful; 0 paper-ready); quality-window follow-ups=1 ready / 2 recommended; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)')).toBeInTheDocument()
+  expect(within(quality).getByText('Output readiness')).toBeInTheDocument()
+  expect(within(quality).getByText('Research output readiness: blocked by quality decline')).toBeInTheDocument()
+  expect(within(quality).getByText('blocked by research quality / maintenance hold')).toBeInTheDocument()
+  expect(within(quality).getByText('Useful follow-up signal must not decline: 2 / required >= 6 / previous 6 / delta -4')).toBeInTheDocument()
+  expect(within(quality).getByText('At least one bounded paper-ready output is required: 0 / required >= 1')).toBeInTheDocument()
+  expect(within(quality).getByText('Next bounded action: Queue a follow-up investigation')).toBeInTheDocument()
+  expect(within(quality).getByText('Affected: Current follow-up')).toBeInTheDocument()
+  expect(within(quality).getByText('Useful follow-up signal declined from 6 to 2; no bounded paper-ready outputs are available; queue bounded follow-up investigation: Queue a follow-up investigation. Maintenance mode is holding automation; clear it only after the research-quality blockers are resolved.')).toBeInTheDocument()
   expect(within(quality).getByText('Report age')).toBeInTheDocument()
   expect(within(quality).getByText('120.0h')).toBeInTheDocument()
   expect(within(quality).getByText('Signal verdict')).toBeInTheDocument()

@@ -21,7 +21,10 @@ from ..research_quality.status import (
 from ..timeutils import parse_utc_datetime
 from ..url_safety import validate_http_url
 from .models import DashboardFinding, DashboardStatusResponse
-from .read_models import research_signal_quality_snapshot
+from .read_models import (
+    research_output_readiness_contract,
+    research_signal_quality_snapshot,
+)
 from .research_quality_freshness import research_quality_report_freshness
 from .store import ControlPlaneStore
 
@@ -417,7 +420,11 @@ def _research_quality_degraded(status: str, counts: dict[str, Any]) -> bool:
 
 
 def _research_quality_alert_heading(
-    quality: dict[str, Any], status: str, counts: dict[str, Any], signal: dict[str, Any]
+    quality: dict[str, Any],
+    status: str,
+    counts: dict[str, Any],
+    signal: dict[str, Any],
+    readiness: dict[str, Any],
 ) -> tuple[str, str]:
     if (
         status == "blocked"
@@ -426,8 +433,29 @@ def _research_quality_alert_heading(
     ):
         return "critical", "research quality is blocked"
     if signal.get("signal_verdict") == "review_required":
+        failed = readiness.get("failed_invariants") or []
+        summary = _research_output_readiness_alert_summary(failed)
+        if summary:
+            return "warn", f"research signal requires review: {summary}"
         return "warn", "research signal requires review"
     return "warn", "research quality warnings present"
+
+
+def _research_output_readiness_alert_summary(failed: list[Any]) -> str:
+    by_code = {
+        str(item.get("code") or ""): item for item in failed if isinstance(item, dict)
+    }
+    parts: list[str] = []
+    followup = by_code.get("useful_followup_decline")
+    if followup:
+        parts.append(
+            "Useful follow-up signal declined from "
+            f"{_safe_int(followup.get('previous'))} to "
+            f"{_safe_int(followup.get('current'))}"
+        )
+    if "no_paper_ready_outputs" in by_code:
+        parts.append("no bounded paper-ready outputs are available")
+    return "; ".join(parts)
 
 
 def _research_quality_problem_details(quality: dict[str, Any]) -> list[dict[str, Any]]:
@@ -457,7 +485,10 @@ def _research_quality_problem_details(quality: dict[str, Any]) -> list[dict[str,
 
 def _research_quality_alert_suggested_action(
     operator_recommendations: list[Any],
+    readiness: dict[str, Any] | None = None,
 ) -> str:
+    if readiness and readiness.get("operator_action"):
+        return str(readiness.get("operator_action"))
     if operator_recommendations:
         return str(operator_recommendations[0])
     return "inspect the latest research-quality report before resuming unattended automation"
@@ -471,6 +502,7 @@ def _research_quality_alert_data(
     counts: dict[str, Any],
     signal: dict[str, Any],
     operator_recommendations: list[Any],
+    readiness: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "status": status,
@@ -483,6 +515,7 @@ def _research_quality_alert_data(
         "signal_label": signal.get("signal_label"),
         "signal_operator_action": signal.get("signal_operator_action"),
         "operator_summary": signal.get("operator_summary"),
+        "research_output_readiness": readiness,
         "signal_reasons": signal.get("signal_reasons") or [],
         "operator_recommendations": operator_recommendations,
         "candidate_status_counts": signal.get("candidate_status_counts") or {},
@@ -514,12 +547,22 @@ def _research_quality_alert_finding(
     report_path = str(quality.get("report_path") or "")
     if not report_path:
         return None
-    status = str(quality.get("status") or "unknown").strip().lower()
+    quality_status = str(quality.get("status") or "unknown").strip().lower()
     counts = _research_quality_signal_counts(quality)
-    if not _research_quality_degraded(status, counts):
+    if not _research_quality_degraded(quality_status, counts):
         return None
     signal = research_signal_quality_snapshot(quality)
-    severity, message = _research_quality_alert_heading(quality, status, counts, signal)
+    readiness = research_output_readiness_contract(
+        signal,
+        flags={
+            "queue_paused": bool(status.flags.queue_paused),
+            "maintenance_mode": bool(status.flags.maintenance_mode),
+        },
+    )
+    signal["research_output_readiness"] = readiness
+    severity, message = _research_quality_alert_heading(
+        quality, quality_status, counts, signal, readiness
+    )
     operator_recommendations = signal.get("operator_recommendations") or []
     return DashboardFinding(
         severity=severity,
@@ -528,15 +571,16 @@ def _research_quality_alert_finding(
         message=message,
         observed_at=str(quality.get("report_mtime") or ""),
         suggested_action=_research_quality_alert_suggested_action(
-            operator_recommendations
+            operator_recommendations, readiness
         ),
         data=_research_quality_alert_data(
             quality,
-            status=status,
+            status=quality_status,
             report_path=report_path,
             counts=counts,
             signal=signal,
             operator_recommendations=operator_recommendations,
+            readiness=readiness,
         ),
     )
 

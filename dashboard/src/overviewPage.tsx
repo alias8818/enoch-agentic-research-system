@@ -550,6 +550,46 @@ function ResearchQualitySignalVerdict({ quality }: Readonly<{ quality: ResearchS
   )
 }
 
+type ResearchOutputReadinessContract = NonNullable<ResearchSignalQuality['research_output_readiness']>
+type ResearchOutputReadinessInvariant = NonNullable<ResearchOutputReadinessContract['failed_invariants']>[number]
+type ResearchOutputReadinessArtifact = NonNullable<ResearchOutputReadinessContract['affected_artifacts']>[number]
+
+function readinessInvariantLabel(invariant: ResearchOutputReadinessInvariant): string {
+  const label = displayText(invariant.label || invariant.code, 'Unknown readiness invariant')
+  const current = displayText(invariant.current, 'unknown')
+  const required = displayText(invariant.required, 'unknown')
+  const previous = invariant.previous === undefined ? '' : ` / previous ${displayText(invariant.previous, 'unknown')}`
+  const delta = invariant.delta === undefined ? '' : ` / delta ${displayText(invariant.delta, 'unknown')}`
+  return `${label}: ${current} / required ${required}${previous}${delta}`
+}
+
+function readinessArtifactLabel(artifact: ResearchOutputReadinessArtifact): string {
+  return `Affected: ${displayText(artifact.title || artifact.project_name || artifact.run_id || artifact.project_id || artifact.case_id, 'unknown artifact')}`
+}
+
+function ResearchOutputReadiness({ readiness }: Readonly<{ readiness: ResearchSignalQuality['research_output_readiness'] }>) {
+  if (!readiness) return null
+  const failed = readiness.failed_invariants ?? []
+  const affected = readiness.affected_artifacts?.[0]
+  const nextAction = readiness.next_bounded_action
+  const blocker = readiness.blocked_by || readiness.hold_state
+    ? `blocked by ${portfolioLabel(displayText(readiness.blocked_by, 'none'))} / ${portfolioLabel(displayText(readiness.hold_state, 'none'))}`
+    : ''
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Output readiness</h4>
+      <p>{displayText(readiness.label || readiness.state, 'No output-readiness contract returned.')}</p>
+      {blocker ? <p>{blocker}</p> : null}
+      {failed.map((invariant) => (
+        <p key={invariant.code ?? invariant.label}>{readinessInvariantLabel(invariant)}</p>
+      ))}
+      {nextAction?.title ? <p>{`Next bounded action: ${nextAction.title}`}</p> : null}
+      {affected ? <p>{readinessArtifactLabel(affected)}</p> : null}
+      <p>{displayText(readiness.operator_action, 'Inspect Research Quality output readiness before resuming automation.')}</p>
+    </div>
+  )
+}
+
 function ResearchQualityProviderEvidence({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
   const providerEvidence = quality.recent_malformed_provider_responses?.[0]
   const postPromptWarning = quality.post_prompt_warning_details?.[0]
@@ -957,6 +997,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
         </div>
       </dl>
       <p>{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
+      <ResearchOutputReadiness readiness={quality.research_output_readiness} />
       <ResearchQualitySignalVerdict quality={quality} />
       <ResearchQualityProviderEvidence quality={quality} />
       <ResearchQualityProviderRecovery providerHealth={quality.provider_generation_health} />

@@ -576,10 +576,17 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
 
     assert len(findings) == 1
     finding = findings[0]
-    assert finding.message == "research signal requires review"
+    assert finding.message == (
+        "research signal requires review: Useful follow-up signal declined "
+        "from 6 to 2; no bounded paper-ready outputs are available"
+    )
     assert (
         finding.suggested_action
-        == "inspect provider-generation failures before trusting new idea volume"
+        == "Useful follow-up signal declined from 6 to 2; no bounded "
+        "paper-ready outputs are available; inspect provider-generation "
+        "failures before trusting new idea volume. Maintenance mode is "
+        "holding automation; clear it only after the research-quality blockers "
+        "are resolved."
     )
     assert finding.data["status"] == "clean"
     assert finding.data["operator_summary"] == (
@@ -617,6 +624,33 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             "inspect provider-generation output for the listed ticks before "
             "trusting new idea volume"
         ),
+    ]
+    assert finding.data["research_output_readiness"]["state"] == (
+        "blocked_by_quality_decline"
+    )
+    assert finding.data["research_output_readiness"]["blocked_by"] == (
+        "research_quality"
+    )
+    assert finding.data["research_output_readiness"]["hold_state"] == (
+        "maintenance_hold"
+    )
+    assert finding.data["research_output_readiness"]["failed_invariants"] == [
+        {
+            "code": "useful_followup_decline",
+            "label": "Useful follow-up signal must not decline",
+            "current": 2,
+            "required": ">= 6",
+            "previous": 6,
+            "delta": -4.0,
+        },
+        {
+            "code": "no_paper_ready_outputs",
+            "label": "At least one bounded paper-ready output is required",
+            "current": 0,
+            "required": ">= 1",
+            "useful_signal_count": 2,
+            "publication_posture": "followup_only",
+        },
     ]
     assert finding.data["signal_reasons"] == [
         {

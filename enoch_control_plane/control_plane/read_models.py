@@ -3898,6 +3898,243 @@ def _quality_signal_verdict(
     }
 
 
+def _quality_window_eval_count(
+    quality_snapshot: Mapping[str, Any], window: str, key: str
+) -> int:
+    comparison = _quality_mapping(quality_snapshot.get("window_comparison"))
+    row = _quality_mapping(comparison.get(window))
+    eval_counts = _quality_mapping(row.get("eval_case_counts"))
+    return _safe_count(eval_counts.get(key))
+
+
+def _research_output_next_action(
+    top_actions: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, Any]:
+    for action in top_actions or []:
+        if _text(action.get("kind")) != "investigate_followup":
+            continue
+        target = _quality_mapping(action.get("target"))
+        run_id = _text(target.get("run_id") or target.get("current_run_id"))
+        return {
+            "kind": _text(action.get("kind")),
+            "title": _text(action.get("title")),
+            "summary": _text(action.get("summary")),
+            "action_label": _text(action.get("action_label")),
+            "action_hash": _text(action.get("action_hash")),
+            "target": {
+                "project_id": _text(target.get("project_id")),
+                "run_id": run_id,
+                "name": _text(
+                    target.get("name")
+                    or target.get("project_name")
+                    or target.get("followup_title")
+                ),
+            },
+        }
+    return {}
+
+
+def _research_output_artifact(row: Mapping[str, Any], *, source: str) -> dict[str, Any]:
+    return {
+        "source": source,
+        "project_id": _text(row.get("project_id")),
+        "project_name": _text(row.get("project_name")),
+        "run_id": _text(row.get("run_id") or row.get("current_run_id")),
+        "title": _text(
+            row.get("followup_title") or row.get("title") or row.get("project_name")
+        ),
+        "case_id": _text(row.get("case_id")),
+    }
+
+
+def _research_output_affected_artifacts(
+    quality_snapshot: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    followup_evidence = _quality_mapping(
+        quality_snapshot.get("useful_adjacent_followup_evidence")
+    )
+    for source, rows in (
+        ("useful_adjacent_followup_evidence.current", followup_evidence.get("current")),
+        (
+            "decision_posture.representative_useful_signals",
+            _quality_mapping(quality_snapshot.get("decision_posture")).get(
+                "representative_useful_signals"
+            ),
+        ),
+    ):
+        for row in rows or []:
+            if not isinstance(row, Mapping):
+                continue
+            artifact = _research_output_artifact(row, source=source)
+            if any(artifact.get(key) for key in ("project_id", "run_id", "title")):
+                artifacts.append(artifact)
+            if len(artifacts) >= 5:
+                return artifacts
+    return artifacts
+
+
+def _research_output_failed_invariants(
+    quality_snapshot: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    failed: list[dict[str, Any]] = []
+    useful_delta = _quality_value(quality_snapshot, "useful_adjacent_followup_delta", 0)
+    current_followups = _quality_window_eval_count(
+        quality_snapshot, "current", "useful_adjacent_followup"
+    )
+    previous_followups = _quality_window_eval_count(
+        quality_snapshot, "previous", "useful_adjacent_followup"
+    )
+    if float(useful_delta) < 0:
+        failed.append(
+            {
+                "code": "useful_followup_decline",
+                "label": "Useful follow-up signal must not decline",
+                "current": current_followups,
+                "required": f">= {previous_followups}",
+                "previous": previous_followups,
+                "delta": float(useful_delta),
+            }
+        )
+    decision_posture = _quality_mapping(quality_snapshot.get("decision_posture"))
+    bounded_ready = _safe_count(decision_posture.get("bounded_paper_ready_count"))
+    useful_signals = _safe_count(decision_posture.get("useful_signal_count"))
+    if decision_posture.get("available") and useful_signals > 0 and bounded_ready < 1:
+        failed.append(
+            {
+                "code": "no_paper_ready_outputs",
+                "label": "At least one bounded paper-ready output is required",
+                "current": bounded_ready,
+                "required": ">= 1",
+                "useful_signal_count": useful_signals,
+                "publication_posture": _text(
+                    decision_posture.get("publication_posture")
+                ),
+            }
+        )
+    verdict = _text(quality_snapshot.get("signal_verdict"))
+    if verdict and verdict not in {"defensible", "review_required"} and not failed:
+        failed.append(
+            {
+                "code": "signal_verdict_not_defensible",
+                "label": "Research signal verdict must be defensible",
+                "current": verdict,
+                "required": "defensible",
+            }
+        )
+    return failed
+
+
+def _research_output_state(
+    *,
+    failed_invariants: Sequence[Mapping[str, Any]],
+    signal_verdict: str,
+    maintenance_hold: bool,
+) -> str:
+    failed_codes = {str(item.get("code") or "") for item in failed_invariants}
+    if "useful_followup_decline" in failed_codes:
+        return "blocked_by_quality_decline"
+    if "no_paper_ready_outputs" in failed_codes:
+        return "blocked_by_no_paper_ready_outputs"
+    if signal_verdict and signal_verdict != "defensible":
+        return "review_required"
+    if maintenance_hold:
+        return "maintenance_hold_ready"
+    return "ready"
+
+
+def _research_output_label(state: str) -> str:
+    labels = {
+        "ready": "Research output readiness: ready",
+        "review_required": "Research output readiness: review required",
+        "blocked_by_quality_decline": (
+            "Research output readiness: blocked by quality decline"
+        ),
+        "blocked_by_no_paper_ready_outputs": (
+            "Research output readiness: blocked by no paper-ready outputs"
+        ),
+        "maintenance_hold_ready": "Research output readiness: maintenance hold ready",
+    }
+    return labels.get(state, "Research output readiness: review required")
+
+
+def _research_output_operator_action(
+    *,
+    failed_invariants: Sequence[Mapping[str, Any]],
+    next_action: Mapping[str, Any],
+    hold_state: str,
+    fallback_action: str,
+) -> str:
+    parts: list[str] = []
+    by_code = {str(item.get("code") or ""): item for item in failed_invariants}
+    followup = by_code.get("useful_followup_decline")
+    if followup:
+        parts.append(
+            "Useful follow-up signal declined from "
+            f"{_safe_count(followup.get('previous'))} to "
+            f"{_safe_count(followup.get('current'))}"
+        )
+    if "no_paper_ready_outputs" in by_code:
+        parts.append("no bounded paper-ready outputs are available")
+    action_title = _text(next_action.get("title"))
+    if action_title:
+        parts.append(f"queue bounded follow-up investigation: {action_title}")
+    elif fallback_action and parts:
+        parts.append(fallback_action)
+    if not parts and fallback_action:
+        parts.append(fallback_action)
+    action = "; ".join(parts) if parts else "Research output readiness is clear"
+    if hold_state == "maintenance_hold":
+        action = (
+            f"{action}. "
+            "Maintenance mode is holding automation; clear it only after the "
+            "research-quality blockers are resolved."
+        )
+    elif not action.endswith("."):
+        action = f"{action}."
+    return action
+
+
+def research_output_readiness_contract(
+    quality_snapshot: Mapping[str, Any],
+    *,
+    flags: Mapping[str, Any] | None = None,
+    top_actions: Sequence[Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    flag_row = _quality_mapping(flags)
+    maintenance_hold = bool(
+        flag_row.get("maintenance_mode") or flag_row.get("queue_paused")
+    )
+    hold_state = "maintenance_hold" if maintenance_hold else "none"
+    failed = _research_output_failed_invariants(quality_snapshot)
+    signal_verdict = _text(quality_snapshot.get("signal_verdict"))
+    state = _research_output_state(
+        failed_invariants=failed,
+        signal_verdict=signal_verdict,
+        maintenance_hold=maintenance_hold,
+    )
+    next_action = _research_output_next_action(top_actions)
+    fallback_action = _text(quality_snapshot.get("signal_operator_action"))
+    return {
+        "state": state,
+        "label": _research_output_label(state),
+        "blocked_by": "research_quality"
+        if failed or state == "review_required"
+        else "",
+        "hold_state": hold_state,
+        "failed_invariants": list(failed),
+        "affected_artifacts": _research_output_affected_artifacts(quality_snapshot),
+        "next_bounded_action": next_action,
+        "operator_action": _research_output_operator_action(
+            failed_invariants=failed,
+            next_action=next_action,
+            hold_state=hold_state,
+            fallback_action=fallback_action,
+        ),
+        "signal_verdict": signal_verdict,
+    }
+
+
 def research_signal_quality_snapshot(
     quality: Mapping[str, Any], *, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -4385,6 +4622,13 @@ def overview(
     )
     if followup_alignment:
         research_signal_quality["followup_scope_alignment"] = followup_alignment
+    research_signal_quality["research_output_readiness"] = (
+        research_output_readiness_contract(
+            research_signal_quality,
+            flags=_flags_payload(flags),
+            top_actions=top_actions,
+        )
+    )
     return {
         "counts": {
             **counts,

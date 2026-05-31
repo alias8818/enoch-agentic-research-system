@@ -9,6 +9,7 @@ from hypothesis import given, settings, strategies as st
 from enoch_control_plane.control_plane.read_models import (
     operator_counts_from_rows,
     operator_detail_counts_from_rows,
+    research_output_readiness_contract,
     research_signal_quality_snapshot,
 )
 from enoch_control_plane.control_plane.state_contract import OperatorLane
@@ -597,6 +598,7 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
     )
 
     assert snapshot["signal_verdict"] == "review_required"
+
     assert snapshot["signal_label"] == "Research signal: review required"
     assert {item["code"] for item in snapshot["signal_reasons"]} == {
         "quality_warnings",
@@ -977,6 +979,134 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
     assert (
         "No critical quality-layer warnings"
         not in snapshot["operator_recommendations"][0]
+    )
+
+
+def test_research_output_readiness_contract_explains_quality_blockers() -> None:
+    quality_snapshot = {
+        "signal_verdict": "review_required",
+        "signal_label": "Research signal: review required",
+        "signal_operator_action": (
+            "review recent follow-up quality before increasing throughput"
+        ),
+        "useful_adjacent_followup_delta": -4.0,
+        "window_comparison": {
+            "current": {
+                "eval_case_counts": {"useful_adjacent_followup": 2},
+            },
+            "previous": {
+                "eval_case_counts": {"useful_adjacent_followup": 6},
+            },
+        },
+        "decision_posture": {
+            "available": True,
+            "useful_signal_count": 97,
+            "bounded_paper_ready_count": 0,
+            "publication_posture": "followup_only",
+            "representative_useful_signals": [
+                {
+                    "project_id": "exact-anchor-ledger",
+                    "project_name": "Exact-anchor ledger",
+                    "run_id": "exact-anchor-ledger-run",
+                    "followup_title": "Exact-anchor ledger follow-up",
+                    "recommended_next_action": "Queue the exact-anchor follow-up.",
+                }
+            ],
+        },
+        "provider_generation_health": {
+            "latest_yield_status": "backlog_satisfied",
+            "latest_tick": {
+                "generated_count": 0,
+                "promoted_count": 0,
+                "initial_promotable_count": 2,
+            },
+        },
+        "useful_adjacent_followup_evidence": {
+            "current": [
+                {
+                    "case_id": "useful_adjacent_followup:current-run",
+                    "project_id": "current-project",
+                    "project_name": "Current follow-up project",
+                    "run_id": "current-run",
+                    "followup_title": "Current follow-up",
+                }
+            ],
+            "previous": [],
+            "delta": -4.0,
+        },
+    }
+    readiness = research_output_readiness_contract(
+        quality_snapshot,
+        flags={"queue_paused": True, "maintenance_mode": True},
+        top_actions=[
+            {
+                "kind": "investigate_followup",
+                "title": "Queue a follow-up investigation",
+                "summary": (
+                    "733 ranked follow-ups ready. Next: Exact-anchor ledger "
+                    "in a real tool-calling agent harness."
+                ),
+                "action_label": "Queue follow-up",
+                "action_hash": "#research",
+                "target": {
+                    "project_id": "exact-anchor-ledger",
+                    "current_run_id": "exact-anchor-ledger-run",
+                    "name": "Exact-anchor ledger in a real tool-calling agent harness",
+                },
+            }
+        ],
+    )
+
+    assert readiness["state"] == "blocked_by_quality_decline"
+    assert readiness["blocked_by"] == "research_quality"
+    assert readiness["hold_state"] == "maintenance_hold"
+    assert readiness["next_bounded_action"] == {
+        "kind": "investigate_followup",
+        "title": "Queue a follow-up investigation",
+        "summary": (
+            "733 ranked follow-ups ready. Next: Exact-anchor ledger "
+            "in a real tool-calling agent harness."
+        ),
+        "action_label": "Queue follow-up",
+        "action_hash": "#research",
+        "target": {
+            "project_id": "exact-anchor-ledger",
+            "run_id": "exact-anchor-ledger-run",
+            "name": "Exact-anchor ledger in a real tool-calling agent harness",
+        },
+    }
+    assert readiness["failed_invariants"] == [
+        {
+            "code": "useful_followup_decline",
+            "label": "Useful follow-up signal must not decline",
+            "current": 2,
+            "required": ">= 6",
+            "previous": 6,
+            "delta": -4.0,
+        },
+        {
+            "code": "no_paper_ready_outputs",
+            "label": "At least one bounded paper-ready output is required",
+            "current": 0,
+            "required": ">= 1",
+            "useful_signal_count": 97,
+            "publication_posture": "followup_only",
+        },
+    ]
+    assert readiness["affected_artifacts"][0] == {
+        "source": "useful_adjacent_followup_evidence.current",
+        "project_id": "current-project",
+        "project_name": "Current follow-up project",
+        "run_id": "current-run",
+        "title": "Current follow-up",
+        "case_id": "useful_adjacent_followup:current-run",
+    }
+    assert readiness["operator_action"] == (
+        "Useful follow-up signal declined from 6 to 2; no bounded "
+        "paper-ready outputs are available; queue bounded follow-up "
+        "investigation: Queue a follow-up investigation. Maintenance mode "
+        "is holding automation; clear it only after the research-quality "
+        "blockers are resolved."
     )
 
 

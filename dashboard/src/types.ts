@@ -453,6 +453,44 @@ export interface OverviewResponse {
       status?: string
       active?: boolean
     }[]
+    research_output_readiness?: {
+      state?: string
+      label?: string
+      blocked_by?: string
+      hold_state?: string
+      failed_invariants?: {
+        code?: string
+        label?: string
+        current?: number | string
+        required?: number | string
+        previous?: number | string
+        delta?: number | string
+        useful_signal_count?: number
+        publication_posture?: string
+      }[]
+      affected_artifacts?: {
+        source?: string
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        title?: string
+        case_id?: string
+      }[]
+      next_bounded_action?: {
+        kind?: string
+        title?: string
+        summary?: string
+        action_label?: string
+        action_hash?: string
+        target?: {
+          project_id?: string
+          run_id?: string
+          name?: string
+        }
+      }
+      operator_action?: string
+      signal_verdict?: string
+    }
     refresh_ok?: boolean
     refresh_action?: string
     refresh_reason?: string
