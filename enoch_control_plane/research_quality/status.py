@@ -644,29 +644,13 @@ def _paper_readiness_blockers(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _decision_posture(decision_scores: Any) -> dict[str, Any]:
-    if not isinstance(decision_scores, list):
-        return {
-            "available": False,
-            "decisions_checked": 0,
-            "publication_posture": "unavailable",
-            "operator_action": _decision_posture_operator_action(
-                decision_count=0,
-                useful_signal_count=0,
-                bounded_paper_ready_count=0,
-            ),
-        }
-    rows = [row for row in decision_scores if isinstance(row, dict)]
+def _decision_posture_field_counts(
+    rows: list[dict[str, Any]],
+) -> tuple[Counter[str], Counter[str], Counter[str], Counter[str]]:
     outcome_counts: Counter[str] = Counter()
     hypothesis_counts: Counter[str] = Counter()
     evidence_counts: Counter[str] = Counter()
     decision_counts: Counter[str] = Counter()
-    useful_samples: list[dict[str, Any]] = []
-    useful_signal_count = 0
-    negative_count = 0
-    bounded_paper_ready_count = 0
-    followup_recommended_count = 0
-    compute_scale_blocked_count = 0
     for row in rows:
         decision = str(row.get("decision") or "").strip()
         hypothesis = str(row.get("hypothesis_status") or "").strip()
@@ -680,43 +664,84 @@ def _decision_posture(decision_scores: Any) -> dict[str, Any]:
             evidence_counts[evidence] += 1
         if decision:
             decision_counts[f"{decision}:{hypothesis or 'unknown'}"] += 1
-        if outcome == "useful_signal":
-            useful_signal_count += 1
-            if len(useful_samples) < 3:
-                useful_samples.append(_decision_posture_sample(row))
-        if outcome == "negative":
-            negative_count += 1
-        if as_bool(row.get("bounded_paper_ready")):
-            bounded_paper_ready_count += 1
-        if as_bool(row.get("followup_recommended")):
-            followup_recommended_count += 1
-        if as_bool(row.get("compute_scale_blocked")):
-            compute_scale_blocked_count += 1
+    return outcome_counts, hypothesis_counts, evidence_counts, decision_counts
+
+
+def _decision_posture_scalar_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "useful_signal_count": sum(
+            1
+            for row in rows
+            if str(row.get("research_outcome") or "").strip() == "useful_signal"
+        ),
+        "negative_count": sum(
+            1
+            for row in rows
+            if str(row.get("research_outcome") or "").strip() == "negative"
+        ),
+        "bounded_paper_ready_count": sum(
+            1 for row in rows if as_bool(row.get("bounded_paper_ready"))
+        ),
+        "followup_recommended_count": sum(
+            1 for row in rows if as_bool(row.get("followup_recommended"))
+        ),
+        "compute_scale_blocked_count": sum(
+            1 for row in rows if as_bool(row.get("compute_scale_blocked"))
+        ),
+    }
+
+
+def _decision_posture_useful_samples(
+    rows: list[dict[str, Any]], *, limit: int = 3
+) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for row in rows:
+        if str(row.get("research_outcome") or "").strip() != "useful_signal":
+            continue
+        samples.append(_decision_posture_sample(row))
+        if len(samples) >= limit:
+            break
+    return samples
+
+
+def _decision_posture(decision_scores: Any) -> dict[str, Any]:
+    if not isinstance(decision_scores, list):
+        return {
+            "available": False,
+            "decisions_checked": 0,
+            "publication_posture": "unavailable",
+            "operator_action": _decision_posture_operator_action(
+                decision_count=0,
+                useful_signal_count=0,
+                bounded_paper_ready_count=0,
+            ),
+        }
+    rows = [row for row in decision_scores if isinstance(row, dict)]
+    outcome_counts, hypothesis_counts, evidence_counts, decision_counts = (
+        _decision_posture_field_counts(rows)
+    )
+    scalar_counts = _decision_posture_scalar_counts(rows)
     decision_count = len(rows)
     return {
         "available": decision_count > 0,
         "decisions_checked": decision_count,
-        "useful_signal_count": useful_signal_count,
-        "negative_count": negative_count,
-        "bounded_paper_ready_count": bounded_paper_ready_count,
-        "followup_recommended_count": followup_recommended_count,
-        "compute_scale_blocked_count": compute_scale_blocked_count,
+        **scalar_counts,
         "publication_posture": _decision_publication_posture(
             decision_count=decision_count,
-            useful_signal_count=useful_signal_count,
-            bounded_paper_ready_count=bounded_paper_ready_count,
-            negative_count=negative_count,
+            useful_signal_count=scalar_counts["useful_signal_count"],
+            bounded_paper_ready_count=scalar_counts["bounded_paper_ready_count"],
+            negative_count=scalar_counts["negative_count"],
         ),
         "research_outcome_counts": dict(sorted(outcome_counts.items())),
         "hypothesis_status_counts": dict(sorted(hypothesis_counts.items())),
         "evidence_strength_counts": dict(sorted(evidence_counts.items())),
         "decision_counts": dict(sorted(decision_counts.items())),
         "paper_readiness_blockers": _paper_readiness_blockers(rows),
-        "representative_useful_signals": useful_samples,
+        "representative_useful_signals": _decision_posture_useful_samples(rows),
         "operator_action": _decision_posture_operator_action(
             decision_count=decision_count,
-            useful_signal_count=useful_signal_count,
-            bounded_paper_ready_count=bounded_paper_ready_count,
+            useful_signal_count=scalar_counts["useful_signal_count"],
+            bounded_paper_ready_count=scalar_counts["bounded_paper_ready_count"],
         ),
     }
 
