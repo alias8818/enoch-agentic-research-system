@@ -455,6 +455,58 @@ def _research_quality_problem_details(quality: dict[str, Any]) -> list[dict[str,
     return details
 
 
+def _research_quality_alert_suggested_action(
+    operator_recommendations: list[Any],
+) -> str:
+    if operator_recommendations:
+        return str(operator_recommendations[0])
+    return "inspect the latest research-quality report before resuming unattended automation"
+
+
+def _research_quality_alert_data(
+    quality: dict[str, Any],
+    *,
+    status: str,
+    report_path: str,
+    counts: dict[str, Any],
+    signal: dict[str, Any],
+    operator_recommendations: list[Any],
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "label": quality.get("label") or "",
+        "report_path": report_path,
+        **research_quality_report_freshness(quality.get("report_mtime")),
+        **counts,
+        "top_problem_details": _research_quality_problem_details(quality),
+        "signal_verdict": signal.get("signal_verdict"),
+        "signal_label": signal.get("signal_label"),
+        "signal_operator_action": signal.get("signal_operator_action"),
+        "operator_summary": signal.get("operator_summary"),
+        "signal_reasons": signal.get("signal_reasons") or [],
+        "operator_recommendations": operator_recommendations,
+        "candidate_status_counts": signal.get("candidate_status_counts") or {},
+        "decision_outcome_counts": signal.get("decision_outcome_counts") or [],
+        "top_candidate_categories": signal.get("top_candidate_categories") or [],
+        "candidate_status_samples": signal.get("candidate_status_samples") or {},
+        "decision_outcome_samples": signal.get("decision_outcome_samples") or [],
+        "quality_floor": signal.get("quality_floor") or {},
+        "decision_posture": signal.get("decision_posture") or {},
+        "followup_readiness": signal.get("followup_readiness") or {},
+        "window_comparison": signal.get("window_comparison") or {},
+        "provider_generation_health": signal.get("provider_generation_health") or {},
+        "post_prompt_warning_details": signal.get("post_prompt_warning_details") or [],
+        "recent_malformed_provider_responses": signal.get(
+            "recent_malformed_provider_responses"
+        )
+        or [],
+        "useful_adjacent_followup_evidence": signal.get(
+            "useful_adjacent_followup_evidence"
+        )
+        or {"current": [], "previous": [], "delta": 0.0},
+    }
+
+
 def _research_quality_alert_finding(
     status: DashboardStatusResponse,
 ) -> DashboardFinding | None:
@@ -469,53 +521,23 @@ def _research_quality_alert_finding(
     signal = research_signal_quality_snapshot(quality)
     severity, message = _research_quality_alert_heading(quality, status, counts, signal)
     operator_recommendations = signal.get("operator_recommendations") or []
-    suggested_action = (
-        operator_recommendations[0]
-        if operator_recommendations
-        else "inspect the latest research-quality report before resuming unattended automation"
-    )
     return DashboardFinding(
         severity=severity,
         source="research_quality",
         authority="latest read-only DSPy/research-quality report",
         message=message,
         observed_at=str(quality.get("report_mtime") or ""),
-        suggested_action=suggested_action,
-        data={
-            "status": status,
-            "label": quality.get("label") or "",
-            "report_path": report_path,
-            **research_quality_report_freshness(quality.get("report_mtime")),
-            **counts,
-            "top_problem_details": _research_quality_problem_details(quality),
-            "signal_verdict": signal.get("signal_verdict"),
-            "signal_label": signal.get("signal_label"),
-            "signal_operator_action": signal.get("signal_operator_action"),
-            "operator_summary": signal.get("operator_summary"),
-            "signal_reasons": signal.get("signal_reasons") or [],
-            "operator_recommendations": operator_recommendations,
-            "candidate_status_counts": signal.get("candidate_status_counts") or {},
-            "decision_outcome_counts": signal.get("decision_outcome_counts") or [],
-            "top_candidate_categories": signal.get("top_candidate_categories") or [],
-            "candidate_status_samples": signal.get("candidate_status_samples") or {},
-            "decision_outcome_samples": signal.get("decision_outcome_samples") or [],
-            "quality_floor": signal.get("quality_floor") or {},
-            "decision_posture": signal.get("decision_posture") or {},
-            "followup_readiness": signal.get("followup_readiness") or {},
-            "window_comparison": signal.get("window_comparison") or {},
-            "provider_generation_health": signal.get("provider_generation_health")
-            or {},
-            "post_prompt_warning_details": signal.get("post_prompt_warning_details")
-            or [],
-            "recent_malformed_provider_responses": signal.get(
-                "recent_malformed_provider_responses"
-            )
-            or [],
-            "useful_adjacent_followup_evidence": signal.get(
-                "useful_adjacent_followup_evidence"
-            )
-            or {"current": [], "previous": [], "delta": 0.0},
-        },
+        suggested_action=_research_quality_alert_suggested_action(
+            operator_recommendations
+        ),
+        data=_research_quality_alert_data(
+            quality,
+            status=status,
+            report_path=report_path,
+            counts=counts,
+            signal=signal,
+            operator_recommendations=operator_recommendations,
+        ),
     )
 
 

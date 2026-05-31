@@ -1385,6 +1385,17 @@ def test_has_idle_lane_dispatch_opportunity_s3776_helpers_extracted() -> None:
     assert _has_idle_lane_dispatch_opportunity(status) is True  # type: ignore[arg-type]
 
 
+def test_research_quality_alert_finding_s3776_helpers_extracted() -> None:
+    """Guard the Research Quality alert path against returning to one large branch/data builder."""
+    from pathlib import Path
+
+    src = Path("enoch_control_plane/control_plane/alerts.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def _research_quality_alert_suggested_action(" in src
+    assert "def _research_quality_alert_data(" in src
+
+
 def test_send_pushover_rejects_non_http_api_url_before_urlopen(
     monkeypatch, tmp_path
 ) -> None:
