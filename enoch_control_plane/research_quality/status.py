@@ -900,6 +900,51 @@ def _followup_readiness_operator_action(
     )
 
 
+def _followup_missing_fields(row: dict[str, Any]) -> list[str]:
+    missing_fields: list[str] = []
+    if not str(row.get("followup_title") or "").strip():
+        missing_fields.append("missing_title")
+    if not str(row.get("followup_success_threshold") or "").strip():
+        missing_fields.append("missing_success_threshold")
+    if not str(row.get("followup_stop_condition") or "").strip():
+        missing_fields.append("missing_stop_condition")
+    if _followup_required_evidence_count(row) < 2:
+        missing_fields.append("thin_required_evidence")
+    return missing_fields
+
+
+def _followup_readiness_rows(decision_scores: list[Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in decision_scores:
+        if not isinstance(row, dict) or not as_bool(row.get("followup_recommended")):
+            continue
+        followup_type = str(row.get("followup_type") or "unknown").strip() or "unknown"
+        rows.append(
+            {
+                "row": row,
+                "followup_type": followup_type,
+                "missing_fields": _followup_missing_fields(row),
+            }
+        )
+    return rows
+
+
+def _followup_readiness_missing_counts(
+    readiness_rows: list[dict[str, Any]],
+) -> dict[str, int]:
+    counts = Counter(
+        field
+        for item in readiness_rows
+        for field in item.get("missing_fields", [])
+    )
+    return {
+        "missing_title_count": counts["missing_title"],
+        "missing_success_threshold_count": counts["missing_success_threshold"],
+        "missing_stop_condition_count": counts["missing_stop_condition"],
+        "thin_required_evidence_count": counts["thin_required_evidence"],
+    }
+
+
 def _followup_readiness(decision_scores: Any) -> dict[str, Any]:
     empty = {
         "available": False,
@@ -921,63 +966,35 @@ def _followup_readiness(decision_scores: Any) -> dict[str, Any]:
     }
     if not isinstance(decision_scores, list):
         return empty
-    type_counts: Counter[str] = Counter()
-    ready_followups: list[dict[str, Any]] = []
-    ready_rows: list[dict[str, Any]] = []
-    underspecified_followups: list[dict[str, Any]] = []
-    missing_title_count = 0
-    missing_success_threshold_count = 0
-    missing_stop_condition_count = 0
-    thin_required_evidence_count = 0
-    recommended_count = 0
-    bounded_ready_count = 0
-    for row in decision_scores:
-        if not isinstance(row, dict) or not as_bool(row.get("followup_recommended")):
-            continue
-        recommended_count += 1
-        followup_type = str(row.get("followup_type") or "unknown").strip() or "unknown"
-        type_counts[followup_type] += 1
-        required_evidence_count = _followup_required_evidence_count(row)
-        missing_fields: list[str] = []
-        if not str(row.get("followup_title") or "").strip():
-            missing_title_count += 1
-            missing_fields.append("missing_title")
-        if not str(row.get("followup_success_threshold") or "").strip():
-            missing_success_threshold_count += 1
-            missing_fields.append("missing_success_threshold")
-        if not str(row.get("followup_stop_condition") or "").strip():
-            missing_stop_condition_count += 1
-            missing_fields.append("missing_stop_condition")
-        if required_evidence_count < 2:
-            thin_required_evidence_count += 1
-            missing_fields.append("thin_required_evidence")
-        if missing_fields:
-            if len(underspecified_followups) < 3:
-                underspecified_followups.append(
-                    _followup_readiness_sample(row, missing_fields=missing_fields)
-                )
-        else:
-            bounded_ready_count += 1
-            ready_rows.append(row)
-            if len(ready_followups) < 3:
-                ready_followups.append(_followup_readiness_sample(row))
+    readiness_rows = _followup_readiness_rows(decision_scores)
+    ready_items = [item for item in readiness_rows if not item["missing_fields"]]
+    underspecified_items = [item for item in readiness_rows if item["missing_fields"]]
+    ready_rows = [item["row"] for item in ready_items]
+    type_counts = Counter(item["followup_type"] for item in readiness_rows)
+    missing_counts = _followup_readiness_missing_counts(readiness_rows)
+    recommended_count = len(readiness_rows)
+    bounded_ready_count = len(ready_items)
     underspecified_count = recommended_count - bounded_ready_count
     return {
         "available": recommended_count > 0,
         "recommended_count": recommended_count,
         "bounded_ready_count": bounded_ready_count,
         "underspecified_count": underspecified_count,
-        "missing_title_count": missing_title_count,
-        "missing_success_threshold_count": missing_success_threshold_count,
-        "missing_stop_condition_count": missing_stop_condition_count,
-        "thin_required_evidence_count": thin_required_evidence_count,
+        **missing_counts,
         "followup_type_counts": dict(sorted(type_counts.items())),
-        "ready_followups": ready_followups,
+        "ready_followups": [
+            _followup_readiness_sample(item["row"]) for item in ready_items[:3]
+        ],
         "prioritized_followups": [
             _prioritized_followup_sample(row)
             for row in sorted(ready_rows, key=_followup_priority_key)[:3]
         ],
-        "underspecified_followups": underspecified_followups,
+        "underspecified_followups": [
+            _followup_readiness_sample(
+                item["row"], missing_fields=item["missing_fields"]
+            )
+            for item in underspecified_items[:3]
+        ],
         "operator_action": _followup_readiness_operator_action(
             recommended_count=recommended_count,
             underspecified_count=underspecified_count,

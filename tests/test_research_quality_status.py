@@ -113,6 +113,16 @@ def test_decision_posture_s3776_helpers_extracted() -> None:
     assert "def _decision_posture_useful_samples(" in source
 
 
+def test_followup_readiness_s3776_helpers_extracted() -> None:
+    source = Path("enoch_control_plane/research_quality/status.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "def _followup_readiness_rows(" in source
+    assert "def _followup_missing_fields(" in source
+    assert "def _followup_readiness_missing_counts(" in source
+
+
 def test_quality_report_exposes_quality_floor_review_required() -> None:
     report = _report_with_decision("")
     report["summary"]["candidate_count"] = 2
