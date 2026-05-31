@@ -239,6 +239,47 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                 {"category": "home-training", "count": 22},
                 {"category": "spec-decoding", "count": 18},
             ],
+            "candidate_status_samples": {
+                "admitted": [
+                    {
+                        "candidate_id": "candidate-admitted",
+                        "title": "Admitted candidate",
+                        "status": "admitted",
+                        "deterministic_total_score": 76.4,
+                        "contract_quality_score": 1.0,
+                        "problems": [],
+                    }
+                ],
+                "needs_review": [
+                    {
+                        "candidate_id": "candidate-needs-review",
+                        "title": "Needs review candidate",
+                        "status": "needs_review",
+                        "deterministic_total_score": 64.2,
+                        "contract_quality_score": 0.5,
+                        "problems": ["thin_expected_artifacts"],
+                    }
+                ],
+            },
+            "decision_outcome_samples": [
+                {
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "samples": [
+                        {
+                            "project_id": "project-mixed",
+                            "project_name": "Mixed project",
+                            "run_id": "run-mixed",
+                            "decision": "finalize_negative",
+                            "hypothesis_status": "mixed",
+                            "evidence_strength": "moderate",
+                            "research_outcome": "useful_signal",
+                            "followup_title": "Mixed follow-up",
+                            "problems": [],
+                        }
+                    ],
+                }
+            ],
             "report_mtime": "2026-05-31T00:22:14Z",
             "report_path": str(report_path),
             "post_prompt_monitor": {
@@ -400,6 +441,47 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
     assert finding.data["top_candidate_categories"] == [
         {"category": "home-training", "count": 22},
         {"category": "spec-decoding", "count": 18},
+    ]
+    assert finding.data["candidate_status_samples"] == {
+        "admitted": [
+            {
+                "candidate_id": "candidate-admitted",
+                "title": "Admitted candidate",
+                "status": "admitted",
+                "deterministic_total_score": 76.4,
+                "contract_quality_score": 1.0,
+                "problems": [],
+            }
+        ],
+        "needs_review": [
+            {
+                "candidate_id": "candidate-needs-review",
+                "title": "Needs review candidate",
+                "status": "needs_review",
+                "deterministic_total_score": 64.2,
+                "contract_quality_score": 0.5,
+                "problems": ["thin_expected_artifacts"],
+            }
+        ],
+    }
+    assert finding.data["decision_outcome_samples"] == [
+        {
+            "decision": "finalize_negative",
+            "hypothesis_status": "mixed",
+            "samples": [
+                {
+                    "project_id": "project-mixed",
+                    "project_name": "Mixed project",
+                    "run_id": "run-mixed",
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "evidence_strength": "moderate",
+                    "research_outcome": "useful_signal",
+                    "followup_title": "Mixed follow-up",
+                    "problems": [],
+                }
+            ],
+        }
     ]
 
 

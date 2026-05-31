@@ -201,6 +201,9 @@ type MalformedProviderEvidence = NonNullable<ResearchSignalQuality['recent_malfo
 type UsefulFollowupEvidence = NonNullable<NonNullable<ResearchSignalQuality['useful_adjacent_followup_evidence']>['current']>[number]
 type DecisionOutcomeCount = NonNullable<ResearchSignalQuality['decision_outcome_counts']>[number]
 type CandidateCategoryCount = NonNullable<ResearchSignalQuality['top_candidate_categories']>[number]
+type CandidateStatusSample = NonNullable<ResearchSignalQuality['candidate_status_samples']>[string][number]
+type DecisionOutcomeSampleGroup = NonNullable<ResearchSignalQuality['decision_outcome_samples']>[number]
+type DecisionOutcomeSample = NonNullable<DecisionOutcomeSampleGroup['samples']>[number]
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
@@ -234,6 +237,25 @@ function categoryCountLabel(row: CandidateCategoryCount): string {
   return `${portfolioLabel(row.category)} ${String(row.count ?? 0)}`
 }
 
+function candidateStatusSampleTitle(status: string, row: CandidateStatusSample): string {
+  return `${portfolioLabel(status)}: ${displayText(row.title, 'Unnamed candidate')}`
+}
+
+function candidateStatusSampleId(row: CandidateStatusSample): string {
+  return displayText(row.candidate_id, 'unknown candidate')
+}
+
+function decisionOutcomeSampleTitle(group: DecisionOutcomeSampleGroup, row: DecisionOutcomeSample): string {
+  return `${portfolioLabel(group.decision)} / ${portfolioLabel(group.hypothesis_status)}: ${displayText(row.project_name || row.followup_title, 'Unnamed project')}`
+}
+
+function decisionOutcomeSampleId(row: DecisionOutcomeSample): string {
+  return [
+    displayText(row.project_id, ''),
+    displayText(row.run_id, ''),
+  ].filter(Boolean).join(' / ') || displayText(row.followup_title, 'unknown run')
+}
+
 function qualityStatusClass(status: string | undefined, ok: boolean | undefined): string {
   if (status === 'blocked' || ok === false) return 'quality-pill quality-pill--bad'
   if (status === 'warnings') return 'quality-pill quality-pill--warn'
@@ -263,6 +285,13 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const decisionOutcomeCounts = quality.decision_outcome_counts?.slice(0, 2) ?? []
   const topCandidateCategories = quality.top_candidate_categories?.slice(0, 2) ?? []
   const hasPortfolioComposition = candidateStatusCounts.length > 0 || decisionOutcomeCounts.length > 0 || topCandidateCategories.length > 0
+  const candidateStatusSamples = Object.entries(quality.candidate_status_samples ?? {})
+    .flatMap(([status, rows]) => rows.slice(0, 1).map((row) => ({ status, row })))
+    .slice(0, 3)
+  const decisionOutcomeSamples = (quality.decision_outcome_samples ?? [])
+    .flatMap((group) => (group.samples ?? []).slice(0, 1).map((row) => ({ group, row })))
+    .slice(0, 2)
+  const hasPortfolioEvidence = candidateStatusSamples.length > 0 || decisionOutcomeSamples.length > 0
   return (
     <section className="quality-snapshot" aria-label="Research signal quality">
       <div>
@@ -339,6 +368,23 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
           ))}
           {topCandidateCategories.map((row) => (
             <p key={row.category ?? 'unknown'}>{categoryCountLabel(row)}</p>
+          ))}
+        </div>
+      ) : null}
+      {hasPortfolioEvidence ? (
+        <div className="quality-snapshot-detail">
+          <h4>Portfolio evidence</h4>
+          {candidateStatusSamples.map(({ status, row }) => (
+            <div key={`${status}-${row.candidate_id ?? row.title ?? 'candidate'}`}>
+              <p>{candidateStatusSampleTitle(status, row)}</p>
+              <p>{candidateStatusSampleId(row)}</p>
+            </div>
+          ))}
+          {decisionOutcomeSamples.map(({ group, row }) => (
+            <div key={`${group.decision ?? 'unknown'}-${group.hypothesis_status ?? 'unknown'}-${row.run_id ?? row.project_id ?? row.project_name ?? 'run'}`}>
+              <p>{decisionOutcomeSampleTitle(group, row)}</p>
+              <p>{decisionOutcomeSampleId(row)}</p>
+            </div>
           ))}
         </div>
       ) : null}

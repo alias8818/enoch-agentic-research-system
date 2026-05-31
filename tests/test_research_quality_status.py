@@ -112,6 +112,48 @@ def test_quality_report_portfolio_summary_survives_classification() -> None:
             ],
         }
     )
+    report["candidate_scores"] = [
+        {
+            "candidate_id": "candidate-admitted",
+            "title": "Admitted candidate",
+            "status": "admitted",
+            "deterministic_total_score": 76.4,
+            "contract_quality_score": 1.0,
+            "problems": [],
+        },
+        {
+            "candidate_id": "candidate-needs-review",
+            "title": "Needs review candidate",
+            "status": "needs_review",
+            "deterministic_total_score": 64.2,
+            "contract_quality_score": 0.5,
+            "problems": ["thin_expected_artifacts"],
+        },
+    ]
+    report["decision_scores"] = [
+        {
+            "project_id": "project-mixed",
+            "project_name": "Mixed project",
+            "run_id": "run-mixed",
+            "decision": "finalize_negative",
+            "hypothesis_status": "mixed",
+            "evidence_strength": "moderate",
+            "research_outcome": "useful_signal",
+            "followup_title": "Mixed follow-up",
+            "problems": [],
+        },
+        {
+            "project_id": "project-supported",
+            "project_name": "Supported project",
+            "run_id": "run-supported",
+            "decision": "finalize_negative",
+            "hypothesis_status": "supported",
+            "evidence_strength": "moderate",
+            "research_outcome": "useful_signal",
+            "followup_title": "Supported follow-up",
+            "problems": [],
+        },
+    ]
 
     status = classify_quality_report(report)
 
@@ -135,6 +177,64 @@ def test_quality_report_portfolio_summary_survives_classification() -> None:
     assert status["top_candidate_categories"] == [
         {"category": "home-training", "count": 22},
         {"category": "spec-decoding", "count": 18},
+    ]
+    assert status["candidate_status_samples"] == {
+        "admitted": [
+            {
+                "candidate_id": "candidate-admitted",
+                "title": "Admitted candidate",
+                "status": "admitted",
+                "deterministic_total_score": 76.4,
+                "contract_quality_score": 1.0,
+                "problems": [],
+            }
+        ],
+        "needs_review": [
+            {
+                "candidate_id": "candidate-needs-review",
+                "title": "Needs review candidate",
+                "status": "needs_review",
+                "deterministic_total_score": 64.2,
+                "contract_quality_score": 0.5,
+                "problems": ["thin_expected_artifacts"],
+            }
+        ],
+    }
+    assert status["decision_outcome_samples"] == [
+        {
+            "decision": "finalize_negative",
+            "hypothesis_status": "mixed",
+            "samples": [
+                {
+                    "project_id": "project-mixed",
+                    "project_name": "Mixed project",
+                    "run_id": "run-mixed",
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "evidence_strength": "moderate",
+                    "research_outcome": "useful_signal",
+                    "followup_title": "Mixed follow-up",
+                    "problems": [],
+                }
+            ],
+        },
+        {
+            "decision": "finalize_negative",
+            "hypothesis_status": "supported",
+            "samples": [
+                {
+                    "project_id": "project-supported",
+                    "project_name": "Supported project",
+                    "run_id": "run-supported",
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "supported",
+                    "evidence_strength": "moderate",
+                    "research_outcome": "useful_signal",
+                    "followup_title": "Supported follow-up",
+                    "problems": [],
+                }
+            ],
+        },
     ]
 
 

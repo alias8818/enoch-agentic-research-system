@@ -103,6 +103,29 @@ export interface OverviewResponse {
       category?: string
       count?: number
     }[]
+    candidate_status_samples?: Record<string, {
+      candidate_id?: string
+      title?: string
+      status?: string
+      deterministic_total_score?: number
+      contract_quality_score?: number
+      problems?: string[]
+    }[]>
+    decision_outcome_samples?: {
+      decision?: string
+      hypothesis_status?: string
+      samples?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        decision?: string
+        hypothesis_status?: string
+        evidence_strength?: string
+        research_outcome?: string
+        followup_title?: string
+        problems?: string[]
+      }[]
+    }[]
     weak_evidence_count?: number
     warning_problem_count?: number
     blocked_problem_count?: number

@@ -115,6 +115,28 @@ it('parses command-center overview, status, and readiness payloads', () => {
         category: 'home-training',
         count: 22,
       }],
+      candidate_status_samples: {
+        admitted: [{
+          candidate_id: 'candidate-admitted',
+          title: 'Admitted candidate',
+          status: 'admitted',
+          deterministic_total_score: 76.4,
+          contract_quality_score: 1,
+          problems: [],
+        }],
+      },
+      decision_outcome_samples: [{
+        decision: 'finalize_negative',
+        hypothesis_status: 'mixed',
+        samples: [{
+          project_id: 'project-mixed',
+          project_name: 'Mixed project',
+          run_id: 'run-mixed',
+          evidence_strength: 'moderate',
+          followup_title: 'Mixed follow-up',
+          problems: [],
+        }],
+      }],
       operator_recommendations: [
         'inspect provider-generation failures before trusting new idea volume',
       ],
@@ -157,6 +179,20 @@ it('parses command-center overview, status, and readiness payloads', () => {
     top_candidate_categories: [{
       category: 'home-training',
       count: 22,
+    }],
+    candidate_status_samples: {
+      admitted: [{
+        candidate_id: 'candidate-admitted',
+        title: 'Admitted candidate',
+      }],
+    },
+    decision_outcome_samples: [{
+      decision: 'finalize_negative',
+      hypothesis_status: 'mixed',
+      samples: [{
+        project_id: 'project-mixed',
+        run_id: 'run-mixed',
+      }],
     }],
     operator_recommendations: [
       'inspect provider-generation failures before trusting new idea volume',

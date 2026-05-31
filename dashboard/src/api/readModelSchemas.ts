@@ -182,6 +182,33 @@ const candidateCategoryCountSchema = z.object({
   count: z.number().optional(),
 }).passthrough()
 
+const candidateStatusSampleSchema = z.object({
+  candidate_id: z.string().optional(),
+  title: z.string().optional(),
+  status: z.string().optional(),
+  deterministic_total_score: z.number().optional(),
+  contract_quality_score: z.number().optional(),
+  problems: z.array(z.string()).optional(),
+}).passthrough()
+
+const decisionOutcomeSampleRowSchema = z.object({
+  project_id: z.string().optional(),
+  project_name: z.string().optional(),
+  run_id: z.string().optional(),
+  decision: z.string().optional(),
+  hypothesis_status: z.string().optional(),
+  evidence_strength: z.string().optional(),
+  research_outcome: z.string().optional(),
+  followup_title: z.string().optional(),
+  problems: z.array(z.string()).optional(),
+}).passthrough()
+
+const decisionOutcomeSampleGroupSchema = z.object({
+  decision: z.string().optional(),
+  hypothesis_status: z.string().optional(),
+  samples: z.array(decisionOutcomeSampleRowSchema).optional(),
+}).passthrough()
+
 const researchSignalQualitySchema = z.object({
   status: z.string().optional(),
   ok: z.boolean().optional(),
@@ -189,6 +216,11 @@ const researchSignalQualitySchema = z.object({
   candidate_status_counts: z.record(z.string(), z.number()).optional(),
   decision_outcome_counts: z.array(decisionOutcomeCountSchema).optional(),
   top_candidate_categories: z.array(candidateCategoryCountSchema).optional(),
+  candidate_status_samples: z.record(
+    z.string(),
+    z.array(candidateStatusSampleSchema),
+  ).optional(),
+  decision_outcome_samples: z.array(decisionOutcomeSampleGroupSchema).optional(),
   weak_evidence_count: z.number().optional(),
   warning_problem_count: z.number().optional(),
   blocked_problem_count: z.number().optional(),

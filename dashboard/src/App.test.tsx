@@ -163,6 +163,36 @@ it('shows research signal quality in the overview side rail', async () => {
           category: 'home-training',
           count: 22,
         }],
+        candidate_status_samples: {
+          admitted: [{
+            candidate_id: 'candidate-admitted',
+            title: 'Admitted candidate',
+            status: 'admitted',
+            deterministic_total_score: 76.4,
+            contract_quality_score: 1,
+            problems: [],
+          }],
+          needs_review: [{
+            candidate_id: 'candidate-needs-review',
+            title: 'Needs review candidate',
+            status: 'needs_review',
+            deterministic_total_score: 64.2,
+            contract_quality_score: 0.5,
+            problems: ['thin_expected_artifacts'],
+          }],
+        },
+        decision_outcome_samples: [{
+          decision: 'finalize_negative',
+          hypothesis_status: 'mixed',
+          samples: [{
+            project_id: 'project-mixed',
+            project_name: 'Mixed project',
+            run_id: 'run-mixed',
+            evidence_strength: 'moderate',
+            followup_title: 'Mixed follow-up',
+            problems: [],
+          }],
+        }],
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
         operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
         recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
@@ -209,6 +239,13 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('needs review 53')).toBeInTheDocument()
   expect(within(quality).getByText('finalize negative / mixed 50')).toBeInTheDocument()
   expect(within(quality).getByText('home-training 22')).toBeInTheDocument()
+  expect(within(quality).getByText('Portfolio evidence')).toBeInTheDocument()
+  expect(within(quality).getByText('admitted: Admitted candidate')).toBeInTheDocument()
+  expect(within(quality).getByText('candidate-admitted')).toBeInTheDocument()
+  expect(within(quality).getByText('needs review: Needs review candidate')).toBeInTheDocument()
+  expect(within(quality).getByText('candidate-needs-review')).toBeInTheDocument()
+  expect(within(quality).getByText('finalize negative / mixed: Mixed project')).toBeInTheDocument()
+  expect(within(quality).getByText('project-mixed / run-mixed')).toBeInTheDocument()
   expect(within(quality).getByText('quality report stale: 120.0h old; refresh before relying on unattended automation')).toBeInTheDocument()
   expect(within(quality).getByText('Refresh source')).toBeInTheDocument()
   expect(within(quality).getByText('missing database URL')).toBeInTheDocument()

@@ -290,6 +290,92 @@ def _summary_count_rows(
     return rows
 
 
+def _problem_list(value: Any, *, limit: int = 5) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()][:limit]
+
+
+def _candidate_status_sample(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "candidate_id": str(row.get("candidate_id") or "").strip(),
+        "title": str(row.get("title") or "").strip(),
+        "status": str(row.get("status") or "").strip(),
+        "deterministic_total_score": _safe_float(row.get("deterministic_total_score")),
+        "contract_quality_score": _safe_float(row.get("contract_quality_score")),
+        "problems": _problem_list(row.get("problems")),
+    }
+
+
+def _candidate_status_samples(
+    value: Any, *, limit_per_status: int = 3
+) -> dict[str, Any]:
+    if not isinstance(value, list):
+        return {}
+    samples: dict[str, list[dict[str, Any]]] = {}
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        status = str(raw.get("status") or "").strip()
+        candidate_id = str(raw.get("candidate_id") or "").strip()
+        if not status or not candidate_id:
+            continue
+        status_samples = samples.setdefault(status, [])
+        if len(status_samples) >= limit_per_status:
+            continue
+        status_samples.append(_candidate_status_sample(raw))
+    return {status: rows for status, rows in samples.items() if rows}
+
+
+def _decision_outcome_sample(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project_id": str(row.get("project_id") or "").strip(),
+        "project_name": str(row.get("project_name") or "").strip(),
+        "run_id": str(row.get("run_id") or "").strip(),
+        "decision": str(row.get("decision") or "").strip(),
+        "hypothesis_status": str(row.get("hypothesis_status") or "").strip(),
+        "evidence_strength": str(row.get("evidence_strength") or "").strip(),
+        "research_outcome": str(row.get("research_outcome") or "").strip(),
+        "followup_title": str(row.get("followup_title") or "").strip(),
+        "problems": _problem_list(row.get("problems")),
+    }
+
+
+def _decision_outcome_samples(
+    decision_counts: Any, decision_scores: Any, *, limit_per_outcome: int = 3
+) -> list[dict[str, Any]]:
+    if not isinstance(decision_counts, list) or not isinstance(decision_scores, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for outcome in decision_counts:
+        if not isinstance(outcome, dict):
+            continue
+        decision = str(outcome.get("decision") or "").strip()
+        hypothesis_status = str(outcome.get("hypothesis_status") or "").strip()
+        if not decision:
+            continue
+        samples: list[dict[str, Any]] = []
+        for raw in decision_scores:
+            if not isinstance(raw, dict):
+                continue
+            if str(raw.get("decision") or "").strip() != decision:
+                continue
+            if str(raw.get("hypothesis_status") or "").strip() != hypothesis_status:
+                continue
+            samples.append(_decision_outcome_sample(raw))
+            if len(samples) >= limit_per_outcome:
+                break
+        if samples:
+            rows.append(
+                {
+                    "decision": decision,
+                    "hypothesis_status": hypothesis_status,
+                    "samples": samples,
+                }
+            )
+    return rows
+
+
 def classify_quality_report(
     report: dict[str, Any], *, report_path: str = "", report_mtime: str = ""
 ) -> dict[str, Any]:
@@ -329,6 +415,13 @@ def classify_quality_report(
         "top_candidate_categories": _summary_count_rows(
             summary.get("top_candidate_categories"),
             required_label="category",
+        ),
+        "candidate_status_samples": _candidate_status_samples(
+            report.get("candidate_scores")
+        ),
+        "decision_outcome_samples": _decision_outcome_samples(
+            summary.get("decision_counts"),
+            report.get("decision_scores"),
         ),
         "problem_counts": dict(actionable_problem_counts),
         "raw_problem_counts": raw_problem_counts,

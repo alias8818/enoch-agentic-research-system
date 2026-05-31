@@ -2963,6 +2963,94 @@ def _quality_count_rows(
     return rows
 
 
+def _quality_problem_names(value: Any, *, limit: int = 5) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [_text(item) for item in value if _text(item)][:limit]
+
+
+def _quality_candidate_sample(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "candidate_id": _text(row.get("candidate_id")),
+        "title": _text(row.get("title")),
+        "status": _text(row.get("status")),
+        "deterministic_total_score": _quality_value(
+            row, "deterministic_total_score", 0.0
+        ),
+        "contract_quality_score": _quality_value(row, "contract_quality_score", 0.0),
+        "problems": _quality_problem_names(row.get("problems")),
+    }
+
+
+def _quality_candidate_status_samples(value: Any) -> dict[str, list[dict[str, Any]]]:
+    if not isinstance(value, Mapping):
+        return {}
+    samples: dict[str, list[dict[str, Any]]] = {}
+    for status, rows in value.items():
+        status_label = _text(status)
+        if not status_label:
+            continue
+        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
+            continue
+        status_samples: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            sample = _quality_candidate_sample(row)
+            if sample["candidate_id"]:
+                status_samples.append(sample)
+            if len(status_samples) >= 3:
+                break
+        if status_samples:
+            samples[status_label] = status_samples
+    return samples
+
+
+def _quality_decision_sample(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "project_id": _text(row.get("project_id")),
+        "project_name": _text(row.get("project_name")),
+        "run_id": _text(row.get("run_id")),
+        "decision": _text(row.get("decision")),
+        "hypothesis_status": _text(row.get("hypothesis_status")),
+        "evidence_strength": _text(row.get("evidence_strength")),
+        "research_outcome": _text(row.get("research_outcome")),
+        "followup_title": _text(row.get("followup_title")),
+        "problems": _quality_problem_names(row.get("problems")),
+    }
+
+
+def _quality_decision_outcome_samples(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    outcomes: list[dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, Mapping):
+            continue
+        samples: list[dict[str, Any]] = []
+        raw_samples = raw.get("samples")
+        if isinstance(raw_samples, Sequence) and not isinstance(
+            raw_samples, (str, bytes)
+        ):
+            for row in raw_samples:
+                if not isinstance(row, Mapping):
+                    continue
+                sample = _quality_decision_sample(row)
+                if sample["project_id"] or sample["run_id"]:
+                    samples.append(sample)
+                if len(samples) >= 3:
+                    break
+        if samples:
+            outcomes.append(
+                {
+                    "decision": _text(raw.get("decision")),
+                    "hypothesis_status": _text(raw.get("hypothesis_status")),
+                    "samples": samples,
+                }
+            )
+    return outcomes
+
+
 def _post_prompt_warning_details(
     *, malformed_count: int, malformed_ticks: int, useful_delta: float
 ) -> list[dict[str, str]]:
@@ -3193,6 +3281,12 @@ def research_signal_quality_snapshot(
         "top_candidate_categories": _quality_count_rows(
             quality.get("top_candidate_categories"),
             required_label="category",
+        ),
+        "candidate_status_samples": _quality_candidate_status_samples(
+            quality.get("candidate_status_samples")
+        ),
+        "decision_outcome_samples": _quality_decision_outcome_samples(
+            quality.get("decision_outcome_samples")
         ),
         "weak_evidence_count": weak_evidence_count,
         "warning_problem_count": warning_count,

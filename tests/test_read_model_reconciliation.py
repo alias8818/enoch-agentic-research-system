@@ -174,6 +174,47 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
                 {"category": "home-training", "count": 22},
                 {"category": "spec-decoding", "count": 18},
             ],
+            "candidate_status_samples": {
+                "admitted": [
+                    {
+                        "candidate_id": "candidate-admitted",
+                        "title": "Admitted candidate",
+                        "status": "admitted",
+                        "deterministic_total_score": 76.4,
+                        "contract_quality_score": 1.0,
+                        "problems": [],
+                    }
+                ],
+                "needs_review": [
+                    {
+                        "candidate_id": "candidate-needs-review",
+                        "title": "Needs review candidate",
+                        "status": "needs_review",
+                        "deterministic_total_score": 64.2,
+                        "contract_quality_score": 0.5,
+                        "problems": ["thin_expected_artifacts"],
+                    }
+                ],
+            },
+            "decision_outcome_samples": [
+                {
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "samples": [
+                        {
+                            "project_id": "project-mixed",
+                            "project_name": "Mixed project",
+                            "run_id": "run-mixed",
+                            "decision": "finalize_negative",
+                            "hypothesis_status": "mixed",
+                            "evidence_strength": "moderate",
+                            "research_outcome": "useful_signal",
+                            "followup_title": "Mixed follow-up",
+                            "problems": [],
+                        }
+                    ],
+                }
+            ],
             "post_prompt_monitor": {
                 "available": True,
                 "useful_adjacent_followup_delta": -1.0,
@@ -260,6 +301,47 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
     assert snapshot["top_candidate_categories"] == [
         {"category": "home-training", "count": 22},
         {"category": "spec-decoding", "count": 18},
+    ]
+    assert snapshot["candidate_status_samples"] == {
+        "admitted": [
+            {
+                "candidate_id": "candidate-admitted",
+                "title": "Admitted candidate",
+                "status": "admitted",
+                "deterministic_total_score": 76.4,
+                "contract_quality_score": 1.0,
+                "problems": [],
+            }
+        ],
+        "needs_review": [
+            {
+                "candidate_id": "candidate-needs-review",
+                "title": "Needs review candidate",
+                "status": "needs_review",
+                "deterministic_total_score": 64.2,
+                "contract_quality_score": 0.5,
+                "problems": ["thin_expected_artifacts"],
+            }
+        ],
+    }
+    assert snapshot["decision_outcome_samples"] == [
+        {
+            "decision": "finalize_negative",
+            "hypothesis_status": "mixed",
+            "samples": [
+                {
+                    "project_id": "project-mixed",
+                    "project_name": "Mixed project",
+                    "run_id": "run-mixed",
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "evidence_strength": "moderate",
+                    "research_outcome": "useful_signal",
+                    "followup_title": "Mixed follow-up",
+                    "problems": [],
+                }
+            ],
+        }
     ]
     assert snapshot["recent_malformed_provider_responses"] == [
         {
