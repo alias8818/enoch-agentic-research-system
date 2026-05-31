@@ -81,6 +81,11 @@ def check_file_references(agents_content: str) -> None:
         # Skip env variable names and flag patterns
         if ref.startswith("ENOCH_") or ref.startswith("--"):
             continue
+        # Skip host-local absolute paths. AGENTS.md may document operator-local
+        # files outside this checkout; this validator only owns repo-relative
+        # references that CI can prove exist on every runner.
+        if Path(ref).is_absolute():
+            continue
         resolved = REPO_ROOT / ref
         if not resolved.exists():
             errors.append(

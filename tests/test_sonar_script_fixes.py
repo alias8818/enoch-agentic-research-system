@@ -29,6 +29,20 @@ def test_check_ci_workflows_validates_extracted_workflow_references(
     assert validate_agents_md.errors == []
 
 
+def test_validate_agents_md_ignores_host_local_absolute_paths(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(validate_agents_md, "REPO_ROOT", tmp_path)
+    validate_agents_md.errors.clear()
+
+    validate_agents_md.check_file_references(
+        "Marker: `/home/jeremy/.codex/state/enoch-linear-last-check.json`\n"
+        "Parent: `/home/jeremy/Desktop/projects/enoch-release/AGENTS.md`\n"
+    )
+
+    assert validate_agents_md.errors == []
+
+
 def test_min_release_age_main_uses_exit_side_effect_not_status_value(
     monkeypatch,
 ) -> None:
