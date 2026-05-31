@@ -3,6 +3,7 @@ export type Tone = 'good' | 'info' | 'warn' | 'bad' | 'critical' | 'muted'
 export interface TopAction {
   kind: string
   priority?: number
+  count?: number
   tone?: string | null
   title: string
   summary?: string | null
@@ -13,7 +14,7 @@ export interface TopAction {
   project_id?: string | null
   feed_action?: string | null
   blocker_kind?: string | null
-  target?: { project_id?: string; name?: string; [key: string]: unknown } | null
+  target?: { project_id?: string; current_run_id?: string; run_id?: string; name?: string; project_name?: string; title?: string; [key: string]: unknown } | null
 }
 
 export interface WorkerLane {

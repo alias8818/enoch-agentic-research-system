@@ -611,6 +611,7 @@ button:disabled { cursor: not-allowed; }
 .quality-snapshot p { margin: 0.7rem 0 0; color: #b8afa2; font-size: 0.8rem; line-height: 1.4; }
 .quality-pill { border: 1px solid rgba(244,241,234,0.12); border-radius: 999px; padding: 0.34rem 0.55rem; color: #b8afa2; font-size: 0.72rem; font-weight: 850; white-space: nowrap; }
 .quality-pill--good { border-color: rgba(70,180,124,0.35); color: #aee4c4; }
+.quality-pill--info { border-color: rgba(89,169,216,0.35); color: #a9d7f0; }
 .quality-pill--warn { border-color: rgba(226,177,91,0.35); color: #e8c58a; }
 .quality-pill--bad { border-color: rgba(194,80,70,0.42); color: #f0aaa0; }
 .readiness-snapshot { margin-top: 0.9rem; border: 1px solid rgba(244,241,234,0.1); border-radius: 1rem; padding: 0.9rem; background: rgba(0,0,0,0.16); }

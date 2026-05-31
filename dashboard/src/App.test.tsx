@@ -670,6 +670,73 @@ it('surfaces research yield drought and recovery state in the overview side rail
   expect(within(yieldPanel).getByText('target Follow-up Project')).toBeInTheDocument()
 })
 
+it('surfaces secondary top actions while maintenance blocks the primary action', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 50 },
+      paper_counts: {},
+      flags: { queue_paused: true, maintenance_mode: true },
+      movement_diagnosis: { status: 'blocked', primary_reason: 'Maintenance mode is on.', blockers: [] },
+      primary_operator_action: {
+        kind: 'open_blocker',
+        title: 'Maintenance mode is on',
+        summary: 'Automation is intentionally held until maintenance mode is cleared.',
+        action_label: 'Resume queue',
+        action_hash: '#overview',
+        blocker_kind: 'maintenance_mode',
+      },
+      top_actions: [
+        {
+          kind: 'investigate_followup',
+          priority: 1,
+          tone: 'info',
+          title: 'Queue a follow-up investigation',
+          summary: '733 ranked follow-ups ready for a bounded adjacent investigation. Next: Exact-anchor ledger in a real tool-calling agent harness.',
+          action_label: 'Queue follow-up',
+          action_hash: '#research',
+          count: 733,
+          target: {
+            project_id: 'exact-anchor-ledger',
+            current_run_id: 'exact-anchor-ledger-run',
+            name: 'Exact-anchor ledger in a real tool-calling agent harness',
+          },
+        },
+        {
+          kind: 'dispatch_next',
+          priority: 2,
+          tone: 'info',
+          title: 'Dispatch the next queued item',
+          summary: 'CPU lane, GB10 lane are idle with 50 queued candidates ready to dispatch.',
+          action_label: 'Open ready queue',
+          action_hash: '#queue:queued',
+          count: 50,
+        },
+      ],
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  await screen.findByText('Can I leave this running?')
+  const primary = screen.getByLabelText('Primary action')
+  expect(within(primary).getByText('Check readiness first')).toBeInTheDocument()
+
+  const topActions = await screen.findByLabelText('Top actions')
+  expect(within(topActions).getByText('Queue a follow-up investigation')).toBeInTheDocument()
+  expect(within(topActions).getByText('priority 1 / count 733')).toBeInTheDocument()
+  expect(within(topActions).getByText('733 ranked follow-ups ready for a bounded adjacent investigation. Next: Exact-anchor ledger in a real tool-calling agent harness.')).toBeInTheDocument()
+  expect(within(topActions).getByText('target Exact-anchor ledger in a real tool-calling agent harness')).toBeInTheDocument()
+  expect(within(topActions).getByRole('link', { name: 'Queue follow-up' })).toHaveAttribute('href', '/control/dashboard-v2#research')
+  expect(within(topActions).getByRole('link', { name: 'project: Exact-anchor ledger in a real tool-calling agent harness' })).toHaveAttribute('href', '/control/dashboard-v2#project:exact-anchor-ledger')
+  expect(within(topActions).getByRole('link', { name: 'run: exact-anchor-ledger-run' })).toHaveAttribute('href', '/control/dashboard-v2#run:exact-anchor-ledger-run')
+  expect(within(topActions).getByText('Dispatch the next queued item')).toBeInTheDocument()
+  expect(within(topActions).getByText('priority 2 / count 50')).toBeInTheDocument()
+})
+
 it('surfaces the movement diagnosis before lane and action controls', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({

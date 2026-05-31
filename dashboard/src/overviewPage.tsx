@@ -8,7 +8,7 @@ import { CommandHero } from './components/CommandHero'
 import { MovementDiagnosis } from './components/MovementDiagnosis'
 import { OverviewFreshness } from './components/OverviewFreshness'
 import { PaperMiniStrip } from './components/PaperMiniStrip'
-import { PrimaryAction, resolvePrimaryAction } from './components/PrimaryAction'
+import { actionSignature, PrimaryAction, resolvePrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
 import { WorkerLanes } from './components/WorkerLanes'
 import { EntityLinkChips } from './components/ui'
@@ -17,7 +17,7 @@ import { displayText } from './displayText'
 import { OperatorQueueSnapshot } from './operatorQueueSnapshot'
 import { formatReadinessErrorMessage } from './readinessErrors'
 import { dashboardV2Href } from './routes'
-import type { AutomationReadiness, OverviewResponse, StatusResponse } from './types'
+import type { AutomationReadiness, OverviewResponse, StatusResponse, TopAction } from './types'
 
 export function OverviewPage() {
   const queryClient = useQueryClient()
@@ -167,6 +167,7 @@ function OverviewPageBody({
             onRefresh={refresh}
             onCheckReadiness={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
           />
+          <TopActions actions={data.top_actions} primaryAction={primaryAction} />
           <ResearchSignalQualityCard quality={data.research_signal_quality} />
           <ResearchYieldCard researchYield={data.research_yield} />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
@@ -312,6 +313,35 @@ function researchYieldTargetLinks(target: ResearchYieldTarget | null | undefined
     links.push({ kind: 'run', id: target.run_id, label: target.run_id })
   }
   return links
+}
+
+function topActionTargetLabel(action: TopAction): string {
+  const target = action.target
+  if (!target) return ''
+  const label = displayText(target.name || target.project_name || target.title || target.project_id, '')
+  return label ? `target ${label}` : ''
+}
+
+function topActionTargetLinks(action: TopAction): EntityLink[] {
+  const target = action.target
+  if (!target) return []
+  const links: EntityLink[] = []
+  const projectId = displayText(target.project_id, '')
+  const runId = displayText(target.current_run_id || target.run_id, '')
+  if (projectId) {
+    links.push({ kind: 'project', id: projectId, label: displayText(target.name || target.project_name, projectId) })
+  }
+  if (runId) {
+    links.push({ kind: 'run', id: runId, label: runId })
+  }
+  return links
+}
+
+function topActionMetaLabel(action: TopAction): string {
+  const parts: string[] = []
+  if (typeof action.priority === 'number') parts.push(`priority ${action.priority}`)
+  if (typeof action.count === 'number') parts.push(`count ${action.count}`)
+  return parts.join(' / ')
 }
 
 function windowAdmittedRateLabel(windowComparison: QualityWindowComparison): string {
@@ -794,6 +824,41 @@ function ResearchQualityRecommendedAction({ recommendation }: Readonly<{ recomme
       <h4>Recommended action</h4>
       <p>{recommendation}</p>
     </div>
+  )
+}
+
+function TopActions({
+  actions,
+  primaryAction,
+}: Readonly<{
+  actions: TopAction[] | undefined
+  primaryAction: TopAction | undefined
+}>) {
+  const primarySignature = primaryAction ? actionSignature(primaryAction) : ''
+  const visibleActions = (actions || [])
+    .filter((action) => actionSignature(action) !== primarySignature)
+    .slice(0, 3)
+  if (visibleActions.length === 0) return null
+  return (
+    <section className="quality-snapshot" aria-label="Top actions">
+      <div>
+        <h3>Top actions</h3>
+        <span className="quality-pill quality-pill--info">{visibleActions.length}</span>
+      </div>
+      {visibleActions.map((action, index) => {
+        const targetLabel = topActionTargetLabel(action)
+        return (
+          <div className="quality-snapshot-detail" key={`${actionSignature(action)}:${index}`}>
+            <h4>{action.title}</h4>
+            {topActionMetaLabel(action) ? <p>{topActionMetaLabel(action)}</p> : null}
+            <p>{displayText(action.summary, 'No action summary returned.')}</p>
+            {targetLabel ? <p>{targetLabel}</p> : null}
+            <EntityLinkChips links={topActionTargetLinks(action)} />
+            {action.action_hash ? <a href={dashboardV2Href(action.action_hash)}>{action.action_label || 'Open'}</a> : null}
+          </div>
+        )
+      })}
+    </section>
   )
 }
 
