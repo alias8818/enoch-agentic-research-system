@@ -601,7 +601,7 @@ function ResearchQualityDecisionPosture({ decisionPosture }: Readonly<{ decision
 function ResearchQualityPaperBlockers({ paperReadinessBlockers }: Readonly<{ paperReadinessBlockers: PaperReadinessBlockers | undefined }>) {
   if (!paperReadinessBlockers) return null
   const paperBlockerSample = paperReadinessBlockers.samples?.[0]
-  const paperBlockerCounts = Object.entries(paperReadinessBlockers.blocker_counts ?? {}).slice(0, 4) as [string, number][]
+  const paperBlockerCounts = Object.entries(paperReadinessBlockers.blocker_counts ?? {}).slice(0, 4)
   return (
     <div className="quality-snapshot-detail">
       <h4>Paper blockers</h4>
