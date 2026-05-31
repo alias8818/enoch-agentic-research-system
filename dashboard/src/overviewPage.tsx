@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import { useState } from 'react'
 import { ActiveWorkList } from './activeWorkDisplay'
 import { AutomationReadinessSummary } from './automationReadinessPanel'
@@ -537,16 +538,36 @@ function activeSignalReason(quality: ResearchSignalQuality): NonNullable<Researc
   return quality.signal_reasons?.find((reason) => reason.active || reason.status === 'active') ?? quality.signal_reasons?.[0]
 }
 
+function QualitySnapshotDetail({
+  title,
+  children,
+  defaultOpen = false,
+}: Readonly<{
+  title: string
+  children: ReactNode
+  defaultOpen?: boolean
+}>) {
+  return (
+    <details className="quality-snapshot-detail" open={defaultOpen}>
+      <summary>
+        <h4>{title}</h4>
+      </summary>
+      <div className="quality-snapshot-detail-body">
+        {children}
+      </div>
+    </details>
+  )
+}
+
 function ResearchQualitySignalVerdict({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
   const signalReason = activeSignalReason(quality)
   if (!quality.signal_label && !signalReason) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Signal verdict</h4>
+    <QualitySnapshotDetail title="Signal verdict" defaultOpen>
       <p>{displayText(quality.signal_label || quality.signal_verdict, 'No signal verdict returned.')}</p>
       {signalReason ? <p>{displayText(signalReason.message || signalReason.code, 'No signal reason returned.')}</p> : null}
       <p>{displayText(quality.signal_operator_action || signalReason?.operator_action, 'Inspect Research Quality before resuming unattended automation.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -576,8 +597,7 @@ function ResearchOutputReadiness({ readiness }: Readonly<{ readiness: ResearchSi
     ? `blocked by ${portfolioLabel(displayText(readiness.blocked_by, 'none'))} / ${portfolioLabel(displayText(readiness.hold_state, 'none'))}`
     : ''
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Output readiness</h4>
+    <QualitySnapshotDetail title="Output readiness" defaultOpen>
       <p>{displayText(readiness.label || readiness.state, 'No output-readiness contract returned.')}</p>
       {blocker ? <p>{blocker}</p> : null}
       {failed.map((invariant) => (
@@ -586,7 +606,7 @@ function ResearchOutputReadiness({ readiness }: Readonly<{ readiness: ResearchSi
       {nextAction?.title ? <p>{`Next bounded action: ${nextAction.title}`}</p> : null}
       {affected ? <p>{readinessArtifactLabel(affected)}</p> : null}
       <p>{displayText(readiness.operator_action, 'Inspect Research Quality output readiness before resuming automation.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -595,8 +615,7 @@ function ResearchQualityProviderEvidence({ quality }: Readonly<{ quality: Resear
   const postPromptWarning = quality.post_prompt_warning_details?.[0]
   if (!providerEvidence && !postPromptWarning) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Provider warning evidence</h4>
+    <QualitySnapshotDetail title="Provider warning evidence">
       {providerEvidence ? (
         <>
           <p>{displayText(providerEvidence.provider_model, 'Unknown provider model')}</p>
@@ -604,15 +623,14 @@ function ResearchQualityProviderEvidence({ quality }: Readonly<{ quality: Resear
           <p>{displayText(providerEvidence.operator_action, 'Inspect provider-generation output before trusting new idea volume.')}</p>
         </>
       ) : <p>{displayText(postPromptWarning?.message || postPromptWarning?.code, 'No provider warning detail returned.')}</p>}
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
 function ResearchQualityProviderRecovery({ providerHealth }: Readonly<{ providerHealth: ResearchSignalQuality['provider_generation_health'] }>) {
   if (!providerHealth) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Provider recovery</h4>
+    <QualitySnapshotDetail title="Provider recovery">
       <p>{providerWarningPostureLabel(providerHealth)}</p>
       <p>{providerCleanStreakLabel(providerHealth)}</p>
       <p>{providerLatestTickLabel(providerHealth)}</p>
@@ -622,7 +640,7 @@ function ResearchQualityProviderRecovery({ providerHealth }: Readonly<{ provider
       <p>{displayText(providerHealth.yield_operator_action, 'Inspect provider-generation yield before trusting idea volume.')}</p>
       <p>{providerLastMalformedLabel(providerHealth)}</p>
       <p>{displayText(providerHealth.operator_action, 'Inspect provider-generation history before trusting new idea volume.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -631,8 +649,7 @@ function ResearchQualityFollowupTrend({ quality }: Readonly<{ quality: ResearchS
   const previousFollowupEvidence = quality.useful_adjacent_followup_evidence?.previous?.[0]
   if (!currentFollowupEvidence && !previousFollowupEvidence) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Follow-up trend evidence</h4>
+    <QualitySnapshotDetail title="Follow-up trend evidence">
       {currentFollowupEvidence ? (
         <>
           <p>{followupEvidenceTitle('Current', currentFollowupEvidence)}</p>
@@ -645,7 +662,7 @@ function ResearchQualityFollowupTrend({ quality }: Readonly<{ quality: ResearchS
           <p>{followupEvidenceId(previousFollowupEvidence)}</p>
         </>
       ) : null}
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -655,8 +672,7 @@ function ResearchQualityPortfolioComposition({ quality }: Readonly<{ quality: Re
   const topCandidateCategories = quality.top_candidate_categories?.slice(0, 2) ?? []
   if (candidateStatusCounts.length === 0 && decisionOutcomeCounts.length === 0 && topCandidateCategories.length === 0) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Portfolio composition</h4>
+    <QualitySnapshotDetail title="Portfolio composition">
       {candidateStatusCounts.map(([status, count]) => (
         <p key={status}>{portfolioLabel(status)} {String(count)}</p>
       ))}
@@ -666,7 +682,7 @@ function ResearchQualityPortfolioComposition({ quality }: Readonly<{ quality: Re
       {topCandidateCategories.map((row) => (
         <p key={row.category ?? 'unknown'}>{categoryCountLabel(row)}</p>
       ))}
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -679,8 +695,7 @@ function ResearchQualityPortfolioEvidence({ quality }: Readonly<{ quality: Resea
     .slice(0, 2)
   if (candidateStatusSamples.length === 0 && decisionOutcomeSamples.length === 0) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Portfolio evidence</h4>
+    <QualitySnapshotDetail title="Portfolio evidence">
       {candidateStatusSamples.map(({ status, row }) => (
         <div key={`${status}-${row.candidate_id ?? row.title ?? 'candidate'}`}>
           <p>{candidateStatusSampleTitle(status, row)}</p>
@@ -694,7 +709,7 @@ function ResearchQualityPortfolioEvidence({ quality }: Readonly<{ quality: Resea
           <EntityLinkChips links={researchQualitySampleLinks(row)} />
         </div>
       ))}
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -703,14 +718,13 @@ function ResearchQualityFloor({ qualityFloor }: Readonly<{ qualityFloor: Researc
   const qualityFloorCandidate = qualityFloor.candidate_samples?.[0]
   const qualityFloorDecision = qualityFloor.decision_samples?.[0]
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Quality floor</h4>
+    <QualitySnapshotDetail title="Quality floor">
       <p>{qualityFloorPostureLabel(qualityFloor)}</p>
       <p>{qualityFloorCountLabel(qualityFloor)}</p>
       {qualityFloorCandidate ? <p>{qualityFloorCandidateTitle(qualityFloorCandidate)}</p> : null}
       {qualityFloorDecision ? <p>{qualityFloorDecisionTitle(qualityFloorDecision)}</p> : null}
       <p>{displayText(qualityFloor.operator_action, 'Inspect quality-floor posture before widening automation.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -718,8 +732,7 @@ function ResearchQualityDecisionPosture({ decisionPosture }: Readonly<{ decision
   if (!decisionPosture) return null
   const decisionPostureSample = decisionPosture.representative_useful_signals?.[0]
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Decision posture</h4>
+    <QualitySnapshotDetail title="Decision posture">
       <p>{decisionPostureUsefulLabel(decisionPosture)}</p>
       <p>{decisionPostureReadyLabel(decisionPosture)}</p>
       <p>{decisionPostureFollowupLabel(decisionPosture)}</p>
@@ -732,7 +745,7 @@ function ResearchQualityDecisionPosture({ decisionPosture }: Readonly<{ decision
         </>
       ) : null}
       <p>{displayText(decisionPosture.operator_action, 'Inspect decision posture before treating throughput as publication output.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -741,8 +754,7 @@ function ResearchQualityPaperBlockers({ paperReadinessBlockers }: Readonly<{ pap
   const paperBlockerSample = paperReadinessBlockers.samples?.[0]
   const paperBlockerCounts = Object.entries(paperReadinessBlockers.blocker_counts ?? {}).slice(0, 4)
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Paper blockers</h4>
+    <QualitySnapshotDetail title="Paper blockers">
       <p>paper-ready {Number(paperReadinessBlockers.paper_ready_count ?? 0)} / {Number(paperReadinessBlockers.decisions_checked ?? 0)} decisions</p>
       {paperBlockerCounts.map((entry) => (
         <p key={`paper-blocker-${entry[0]}`}>{paperBlockerCountLabel(entry)}</p>
@@ -755,7 +767,7 @@ function ResearchQualityPaperBlockers({ paperReadinessBlockers }: Readonly<{ pap
         </>
       ) : null}
       <p>{displayText(paperReadinessBlockers.operator_action, 'Inspect paper-readiness blockers before treating useful signals as publication output.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -766,8 +778,7 @@ function ResearchQualityFollowupReadiness({ followupReadiness }: Readonly<{ foll
   const underspecifiedFollowup = followupReadiness.underspecified_followups?.[0]
   const followupTypeCounts = followupReadinessTypeEntries(followupReadiness)
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Follow-up readiness</h4>
+    <QualitySnapshotDetail title="Follow-up readiness">
       <p>{followupReadinessReadyLabel(followupReadiness)}</p>
       <p>underspecified {Number(followupReadiness.underspecified_count ?? 0)}</p>
       <p>{followupReadinessMissingStopLabel(followupReadiness)}</p>
@@ -798,21 +809,20 @@ function ResearchQualityFollowupReadiness({ followupReadiness }: Readonly<{ foll
         </>
       ) : null}
       <p>{displayText(followupReadiness.operator_action, 'Inspect follow-up readiness before queueing more work.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
 function ResearchQualityFollowupScope({ followupScopeAlignment }: Readonly<{ followupScopeAlignment: ResearchSignalQuality['followup_scope_alignment'] }>) {
   if (!followupScopeAlignment) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Follow-up scope</h4>
+    <QualitySnapshotDetail title="Follow-up scope">
       <p>global ready {Number(followupScopeAlignment.global_ready_count ?? 0)}</p>
       <p>{followupScopeCandidateLabel('global', followupScopeAlignment.global_candidate)}</p>
       <p>{followupScopeCandidateLabel('quality window', followupScopeAlignment.quality_window_candidate)}</p>
       <p>{followupScopePostureLabel(followupScopeAlignment)}</p>
       <p>{displayText(followupScopeAlignment.operator_action, 'Compare global ranked follow-up selection against Research Quality window samples.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -829,8 +839,7 @@ function ResearchQualityWindowComparison({ windowComparison }: Readonly<{ window
   )
   if (!hasWindowComparison || !windowComparison) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Window comparison</h4>
+    <QualitySnapshotDetail title="Window comparison">
       <p>{windowAdmittedRateLabel(windowComparison)}</p>
       {windowGenerationModes.map((entry) => (
         <p key={`generation-${entry[0]}`}>{windowCountLabel(entry)}</p>
@@ -839,50 +848,46 @@ function ResearchQualityWindowComparison({ windowComparison }: Readonly<{ window
         <p key={`category-${entry[0]}`}>{windowCountLabel(entry)}</p>
       ))}
       <p>high similarity pairs {String(windowComparison.current?.high_similarity_pair_count ?? 0)}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
 function ResearchQualityReportFreshness({ freshnessSummary }: Readonly<{ freshnessSummary?: string | null }>) {
   if (!freshnessSummary) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Report freshness</h4>
+    <QualitySnapshotDetail title="Report freshness">
       <p>{freshnessSummary}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
 function ResearchQualityRefreshSource({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
   if (!quality.refresh_reason && !quality.refresh_operator_action) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Refresh source</h4>
+    <QualitySnapshotDetail title="Refresh source">
       <p>{displayText(quality.refresh_reason || quality.refresh_action, 'No refresh status returned.')}</p>
       <p>{displayText(quality.refresh_operator_action, 'Inspect the Research Quality refresh sidecar before resuming unattended automation.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
 function ResearchQualityAffectedArtifact({ affected }: Readonly<{ affected: NonNullable<ResearchSignalQuality['top_problem_details']>[number] | undefined }>) {
   if (!affected) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Affected artifact</h4>
+    <QualitySnapshotDetail title="Affected artifact">
       <p>{displayText(affected.title || affected.project_id || affected.candidate_id, 'Unnamed artifact')}</p>
       <p>{displayText(affected.problem, 'No quality problem returned.')}</p>
       <p>{displayText(affected.operator_action, 'Inspect the affected artifact before resuming unattended automation.')}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
 function ResearchQualityRecommendedAction({ recommendation }: Readonly<{ recommendation?: string }>) {
   if (!recommendation) return null
   return (
-    <div className="quality-snapshot-detail">
-      <h4>Recommended action</h4>
+    <QualitySnapshotDetail title="Recommended action">
       <p>{recommendation}</p>
-    </div>
+    </QualitySnapshotDetail>
   )
 }
 
@@ -899,24 +904,34 @@ function TopActions({
     .slice(0, 3)
   if (visibleActions.length === 0) return null
   return (
-    <section className="quality-snapshot" aria-label="Top actions">
+    <section className="quality-snapshot quality-snapshot--top-actions" aria-label="Top actions">
       <div>
         <h3>Top actions</h3>
         <span className="quality-pill quality-pill--info">{visibleActions.length}</span>
       </div>
+      <div className="quality-action-list">
       {visibleActions.map((action, index) => {
         const targetLabel = topActionTargetLabel(action)
+        const targetLinks = topActionTargetLinks(action)
         return (
-          <div className="quality-snapshot-detail" key={`${actionSignature(action)}:${index}`}>
+          <article className="quality-action-card" key={`${actionSignature(action)}:${index}`}>
             <h4>{action.title}</h4>
-            {topActionMetaLabel(action) ? <p>{topActionMetaLabel(action)}</p> : null}
-            <p>{displayText(action.summary, 'No action summary returned.')}</p>
-            {targetLabel ? <p>{targetLabel}</p> : null}
-            <EntityLinkChips links={topActionTargetLinks(action)} />
-            {action.action_hash ? <a href={dashboardV2Href(action.action_hash)}>{action.action_label || 'Open'}</a> : null}
-          </div>
+            <div className="quality-action-meta">
+              {topActionMetaLabel(action) ? <span>{topActionMetaLabel(action)}</span> : null}
+              {action.action_hash ? <a href={dashboardV2Href(action.action_hash)}>{action.action_label || 'Open'}</a> : null}
+            </div>
+            <p className="quality-action-summary">{displayText(action.summary, 'No action summary returned.')}</p>
+            {targetLabel ? <p className="quality-action-target">{targetLabel}</p> : null}
+            {targetLinks.length > 0 ? (
+              <details className="quality-action-links">
+                <summary>Related links</summary>
+                <EntityLinkChips links={targetLinks} />
+              </details>
+            ) : null}
+          </article>
         )
       })}
+      </div>
     </section>
   )
 }
@@ -973,7 +988,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const recommendation = quality.operator_recommendations?.[0] || quality.recommendations?.[0]
   const decisionPosture = quality.decision_posture
   return (
-    <section className="quality-snapshot" aria-label="Research signal quality">
+    <section className="quality-snapshot quality-snapshot--research-signal" aria-label="Research signal quality">
       <div>
         <h3>Research signal quality</h3>
         <span className={qualityStatusClass(quality.status, quality.ok)}>{displayText(quality.status, 'unknown')}</span>
@@ -996,7 +1011,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
           <dd>{qualityAgeLabel(quality.report_age_hours)}</dd>
         </div>
       </dl>
-      <p>{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
+      <p className="quality-snapshot-summary">{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
       <ResearchOutputReadiness readiness={quality.research_output_readiness} />
       <ResearchQualitySignalVerdict quality={quality} />
       <ResearchQualityProviderEvidence quality={quality} />
