@@ -216,6 +216,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   }
   const affected = quality.top_problem_details?.[0]
   const recommendation = quality.recommendations?.[0]
+  const signalReason = quality.signal_reasons?.[0]
   return (
     <section className="quality-snapshot" aria-label="Research signal quality">
       <div>
@@ -241,6 +242,14 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
         </div>
       </dl>
       <p>{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
+      {quality.signal_label || signalReason ? (
+        <div className="quality-snapshot-detail">
+          <h4>Signal verdict</h4>
+          <p>{displayText(quality.signal_label || quality.signal_verdict, 'No signal verdict returned.')}</p>
+          {signalReason ? <p>{displayText(signalReason.message || signalReason.code, 'No signal reason returned.')}</p> : null}
+          <p>{displayText(quality.signal_operator_action || signalReason?.operator_action, 'Inspect Research Quality before resuming unattended automation.')}</p>
+        </div>
+      ) : null}
       {quality.freshness_summary ? (
         <div className="quality-snapshot-detail">
           <h4>Report freshness</h4>

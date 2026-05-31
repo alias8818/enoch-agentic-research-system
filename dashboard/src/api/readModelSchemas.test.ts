@@ -64,10 +64,14 @@ it('parses command-center overview, status, and readiness payloads', () => {
       malformed_provider_response_count: 16,
       useful_adjacent_followup_delta: -4,
       refresh_reason: 'missing database URL',
+      signal_verdict: 'stale',
+      signal_reasons: [{ code: 'quality_report_stale', severity: 'blocked' }],
     },
   }).research_signal_quality).toMatchObject({
     malformed_provider_response_count: 16,
     refresh_reason: 'missing database URL',
+    signal_verdict: 'stale',
+    signal_reasons: [{ code: 'quality_report_stale', severity: 'blocked' }],
   })
   expect(parseStatusResponse(statusFixture).worker_lanes?.[0]?.machine_target).toBe('cpu-proxmox-1')
   expect(parseAutomationReadiness({ ok: true, label: 'Long-haul mode: READY' }).label).toBe('Long-haul mode: READY')

@@ -96,6 +96,15 @@ it('shows research signal quality in the overview side rail', async () => {
         refresh_action: 'research_quality_refresh_skipped',
         refresh_reason: 'missing database URL',
         refresh_operator_action: 'configure the Research Quality database URL so the read-only refresh can update the report',
+        signal_verdict: 'stale',
+        signal_label: 'Research signal: stale',
+        signal_operator_action: 'refresh the Research Quality report before relying on unattended automation',
+        signal_reasons: [{
+          code: 'quality_report_stale',
+          severity: 'blocked',
+          message: 'quality report is stale',
+          operator_action: 'refresh the Research Quality report before relying on unattended automation',
+        }],
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
         recommendations: ['Run a bounded follow-up before treating this as paper-ready.'],
         top_problem_details: [{
@@ -124,6 +133,10 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('-4')).toBeInTheDocument()
   expect(within(quality).getByText('Report age')).toBeInTheDocument()
   expect(within(quality).getByText('120.0h')).toBeInTheDocument()
+  expect(within(quality).getByText('Signal verdict')).toBeInTheDocument()
+  expect(within(quality).getByText('Research signal: stale')).toBeInTheDocument()
+  expect(within(quality).getByText('quality report is stale')).toBeInTheDocument()
+  expect(within(quality).getByText('refresh the Research Quality report before relying on unattended automation')).toBeInTheDocument()
   expect(within(quality).getByText('quality report stale: 120.0h old; refresh before relying on unattended automation')).toBeInTheDocument()
   expect(within(quality).getByText('Refresh source')).toBeInTheDocument()
   expect(within(quality).getByText('missing database URL')).toBeInTheDocument()

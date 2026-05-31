@@ -2821,6 +2821,118 @@ def _quality_refresh_operator_action(refresh: Mapping[str, Any]) -> str:
     return "inspect the Research Quality refresh sidecar before relying on unattended automation"
 
 
+def _signal_reason(
+    code: str, severity: str, message: str, operator_action: str
+) -> dict[str, str]:
+    return {
+        "code": code,
+        "severity": severity,
+        "message": message,
+        "operator_action": operator_action,
+    }
+
+
+def _quality_signal_verdict(
+    *,
+    quality_ok: bool,
+    status: str,
+    blocked_count: int,
+    warning_count: int,
+    malformed_count: int,
+    useful_delta: float,
+    freshness: Mapping[str, Any],
+    refresh: Mapping[str, Any],
+) -> dict[str, Any]:
+    reasons: list[dict[str, str]] = []
+    if bool(freshness.get("report_is_stale")):
+        reasons.append(
+            _signal_reason(
+                "quality_report_stale",
+                "blocked",
+                "quality report is stale",
+                "refresh the Research Quality report before relying on unattended automation",
+            )
+        )
+    if refresh and not bool(refresh.get("ok")):
+        reasons.append(
+            _signal_reason(
+                "quality_refresh_unhealthy",
+                "blocked",
+                "quality refresh source is unhealthy",
+                _quality_refresh_operator_action(refresh),
+            )
+        )
+    if status == "blocked" or blocked_count > 0 or not quality_ok:
+        reasons.append(
+            _signal_reason(
+                "quality_blocked",
+                "blocked",
+                "quality report contains blocked findings",
+                "resolve blocked Research Quality findings before relying on unattended automation",
+            )
+        )
+    if warning_count > 0:
+        reasons.append(
+            _signal_reason(
+                "quality_warnings",
+                "warning",
+                "quality report contains warning findings",
+                "inspect warning findings before widening automation",
+            )
+        )
+    if malformed_count > 0:
+        reasons.append(
+            _signal_reason(
+                "malformed_provider_responses",
+                "warning",
+                "provider generation produced malformed responses",
+                "inspect provider-generation failures before trusting new idea volume",
+            )
+        )
+    if useful_delta < 0:
+        reasons.append(
+            _signal_reason(
+                "useful_followup_decline",
+                "warning",
+                "useful adjacent follow-up signal declined",
+                "review recent follow-up quality before increasing throughput",
+            )
+        )
+
+    if any(
+        item["code"] in {"quality_report_stale", "quality_refresh_unhealthy"}
+        for item in reasons
+    ):
+        verdict = "stale"
+    elif any(item["severity"] == "blocked" for item in reasons):
+        verdict = "blocked"
+    elif reasons:
+        verdict = "review_required"
+    else:
+        verdict = "defensible"
+        reasons.append(
+            _signal_reason(
+                "clean_current_quality_report",
+                "info",
+                "current quality report is clean and refresh source is healthy",
+                "continue monitoring Research Quality alongside operational readiness",
+            )
+        )
+
+    labels = {
+        "stale": "Research signal: stale",
+        "blocked": "Research signal: blocked",
+        "review_required": "Research signal: review required",
+        "defensible": "Research signal: defensible",
+    }
+    return {
+        "signal_verdict": verdict,
+        "signal_label": labels[verdict],
+        "signal_reasons": reasons,
+        "signal_operator_action": reasons[0]["operator_action"],
+    }
+
+
 def research_signal_quality_snapshot(
     quality: Mapping[str, Any], *, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -2843,9 +2955,11 @@ def research_signal_quality_snapshot(
         f"useful follow-up delta={useful_delta}",
     ]
     report_mtime = quality.get("report_mtime") or ""
+    freshness = research_quality_report_freshness(report_mtime, now=now)
+    quality_ok = bool(quality.get("ok"))
     return {
         "status": status,
-        "ok": bool(quality.get("ok")),
+        "ok": quality_ok,
         "label": quality.get("label") or "",
         "decisions_checked": _safe_count(quality.get("decisions_checked")),
         "candidates_checked": _safe_count(quality.get("candidates_checked")),
@@ -2855,7 +2969,17 @@ def research_signal_quality_snapshot(
         "problem_counts": dict(problem_counts),
         "report_path": quality.get("report_path") or "",
         "report_mtime": report_mtime,
-        **research_quality_report_freshness(report_mtime, now=now),
+        **freshness,
+        **_quality_signal_verdict(
+            quality_ok=quality_ok,
+            status=status,
+            blocked_count=blocked_count,
+            warning_count=warning_count,
+            malformed_count=malformed_count,
+            useful_delta=useful_delta,
+            freshness=freshness,
+            refresh=refresh,
+        ),
         "refresh_ok": bool(refresh.get("ok")),
         "refresh_action": _text(refresh.get("action")),
         "refresh_reason": _text(refresh.get("reason")),

@@ -108,6 +108,15 @@ export interface OverviewResponse {
     report_stale_after_hours?: number
     report_is_stale?: boolean
     freshness_summary?: string
+    signal_verdict?: string
+    signal_label?: string
+    signal_operator_action?: string
+    signal_reasons?: {
+      code?: string
+      severity?: string
+      message?: string
+      operator_action?: string
+    }[]
     refresh_ok?: boolean
     refresh_action?: string
     refresh_reason?: string

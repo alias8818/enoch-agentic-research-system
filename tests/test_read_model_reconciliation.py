@@ -110,6 +110,104 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
         snapshot["refresh_operator_action"]
         == "configure the Research Quality database URL so the read-only refresh can update the report"
     )
+    assert snapshot["signal_verdict"] == "stale"
+    assert snapshot["signal_label"] == "Research signal: stale"
+    assert (
+        snapshot["signal_operator_action"]
+        == "refresh the Research Quality report before relying on unattended automation"
+    )
+    assert snapshot["signal_reasons"][0] == {
+        "code": "quality_report_stale",
+        "severity": "blocked",
+        "message": "quality report is stale",
+        "operator_action": "refresh the Research Quality report before relying on unattended automation",
+    }
+
+
+def test_research_signal_quality_snapshot_marks_blocked_quality() -> None:
+    snapshot = research_signal_quality_snapshot(
+        {
+            "ok": False,
+            "status": "blocked",
+            "decisions_checked": 10,
+            "candidates_checked": 10,
+            "problem_counts": {"missing_success_threshold": 1},
+            "severity_counts": {"blocked": 1},
+            "post_prompt_monitor": {
+                "available": True,
+                "useful_adjacent_followup_delta": 0.0,
+                "malformed_provider_response_count": 0,
+            },
+            "report_mtime": "2026-05-30T00:00:00Z",
+            "refresh_status": {"available": True, "ok": True},
+        },
+        now=datetime(2026, 5, 30, tzinfo=timezone.utc),
+    )
+
+    assert snapshot["signal_verdict"] == "blocked"
+    assert snapshot["signal_label"] == "Research signal: blocked"
+    assert snapshot["signal_reasons"][0]["code"] == "quality_blocked"
+
+
+def test_research_signal_quality_snapshot_marks_review_required_signal() -> None:
+    snapshot = research_signal_quality_snapshot(
+        {
+            "ok": True,
+            "status": "warnings",
+            "decisions_checked": 10,
+            "candidates_checked": 10,
+            "problem_counts": {"weak_or_missing_evidence_strength": 1},
+            "severity_counts": {"warning": 1},
+            "post_prompt_monitor": {
+                "available": True,
+                "useful_adjacent_followup_delta": -1.0,
+                "malformed_provider_response_count": 2,
+            },
+            "report_mtime": "2026-05-30T00:00:00Z",
+            "refresh_status": {"available": True, "ok": True},
+        },
+        now=datetime(2026, 5, 30, tzinfo=timezone.utc),
+    )
+
+    assert snapshot["signal_verdict"] == "review_required"
+    assert snapshot["signal_label"] == "Research signal: review required"
+    assert {item["code"] for item in snapshot["signal_reasons"]} == {
+        "quality_warnings",
+        "malformed_provider_responses",
+        "useful_followup_decline",
+    }
+
+
+def test_research_signal_quality_snapshot_marks_defensible_signal() -> None:
+    snapshot = research_signal_quality_snapshot(
+        {
+            "ok": True,
+            "status": "clean",
+            "decisions_checked": 10,
+            "candidates_checked": 10,
+            "problem_counts": {},
+            "severity_counts": {},
+            "post_prompt_monitor": {
+                "available": True,
+                "useful_adjacent_followup_delta": 1.0,
+                "malformed_provider_response_count": 0,
+            },
+            "report_mtime": "2026-05-30T00:00:00Z",
+            "refresh_status": {"available": True, "ok": True},
+        },
+        now=datetime(2026, 5, 30, tzinfo=timezone.utc),
+    )
+
+    assert snapshot["signal_verdict"] == "defensible"
+    assert snapshot["signal_label"] == "Research signal: defensible"
+    assert snapshot["signal_reasons"] == [
+        {
+            "code": "clean_current_quality_report",
+            "severity": "info",
+            "message": "current quality report is clean and refresh source is healthy",
+            "operator_action": "continue monitoring Research Quality alongside operational readiness",
+        }
+    ]
 
 
 def _active_queue(project_id: str, run_id: str, **extra: object) -> dict[str, object]:
