@@ -538,6 +538,66 @@ function activeSignalReason(quality: ResearchSignalQuality): NonNullable<Researc
   return quality.signal_reasons?.find((reason) => reason.active || reason.status === 'active') ?? quality.signal_reasons?.[0]
 }
 
+function qualitySummaryLabel(rawLabel: string): string {
+  const label = rawLabel.replace(/[_-]+/g, ' ').trim()
+  return label ? `${label.charAt(0).toUpperCase()}${label.slice(1)}` : 'Summary'
+}
+
+function splitQualitySummary(summary: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < summary.length; index += 1) {
+    const char = summary[index]
+    if (char === '(') depth += 1
+    if (char === ')' && depth > 0) depth -= 1
+    if (char === ';' && depth === 0) {
+      parts.push(summary.slice(start, index))
+      start = index + 1
+    }
+  }
+  parts.push(summary.slice(start))
+  return parts
+}
+
+function qualitySummaryItems(summary?: string | null): { label: string; value: string }[] {
+  const text = (summary ?? '').trim()
+  if (!text.includes(';')) return []
+  return splitQualitySummary(text)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const separator = part.indexOf('=')
+      if (separator <= 0) return { label: 'Summary', value: part }
+      return {
+        label: qualitySummaryLabel(part.slice(0, separator)),
+        value: part.slice(separator + 1).trim(),
+      }
+    })
+    .filter((item) => item.value && !['quality', 'weak evidence'].includes(item.label.toLowerCase()))
+}
+
+function ResearchQualitySummary({ summary }: Readonly<{ summary?: string | null }>) {
+  const items = qualitySummaryItems(summary)
+  if (items.length === 0) {
+    return (
+      <p className="quality-snapshot-summary">
+        {displayText(summary, 'No research-quality summary returned.')}
+      </p>
+    )
+  }
+  return (
+    <div className="quality-snapshot-summary-list" aria-label="Research quality summary">
+      {items.map((item, index) => (
+        <div key={`${item.label}:${index}`}>
+          <span className="quality-snapshot-summary-label">{item.label}</span>
+          <span className="quality-snapshot-summary-value">{item.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function QualitySnapshotDetail({
   title,
   children,
@@ -1011,7 +1071,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
           <dd>{qualityAgeLabel(quality.report_age_hours)}</dd>
         </div>
       </dl>
-      <p className="quality-snapshot-summary">{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
+      <ResearchQualitySummary summary={quality.operator_summary} />
       <ResearchOutputReadiness readiness={quality.research_output_readiness} />
       <ResearchQualitySignalVerdict quality={quality} />
       <ResearchQualityProviderEvidence quality={quality} />

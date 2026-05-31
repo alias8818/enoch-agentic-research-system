@@ -705,6 +705,33 @@ button:disabled { cursor: not-allowed; }
   -webkit-line-clamp: 4;
   overflow: hidden;
 }
+.quality-snapshot-summary-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+.quality-snapshot-summary-list div {
+  border: 1px solid rgba(244,241,234,0.09);
+  border-radius: 0.78rem;
+  background: rgba(244,241,234,0.026);
+  padding: 0.56rem 0.62rem;
+  min-width: 0;
+}
+.quality-snapshot-summary-label {
+  display: block;
+  color: #8f887f;
+  font-size: 0.65rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.quality-snapshot-summary-value {
+  display: block;
+  margin-top: 0.18rem;
+  color: #d7cfc3;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .quality-snapshot-detail {
   border: 1px solid rgba(244,241,234,0.1);
   border-radius: 0.82rem;
