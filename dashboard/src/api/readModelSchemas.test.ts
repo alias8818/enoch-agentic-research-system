@@ -92,6 +92,8 @@ it('parses command-center overview, status, and readiness payloads', () => {
         malformed_provider_response_ticks: 1,
         clean_tick_count: 3,
         consecutive_clean_ticks: 2,
+        malformed_history_status: 'recovered',
+        active_malformed_warning: false,
         last_checked_at: '2026-05-30T04:00:30Z',
         last_malformed_at: '2026-05-30T03:00:30Z',
         malformed_provider_model_counts: { 'hf:model-a': 2 },
@@ -319,6 +321,8 @@ it('parses command-center overview, status, and readiness payloads', () => {
     provider_generation_health: {
       rows_checked: 4,
       consecutive_clean_ticks: 2,
+      malformed_history_status: 'recovered',
+      active_malformed_warning: false,
       latest_tick: {
         provider_model: 'hf:model-b',
         status: 'clean',

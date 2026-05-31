@@ -465,6 +465,8 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                     "malformed_provider_response_ticks": 1,
                     "clean_tick_count": 3,
                     "consecutive_clean_ticks": 2,
+                    "malformed_history_status": "active",
+                    "active_malformed_warning": True,
                     "last_checked_at": "2026-05-30T04:00:30Z",
                     "last_malformed_at": "2026-05-30T03:00:30Z",
                     "malformed_provider_model_counts": {"hf:model-a": 2},
@@ -583,6 +585,8 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             "operator_action": (
                 "inspect provider-generation failures before trusting new idea volume"
             ),
+            "status": "active",
+            "active": True,
         },
         {
             "code": "useful_followup_decline",
@@ -591,6 +595,8 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             "operator_action": (
                 "review recent follow-up quality before increasing throughput"
             ),
+            "status": "active",
+            "active": True,
         },
     ]
     assert finding.data["post_prompt_warning_details"] == [
@@ -636,6 +642,8 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
         "malformed_provider_response_ticks": 1,
         "clean_tick_count": 3,
         "consecutive_clean_ticks": 2,
+        "malformed_history_status": "active",
+        "active_malformed_warning": True,
         "last_checked_at": "2026-05-30T04:00:30Z",
         "last_malformed_at": "2026-05-30T03:00:30Z",
         "malformed_provider_model_counts": {"hf:model-a": 2},

@@ -190,6 +190,8 @@ export interface OverviewResponse {
       malformed_provider_response_ticks?: number
       clean_tick_count?: number
       consecutive_clean_ticks?: number
+      malformed_history_status?: string
+      active_malformed_warning?: boolean
       last_checked_at?: string
       last_malformed_at?: string
       malformed_provider_model_counts?: Record<string, number>

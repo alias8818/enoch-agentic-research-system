@@ -129,6 +129,8 @@ it('shows research signal quality in the overview side rail', async () => {
           malformed_provider_response_ticks: 1,
           clean_tick_count: 3,
           consecutive_clean_ticks: 2,
+          malformed_history_status: 'recovered',
+          active_malformed_warning: false,
           last_checked_at: '2026-05-30T04:00:30Z',
           last_malformed_at: '2026-05-30T03:00:30Z',
           malformed_provider_model_counts: { 'hf:model-a': 2 },
@@ -392,6 +394,7 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('2 malformed responses at 2026-05-30T03:00:30Z')).toBeInTheDocument()
   expect(within(quality).getByText('inspect provider-generation output for this tick before trusting new idea volume')).toBeInTheDocument()
   expect(within(quality).getByText('Provider recovery')).toBeInTheDocument()
+  expect(within(quality).getByText('provider warning recovered')).toBeInTheDocument()
   expect(within(quality).getByText('2 clean ticks since last malformed')).toBeInTheDocument()
   expect(within(quality).getByText('latest hf:model-b clean at 2026-05-30T04:00:30Z')).toBeInTheDocument()
   expect(within(quality).getByText('last malformed hf:model-a 2 at 2026-05-30T03:00:30Z')).toBeInTheDocument()

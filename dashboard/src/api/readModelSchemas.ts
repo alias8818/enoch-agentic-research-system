@@ -250,6 +250,8 @@ const providerGenerationHealthSchema = z.object({
   malformed_provider_response_ticks: z.number().optional(),
   clean_tick_count: z.number().optional(),
   consecutive_clean_ticks: z.number().optional(),
+  malformed_history_status: z.string().optional(),
+  active_malformed_warning: z.boolean().optional(),
   last_checked_at: z.string().optional(),
   last_malformed_at: z.string().optional(),
   malformed_provider_model_counts: z.record(z.string(), z.number()).optional(),

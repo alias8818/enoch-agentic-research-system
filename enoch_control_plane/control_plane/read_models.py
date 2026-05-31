@@ -2846,6 +2846,9 @@ def _operator_quality_recommendations(
     return recommendations
 
 
+PROVIDER_RECOVERED_CLEAN_TICK_THRESHOLD = 3
+
+
 def _quality_recent_malformed_provider_response(row: Any) -> dict[str, Any] | None:
     if not isinstance(row, Mapping):
         return None
@@ -2915,23 +2918,43 @@ def _quality_provider_generation_health(value: Any) -> dict[str, Any]:
     health = _quality_mapping(value)
     if not health:
         return {}
+    malformed_count = _safe_count(health.get("malformed_provider_response_count"))
+    consecutive_clean_ticks = _safe_count(health.get("consecutive_clean_ticks"))
+    latest_tick = _quality_provider_generation_tick(health.get("latest_tick"))
+    latest_status = _text(latest_tick.get("status"))
+    latest_malformed_count = _safe_count(
+        latest_tick.get("malformed_provider_response_count")
+    )
+    if malformed_count <= 0:
+        malformed_status = "clean"
+        active_malformed_warning = False
+    elif (
+        latest_status == "clean"
+        and latest_malformed_count == 0
+        and consecutive_clean_ticks >= PROVIDER_RECOVERED_CLEAN_TICK_THRESHOLD
+    ):
+        malformed_status = "recovered"
+        active_malformed_warning = False
+    else:
+        malformed_status = "active"
+        active_malformed_warning = True
     return {
         "available": bool(health.get("available")),
         "rows_checked": _safe_count(health.get("rows_checked")),
-        "malformed_provider_response_count": _safe_count(
-            health.get("malformed_provider_response_count")
-        ),
+        "malformed_provider_response_count": malformed_count,
         "malformed_provider_response_ticks": _safe_count(
             health.get("malformed_provider_response_ticks")
         ),
         "clean_tick_count": _safe_count(health.get("clean_tick_count")),
-        "consecutive_clean_ticks": _safe_count(health.get("consecutive_clean_ticks")),
+        "consecutive_clean_ticks": consecutive_clean_ticks,
+        "malformed_history_status": malformed_status,
+        "active_malformed_warning": active_malformed_warning,
         "last_checked_at": _text(health.get("last_checked_at")),
         "last_malformed_at": _text(health.get("last_malformed_at")),
         "malformed_provider_model_counts": _quality_model_counts(
             health.get("malformed_provider_model_counts")
         ),
-        "latest_tick": _quality_provider_generation_tick(health.get("latest_tick")),
+        "latest_tick": latest_tick,
         "last_malformed_tick": _quality_provider_generation_tick(
             health.get("last_malformed_tick")
         ),
@@ -3332,10 +3355,32 @@ def _quality_followup_readiness(value: Any) -> dict[str, Any]:
 
 
 def _post_prompt_warning_details(
-    *, malformed_count: int, malformed_ticks: int, useful_delta: float
+    *,
+    malformed_count: int,
+    malformed_ticks: int,
+    useful_delta: float,
+    provider_generation_health: Mapping[str, Any],
 ) -> list[dict[str, str]]:
     details: list[dict[str, str]] = []
-    if malformed_count > 0:
+    provider_recovered = (
+        _text(provider_generation_health.get("malformed_history_status")) == "recovered"
+    )
+    if malformed_count > 0 and provider_recovered:
+        details.append(
+            {
+                "code": "provider_generation_recovered",
+                "severity": "info",
+                "message": (
+                    f"{malformed_count} malformed provider responses recovered "
+                    f"after {provider_generation_health.get('consecutive_clean_ticks')} "
+                    "clean ticks"
+                ),
+                "operator_action": _text(
+                    provider_generation_health.get("operator_action")
+                ),
+            }
+        )
+    elif malformed_count > 0:
         tick_label = "recent tick" if malformed_ticks == 1 else "recent ticks"
         details.append(
             {
@@ -3386,13 +3431,21 @@ def _quality_refresh_operator_action(refresh: Mapping[str, Any]) -> str:
 
 
 def _signal_reason(
-    code: str, severity: str, message: str, operator_action: str
-) -> dict[str, str]:
+    code: str,
+    severity: str,
+    message: str,
+    operator_action: str,
+    *,
+    status: str = "active",
+    active: bool = True,
+) -> dict[str, Any]:
     return {
         "code": code,
         "severity": severity,
         "message": message,
         "operator_action": operator_action,
+        "status": status,
+        "active": active,
     }
 
 
@@ -3404,10 +3457,11 @@ def _quality_signal_verdict(
     warning_count: int,
     malformed_count: int,
     useful_delta: float,
+    provider_generation_health: Mapping[str, Any],
     freshness: Mapping[str, Any],
     refresh: Mapping[str, Any],
 ) -> dict[str, Any]:
-    reasons: list[dict[str, str]] = []
+    reasons: list[dict[str, Any]] = []
     if bool(freshness.get("report_is_stale")):
         reasons.append(
             _signal_reason(
@@ -3444,7 +3498,21 @@ def _quality_signal_verdict(
                 "inspect warning findings before widening automation",
             )
         )
-    if malformed_count > 0:
+    provider_recovered = (
+        _text(provider_generation_health.get("malformed_history_status")) == "recovered"
+    )
+    if malformed_count > 0 and provider_recovered:
+        reasons.append(
+            _signal_reason(
+                "provider_generation_recovered",
+                "info",
+                "provider generation recovered after malformed responses",
+                _text(provider_generation_health.get("operator_action")),
+                status="recovered",
+                active=False,
+            )
+        )
+    elif malformed_count > 0:
         reasons.append(
             _signal_reason(
                 "malformed_provider_responses",
@@ -3463,25 +3531,29 @@ def _quality_signal_verdict(
             )
         )
 
+    active_reasons = [item for item in reasons if bool(item.get("active", True))]
     if any(
         item["code"] in {"quality_report_stale", "quality_refresh_unhealthy"}
-        for item in reasons
+        for item in active_reasons
     ):
         verdict = "stale"
-    elif any(item["severity"] == "blocked" for item in reasons):
+    elif any(item["severity"] == "blocked" for item in active_reasons):
         verdict = "blocked"
-    elif reasons:
+    elif any(item["severity"] == "warning" for item in active_reasons):
         verdict = "review_required"
     else:
         verdict = "defensible"
-        reasons.append(
-            _signal_reason(
-                "clean_current_quality_report",
-                "info",
-                "current quality report is clean and refresh source is healthy",
-                "continue monitoring Research Quality alongside operational readiness",
+        if not reasons:
+            reasons.append(
+                _signal_reason(
+                    "clean_current_quality_report",
+                    "info",
+                    "current quality report is clean and refresh source is healthy",
+                    "continue monitoring Research Quality alongside operational readiness",
+                    active=False,
+                    status="clean",
+                )
             )
-        )
 
     labels = {
         "stale": "Research signal: stale",
@@ -3489,11 +3561,12 @@ def _quality_signal_verdict(
         "review_required": "Research signal: review required",
         "defensible": "Research signal: defensible",
     }
+    primary_reason = active_reasons[0] if active_reasons else reasons[0]
     return {
         "signal_verdict": verdict,
         "signal_label": labels[verdict],
         "signal_reasons": reasons,
-        "signal_operator_action": reasons[0]["operator_action"],
+        "signal_operator_action": primary_reason["operator_action"],
     }
 
 
@@ -3528,6 +3601,9 @@ def research_signal_quality_snapshot(
     report_mtime = quality.get("report_mtime") or ""
     freshness = research_quality_report_freshness(report_mtime, now=now)
     quality_ok = bool(quality.get("ok"))
+    provider_generation_health = _quality_provider_generation_health(
+        monitor.get("provider_generation_health")
+    )
     signal = _quality_signal_verdict(
         quality_ok=quality_ok,
         status=status,
@@ -3535,6 +3611,7 @@ def research_signal_quality_snapshot(
         warning_count=warning_count,
         malformed_count=malformed_count,
         useful_delta=useful_delta,
+        provider_generation_health=provider_generation_health,
         freshness=freshness,
         refresh=refresh,
     )
@@ -3542,6 +3619,7 @@ def research_signal_quality_snapshot(
         malformed_count=malformed_count,
         malformed_ticks=malformed_ticks,
         useful_delta=float(useful_delta),
+        provider_generation_health=provider_generation_health,
     )
     raw_recommendations = _quality_recommendations(quality)
     return {
@@ -3602,9 +3680,7 @@ def research_signal_quality_snapshot(
         "malformed_provider_model_counts": _quality_model_counts(
             monitor.get("malformed_provider_model_counts")
         ),
-        "provider_generation_health": _quality_provider_generation_health(
-            monitor.get("provider_generation_health")
-        ),
+        "provider_generation_health": provider_generation_health,
         "window_comparison": _quality_window_comparison(
             monitor.get("window_comparison")
         ),

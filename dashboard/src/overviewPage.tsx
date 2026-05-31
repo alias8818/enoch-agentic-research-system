@@ -264,6 +264,10 @@ function providerCleanStreakLabel(health: ProviderGenerationHealth): string {
   return `${count} clean ${tickLabel} since last malformed`
 }
 
+function providerWarningPostureLabel(health: ProviderGenerationHealth): string {
+  return `provider warning ${portfolioLabel(health.malformed_history_status || 'unknown')}`
+}
+
 function providerLatestTickLabel(health: ProviderGenerationHealth): string {
   const latest = health.latest_tick
   const model = displayText(latest?.provider_model, 'unknown model')
@@ -457,6 +461,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
       {providerHealth ? (
         <div className="quality-snapshot-detail">
           <h4>Provider recovery</h4>
+          <p>{providerWarningPostureLabel(providerHealth)}</p>
           <p>{providerCleanStreakLabel(providerHealth)}</p>
           <p>{providerLatestTickLabel(providerHealth)}</p>
           <p>{providerLastMalformedLabel(providerHealth)}</p>

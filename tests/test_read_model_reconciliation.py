@@ -121,6 +121,8 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
         "severity": "blocked",
         "message": "quality report is stale",
         "operator_action": "refresh the Research Quality report before relying on unattended automation",
+        "status": "active",
+        "active": True,
     }
 
 
@@ -514,6 +516,8 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
         "malformed_provider_response_ticks": 1,
         "clean_tick_count": 3,
         "consecutive_clean_ticks": 2,
+        "malformed_history_status": "active",
+        "active_malformed_warning": True,
         "last_checked_at": "2026-05-30T04:00:30Z",
         "last_malformed_at": "2026-05-30T03:00:30Z",
         "malformed_provider_model_counts": {"hf:model-a": 2},
@@ -858,6 +862,93 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
     )
 
 
+def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
+    snapshot = research_signal_quality_snapshot(
+        {
+            "ok": True,
+            "status": "clean",
+            "severity_counts": {},
+            "problem_counts": {},
+            "post_prompt_monitor": {
+                "available": True,
+                "malformed_provider_response_count": 16,
+                "malformed_provider_response_ticks": 8,
+                "useful_adjacent_followup_delta": -4.0,
+                "provider_generation_health": {
+                    "available": True,
+                    "rows_checked": 200,
+                    "malformed_provider_response_count": 16,
+                    "malformed_provider_response_ticks": 8,
+                    "clean_tick_count": 192,
+                    "consecutive_clean_ticks": 69,
+                    "last_checked_at": "2026-05-30T14:41:20Z",
+                    "last_malformed_at": "2026-05-30T03:00:30Z",
+                    "latest_tick": {
+                        "checked_at": "2026-05-30T14:41:20Z",
+                        "provider_model": "hf:model-clean",
+                        "malformed_provider_response_count": 0,
+                        "status": "clean",
+                    },
+                    "last_malformed_tick": {
+                        "checked_at": "2026-05-30T03:00:30Z",
+                        "provider_model": "hf:model-bad",
+                        "malformed_provider_response_count": 2,
+                        "status": "malformed",
+                    },
+                    "operator_action": (
+                        "provider generation has 69 clean ticks since the last "
+                        "malformed response; review the last malformed model "
+                        "before widening automation"
+                    ),
+                },
+            },
+            "refresh_status": {"available": True, "ok": True},
+            "report_mtime": "2026-05-30T00:00:00Z",
+        },
+        now=datetime(2026, 5, 30, tzinfo=timezone.utc),
+    )
+
+    assert snapshot["signal_verdict"] == "review_required"
+    assert snapshot["signal_operator_action"] == (
+        "review recent follow-up quality before increasing throughput"
+    )
+    assert snapshot["provider_generation_health"]["malformed_history_status"] == (
+        "recovered"
+    )
+    assert snapshot["provider_generation_health"]["active_malformed_warning"] is False
+    assert snapshot["signal_reasons"] == [
+        {
+            "code": "provider_generation_recovered",
+            "severity": "info",
+            "message": "provider generation recovered after malformed responses",
+            "operator_action": (
+                "provider generation has 69 clean ticks since the last malformed "
+                "response; review the last malformed model before widening "
+                "automation"
+            ),
+            "status": "recovered",
+            "active": False,
+        },
+        {
+            "code": "useful_followup_decline",
+            "severity": "warning",
+            "message": "useful adjacent follow-up signal declined",
+            "operator_action": (
+                "review recent follow-up quality before increasing throughput"
+            ),
+            "status": "active",
+            "active": True,
+        },
+    ]
+    assert snapshot["operator_recommendations"] == [
+        "review recent follow-up quality before increasing throughput",
+        (
+            "provider generation has 69 clean ticks since the last malformed "
+            "response; review the last malformed model before widening automation"
+        ),
+    ]
+
+
 def test_research_signal_quality_snapshot_marks_defensible_signal() -> None:
     snapshot = research_signal_quality_snapshot(
         {
@@ -886,6 +977,8 @@ def test_research_signal_quality_snapshot_marks_defensible_signal() -> None:
             "severity": "info",
             "message": "current quality report is clean and refresh source is healthy",
             "operator_action": "continue monitoring Research Quality alongside operational readiness",
+            "status": "clean",
+            "active": False,
         }
     ]
 
