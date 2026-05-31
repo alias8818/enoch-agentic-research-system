@@ -3680,18 +3680,15 @@ def _signal_reason(
     }
 
 
-def _quality_signal_verdict(
+def _quality_signal_base_reasons(
     *,
     quality_ok: bool,
     status: str,
     blocked_count: int,
     warning_count: int,
-    malformed_count: int,
-    useful_delta: float,
-    provider_generation_health: Mapping[str, Any],
     freshness: Mapping[str, Any],
     refresh: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> list[dict[str, Any]]:
     reasons: list[dict[str, Any]] = []
     if bool(freshness.get("report_is_stale")):
         reasons.append(
@@ -3729,29 +3726,71 @@ def _quality_signal_verdict(
                 "inspect warning findings before widening automation",
             )
         )
-    provider_recovered = (
-        _text(provider_generation_health.get("malformed_history_status")) == "recovered"
+    return reasons
+
+
+def _provider_generation_signal_reason(
+    malformed_count: int, provider_generation_health: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    if malformed_count <= 0:
+        return None
+    if _text(provider_generation_health.get("malformed_history_status")) == "recovered":
+        return _signal_reason(
+            "provider_generation_recovered",
+            "info",
+            "provider generation recovered after malformed responses",
+            _text(provider_generation_health.get("operator_action")),
+            status="recovered",
+            active=False,
+        )
+    return _signal_reason(
+        "malformed_provider_responses",
+        "warning",
+        "provider generation produced malformed responses",
+        "inspect provider-generation failures before trusting new idea volume",
     )
-    if malformed_count > 0 and provider_recovered:
-        reasons.append(
-            _signal_reason(
-                "provider_generation_recovered",
-                "info",
-                "provider generation recovered after malformed responses",
-                _text(provider_generation_health.get("operator_action")),
-                status="recovered",
-                active=False,
-            )
-        )
-    elif malformed_count > 0:
-        reasons.append(
-            _signal_reason(
-                "malformed_provider_responses",
-                "warning",
-                "provider generation produced malformed responses",
-                "inspect provider-generation failures before trusting new idea volume",
-            )
-        )
+
+
+def _quality_signal_verdict_from_reasons(
+    active_reasons: Sequence[Mapping[str, Any]],
+) -> str:
+    if any(
+        item["code"] in {"quality_report_stale", "quality_refresh_unhealthy"}
+        for item in active_reasons
+    ):
+        return "stale"
+    if any(item["severity"] == "blocked" for item in active_reasons):
+        return "blocked"
+    if any(item["severity"] == "warning" for item in active_reasons):
+        return "review_required"
+    return "defensible"
+
+
+def _quality_signal_verdict(
+    *,
+    quality_ok: bool,
+    status: str,
+    blocked_count: int,
+    warning_count: int,
+    malformed_count: int,
+    useful_delta: float,
+    provider_generation_health: Mapping[str, Any],
+    freshness: Mapping[str, Any],
+    refresh: Mapping[str, Any],
+) -> dict[str, Any]:
+    reasons = _quality_signal_base_reasons(
+        quality_ok=quality_ok,
+        status=status,
+        blocked_count=blocked_count,
+        warning_count=warning_count,
+        freshness=freshness,
+        refresh=refresh,
+    )
+    provider_reason = _provider_generation_signal_reason(
+        malformed_count, provider_generation_health
+    )
+    if provider_reason:
+        reasons.append(provider_reason)
     if useful_delta < 0:
         reasons.append(
             _signal_reason(
@@ -3763,28 +3802,18 @@ def _quality_signal_verdict(
         )
 
     active_reasons = [item for item in reasons if bool(item.get("active", True))]
-    if any(
-        item["code"] in {"quality_report_stale", "quality_refresh_unhealthy"}
-        for item in active_reasons
-    ):
-        verdict = "stale"
-    elif any(item["severity"] == "blocked" for item in active_reasons):
-        verdict = "blocked"
-    elif any(item["severity"] == "warning" for item in active_reasons):
-        verdict = "review_required"
-    else:
-        verdict = "defensible"
-        if not reasons:
-            reasons.append(
-                _signal_reason(
-                    "clean_current_quality_report",
-                    "info",
-                    "current quality report is clean and refresh source is healthy",
-                    "continue monitoring Research Quality alongside operational readiness",
-                    active=False,
-                    status="clean",
-                )
+    verdict = _quality_signal_verdict_from_reasons(active_reasons)
+    if verdict == "defensible" and not reasons:
+        reasons.append(
+            _signal_reason(
+                "clean_current_quality_report",
+                "info",
+                "current quality report is clean and refresh source is healthy",
+                "continue monitoring Research Quality alongside operational readiness",
+                active=False,
+                status="clean",
             )
+        )
 
     labels = {
         "stale": "Research signal: stale",
