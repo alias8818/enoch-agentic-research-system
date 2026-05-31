@@ -181,6 +181,9 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
             },
             "report_mtime": "2026-05-30T00:00:00Z",
             "refresh_status": {"available": True, "ok": True},
+            "recommendations": [
+                "No critical quality-layer warnings from the read-only audit heuristics."
+            ],
         },
         now=datetime(2026, 5, 30, tzinfo=timezone.utc),
     )
@@ -227,6 +230,22 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
             ),
         },
     ]
+    assert snapshot["recommendations"] == [
+        "No critical quality-layer warnings from the read-only audit heuristics."
+    ]
+    assert snapshot["operator_recommendations"] == [
+        "inspect warning findings before widening automation",
+        "inspect provider-generation failures before trusting new idea volume",
+        "review recent follow-up quality before increasing throughput",
+        (
+            "inspect provider-generation output for the listed ticks before "
+            "trusting new idea volume"
+        ),
+    ]
+    assert (
+        "No critical quality-layer warnings"
+        not in snapshot["operator_recommendations"][0]
+    )
 
 
 def test_research_signal_quality_snapshot_marks_defensible_signal() -> None:

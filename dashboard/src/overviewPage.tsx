@@ -224,7 +224,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
     )
   }
   const affected = quality.top_problem_details?.[0]
-  const recommendation = quality.recommendations?.[0]
+  const recommendation = quality.operator_recommendations?.[0] || quality.recommendations?.[0]
   const signalReason = quality.signal_reasons?.[0]
   const providerEvidence = quality.recent_malformed_provider_responses?.[0]
   const postPromptWarning = quality.post_prompt_warning_details?.[0]

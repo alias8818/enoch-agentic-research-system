@@ -224,6 +224,7 @@ const researchSignalQualitySchema = z.object({
     operator_action: z.string().optional(),
   }).passthrough()).optional(),
   recommendations: z.array(z.string()).optional(),
+  operator_recommendations: z.array(z.string()).optional(),
   operator_summary: z.string().optional(),
 }).passthrough()
 

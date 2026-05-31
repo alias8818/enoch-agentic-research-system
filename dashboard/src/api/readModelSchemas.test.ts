@@ -83,6 +83,9 @@ it('parses command-center overview, status, and readiness payloads', () => {
         message: '2 malformed provider responses across 1 recent tick',
         operator_action: 'inspect provider-generation output for the listed ticks before trusting new idea volume',
       }],
+      operator_recommendations: [
+        'inspect provider-generation failures before trusting new idea volume',
+      ],
     },
   }).research_signal_quality).toMatchObject({
     malformed_provider_response_count: 16,
@@ -98,6 +101,9 @@ it('parses command-center overview, status, and readiness payloads', () => {
       code: 'malformed_provider_responses',
       severity: 'warning',
     }],
+    operator_recommendations: [
+      'inspect provider-generation failures before trusting new idea volume',
+    ],
   })
   expect(parseStatusResponse(statusFixture).worker_lanes?.[0]?.machine_target).toBe('cpu-proxmox-1')
   expect(parseAutomationReadiness({ ok: true, label: 'Long-haul mode: READY' }).label).toBe('Long-haul mode: READY')

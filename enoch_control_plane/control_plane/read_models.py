@@ -2804,6 +2804,50 @@ def _quality_recommendations(
     return recommendations
 
 
+def _quality_recommendation_is_benign_for_review(text: str) -> bool:
+    normalized = text.lower()
+    return (
+        "no critical quality-layer warnings" in normalized
+        or "no quality-layer warnings" in normalized
+    )
+
+
+def _append_unique_text(items: list[str], value: Any, *, limit: int) -> None:
+    text = _text(value)
+    if text and text not in items and len(items) < limit:
+        items.append(text)
+
+
+def _operator_quality_recommendations(
+    *,
+    signal: Mapping[str, Any],
+    post_prompt_warnings: Sequence[Mapping[str, Any]],
+    raw_recommendations: Sequence[str],
+    limit: int = 5,
+) -> list[str]:
+    recommendations: list[str] = []
+    verdict = _text(signal.get("signal_verdict"))
+    _append_unique_text(
+        recommendations, signal.get("signal_operator_action"), limit=limit
+    )
+    for reason in signal.get("signal_reasons") or []:
+        if isinstance(reason, Mapping):
+            _append_unique_text(
+                recommendations, reason.get("operator_action"), limit=limit
+            )
+    for detail in post_prompt_warnings:
+        _append_unique_text(
+            recommendations, detail.get("operator_action"), limit=limit
+        )
+    for item in raw_recommendations:
+        if verdict != "defensible" and _quality_recommendation_is_benign_for_review(
+            item
+        ):
+            continue
+        _append_unique_text(recommendations, item, limit=limit)
+    return recommendations
+
+
 def _quality_recent_malformed_provider_response(row: Any) -> dict[str, Any] | None:
     if not isinstance(row, Mapping):
         return None
@@ -3047,6 +3091,22 @@ def research_signal_quality_snapshot(
     report_mtime = quality.get("report_mtime") or ""
     freshness = research_quality_report_freshness(report_mtime, now=now)
     quality_ok = bool(quality.get("ok"))
+    signal = _quality_signal_verdict(
+        quality_ok=quality_ok,
+        status=status,
+        blocked_count=blocked_count,
+        warning_count=warning_count,
+        malformed_count=malformed_count,
+        useful_delta=useful_delta,
+        freshness=freshness,
+        refresh=refresh,
+    )
+    post_prompt_warning_details = _post_prompt_warning_details(
+        malformed_count=malformed_count,
+        malformed_ticks=malformed_ticks,
+        useful_delta=float(useful_delta),
+    )
+    raw_recommendations = _quality_recommendations(quality)
     return {
         "status": status,
         "ok": quality_ok,
@@ -3060,16 +3120,7 @@ def research_signal_quality_snapshot(
         "report_path": quality.get("report_path") or "",
         "report_mtime": report_mtime,
         **freshness,
-        **_quality_signal_verdict(
-            quality_ok=quality_ok,
-            status=status,
-            blocked_count=blocked_count,
-            warning_count=warning_count,
-            malformed_count=malformed_count,
-            useful_delta=useful_delta,
-            freshness=freshness,
-            refresh=refresh,
-        ),
+        **signal,
         "refresh_ok": bool(refresh.get("ok")),
         "refresh_action": _text(refresh.get("action")),
         "refresh_reason": _text(refresh.get("reason")),
@@ -3093,15 +3144,16 @@ def research_signal_quality_snapshot(
             monitor.get("malformed_provider_model_counts")
         ),
         "recent_malformed_provider_responses": recent_malformed,
-        "post_prompt_warning_details": _post_prompt_warning_details(
-            malformed_count=malformed_count,
-            malformed_ticks=malformed_ticks,
-            useful_delta=float(useful_delta),
-        ),
+        "post_prompt_warning_details": post_prompt_warning_details,
         "last_malformed_at": _quality_value(monitor, "last_malformed_at", ""),
         "last_checked_at": _quality_value(monitor, "last_checked_at", ""),
         "top_problem_details": _quality_problem_details(quality),
-        "recommendations": _quality_recommendations(quality),
+        "recommendations": raw_recommendations,
+        "operator_recommendations": _operator_quality_recommendations(
+            signal=signal,
+            post_prompt_warnings=post_prompt_warning_details,
+            raw_recommendations=raw_recommendations,
+        ),
         "operator_summary": "; ".join(parts),
     }
 

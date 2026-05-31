@@ -155,6 +155,7 @@ export interface OverviewResponse {
       operator_action?: string
     }[]
     recommendations?: string[]
+    operator_recommendations?: string[]
     operator_summary?: string
   }
   movement_diagnosis?: MovementDiagnosis

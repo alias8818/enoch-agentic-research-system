@@ -123,7 +123,8 @@ it('shows research signal quality in the overview side rail', async () => {
           operator_action: 'inspect provider-generation output for the listed ticks before trusting new idea volume',
         }],
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
-        recommendations: ['Run a bounded follow-up before treating this as paper-ready.'],
+        operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
+        recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
         top_problem_details: [{
           severity: 'warning',
           problem: 'weak_or_missing_evidence_strength',
@@ -165,7 +166,8 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('Affected artifact')).toBeInTheDocument()
   expect(within(quality).getByText('Weak Evidence Project')).toBeInTheDocument()
   expect(within(quality).getByText('weak_or_missing_evidence_strength')).toBeInTheDocument()
-  expect(within(quality).getByText('Run a bounded follow-up before treating this as paper-ready.')).toBeInTheDocument()
+  expect(within(quality).getByText('inspect provider-generation failures before trusting new idea volume')).toBeInTheDocument()
+  expect(within(quality).queryByText('No critical quality-layer warnings from the read-only audit heuristics.')).not.toBeInTheDocument()
 })
 
 it('surfaces the movement diagnosis before lane and action controls', async () => {
