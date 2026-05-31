@@ -206,6 +206,8 @@ type DecisionOutcomeSampleGroup = NonNullable<ResearchSignalQuality['decision_ou
 type DecisionOutcomeSample = NonNullable<DecisionOutcomeSampleGroup['samples']>[number]
 type QualityWindowComparison = NonNullable<ResearchSignalQuality['window_comparison']>
 type ProviderGenerationHealth = NonNullable<ResearchSignalQuality['provider_generation_health']>
+type DecisionPosture = NonNullable<ResearchSignalQuality['decision_posture']>
+type DecisionPostureSample = NonNullable<DecisionPosture['representative_useful_signals']>[number]
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
@@ -275,6 +277,28 @@ function providerLastMalformedLabel(health: ProviderGenerationHealth): string {
   return `last malformed ${model} ${count} at ${checkedAt}`
 }
 
+function decisionPostureUsefulLabel(posture: DecisionPosture): string {
+  const useful = Number(posture.useful_signal_count ?? 0)
+  const total = Number(posture.decisions_checked ?? 0)
+  return `useful signals ${useful} / ${total} decisions`
+}
+
+function decisionPostureReadyLabel(posture: DecisionPosture): string {
+  return `publication-ready ${Number(posture.bounded_paper_ready_count ?? 0)}`
+}
+
+function decisionPostureFollowupLabel(posture: DecisionPosture): string {
+  return `follow-up recommended ${Number(posture.followup_recommended_count ?? 0)}`
+}
+
+function decisionPostureLabel(posture: DecisionPosture): string {
+  return `posture ${portfolioLabel(posture.publication_posture)}`
+}
+
+function decisionPostureSampleTitle(row: DecisionPostureSample): string {
+  return displayText(row.project_name || row.followup_title || row.project_id, 'Unnamed useful signal')
+}
+
 function candidateStatusSampleTitle(status: string, row: CandidateStatusSample): string {
   return `${portfolioLabel(status)}: ${displayText(row.title, 'Unnamed candidate')}`
 }
@@ -334,6 +358,8 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const windowGenerationModes = windowCountEntries(windowComparison?.current?.generation_mode_counts)
   const windowCategories = windowCountEntries(windowComparison?.current?.category_counts)
   const providerHealth = quality.provider_generation_health
+  const decisionPosture = quality.decision_posture
+  const decisionPostureSample = decisionPosture?.representative_useful_signals?.[0]
   const hasWindowComparison = Boolean(
     windowComparison && (
       windowGenerationModes.length > 0
@@ -445,6 +471,22 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
               <p>{decisionOutcomeSampleId(row)}</p>
             </div>
           ))}
+        </div>
+      ) : null}
+      {decisionPosture ? (
+        <div className="quality-snapshot-detail">
+          <h4>Decision posture</h4>
+          <p>{decisionPostureUsefulLabel(decisionPosture)}</p>
+          <p>{decisionPostureReadyLabel(decisionPosture)}</p>
+          <p>{decisionPostureFollowupLabel(decisionPosture)}</p>
+          <p>{decisionPostureLabel(decisionPosture)}</p>
+          {decisionPostureSample ? (
+            <>
+              <p>{decisionPostureSampleTitle(decisionPostureSample)}</p>
+              <p>{displayText(decisionPostureSample.recommended_next_action, 'No next action returned for representative useful signal.')}</p>
+            </>
+          ) : null}
+          <p>{displayText(decisionPosture.operator_action, 'Inspect decision posture before treating throughput as publication output.')}</p>
         </div>
       ) : null}
       {hasWindowComparison && windowComparison ? (

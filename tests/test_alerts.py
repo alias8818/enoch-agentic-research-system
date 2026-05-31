@@ -280,6 +280,51 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                     ],
                 }
             ],
+            "decision_posture": {
+                "available": True,
+                "decisions_checked": 3,
+                "useful_signal_count": 2,
+                "negative_count": 1,
+                "bounded_paper_ready_count": 0,
+                "followup_recommended_count": 2,
+                "compute_scale_blocked_count": 0,
+                "publication_posture": "followup_only",
+                "research_outcome_counts": {"negative": 1, "useful_signal": 2},
+                "hypothesis_status_counts": {
+                    "mixed": 1,
+                    "supported": 1,
+                    "unsupported": 1,
+                },
+                "evidence_strength_counts": {"moderate": 3},
+                "decision_counts": {
+                    "finalize_negative:mixed": 1,
+                    "finalize_negative:supported": 1,
+                    "finalize_negative:unsupported": 1,
+                },
+                "representative_useful_signals": [
+                    {
+                        "project_id": "project-mixed",
+                        "project_name": "Mixed project",
+                        "run_id": "run-mixed",
+                        "decision": "finalize_negative",
+                        "hypothesis_status": "mixed",
+                        "evidence_strength": "moderate",
+                        "research_outcome": "useful_signal",
+                        "bounded_paper_ready": False,
+                        "followup_recommended": True,
+                        "followup_title": "Mixed follow-up",
+                        "recommended_next_action": (
+                            "Run the mixed follow-up before treating this as "
+                            "paper-ready."
+                        ),
+                    }
+                ],
+                "operator_action": (
+                    "useful signals are present but none are bounded-paper-ready; "
+                    "run or review the listed follow-ups before treating this as "
+                    "publication output"
+                ),
+            },
             "report_mtime": "2026-05-31T00:22:14Z",
             "report_path": str(report_path),
             "post_prompt_monitor": {
@@ -622,6 +667,49 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             ],
         }
     ]
+    assert finding.data["decision_posture"] == {
+        "available": True,
+        "decisions_checked": 3,
+        "useful_signal_count": 2,
+        "negative_count": 1,
+        "bounded_paper_ready_count": 0,
+        "followup_recommended_count": 2,
+        "compute_scale_blocked_count": 0,
+        "publication_posture": "followup_only",
+        "research_outcome_counts": {"negative": 1, "useful_signal": 2},
+        "hypothesis_status_counts": {
+            "mixed": 1,
+            "supported": 1,
+            "unsupported": 1,
+        },
+        "evidence_strength_counts": {"moderate": 3},
+        "decision_counts": {
+            "finalize_negative:mixed": 1,
+            "finalize_negative:supported": 1,
+            "finalize_negative:unsupported": 1,
+        },
+        "representative_useful_signals": [
+            {
+                "project_id": "project-mixed",
+                "project_name": "Mixed project",
+                "run_id": "run-mixed",
+                "decision": "finalize_negative",
+                "hypothesis_status": "mixed",
+                "evidence_strength": "moderate",
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": False,
+                "followup_recommended": True,
+                "followup_title": "Mixed follow-up",
+                "recommended_next_action": (
+                    "Run the mixed follow-up before treating this as paper-ready."
+                ),
+            }
+        ],
+        "operator_action": (
+            "useful signals are present but none are bounded-paper-ready; run or "
+            "review the listed follow-ups before treating this as publication output"
+        ),
+    }
     assert finding.data["window_comparison"] == {
         "cutoff": "2026-05-11T09:58:00Z",
         "limit": 20,

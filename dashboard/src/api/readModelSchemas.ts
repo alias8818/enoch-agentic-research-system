@@ -258,6 +258,37 @@ const providerGenerationHealthSchema = z.object({
   operator_action: z.string().optional(),
 }).passthrough()
 
+const decisionPostureSampleSchema = z.object({
+  project_id: z.string().optional(),
+  project_name: z.string().optional(),
+  run_id: z.string().optional(),
+  decision: z.string().optional(),
+  hypothesis_status: z.string().optional(),
+  evidence_strength: z.string().optional(),
+  research_outcome: z.string().optional(),
+  bounded_paper_ready: z.boolean().optional(),
+  followup_recommended: z.boolean().optional(),
+  followup_title: z.string().optional(),
+  recommended_next_action: z.string().optional(),
+}).passthrough()
+
+const decisionPostureSchema = z.object({
+  available: z.boolean().optional(),
+  decisions_checked: z.number().optional(),
+  useful_signal_count: z.number().optional(),
+  negative_count: z.number().optional(),
+  bounded_paper_ready_count: z.number().optional(),
+  followup_recommended_count: z.number().optional(),
+  compute_scale_blocked_count: z.number().optional(),
+  publication_posture: z.string().optional(),
+  research_outcome_counts: z.record(z.string(), z.number()).optional(),
+  hypothesis_status_counts: z.record(z.string(), z.number()).optional(),
+  evidence_strength_counts: z.record(z.string(), z.number()).optional(),
+  decision_counts: z.record(z.string(), z.number()).optional(),
+  representative_useful_signals: z.array(decisionPostureSampleSchema).optional(),
+  operator_action: z.string().optional(),
+}).passthrough()
+
 const researchSignalQualitySchema = z.object({
   status: z.string().optional(),
   ok: z.boolean().optional(),
@@ -302,6 +333,7 @@ const researchSignalQualitySchema = z.object({
     operator_action: z.string().optional(),
   }).passthrough()).optional(),
   provider_generation_health: providerGenerationHealthSchema.optional(),
+  decision_posture: decisionPostureSchema.optional(),
   useful_adjacent_followup_evidence: z.object({
     current: z.array(usefulFollowupEvidenceRowSchema).optional(),
     previous: z.array(usefulFollowupEvidenceRowSchema).optional(),

@@ -3150,6 +3150,85 @@ def _quality_decision_outcome_samples(value: Any) -> list[dict[str, Any]]:
     return outcomes
 
 
+def _quality_bool(value: Any) -> bool:
+    if value is True or value == 1:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y"}
+    return False
+
+
+def _quality_decision_posture_sample(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, Mapping):
+        return None
+    project_id = _text(row.get("project_id"))
+    run_id = _text(row.get("run_id"))
+    if not project_id and not run_id:
+        return None
+    return {
+        "project_id": project_id,
+        "project_name": _text(row.get("project_name")),
+        "run_id": run_id,
+        "decision": _text(row.get("decision")),
+        "hypothesis_status": _text(row.get("hypothesis_status")),
+        "evidence_strength": _text(row.get("evidence_strength")),
+        "research_outcome": _text(row.get("research_outcome")),
+        "bounded_paper_ready": _quality_bool(row.get("bounded_paper_ready")),
+        "followup_recommended": _quality_bool(row.get("followup_recommended")),
+        "followup_title": _text(row.get("followup_title")),
+        "recommended_next_action": _text(row.get("recommended_next_action")),
+    }
+
+
+def _quality_decision_posture_samples(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value:
+        sample = _quality_decision_posture_sample(raw)
+        if sample is not None:
+            rows.append(sample)
+        if len(rows) >= 3:
+            break
+    return rows
+
+
+def _quality_decision_posture(value: Any) -> dict[str, Any]:
+    posture = _quality_mapping(value)
+    if not posture:
+        return {}
+    return {
+        "available": bool(posture.get("available")),
+        "decisions_checked": _safe_count(posture.get("decisions_checked")),
+        "useful_signal_count": _safe_count(posture.get("useful_signal_count")),
+        "negative_count": _safe_count(posture.get("negative_count")),
+        "bounded_paper_ready_count": _safe_count(
+            posture.get("bounded_paper_ready_count")
+        ),
+        "followup_recommended_count": _safe_count(
+            posture.get("followup_recommended_count")
+        ),
+        "compute_scale_blocked_count": _safe_count(
+            posture.get("compute_scale_blocked_count")
+        ),
+        "publication_posture": _text(posture.get("publication_posture")),
+        "research_outcome_counts": _quality_model_counts(
+            posture.get("research_outcome_counts")
+        ),
+        "hypothesis_status_counts": _quality_model_counts(
+            posture.get("hypothesis_status_counts")
+        ),
+        "evidence_strength_counts": _quality_model_counts(
+            posture.get("evidence_strength_counts")
+        ),
+        "decision_counts": _quality_model_counts(posture.get("decision_counts")),
+        "representative_useful_signals": _quality_decision_posture_samples(
+            posture.get("representative_useful_signals")
+        ),
+        "operator_action": _text(posture.get("operator_action")),
+    }
+
+
 def _post_prompt_warning_details(
     *, malformed_count: int, malformed_ticks: int, useful_delta: float
 ) -> list[dict[str, str]]:
@@ -3387,6 +3466,7 @@ def research_signal_quality_snapshot(
         "decision_outcome_samples": _quality_decision_outcome_samples(
             quality.get("decision_outcome_samples")
         ),
+        "decision_posture": _quality_decision_posture(quality.get("decision_posture")),
         "weak_evidence_count": weak_evidence_count,
         "warning_problem_count": warning_count,
         "blocked_problem_count": blocked_count,

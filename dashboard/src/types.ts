@@ -221,6 +221,34 @@ export interface OverviewResponse {
       }
       operator_action?: string
     }
+    decision_posture?: {
+      available?: boolean
+      decisions_checked?: number
+      useful_signal_count?: number
+      negative_count?: number
+      bounded_paper_ready_count?: number
+      followup_recommended_count?: number
+      compute_scale_blocked_count?: number
+      publication_posture?: string
+      research_outcome_counts?: Record<string, number>
+      hypothesis_status_counts?: Record<string, number>
+      evidence_strength_counts?: Record<string, number>
+      decision_counts?: Record<string, number>
+      representative_useful_signals?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        decision?: string
+        hypothesis_status?: string
+        evidence_strength?: string
+        research_outcome?: string
+        bounded_paper_ready?: boolean
+        followup_recommended?: boolean
+        followup_title?: string
+        recommended_next_action?: string
+      }[]
+      operator_action?: string
+    }
     useful_adjacent_followup_evidence?: {
       current?: {
         case_id?: string

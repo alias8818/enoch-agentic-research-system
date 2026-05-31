@@ -226,11 +226,46 @@ it('shows research signal quality in the overview side rail', async () => {
             project_id: 'project-mixed',
             project_name: 'Mixed project',
             run_id: 'run-mixed',
+            decision: 'finalize_negative',
+            hypothesis_status: 'mixed',
             evidence_strength: 'moderate',
+            research_outcome: 'useful_signal',
             followup_title: 'Mixed follow-up',
             problems: [],
           }],
         }],
+        decision_posture: {
+          available: true,
+          decisions_checked: 3,
+          useful_signal_count: 2,
+          negative_count: 1,
+          bounded_paper_ready_count: 0,
+          followup_recommended_count: 2,
+          compute_scale_blocked_count: 0,
+          publication_posture: 'followup_only',
+          research_outcome_counts: { useful_signal: 2, negative: 1 },
+          hypothesis_status_counts: { mixed: 1, supported: 1, unsupported: 1 },
+          evidence_strength_counts: { moderate: 3 },
+          decision_counts: {
+            'finalize_negative:mixed': 1,
+            'finalize_negative:supported': 1,
+            'finalize_negative:unsupported': 1,
+          },
+          representative_useful_signals: [{
+            project_id: 'project-mixed',
+            project_name: 'Mixed project',
+            run_id: 'run-mixed',
+            decision: 'finalize_negative',
+            hypothesis_status: 'mixed',
+            evidence_strength: 'moderate',
+            research_outcome: 'useful_signal',
+            bounded_paper_ready: false,
+            followup_recommended: true,
+            followup_title: 'Mixed follow-up',
+            recommended_next_action: 'Run the mixed follow-up before treating this as paper-ready.',
+          }],
+          operator_action: 'useful signals are present but none are bounded-paper-ready; run or review the listed follow-ups before treating this as publication output',
+        },
         window_comparison: {
           cutoff: '2026-05-11T09:58:00Z',
           limit: 20,
@@ -321,6 +356,14 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('candidate-needs-review')).toBeInTheDocument()
   expect(within(quality).getByText('finalize negative / mixed: Mixed project')).toBeInTheDocument()
   expect(within(quality).getByText('project-mixed / run-mixed')).toBeInTheDocument()
+  expect(within(quality).getByText('Decision posture')).toBeInTheDocument()
+  expect(within(quality).getByText('useful signals 2 / 3 decisions')).toBeInTheDocument()
+  expect(within(quality).getByText('publication-ready 0')).toBeInTheDocument()
+  expect(within(quality).getByText('follow-up recommended 2')).toBeInTheDocument()
+  expect(within(quality).getByText('posture followup only')).toBeInTheDocument()
+  expect(within(quality).getByText('Mixed project')).toBeInTheDocument()
+  expect(within(quality).getByText('Run the mixed follow-up before treating this as paper-ready.')).toBeInTheDocument()
+  expect(within(quality).getByText('useful signals are present but none are bounded-paper-ready; run or review the listed follow-ups before treating this as publication output')).toBeInTheDocument()
   expect(within(quality).getByText('Window comparison')).toBeInTheDocument()
   expect(within(quality).getByText('admitted rate 0.6 now / 0.5 previous')).toBeInTheDocument()
   expect(within(quality).getByText('fresh grounded 9')).toBeInTheDocument()

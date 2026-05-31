@@ -139,7 +139,10 @@ def test_quality_report_portfolio_summary_survives_classification() -> None:
             "hypothesis_status": "mixed",
             "evidence_strength": "moderate",
             "research_outcome": "useful_signal",
+            "bounded_paper_ready": False,
+            "followup_recommended": True,
             "followup_title": "Mixed follow-up",
+            "recommended_next_action": "Run the mixed follow-up before treating this as paper-ready.",
             "problems": [],
         },
         {
@@ -150,7 +153,24 @@ def test_quality_report_portfolio_summary_survives_classification() -> None:
             "hypothesis_status": "supported",
             "evidence_strength": "moderate",
             "research_outcome": "useful_signal",
+            "bounded_paper_ready": False,
+            "followup_recommended": True,
             "followup_title": "Supported follow-up",
+            "recommended_next_action": "Run the supported follow-up before treating this as paper-ready.",
+            "problems": [],
+        },
+        {
+            "project_id": "project-negative",
+            "project_name": "Negative project",
+            "run_id": "run-negative",
+            "decision": "finalize_negative",
+            "hypothesis_status": "unsupported",
+            "evidence_strength": "moderate",
+            "research_outcome": "negative",
+            "bounded_paper_ready": False,
+            "followup_recommended": False,
+            "followup_title": "",
+            "recommended_next_action": "Stop this line.",
             "problems": [],
         },
     ]
@@ -236,6 +256,56 @@ def test_quality_report_portfolio_summary_survives_classification() -> None:
             ],
         },
     ]
+    assert status["decision_posture"] == {
+        "available": True,
+        "decisions_checked": 3,
+        "useful_signal_count": 2,
+        "negative_count": 1,
+        "bounded_paper_ready_count": 0,
+        "followup_recommended_count": 2,
+        "compute_scale_blocked_count": 0,
+        "publication_posture": "followup_only",
+        "research_outcome_counts": {"negative": 1, "useful_signal": 2},
+        "hypothesis_status_counts": {"mixed": 1, "supported": 1, "unsupported": 1},
+        "evidence_strength_counts": {"moderate": 3},
+        "decision_counts": {
+            "finalize_negative:mixed": 1,
+            "finalize_negative:supported": 1,
+            "finalize_negative:unsupported": 1,
+        },
+        "representative_useful_signals": [
+            {
+                "project_id": "project-mixed",
+                "project_name": "Mixed project",
+                "run_id": "run-mixed",
+                "decision": "finalize_negative",
+                "hypothesis_status": "mixed",
+                "evidence_strength": "moderate",
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": False,
+                "followup_recommended": True,
+                "followup_title": "Mixed follow-up",
+                "recommended_next_action": "Run the mixed follow-up before treating this as paper-ready.",
+            },
+            {
+                "project_id": "project-supported",
+                "project_name": "Supported project",
+                "run_id": "run-supported",
+                "decision": "finalize_negative",
+                "hypothesis_status": "supported",
+                "evidence_strength": "moderate",
+                "research_outcome": "useful_signal",
+                "bounded_paper_ready": False,
+                "followup_recommended": True,
+                "followup_title": "Supported follow-up",
+                "recommended_next_action": "Run the supported follow-up before treating this as paper-ready.",
+            },
+        ],
+        "operator_action": (
+            "useful signals are present but none are bounded-paper-ready; run or "
+            "review the listed follow-ups before treating this as publication output"
+        ),
+    }
 
 
 def test_weak_evidence_on_needs_review_inconclusive_with_bounded_followup_is_warning() -> (

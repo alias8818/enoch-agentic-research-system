@@ -497,6 +497,7 @@ def _research_quality_alert_finding(
             "top_candidate_categories": signal.get("top_candidate_categories") or [],
             "candidate_status_samples": signal.get("candidate_status_samples") or {},
             "decision_outcome_samples": signal.get("decision_outcome_samples") or [],
+            "decision_posture": signal.get("decision_posture") or {},
             "window_comparison": signal.get("window_comparison") or {},
             "provider_generation_health": signal.get("provider_generation_health")
             or {},
