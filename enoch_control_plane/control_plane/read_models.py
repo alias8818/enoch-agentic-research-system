@@ -2836,9 +2836,7 @@ def _operator_quality_recommendations(
                 recommendations, reason.get("operator_action"), limit=limit
             )
     for detail in post_prompt_warnings:
-        _append_unique_text(
-            recommendations, detail.get("operator_action"), limit=limit
-        )
+        _append_unique_text(recommendations, detail.get("operator_action"), limit=limit)
     for item in raw_recommendations:
         if verdict != "defensible" and _quality_recommendation_is_benign_for_review(
             item
