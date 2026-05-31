@@ -325,6 +325,60 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                     "publication output"
                 ),
             },
+            "followup_readiness": {
+                "available": True,
+                "recommended_count": 2,
+                "bounded_ready_count": 1,
+                "underspecified_count": 1,
+                "missing_title_count": 0,
+                "missing_success_threshold_count": 0,
+                "missing_stop_condition_count": 1,
+                "thin_required_evidence_count": 0,
+                "followup_type_counts": {"deepen": 2},
+                "ready_followups": [
+                    {
+                        "project_id": "project-mixed",
+                        "project_name": "Mixed project",
+                        "run_id": "run-mixed",
+                        "followup_type": "deepen",
+                        "followup_title": "Mixed follow-up",
+                        "followup_required_evidence_count": 4,
+                        "followup_success_threshold": (
+                            "Mixed follow-up must improve accuracy by 5 points."
+                        ),
+                        "followup_stop_condition": (
+                            "Stop mixed follow-up if accuracy does not improve."
+                        ),
+                        "recommended_next_action": (
+                            "Run the mixed follow-up before treating this as "
+                            "paper-ready."
+                        ),
+                    }
+                ],
+                "underspecified_followups": [
+                    {
+                        "project_id": "project-supported",
+                        "project_name": "Supported project",
+                        "run_id": "run-supported",
+                        "followup_type": "deepen",
+                        "followup_title": "Supported follow-up",
+                        "followup_required_evidence_count": 4,
+                        "followup_success_threshold": (
+                            "Supported follow-up must reproduce the effect."
+                        ),
+                        "followup_stop_condition": "",
+                        "recommended_next_action": (
+                            "Run the supported follow-up before treating this as "
+                            "paper-ready."
+                        ),
+                        "missing_fields": ["missing_stop_condition"],
+                    }
+                ],
+                "operator_action": (
+                    "1 recommended follow-up is underspecified; fill missing "
+                    "readiness fields before queueing it"
+                ),
+            },
             "report_mtime": "2026-05-31T00:22:14Z",
             "report_path": str(report_path),
             "post_prompt_monitor": {
@@ -708,6 +762,58 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
         "operator_action": (
             "useful signals are present but none are bounded-paper-ready; run or "
             "review the listed follow-ups before treating this as publication output"
+        ),
+    }
+    assert finding.data["followup_readiness"] == {
+        "available": True,
+        "recommended_count": 2,
+        "bounded_ready_count": 1,
+        "underspecified_count": 1,
+        "missing_title_count": 0,
+        "missing_success_threshold_count": 0,
+        "missing_stop_condition_count": 1,
+        "thin_required_evidence_count": 0,
+        "followup_type_counts": {"deepen": 2},
+        "ready_followups": [
+            {
+                "project_id": "project-mixed",
+                "project_name": "Mixed project",
+                "run_id": "run-mixed",
+                "followup_type": "deepen",
+                "followup_title": "Mixed follow-up",
+                "followup_required_evidence_count": 4,
+                "followup_success_threshold": (
+                    "Mixed follow-up must improve accuracy by 5 points."
+                ),
+                "followup_stop_condition": (
+                    "Stop mixed follow-up if accuracy does not improve."
+                ),
+                "recommended_next_action": (
+                    "Run the mixed follow-up before treating this as paper-ready."
+                ),
+            }
+        ],
+        "underspecified_followups": [
+            {
+                "project_id": "project-supported",
+                "project_name": "Supported project",
+                "run_id": "run-supported",
+                "followup_type": "deepen",
+                "followup_title": "Supported follow-up",
+                "followup_required_evidence_count": 4,
+                "followup_success_threshold": (
+                    "Supported follow-up must reproduce the effect."
+                ),
+                "followup_stop_condition": "",
+                "recommended_next_action": (
+                    "Run the supported follow-up before treating this as paper-ready."
+                ),
+                "missing_fields": ["missing_stop_condition"],
+            }
+        ],
+        "operator_action": (
+            "1 recommended follow-up is underspecified; fill missing readiness "
+            "fields before queueing it"
         ),
     }
     assert finding.data["window_comparison"] == {

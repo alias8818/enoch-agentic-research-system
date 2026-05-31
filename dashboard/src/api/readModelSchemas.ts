@@ -289,6 +289,34 @@ const decisionPostureSchema = z.object({
   operator_action: z.string().optional(),
 }).passthrough()
 
+const followupReadinessSampleSchema = z.object({
+  project_id: z.string().optional(),
+  project_name: z.string().optional(),
+  run_id: z.string().optional(),
+  followup_type: z.string().optional(),
+  followup_title: z.string().optional(),
+  followup_required_evidence_count: z.number().optional(),
+  followup_success_threshold: z.string().optional(),
+  followup_stop_condition: z.string().optional(),
+  recommended_next_action: z.string().optional(),
+  missing_fields: z.array(z.string()).optional(),
+}).passthrough()
+
+const followupReadinessSchema = z.object({
+  available: z.boolean().optional(),
+  recommended_count: z.number().optional(),
+  bounded_ready_count: z.number().optional(),
+  underspecified_count: z.number().optional(),
+  missing_title_count: z.number().optional(),
+  missing_success_threshold_count: z.number().optional(),
+  missing_stop_condition_count: z.number().optional(),
+  thin_required_evidence_count: z.number().optional(),
+  followup_type_counts: z.record(z.string(), z.number()).optional(),
+  ready_followups: z.array(followupReadinessSampleSchema).optional(),
+  underspecified_followups: z.array(followupReadinessSampleSchema).optional(),
+  operator_action: z.string().optional(),
+}).passthrough()
+
 const researchSignalQualitySchema = z.object({
   status: z.string().optional(),
   ok: z.boolean().optional(),
@@ -334,6 +362,7 @@ const researchSignalQualitySchema = z.object({
   }).passthrough()).optional(),
   provider_generation_health: providerGenerationHealthSchema.optional(),
   decision_posture: decisionPostureSchema.optional(),
+  followup_readiness: followupReadinessSchema.optional(),
   useful_adjacent_followup_evidence: z.object({
     current: z.array(usefulFollowupEvidenceRowSchema).optional(),
     previous: z.array(usefulFollowupEvidenceRowSchema).optional(),

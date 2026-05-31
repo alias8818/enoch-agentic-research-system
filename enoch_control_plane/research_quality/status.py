@@ -512,6 +512,146 @@ def _decision_posture(decision_scores: Any) -> dict[str, Any]:
     }
 
 
+def _followup_required_evidence_count(row: dict[str, Any]) -> int:
+    try:
+        return int(row.get("followup_required_evidence_count") or 0)
+    except (TypeError, ValueError):
+        pass
+    evidence = row.get("followup_required_evidence")
+    if isinstance(evidence, list):
+        return len([item for item in evidence if str(item or "").strip()])
+    if isinstance(evidence, str):
+        return len([item for item in evidence.splitlines() if item.strip()])
+    return 0
+
+
+def _followup_readiness_sample(
+    row: dict[str, Any], *, missing_fields: list[str] | None = None
+) -> dict[str, Any]:
+    sample = {
+        "project_id": str(row.get("project_id") or "").strip(),
+        "project_name": str(row.get("project_name") or "").strip(),
+        "run_id": str(row.get("run_id") or "").strip(),
+        "followup_type": str(row.get("followup_type") or "").strip(),
+        "followup_title": str(row.get("followup_title") or "").strip(),
+        "followup_required_evidence_count": _followup_required_evidence_count(row),
+        "followup_success_threshold": str(
+            row.get("followup_success_threshold") or ""
+        ).strip(),
+        "followup_stop_condition": str(
+            row.get("followup_stop_condition") or ""
+        ).strip(),
+        "recommended_next_action": str(
+            row.get("recommended_next_action") or ""
+        ).strip(),
+    }
+    if missing_fields is not None:
+        sample["missing_fields"] = missing_fields
+    return sample
+
+
+def _followup_readiness_operator_action(
+    *, recommended_count: int, underspecified_count: int
+) -> str:
+    if recommended_count <= 0:
+        return (
+            "no follow-up recommendations are present; inspect decision posture "
+            "before queueing more work"
+        )
+    if underspecified_count == 1:
+        return (
+            "1 recommended follow-up is underspecified; fill missing readiness "
+            "fields before queueing it"
+        )
+    if underspecified_count > 1:
+        return (
+            f"{underspecified_count} recommended follow-ups are underspecified; "
+            "fill missing readiness fields before queueing them"
+        )
+    return (
+        "bounded follow-ups are ready; select representative follow-up work before "
+        "treating useful-signal volume as publication output"
+    )
+
+
+def _followup_readiness(decision_scores: Any) -> dict[str, Any]:
+    empty = {
+        "available": False,
+        "recommended_count": 0,
+        "bounded_ready_count": 0,
+        "underspecified_count": 0,
+        "missing_title_count": 0,
+        "missing_success_threshold_count": 0,
+        "missing_stop_condition_count": 0,
+        "thin_required_evidence_count": 0,
+        "followup_type_counts": {},
+        "ready_followups": [],
+        "underspecified_followups": [],
+        "operator_action": _followup_readiness_operator_action(
+            recommended_count=0,
+            underspecified_count=0,
+        ),
+    }
+    if not isinstance(decision_scores, list):
+        return empty
+    type_counts: Counter[str] = Counter()
+    ready_followups: list[dict[str, Any]] = []
+    underspecified_followups: list[dict[str, Any]] = []
+    missing_title_count = 0
+    missing_success_threshold_count = 0
+    missing_stop_condition_count = 0
+    thin_required_evidence_count = 0
+    recommended_count = 0
+    bounded_ready_count = 0
+    for row in decision_scores:
+        if not isinstance(row, dict) or not as_bool(row.get("followup_recommended")):
+            continue
+        recommended_count += 1
+        followup_type = str(row.get("followup_type") or "unknown").strip() or "unknown"
+        type_counts[followup_type] += 1
+        required_evidence_count = _followup_required_evidence_count(row)
+        missing_fields: list[str] = []
+        if not str(row.get("followup_title") or "").strip():
+            missing_title_count += 1
+            missing_fields.append("missing_title")
+        if not str(row.get("followup_success_threshold") or "").strip():
+            missing_success_threshold_count += 1
+            missing_fields.append("missing_success_threshold")
+        if not str(row.get("followup_stop_condition") or "").strip():
+            missing_stop_condition_count += 1
+            missing_fields.append("missing_stop_condition")
+        if required_evidence_count < 2:
+            thin_required_evidence_count += 1
+            missing_fields.append("thin_required_evidence")
+        if missing_fields:
+            if len(underspecified_followups) < 3:
+                underspecified_followups.append(
+                    _followup_readiness_sample(row, missing_fields=missing_fields)
+                )
+        else:
+            bounded_ready_count += 1
+            if len(ready_followups) < 3:
+                ready_followups.append(_followup_readiness_sample(row))
+    underspecified_count = recommended_count - bounded_ready_count
+    return {
+        "available": recommended_count > 0,
+        "recommended_count": recommended_count,
+        "bounded_ready_count": bounded_ready_count,
+        "underspecified_count": underspecified_count,
+        "missing_title_count": missing_title_count,
+        "missing_success_threshold_count": missing_success_threshold_count,
+        "missing_stop_condition_count": missing_stop_condition_count,
+        "thin_required_evidence_count": thin_required_evidence_count,
+        "followup_type_counts": dict(sorted(type_counts.items())),
+        "ready_followups": ready_followups,
+        "underspecified_followups": underspecified_followups,
+        "operator_action": _followup_readiness_operator_action(
+            recommended_count=recommended_count,
+            underspecified_count=underspecified_count,
+        ),
+    }
+
+
 def classify_quality_report(
     report: dict[str, Any], *, report_path: str = "", report_mtime: str = ""
 ) -> dict[str, Any]:
@@ -560,6 +700,7 @@ def classify_quality_report(
             report.get("decision_scores"),
         ),
         "decision_posture": _decision_posture(report.get("decision_scores")),
+        "followup_readiness": _followup_readiness(report.get("decision_scores")),
         "problem_counts": dict(actionable_problem_counts),
         "raw_problem_counts": raw_problem_counts,
         "severity_counts": dict(severity_counts),

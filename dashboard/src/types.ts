@@ -249,6 +249,41 @@ export interface OverviewResponse {
       }[]
       operator_action?: string
     }
+    followup_readiness?: {
+      available?: boolean
+      recommended_count?: number
+      bounded_ready_count?: number
+      underspecified_count?: number
+      missing_title_count?: number
+      missing_success_threshold_count?: number
+      missing_stop_condition_count?: number
+      thin_required_evidence_count?: number
+      followup_type_counts?: Record<string, number>
+      ready_followups?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        followup_type?: string
+        followup_title?: string
+        followup_required_evidence_count?: number
+        followup_success_threshold?: string
+        followup_stop_condition?: string
+        recommended_next_action?: string
+      }[]
+      underspecified_followups?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        followup_type?: string
+        followup_title?: string
+        followup_required_evidence_count?: number
+        followup_success_threshold?: string
+        followup_stop_condition?: string
+        recommended_next_action?: string
+        missing_fields?: string[]
+      }[]
+      operator_action?: string
+    }
     useful_adjacent_followup_evidence?: {
       current?: {
         case_id?: string

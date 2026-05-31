@@ -3229,6 +3229,86 @@ def _quality_decision_posture(value: Any) -> dict[str, Any]:
     }
 
 
+def _quality_followup_readiness_sample(
+    row: Any, *, include_missing_fields: bool = False
+) -> dict[str, Any] | None:
+    if not isinstance(row, Mapping):
+        return None
+    project_id = _text(row.get("project_id"))
+    run_id = _text(row.get("run_id"))
+    title = _text(row.get("followup_title"))
+    if not project_id and not run_id and not title:
+        return None
+    sample: dict[str, Any] = {
+        "project_id": project_id,
+        "project_name": _text(row.get("project_name")),
+        "run_id": run_id,
+        "followup_type": _text(row.get("followup_type")),
+        "followup_title": title,
+        "followup_required_evidence_count": _safe_count(
+            row.get("followup_required_evidence_count")
+        ),
+        "followup_success_threshold": _text(row.get("followup_success_threshold")),
+        "followup_stop_condition": _text(row.get("followup_stop_condition")),
+        "recommended_next_action": _text(row.get("recommended_next_action")),
+    }
+    if include_missing_fields:
+        sample["missing_fields"] = [
+            _text(item) for item in row.get("missing_fields") or [] if _text(item)
+        ]
+    return sample
+
+
+def _quality_followup_readiness_samples(
+    value: Any, *, include_missing_fields: bool = False
+) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value:
+        sample = _quality_followup_readiness_sample(
+            raw, include_missing_fields=include_missing_fields
+        )
+        if sample is not None:
+            rows.append(sample)
+        if len(rows) >= 3:
+            break
+    return rows
+
+
+def _quality_followup_readiness(value: Any) -> dict[str, Any]:
+    readiness = _quality_mapping(value)
+    if not readiness:
+        return {}
+    return {
+        "available": bool(readiness.get("available")),
+        "recommended_count": _safe_count(readiness.get("recommended_count")),
+        "bounded_ready_count": _safe_count(readiness.get("bounded_ready_count")),
+        "underspecified_count": _safe_count(readiness.get("underspecified_count")),
+        "missing_title_count": _safe_count(readiness.get("missing_title_count")),
+        "missing_success_threshold_count": _safe_count(
+            readiness.get("missing_success_threshold_count")
+        ),
+        "missing_stop_condition_count": _safe_count(
+            readiness.get("missing_stop_condition_count")
+        ),
+        "thin_required_evidence_count": _safe_count(
+            readiness.get("thin_required_evidence_count")
+        ),
+        "followup_type_counts": _quality_model_counts(
+            readiness.get("followup_type_counts")
+        ),
+        "ready_followups": _quality_followup_readiness_samples(
+            readiness.get("ready_followups")
+        ),
+        "underspecified_followups": _quality_followup_readiness_samples(
+            readiness.get("underspecified_followups"),
+            include_missing_fields=True,
+        ),
+        "operator_action": _text(readiness.get("operator_action")),
+    }
+
+
 def _post_prompt_warning_details(
     *, malformed_count: int, malformed_ticks: int, useful_delta: float
 ) -> list[dict[str, str]]:
@@ -3467,6 +3547,9 @@ def research_signal_quality_snapshot(
             quality.get("decision_outcome_samples")
         ),
         "decision_posture": _quality_decision_posture(quality.get("decision_posture")),
+        "followup_readiness": _quality_followup_readiness(
+            quality.get("followup_readiness")
+        ),
         "weak_evidence_count": weak_evidence_count,
         "warning_problem_count": warning_count,
         "blocked_problem_count": blocked_count,

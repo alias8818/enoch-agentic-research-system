@@ -208,6 +208,8 @@ type QualityWindowComparison = NonNullable<ResearchSignalQuality['window_compari
 type ProviderGenerationHealth = NonNullable<ResearchSignalQuality['provider_generation_health']>
 type DecisionPosture = NonNullable<ResearchSignalQuality['decision_posture']>
 type DecisionPostureSample = NonNullable<DecisionPosture['representative_useful_signals']>[number]
+type FollowupReadiness = NonNullable<ResearchSignalQuality['followup_readiness']>
+type FollowupReadinessSample = NonNullable<FollowupReadiness['ready_followups']>[number]
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
@@ -299,6 +301,24 @@ function decisionPostureSampleTitle(row: DecisionPostureSample): string {
   return displayText(row.project_name || row.followup_title || row.project_id, 'Unnamed useful signal')
 }
 
+function followupReadinessReadyLabel(readiness: FollowupReadiness): string {
+  const ready = Number(readiness.bounded_ready_count ?? 0)
+  const recommended = Number(readiness.recommended_count ?? 0)
+  return `ready follow-ups ${ready} / ${recommended} recommended`
+}
+
+function followupReadinessMissingStopLabel(readiness: FollowupReadiness): string {
+  return `missing stop ${Number(readiness.missing_stop_condition_count ?? 0)}`
+}
+
+function followupReadinessTypeEntries(readiness: FollowupReadiness): [string, number][] {
+  return Object.entries(readiness.followup_type_counts ?? {}).slice(0, 3)
+}
+
+function followupReadinessSampleTitle(row: FollowupReadinessSample): string {
+  return displayText(row.followup_title || row.project_name || row.project_id, 'Unnamed follow-up')
+}
+
 function candidateStatusSampleTitle(status: string, row: CandidateStatusSample): string {
   return `${portfolioLabel(status)}: ${displayText(row.title, 'Unnamed candidate')}`
 }
@@ -360,6 +380,10 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const providerHealth = quality.provider_generation_health
   const decisionPosture = quality.decision_posture
   const decisionPostureSample = decisionPosture?.representative_useful_signals?.[0]
+  const followupReadiness = quality.followup_readiness
+  const readyFollowup = followupReadiness?.ready_followups?.[0]
+  const underspecifiedFollowup = followupReadiness?.underspecified_followups?.[0]
+  const followupTypeCounts = followupReadiness ? followupReadinessTypeEntries(followupReadiness) : []
   const hasWindowComparison = Boolean(
     windowComparison && (
       windowGenerationModes.length > 0
@@ -487,6 +511,27 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
             </>
           ) : null}
           <p>{displayText(decisionPosture.operator_action, 'Inspect decision posture before treating throughput as publication output.')}</p>
+        </div>
+      ) : null}
+      {followupReadiness ? (
+        <div className="quality-snapshot-detail">
+          <h4>Follow-up readiness</h4>
+          <p>{followupReadinessReadyLabel(followupReadiness)}</p>
+          <p>underspecified {Number(followupReadiness.underspecified_count ?? 0)}</p>
+          <p>{followupReadinessMissingStopLabel(followupReadiness)}</p>
+          {followupTypeCounts.map((entry) => (
+            <p key={`followup-type-${entry[0]}`}>{windowCountLabel(entry)}</p>
+          ))}
+          {readyFollowup ? (
+            <>
+              <p>{followupReadinessSampleTitle(readyFollowup)}</p>
+              <p>{displayText(readyFollowup.followup_success_threshold, 'No success threshold returned for ready follow-up.')}</p>
+            </>
+          ) : null}
+          {underspecifiedFollowup ? (
+            <p>{followupReadinessSampleTitle(underspecifiedFollowup)}</p>
+          ) : null}
+          <p>{displayText(followupReadiness.operator_action, 'Inspect follow-up readiness before queueing more work.')}</p>
         </div>
       ) : null}
       {hasWindowComparison && windowComparison ? (
