@@ -295,6 +295,54 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
                 },
                 "malformed_provider_response_count": 2,
                 "malformed_provider_model_counts": {"hf:model-a": 2},
+                "provider_generation_health": {
+                    "available": True,
+                    "rows_checked": 4,
+                    "malformed_provider_response_count": 2,
+                    "malformed_provider_response_ticks": 1,
+                    "clean_tick_count": 3,
+                    "consecutive_clean_ticks": 2,
+                    "last_checked_at": "2026-05-30T04:00:30Z",
+                    "last_malformed_at": "2026-05-30T03:00:30Z",
+                    "malformed_provider_model_counts": {"hf:model-a": 2},
+                    "latest_tick": {
+                        "checked_at": "2026-05-30T04:00:30Z",
+                        "recorded_at": "2026-05-30T04:04:45Z",
+                        "trace_id": "research-cycle-trace-b",
+                        "run_cycle_id": "run-cycle-b",
+                        "provider_model": "hf:model-b",
+                        "malformed_provider_response_count": 0,
+                        "generated_count": 3,
+                        "promoted_count": 1,
+                        "dispatched_count": 0,
+                        "status": "clean",
+                        "operator_action": (
+                            "provider generation is currently clean; keep "
+                            "monitoring before widening automation"
+                        ),
+                    },
+                    "last_malformed_tick": {
+                        "checked_at": "2026-05-30T03:00:30Z",
+                        "recorded_at": "2026-05-30T03:04:45Z",
+                        "trace_id": "research-cycle-trace-a",
+                        "run_cycle_id": "run-cycle-a",
+                        "provider_model": "hf:model-a",
+                        "malformed_provider_response_count": 2,
+                        "generated_count": 0,
+                        "promoted_count": 0,
+                        "dispatched_count": 2,
+                        "status": "malformed",
+                        "operator_action": (
+                            "inspect provider-generation output for this tick "
+                            "before trusting new idea volume"
+                        ),
+                    },
+                    "operator_action": (
+                        "provider generation has 2 clean ticks since the last "
+                        "malformed response; review the last malformed model "
+                        "before widening automation"
+                    ),
+                },
                 "recent_malformed_provider_responses": [
                     {
                         "checked_at": "2026-05-30T03:00:30Z",
@@ -330,6 +378,53 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
         "useful_followup_decline",
     }
     assert snapshot["malformed_provider_model_counts"] == {"hf:model-a": 2}
+    assert snapshot["provider_generation_health"] == {
+        "available": True,
+        "rows_checked": 4,
+        "malformed_provider_response_count": 2,
+        "malformed_provider_response_ticks": 1,
+        "clean_tick_count": 3,
+        "consecutive_clean_ticks": 2,
+        "last_checked_at": "2026-05-30T04:00:30Z",
+        "last_malformed_at": "2026-05-30T03:00:30Z",
+        "malformed_provider_model_counts": {"hf:model-a": 2},
+        "latest_tick": {
+            "checked_at": "2026-05-30T04:00:30Z",
+            "recorded_at": "2026-05-30T04:04:45Z",
+            "trace_id": "research-cycle-trace-b",
+            "run_cycle_id": "run-cycle-b",
+            "provider_model": "hf:model-b",
+            "malformed_provider_response_count": 0,
+            "generated_count": 3,
+            "promoted_count": 1,
+            "dispatched_count": 0,
+            "status": "clean",
+            "operator_action": (
+                "provider generation is currently clean; keep monitoring "
+                "before widening automation"
+            ),
+        },
+        "last_malformed_tick": {
+            "checked_at": "2026-05-30T03:00:30Z",
+            "recorded_at": "2026-05-30T03:04:45Z",
+            "trace_id": "research-cycle-trace-a",
+            "run_cycle_id": "run-cycle-a",
+            "provider_model": "hf:model-a",
+            "malformed_provider_response_count": 2,
+            "generated_count": 0,
+            "promoted_count": 0,
+            "dispatched_count": 2,
+            "status": "malformed",
+            "operator_action": (
+                "inspect provider-generation output for this tick before "
+                "trusting new idea volume"
+            ),
+        },
+        "operator_action": (
+            "provider generation has 2 clean ticks since the last malformed "
+            "response; review the last malformed model before widening automation"
+        ),
+    }
     assert snapshot["candidate_status_counts"] == {
         "admitted": 45,
         "needs_review": 53,

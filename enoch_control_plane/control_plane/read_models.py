@@ -2887,6 +2887,58 @@ def _quality_recent_malformed_provider_responses(
     return rows
 
 
+def _quality_provider_generation_tick(value: Any) -> dict[str, Any]:
+    row = _quality_mapping(value)
+    if not row:
+        return {}
+    normalized = {
+        "checked_at": _text(row.get("checked_at")),
+        "recorded_at": _text(row.get("recorded_at")),
+        "provider_model": _text(row.get("provider_model")),
+        "malformed_provider_response_count": _safe_count(
+            row.get("malformed_provider_response_count")
+        ),
+        "generated_count": _safe_count(row.get("generated_count")),
+        "promoted_count": _safe_count(row.get("promoted_count")),
+        "dispatched_count": _safe_count(row.get("dispatched_count")),
+        "status": _text(row.get("status")),
+        "operator_action": _text(row.get("operator_action")),
+    }
+    for key in ("trace_id", "run_cycle_id"):
+        text_value = _text(row.get(key))
+        if text_value:
+            normalized[key] = text_value
+    return normalized
+
+
+def _quality_provider_generation_health(value: Any) -> dict[str, Any]:
+    health = _quality_mapping(value)
+    if not health:
+        return {}
+    return {
+        "available": bool(health.get("available")),
+        "rows_checked": _safe_count(health.get("rows_checked")),
+        "malformed_provider_response_count": _safe_count(
+            health.get("malformed_provider_response_count")
+        ),
+        "malformed_provider_response_ticks": _safe_count(
+            health.get("malformed_provider_response_ticks")
+        ),
+        "clean_tick_count": _safe_count(health.get("clean_tick_count")),
+        "consecutive_clean_ticks": _safe_count(health.get("consecutive_clean_ticks")),
+        "last_checked_at": _text(health.get("last_checked_at")),
+        "last_malformed_at": _text(health.get("last_malformed_at")),
+        "malformed_provider_model_counts": _quality_model_counts(
+            health.get("malformed_provider_model_counts")
+        ),
+        "latest_tick": _quality_provider_generation_tick(health.get("latest_tick")),
+        "last_malformed_tick": _quality_provider_generation_tick(
+            health.get("last_malformed_tick")
+        ),
+        "operator_action": _text(health.get("operator_action")),
+    }
+
+
 def _quality_followup_evidence_row(row: Any) -> dict[str, Any] | None:
     if not isinstance(row, Mapping):
         return None
@@ -3364,6 +3416,9 @@ def research_signal_quality_snapshot(
         "malformed_provider_response_ticks": malformed_ticks,
         "malformed_provider_model_counts": _quality_model_counts(
             monitor.get("malformed_provider_model_counts")
+        ),
+        "provider_generation_health": _quality_provider_generation_health(
+            monitor.get("provider_generation_health")
         ),
         "window_comparison": _quality_window_comparison(
             monitor.get("window_comparison")

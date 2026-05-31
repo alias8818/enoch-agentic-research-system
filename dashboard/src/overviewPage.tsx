@@ -205,6 +205,7 @@ type CandidateStatusSample = NonNullable<ResearchSignalQuality['candidate_status
 type DecisionOutcomeSampleGroup = NonNullable<ResearchSignalQuality['decision_outcome_samples']>[number]
 type DecisionOutcomeSample = NonNullable<DecisionOutcomeSampleGroup['samples']>[number]
 type QualityWindowComparison = NonNullable<ResearchSignalQuality['window_comparison']>
+type ProviderGenerationHealth = NonNullable<ResearchSignalQuality['provider_generation_health']>
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
@@ -250,6 +251,28 @@ function windowAdmittedRateLabel(windowComparison: QualityWindowComparison): str
   const current = String(windowComparison.current?.admitted_rate ?? 0)
   const previous = String(windowComparison.previous?.admitted_rate ?? 0)
   return `admitted rate ${current} now / ${previous} previous`
+}
+
+function providerCleanStreakLabel(health: ProviderGenerationHealth): string {
+  const count = Number(health.consecutive_clean_ticks ?? 0)
+  const tickLabel = count === 1 ? 'tick' : 'ticks'
+  return `${count} clean ${tickLabel} since last malformed`
+}
+
+function providerLatestTickLabel(health: ProviderGenerationHealth): string {
+  const latest = health.latest_tick
+  const model = displayText(latest?.provider_model, 'unknown model')
+  const status = displayText(latest?.status, 'unknown')
+  const checkedAt = displayText(latest?.checked_at, 'unknown time')
+  return `latest ${model} ${status} at ${checkedAt}`
+}
+
+function providerLastMalformedLabel(health: ProviderGenerationHealth): string {
+  const last = health.last_malformed_tick
+  const model = displayText(last?.provider_model, 'unknown model')
+  const count = Number(last?.malformed_provider_response_count ?? 0)
+  const checkedAt = displayText(last?.checked_at, 'unknown time')
+  return `last malformed ${model} ${count} at ${checkedAt}`
 }
 
 function candidateStatusSampleTitle(status: string, row: CandidateStatusSample): string {
@@ -310,6 +333,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const windowComparison = quality.window_comparison
   const windowGenerationModes = windowCountEntries(windowComparison?.current?.generation_mode_counts)
   const windowCategories = windowCountEntries(windowComparison?.current?.category_counts)
+  const providerHealth = quality.provider_generation_health
   const hasWindowComparison = Boolean(
     windowComparison && (
       windowGenerationModes.length > 0
@@ -364,6 +388,15 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
           {!providerEvidence && postPromptWarning ? (
             <p>{displayText(postPromptWarning.message || postPromptWarning.code, 'No provider warning detail returned.')}</p>
           ) : null}
+        </div>
+      ) : null}
+      {providerHealth ? (
+        <div className="quality-snapshot-detail">
+          <h4>Provider recovery</h4>
+          <p>{providerCleanStreakLabel(providerHealth)}</p>
+          <p>{providerLatestTickLabel(providerHealth)}</p>
+          <p>{providerLastMalformedLabel(providerHealth)}</p>
+          <p>{displayText(providerHealth.operator_action, 'Inspect provider-generation history before trusting new idea volume.')}</p>
         </div>
       ) : null}
       {currentFollowupEvidence || previousFollowupEvidence ? (

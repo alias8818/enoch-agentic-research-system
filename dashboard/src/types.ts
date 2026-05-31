@@ -183,6 +183,44 @@ export interface OverviewResponse {
       message?: string
       operator_action?: string
     }[]
+    provider_generation_health?: {
+      available?: boolean
+      rows_checked?: number
+      malformed_provider_response_count?: number
+      malformed_provider_response_ticks?: number
+      clean_tick_count?: number
+      consecutive_clean_ticks?: number
+      last_checked_at?: string
+      last_malformed_at?: string
+      malformed_provider_model_counts?: Record<string, number>
+      latest_tick?: {
+        checked_at?: string
+        recorded_at?: string
+        trace_id?: string
+        run_cycle_id?: string
+        provider_model?: string
+        malformed_provider_response_count?: number
+        generated_count?: number
+        promoted_count?: number
+        dispatched_count?: number
+        status?: string
+        operator_action?: string
+      }
+      last_malformed_tick?: {
+        checked_at?: string
+        recorded_at?: string
+        trace_id?: string
+        run_cycle_id?: string
+        provider_model?: string
+        malformed_provider_response_count?: number
+        generated_count?: number
+        promoted_count?: number
+        dispatched_count?: number
+        status?: string
+        operator_action?: string
+      }
+      operator_action?: string
+    }
     useful_adjacent_followup_evidence?: {
       current?: {
         case_id?: string

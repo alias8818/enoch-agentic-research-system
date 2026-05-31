@@ -534,6 +534,108 @@ def _malformed_provider_row(item: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _provider_generation_clean_operator_action() -> str:
+    return (
+        "provider generation is currently clean; keep monitoring before widening "
+        "automation"
+    )
+
+
+def _provider_generation_tick(item: dict[str, Any] | None) -> dict[str, Any]:
+    if not item:
+        return {}
+    malformed_count = _safe_int(item.get("malformed_provider_response_count"))
+    status = "malformed" if malformed_count > 0 else "clean"
+    row = {
+        "checked_at": _autopilot_history_item_timestamp(item),
+        "recorded_at": str(item.get("recorded_at") or ""),
+        "provider_model": str(item.get("provider_model") or ""),
+        "malformed_provider_response_count": malformed_count,
+        "generated_count": _safe_int(item.get("generated_count")),
+        "promoted_count": _safe_int(item.get("promoted_count")),
+        "dispatched_count": _safe_int(item.get("dispatched_count")),
+        "status": status,
+        "operator_action": _malformed_provider_operator_action()
+        if status == "malformed"
+        else _provider_generation_clean_operator_action(),
+    }
+    for key in ("trace_id", "run_cycle_id"):
+        value = str(item.get(key) or "")
+        if value:
+            row[key] = value
+    return row
+
+
+def _provider_generation_health_operator_action(
+    *,
+    rows_checked: int,
+    consecutive_clean_ticks: int,
+    last_malformed: dict[str, Any] | None,
+) -> str:
+    if rows_checked <= 0:
+        return "inspect provider-generation history before trusting new idea volume"
+    if consecutive_clean_ticks <= 0:
+        return (
+            "provider generation is currently malformed; inspect latest provider "
+            "output before trusting new idea volume"
+        )
+    if last_malformed:
+        tick_label = "tick" if consecutive_clean_ticks == 1 else "ticks"
+        return (
+            f"provider generation has {consecutive_clean_ticks} clean {tick_label} "
+            "since the last malformed response; review the last malformed model "
+            "before widening automation"
+        )
+    tick_label = "tick" if consecutive_clean_ticks == 1 else "ticks"
+    return (
+        f"provider generation is clean across {consecutive_clean_ticks} recent "
+        f"{tick_label}; keep monitoring before widening automation"
+    )
+
+
+def _provider_generation_health(
+    *,
+    rows: list[dict[str, Any]],
+    malformed_rows: list[dict[str, Any]],
+    model_counts: Counter[str],
+) -> dict[str, Any]:
+    consecutive_clean_ticks = 0
+    for item in reversed(rows):
+        if _safe_int(item.get("malformed_provider_response_count")) > 0:
+            break
+        consecutive_clean_ticks += 1
+    last_row = rows[-1] if rows else None
+    last_malformed = malformed_rows[-1] if malformed_rows else None
+    return {
+        "available": True,
+        "rows_checked": len(rows),
+        "malformed_provider_response_count": sum(
+            _safe_int(item.get("malformed_provider_response_count")) for item in rows
+        ),
+        "malformed_provider_response_ticks": len(malformed_rows),
+        "clean_tick_count": sum(
+            1
+            for item in rows
+            if _safe_int(item.get("malformed_provider_response_count")) == 0
+        ),
+        "consecutive_clean_ticks": consecutive_clean_ticks,
+        "last_checked_at": _autopilot_history_item_timestamp(last_row)
+        if last_row
+        else "",
+        "last_malformed_at": _autopilot_history_item_timestamp(last_malformed)
+        if last_malformed
+        else "",
+        "malformed_provider_model_counts": dict(sorted(model_counts.items())),
+        "latest_tick": _provider_generation_tick(last_row),
+        "last_malformed_tick": _provider_generation_tick(last_malformed),
+        "operator_action": _provider_generation_health_operator_action(
+            rows_checked=len(rows),
+            consecutive_clean_ticks=consecutive_clean_ticks,
+            last_malformed=last_malformed,
+        ),
+    }
+
+
 def _autopilot_history_summary_from_rows(
     path: str, rows: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -569,6 +671,9 @@ def _autopilot_history_summary_from_rows(
         if last_row
         else "",
         "malformed_provider_model_counts": dict(sorted(model_counts.items())),
+        "provider_generation_health": _provider_generation_health(
+            rows=rows, malformed_rows=malformed_rows, model_counts=model_counts
+        ),
         "recent_malformed_provider_responses": [
             _malformed_provider_row(item) for item in reversed(malformed_rows[-3:])
         ],
@@ -735,6 +840,7 @@ def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, An
             "malformed_provider_model_counts"
         )
         or {},
+        "provider_generation_health": history.get("provider_generation_health") or {},
         "recent_malformed_provider_responses": history.get(
             "recent_malformed_provider_responses"
         )

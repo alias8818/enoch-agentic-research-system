@@ -229,6 +229,35 @@ const qualityWindowComparisonSchema = z.object({
   previous: qualityWindowSideSchema.optional(),
 }).passthrough()
 
+const providerGenerationTickSchema = z.object({
+  checked_at: z.string().optional(),
+  recorded_at: z.string().optional(),
+  trace_id: z.string().optional(),
+  run_cycle_id: z.string().optional(),
+  provider_model: z.string().optional(),
+  malformed_provider_response_count: z.number().optional(),
+  generated_count: z.number().optional(),
+  promoted_count: z.number().optional(),
+  dispatched_count: z.number().optional(),
+  status: z.string().optional(),
+  operator_action: z.string().optional(),
+}).passthrough()
+
+const providerGenerationHealthSchema = z.object({
+  available: z.boolean().optional(),
+  rows_checked: z.number().optional(),
+  malformed_provider_response_count: z.number().optional(),
+  malformed_provider_response_ticks: z.number().optional(),
+  clean_tick_count: z.number().optional(),
+  consecutive_clean_ticks: z.number().optional(),
+  last_checked_at: z.string().optional(),
+  last_malformed_at: z.string().optional(),
+  malformed_provider_model_counts: z.record(z.string(), z.number()).optional(),
+  latest_tick: providerGenerationTickSchema.optional(),
+  last_malformed_tick: providerGenerationTickSchema.optional(),
+  operator_action: z.string().optional(),
+}).passthrough()
+
 const researchSignalQualitySchema = z.object({
   status: z.string().optional(),
   ok: z.boolean().optional(),
@@ -272,6 +301,7 @@ const researchSignalQualitySchema = z.object({
     message: z.string().optional(),
     operator_action: z.string().optional(),
   }).passthrough()).optional(),
+  provider_generation_health: providerGenerationHealthSchema.optional(),
   useful_adjacent_followup_evidence: z.object({
     current: z.array(usefulFollowupEvidenceRowSchema).optional(),
     previous: z.array(usefulFollowupEvidenceRowSchema).optional(),

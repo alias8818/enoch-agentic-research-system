@@ -633,6 +633,32 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
                         "dispatched_count": 1,
                     }
                 ),
+                json.dumps(
+                    {
+                        "checked_at": "2026-05-11T12:00:00Z",
+                        "recorded_at": "2026-05-11T12:02:00Z",
+                        "trace_id": "research-cycle-trace-c",
+                        "run_cycle_id": "run-cycle-c",
+                        "provider_model": "hf:model-c",
+                        "malformed_provider_response_count": 0,
+                        "generated_count": 1,
+                        "promoted_count": 1,
+                        "dispatched_count": 0,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "checked_at": "2026-05-11T13:00:00Z",
+                        "recorded_at": "2026-05-11T13:02:00Z",
+                        "trace_id": "research-cycle-trace-d",
+                        "run_cycle_id": "run-cycle-d",
+                        "provider_model": "hf:model-c",
+                        "malformed_provider_response_count": 0,
+                        "generated_count": 3,
+                        "promoted_count": 2,
+                        "dispatched_count": 0,
+                    }
+                ),
             ]
         )
         + "\n",
@@ -648,6 +674,56 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
     monitor = status["post_prompt_monitor"]
     assert monitor["malformed_provider_response_count"] == 3
     assert monitor["malformed_provider_response_ticks"] == 2
+    assert monitor["provider_generation_health"] == {
+        "available": True,
+        "rows_checked": 4,
+        "malformed_provider_response_count": 3,
+        "malformed_provider_response_ticks": 2,
+        "clean_tick_count": 2,
+        "consecutive_clean_ticks": 2,
+        "last_checked_at": "2026-05-11T13:00:00Z",
+        "last_malformed_at": "2026-05-11T11:00:00Z",
+        "malformed_provider_model_counts": {
+            "hf:model-a": 1,
+            "hf:model-b": 2,
+        },
+        "latest_tick": {
+            "checked_at": "2026-05-11T13:00:00Z",
+            "recorded_at": "2026-05-11T13:02:00Z",
+            "trace_id": "research-cycle-trace-d",
+            "run_cycle_id": "run-cycle-d",
+            "provider_model": "hf:model-c",
+            "malformed_provider_response_count": 0,
+            "generated_count": 3,
+            "promoted_count": 2,
+            "dispatched_count": 0,
+            "status": "clean",
+            "operator_action": (
+                "provider generation is currently clean; keep monitoring "
+                "before widening automation"
+            ),
+        },
+        "last_malformed_tick": {
+            "checked_at": "2026-05-11T11:00:00Z",
+            "recorded_at": "2026-05-11T11:02:00Z",
+            "trace_id": "research-cycle-trace-b",
+            "run_cycle_id": "run-cycle-b",
+            "provider_model": "hf:model-b",
+            "malformed_provider_response_count": 2,
+            "generated_count": 0,
+            "promoted_count": 0,
+            "dispatched_count": 1,
+            "status": "malformed",
+            "operator_action": (
+                "inspect provider-generation output for this tick before "
+                "trusting new idea volume"
+            ),
+        },
+        "operator_action": (
+            "provider generation has 2 clean ticks since the last malformed "
+            "response; review the last malformed model before widening automation"
+        ),
+    }
     assert monitor["malformed_provider_model_counts"] == {
         "hf:model-a": 1,
         "hf:model-b": 2,
