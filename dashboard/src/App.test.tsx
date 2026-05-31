@@ -383,7 +383,7 @@ it('shows research signal quality in the overview side rail', async () => {
             high_similarity_pair_count: 0,
           },
         },
-        operator_summary: 'quality=warnings; quality floor=review 2 below 0.70; decision posture=followup only (2 useful; 0 paper-ready); follow-ups=1 ready / 2 recommended; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)',
+        operator_summary: 'quality=warnings; quality floor=review 2 below 0.70; quality-window posture=followup only (2 useful; 0 paper-ready); quality-window follow-ups=1 ready / 2 recommended; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)',
         operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
         recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
         top_problem_details: [{
@@ -410,7 +410,7 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('7')).toBeInTheDocument()
   expect(within(quality).getByText('Useful trend')).toBeInTheDocument()
   expect(within(quality).getByText('-4')).toBeInTheDocument()
-  expect(within(quality).getByText('quality=warnings; quality floor=review 2 below 0.70; decision posture=followup only (2 useful; 0 paper-ready); follow-ups=1 ready / 2 recommended; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)')).toBeInTheDocument()
+  expect(within(quality).getByText('quality=warnings; quality floor=review 2 below 0.70; quality-window posture=followup only (2 useful; 0 paper-ready); quality-window follow-ups=1 ready / 2 recommended; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)')).toBeInTheDocument()
   expect(within(quality).getByText('Report age')).toBeInTheDocument()
   expect(within(quality).getByText('120.0h')).toBeInTheDocument()
   expect(within(quality).getByText('Signal verdict')).toBeInTheDocument()

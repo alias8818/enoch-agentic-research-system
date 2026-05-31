@@ -835,11 +835,11 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
         ),
     }
     assert snapshot["operator_summary"] == (
-        "quality=warnings; decision posture=followup only "
-        "(2 useful; 0 paper-ready); follow-ups=1 ready / 2 recommended; "
-        "weak evidence=1; provider malformed=active "
-        "(2 responses across 1 recent tick); useful follow-up=active decline -1.0 "
-        "(2 current vs 6 previous)"
+        "quality=warnings; quality-window posture=followup only "
+        "(2 useful; 0 paper-ready); quality-window follow-ups=1 ready / "
+        "2 recommended; weak evidence=1; provider malformed=active "
+        "(2 responses across 1 recent tick); useful follow-up=active "
+        "decline -1.0 (2 current vs 6 previous)"
     )
     assert snapshot["window_comparison"] == {
         "cutoff": "2026-05-11T09:58:00Z",

@@ -3284,7 +3284,9 @@ def _quality_decision_posture_summary(posture: Mapping[str, Any]) -> str:
     label = _quality_publication_posture_label(posture.get("publication_posture"))
     useful = _safe_count(posture.get("useful_signal_count"))
     paper_ready = _safe_count(posture.get("bounded_paper_ready_count"))
-    return f"decision posture={label} ({useful} useful; {paper_ready} paper-ready)"
+    return (
+        f"quality-window posture={label} ({useful} useful; {paper_ready} paper-ready)"
+    )
 
 
 def _quality_followup_readiness_summary(readiness: Mapping[str, Any]) -> str:
@@ -3292,7 +3294,7 @@ def _quality_followup_readiness_summary(readiness: Mapping[str, Any]) -> str:
         return ""
     ready = _safe_count(readiness.get("bounded_ready_count"))
     recommended = _safe_count(readiness.get("recommended_count"))
-    return f"follow-ups={ready} ready / {recommended} recommended"
+    return f"quality-window follow-ups={ready} ready / {recommended} recommended"
 
 
 def _quality_bool(value: Any) -> bool:
