@@ -313,7 +313,7 @@ button:disabled { cursor: not-allowed; }
 .command-hero h1 {
   max-width: 18ch;
   margin: 0.55rem 0 0;
-  font-size: 3.2rem;
+  font-size: 2.75rem;
   line-height: 1.04;
   letter-spacing: 0;
   font-weight: 950;
@@ -659,7 +659,7 @@ button:disabled { cursor: not-allowed; }
   .lane-grid { grid-template-columns: 1fr; }
   .app-header,
   .command-hero { flex-direction: column; align-items: stretch; }
-  .command-hero h1 { font-size: 2.85rem; }
+  .command-hero h1 { font-size: 2.5rem; }
   .app-nav { justify-content: flex-start; }
 }
 
