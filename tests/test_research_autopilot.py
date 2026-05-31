@@ -173,6 +173,36 @@ def test_research_quality_refresh_only_runs_read_only_report(
     assert "--database-url" not in result["command"]
 
 
+def test_research_quality_refresh_uses_configured_database_url(tmp_path, monkeypatch):
+    config = tmp_path / "config.json"
+    output = tmp_path / "latest-report.json"
+    secret = "postgresql://user:config-secret@host/db"
+    calls: list[dict] = []
+
+    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
+        calls.append(
+            {"cmd": cmd, "cwd": cwd, "timeout": timeout, "check": check, "env": env}
+        )
+        return Mock(returncode=0, stdout='{"ok": true}', stderr="")
+
+    config.write_text(json.dumps({"supabase_database_url": secret}), encoding="utf-8")
+    monkeypatch.setenv("ENOCH_CONFIG", str(config))
+    monkeypatch.delenv("ENOCH_RESEARCH_QUALITY_DATABASE_URL", raising=False)
+    monkeypatch.delenv("ENOCH_SUPABASE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("ENOCH_CONTROL_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REPORT_PATH", str(output))
+    monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
+
+    result = autopilot.refresh_research_quality_report()
+
+    assert result["ok"] is True
+    assert result["action"] == "research_quality_refresh"
+    assert calls[0]["env"]["DATABASE_URL"] == secret
+    assert secret not in json.dumps(result["command"])
+    assert "--database-url" not in result["command"]
+
+
 def test_research_quality_refresh_timeout_does_not_report_secret(tmp_path, monkeypatch):
     secret = "postgresql://user:timeout-secret@host/db"
 

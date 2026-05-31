@@ -164,13 +164,23 @@ def _repo_root() -> Path:
 
 
 def _database_url() -> str:
-    return (
+    database_url = (
         os.environ.get("ENOCH_RESEARCH_QUALITY_DATABASE_URL")
         or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
         or os.environ.get("ENOCH_CONTROL_DATABASE_URL")
         or os.environ.get("DATABASE_URL")
         or ""
     ).strip()
+    if database_url:
+        return database_url
+    if not (
+        os.environ.get("ENOCH_CONFIG") or os.environ.get("ENOCH_CONTROL_PLANE_CONFIG")
+    ):
+        return ""
+    try:
+        return str(_load_config().get("supabase_database_url") or "").strip()
+    except (OSError, json.JSONDecodeError):
+        return ""
 
 
 def _database_url_env(database_url: str) -> dict[str, str]:
