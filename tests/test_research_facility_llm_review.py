@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
+import json
 import sys
 
 import pytest
@@ -198,6 +199,82 @@ def test_llm_review_cli_exposes_stored_decision_backfill_flags():
     assert args.apply is True
     assert args.apply_stored_decisions_only is True
     assert args.stored_decision_limit == 25
+
+
+def test_llm_review_cli_contains_malformed_provider_response_without_traceback(
+    tmp_path, monkeypatch
+) -> None:
+    output = tmp_path / "janitor-review.json"
+
+    monkeypatch.setattr(
+        research_facility_llm_review,
+        "apply_stored_llm_decisions",
+        lambda *_args, **_kwargs: {"ok": True, "status_updates": 2},
+    )
+    monkeypatch.setattr(
+        research_facility_llm_review, "latest_review_age_minutes", lambda *_args: None
+    )
+    monkeypatch.setattr(
+        research_facility_llm_review,
+        "budget_status",
+        lambda **_kwargs: {
+            "ok": True,
+            "remaining_credits": 100.0,
+            "weekly_percent_remaining": 90.0,
+            "rolling_remaining": 1000,
+            "failures": [],
+        },
+    )
+    monkeypatch.setattr(
+        research_facility_llm_review,
+        "select_review_batch",
+        lambda *_args, **_kwargs: (
+            [
+                {
+                    "candidate": {"candidate_id": "candidate-1", "title": "One"},
+                    "janitor_action": {"action": "rewrite_suggested"},
+                }
+            ],
+            {"row_count": 1, "action_counts": {"rewrite_suggested": 1}},
+        ),
+    )
+    monkeypatch.setattr(
+        research_facility_llm_review,
+        "record_review_cycle_event",
+        lambda *_args, **_kwargs: 1,
+    )
+
+    def malformed_review(**_kwargs):
+        raise ValueError("LLM review response must be an object with decisions array")
+
+    monkeypatch.setattr(
+        research_facility_llm_review, "call_review_model", malformed_review
+    )
+
+    rc = research_facility_llm_review.main(
+        [
+            "--database-url",
+            "postgresql://example",
+            "--apply",
+            "--apply-stored-decisions",
+            "--cooldown-minutes",
+            "0",
+            "--output",
+            str(output),
+        ]
+    )
+
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert rc == 0
+    assert report["ok"] is False
+    assert report["action"] == "provider_review_failed"
+    assert report["stored_decision_apply"] == {"ok": True, "status_updates": 2}
+    assert report["provider_review"]["ok"] is False
+    assert report["provider_review"]["error_code"] == "malformed_response"
+    assert (
+        "LLM review response must be an object" in report["provider_review"]["reason"]
+    )
+    assert "Traceback" not in output.read_text(encoding="utf-8")
 
 
 def test_llm_review_record_conflicts_on_reused_event_key_with_different_identity(

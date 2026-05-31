@@ -806,6 +806,30 @@ def _mark_budget_skip(report: dict[str, Any], budget: dict[str, Any]) -> None:
     )
 
 
+def _mark_provider_review_failure(
+    report: dict[str, Any], *, exc: Exception, provider_model: str
+) -> None:
+    if isinstance(exc, (ValueError, json.JSONDecodeError)):
+        error_code = "malformed_response"
+    else:
+        error_code = "provider_review_error"
+    report.update(
+        {
+            "ok": False,
+            "exit_code": 0,
+            "action": "provider_review_failed",
+            "provider_model": provider_model,
+            "prompt_version": PROMPT_VERSION,
+            "provider_review": {
+                "ok": False,
+                "error_code": error_code,
+                "error_type": type(exc).__name__,
+                "reason": str(exc),
+            },
+        }
+    )
+
+
 def _run_provider_review(
     args: argparse.Namespace,
     report: dict[str, Any],
@@ -851,14 +875,18 @@ def _run_provider_review(
         provider_model=args.model,
         batch_count=len(batch),
     )
-    raw = call_review_model(
-        base_url=args.openai_base_url,
-        model=args.model,
-        prompt=prompt,
-        timeout=args.timeout,
-        max_tokens=args.max_tokens,
-        temperature=args.temperature,
-    )
+    try:
+        raw = call_review_model(
+            base_url=args.openai_base_url,
+            model=args.model,
+            prompt=prompt,
+            timeout=args.timeout,
+            max_tokens=args.max_tokens,
+            temperature=args.temperature,
+        )
+    except Exception as exc:
+        _mark_provider_review_failure(report, exc=exc, provider_model=args.model)
+        return
     decisions = normalize_decisions(raw, batch)
     apply_result = record_review(
         args.database_url,
@@ -878,6 +906,11 @@ def _run_provider_review(
             "decision_count": len(decisions),
             "decision_counts": apply_result.get("decision_counts")
             or dict(Counter(d["decision"] for d in decisions)),
+            "provider_review": {
+                "ok": True,
+                "provider_response_id": raw.get("provider_response_id", ""),
+                "decision_count": len(decisions),
+            },
             "apply_result": apply_result,
             "decisions": decisions,
         }
@@ -905,7 +938,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _run_provider_review(args, report, dry_run=dry_run)
     _emit_report(args, report)
-    return 0 if report.get("ok") else 1
+    return int(report.get("exit_code", 0 if report.get("ok") else 1))
 
 
 if __name__ == "__main__":

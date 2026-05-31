@@ -534,6 +534,8 @@ def _janitor_llm_review_result(
             "decision_count": payload.get("decision_count"),
             "decision_counts": payload.get("decision_counts") or {},
             "budget": payload.get("budget") or {},
+            "provider_review": payload.get("provider_review") or {},
+            "stored_decision_apply": payload.get("stored_decision_apply") or {},
             "apply_result": payload.get("apply_result") or {},
         },
         "stdout": proc.stdout.strip()[-2000:],
