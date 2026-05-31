@@ -441,6 +441,44 @@ def _research_quality_ready_with_recovered_context(
     return counts["malformed_provider_response_count"] > 0
 
 
+def _research_quality_provider_recovery_grace_is_nonpaging(
+    status: str,
+    counts: dict[str, Any],
+    signal: dict[str, Any],
+    readiness: dict[str, Any],
+) -> bool:
+    if status != "clean":
+        return False
+    if counts["blocked_problem_count"] > 0 or counts["warning_problem_count"] > 0:
+        return False
+    if counts["useful_adjacent_followup_delta"] < 0:
+        return False
+    if readiness.get("failed_invariants"):
+        return False
+    active_reason_codes = {
+        str(reason.get("code") or "")
+        for reason in signal.get("signal_reasons") or []
+        if isinstance(reason, dict) and bool(reason.get("active", True))
+    }
+    if active_reason_codes - {"malformed_provider_responses"}:
+        return False
+    health = _safe_dict(signal.get("provider_generation_health"))
+    if health.get("malformed_history_status") != "active":
+        return False
+    if not bool(health.get("active_malformed_warning")):
+        return False
+    latest_tick = _safe_dict(health.get("latest_tick"))
+    if str(latest_tick.get("status") or "").strip().lower() != "clean":
+        return False
+    if _safe_int(latest_tick.get("malformed_provider_response_count")) > 0:
+        return False
+    latest_yield_count = sum(
+        _safe_int(latest_tick.get(key))
+        for key in ("generated_count", "promoted_count", "dispatched_count")
+    )
+    return latest_yield_count > 0
+
+
 def _research_quality_alert_heading(
     quality: dict[str, Any],
     status: str,
@@ -583,6 +621,8 @@ def _research_quality_alert_finding(
     )
     signal["research_output_readiness"] = readiness
     if _research_quality_ready_with_recovered_context(
+        quality_status, counts, signal, readiness
+    ) or _research_quality_provider_recovery_grace_is_nonpaging(
         quality_status, counts, signal, readiness
     ):
         return None
