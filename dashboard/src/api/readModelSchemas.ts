@@ -324,6 +324,24 @@ const followupReadinessSchema = z.object({
   operator_action: z.string().optional(),
 }).passthrough()
 
+const followupScopeCandidateSchema = z.object({
+  project_id: z.string().optional(),
+  project_name: z.string().optional(),
+  run_id: z.string().optional(),
+  followup_title: z.string().optional(),
+  recommended_next_action: z.string().optional(),
+}).passthrough()
+
+const followupScopeAlignmentSchema = z.object({
+  available: z.boolean().optional(),
+  global_ready_count: z.number().optional(),
+  same_project: z.boolean().optional(),
+  same_run: z.boolean().optional(),
+  global_candidate: followupScopeCandidateSchema.optional(),
+  quality_window_candidate: followupScopeCandidateSchema.optional(),
+  operator_action: z.string().optional(),
+}).passthrough()
+
 const researchSignalQualitySchema = z.object({
   status: z.string().optional(),
   ok: z.boolean().optional(),
@@ -370,6 +388,7 @@ const researchSignalQualitySchema = z.object({
   provider_generation_health: providerGenerationHealthSchema.optional(),
   decision_posture: decisionPostureSchema.optional(),
   followup_readiness: followupReadinessSchema.optional(),
+  followup_scope_alignment: followupScopeAlignmentSchema.optional(),
   useful_adjacent_followup_evidence: z.object({
     current: z.array(usefulFollowupEvidenceRowSchema).optional(),
     previous: z.array(usefulFollowupEvidenceRowSchema).optional(),

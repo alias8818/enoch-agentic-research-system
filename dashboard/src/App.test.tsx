@@ -351,6 +351,25 @@ it('shows research signal quality in the overview side rail', async () => {
           }],
           operator_action: '1 recommended follow-up is underspecified; fill missing readiness fields before queueing it',
         },
+        followup_scope_alignment: {
+          available: true,
+          global_ready_count: 733,
+          same_project: false,
+          same_run: false,
+          global_candidate: {
+            project_id: 'global-project',
+            project_name: 'Global Follow-up Project',
+            run_id: 'global-run',
+            followup_title: 'Global ranked follow-up',
+          },
+          quality_window_candidate: {
+            project_id: 'project-mixed',
+            project_name: 'Mixed project',
+            run_id: 'run-mixed',
+            followup_title: 'Mixed follow-up',
+          },
+          operator_action: 'Global ranked follow-up and Research Quality window priority are different scopes; use the global action for queue selection and the quality-window sample for quality review.',
+        },
         window_comparison: {
           cutoff: '2026-05-11T09:58:00Z',
           limit: 20,
@@ -468,6 +487,12 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText((_, element) => element?.textContent === 'priority 75')).toBeInTheDocument()
   expect(within(quality).getByText('mixed hypothesis / moderate evidence / deepen followup')).toBeInTheDocument()
   expect(within(quality).getByText('1 recommended follow-up is underspecified; fill missing readiness fields before queueing it')).toBeInTheDocument()
+  expect(within(quality).getByText('Follow-up scope')).toBeInTheDocument()
+  expect(within(quality).getByText('global ready 733')).toBeInTheDocument()
+  expect(within(quality).getByText('global: Global Follow-up Project')).toBeInTheDocument()
+  expect(within(quality).getByText('quality window: Mixed project')).toBeInTheDocument()
+  expect(within(quality).getByText('different follow-up scopes')).toBeInTheDocument()
+  expect(within(quality).getByText('Global ranked follow-up and Research Quality window priority are different scopes; use the global action for queue selection and the quality-window sample for quality review.')).toBeInTheDocument()
   expect(within(quality).getByText('Window comparison')).toBeInTheDocument()
   expect(within(quality).getByText('admitted rate 0.6 now / 0.5 previous')).toBeInTheDocument()
   expect(within(quality).getByText('fresh grounded 9')).toBeInTheDocument()

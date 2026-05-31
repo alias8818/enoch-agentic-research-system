@@ -3885,6 +3885,77 @@ def research_signal_quality_snapshot(
     }
 
 
+def _followup_alignment_candidate(
+    row: Any, *, run_keys: tuple[str, ...] = ("run_id", "current_run_id")
+) -> dict[str, Any]:
+    if not isinstance(row, Mapping):
+        return {}
+    run_id = ""
+    for key in run_keys:
+        run_id = _text(row.get(key))
+        if run_id:
+            break
+    candidate = {
+        "project_id": _text(row.get("project_id")),
+        "project_name": _text(row.get("project_name")),
+        "run_id": run_id,
+        "followup_title": _text(row.get("followup_title")),
+        "recommended_next_action": _text(row.get("recommended_next_action")),
+    }
+    return (
+        candidate
+        if any(candidate.get(key) for key in ("project_id", "run_id", "followup_title"))
+        else {}
+    )
+
+
+def _followup_scope_alignment(
+    *,
+    investigation_pipeline: Mapping[str, Any],
+    quality_snapshot: Mapping[str, Any],
+) -> dict[str, Any]:
+    global_candidate = _followup_alignment_candidate(
+        investigation_pipeline.get("next_ranked_followup_candidate"),
+        run_keys=("current_run_id", "run_id"),
+    )
+    readiness = quality_snapshot.get("followup_readiness")
+    quality_candidate: dict[str, Any] = {}
+    if isinstance(readiness, Mapping):
+        prioritized = readiness.get("prioritized_followups") or []
+        if isinstance(prioritized, Sequence) and prioritized:
+            quality_candidate = _followup_alignment_candidate(prioritized[0])
+    global_count = _safe_count(investigation_pipeline.get("ranked_followup_ready"))
+    available = bool(global_candidate or quality_candidate or global_count)
+    if not available:
+        return {}
+    same_project = bool(
+        global_candidate
+        and quality_candidate
+        and global_candidate.get("project_id")
+        and global_candidate.get("project_id") == quality_candidate.get("project_id")
+    )
+    same_run = bool(
+        global_candidate
+        and quality_candidate
+        and global_candidate.get("run_id")
+        and global_candidate.get("run_id") == quality_candidate.get("run_id")
+    )
+    operator_action = (
+        "Global ranked follow-up and Research Quality window priority select the same project; use it as the current bounded follow-up candidate."
+        if same_project
+        else "Global ranked follow-up and Research Quality window priority are different scopes; use the global action for queue selection and the quality-window sample for quality review."
+    )
+    return {
+        "available": True,
+        "global_ready_count": global_count,
+        "same_project": same_project,
+        "same_run": same_run,
+        "global_candidate": global_candidate,
+        "quality_window_candidate": quality_candidate,
+        "operator_action": operator_action,
+    }
+
+
 def _latest_research_quality_for_overview() -> dict[str, Any]:
     configured = os.environ.get("ENOCH_RESEARCH_QUALITY_REPORT_PATH", "").strip()
     paths = (configured, *DEFAULT_REPORT_PATHS) if configured else DEFAULT_REPORT_PATHS
@@ -4152,6 +4223,13 @@ def overview(
     primary_action = primary_operator_action(
         worker_lanes=worker_lanes, movement=movement
     )
+    research_signal_quality = research_signal_quality_snapshot(research_quality)
+    followup_alignment = _followup_scope_alignment(
+        investigation_pipeline=investigation_pipeline,
+        quality_snapshot=research_signal_quality,
+    )
+    if followup_alignment:
+        research_signal_quality["followup_scope_alignment"] = followup_alignment
     return {
         "counts": {
             **counts,
@@ -4163,7 +4241,7 @@ def overview(
         "flags": _flags_payload(flags),
         "paper_pipeline": paper_pipeline,
         "research_yield": research_yield,
-        "research_signal_quality": research_signal_quality_snapshot(research_quality),
+        "research_signal_quality": research_signal_quality,
         "provider_generation_attempts": provider_generation_attempt_summary(store),
         "investigation_pipeline": investigation_pipeline,
         "operator_model": {

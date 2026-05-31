@@ -328,6 +328,27 @@ export interface OverviewResponse {
       }[]
       operator_action?: string
     }
+    followup_scope_alignment?: {
+      available?: boolean
+      global_ready_count?: number
+      same_project?: boolean
+      same_run?: boolean
+      global_candidate?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        followup_title?: string
+        recommended_next_action?: string
+      }
+      quality_window_candidate?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        followup_title?: string
+        recommended_next_action?: string
+      }
+      operator_action?: string
+    }
     useful_adjacent_followup_evidence?: {
       current?: {
         case_id?: string

@@ -574,6 +574,41 @@ def test_followup_readiness_prioritizes_supported_ready_followups() -> None:
     ]
 
 
+def test_followup_readiness_counts_list_evidence_when_count_is_absent() -> None:
+    report = _report_with_decision("")
+    report["summary"]["decision_count"] = 1
+    report["decision_scores"] = [
+        {
+            "project_id": "project-list-evidence",
+            "project_name": "Project List Evidence",
+            "run_id": "run-list-evidence",
+            "hypothesis_status": "supported",
+            "evidence_strength": "moderate",
+            "followup_recommended": True,
+            "followup_type": "deepen",
+            "followup_title": "List evidence follow-up",
+            "followup_required_evidence": [
+                "held-out metric",
+                "baseline comparison",
+                "",
+            ],
+            "followup_success_threshold": "Improve by 5 points.",
+            "followup_stop_condition": "Stop if there is no lift.",
+            "recommended_next_action": "Run list evidence follow-up.",
+        }
+    ]
+
+    status = classify_quality_report(report)
+
+    readiness = status["followup_readiness"]
+    assert readiness["bounded_ready_count"] == 1
+    assert readiness["thin_required_evidence_count"] == 0
+    assert readiness["ready_followups"][0]["followup_required_evidence_count"] == 2
+    assert readiness["prioritized_followups"][0]["project_id"] == (
+        "project-list-evidence"
+    )
+
+
 def test_weak_evidence_on_needs_review_inconclusive_with_bounded_followup_is_warning() -> (
     None
 ):

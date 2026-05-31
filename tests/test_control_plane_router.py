@@ -603,6 +603,116 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(quality["weak_evidence_count"], 1)
         self.assertIn("weak evidence=1", quality["operator_summary"])
 
+    def test_overview_quality_snapshot_explains_followup_scope_alignment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "research-quality.json"
+            report.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "enoch_research_quality_report_v1",
+                        "generated_at": "2026-05-31T00:00:00Z",
+                        "summary": {
+                            "candidate_count": 0,
+                            "decision_count": 1,
+                            "problem_counts": {},
+                        },
+                        "candidate_scores": [],
+                        "decision_scores": [
+                            {
+                                "project_id": "quality-window-project",
+                                "project_name": "Quality Window Project",
+                                "run_id": "quality-window-run",
+                                "decision": "finalize_negative",
+                                "hypothesis_status": "supported",
+                                "evidence_strength": "moderate",
+                                "research_outcome": "useful_signal",
+                                "bounded_paper_ready": False,
+                                "followup_recommended": True,
+                                "followup_type": "deepen",
+                                "followup_title": "Quality-window follow-up",
+                                "followup_required_evidence_count": 4,
+                                "followup_success_threshold": "Improve by 5 points.",
+                                "followup_stop_condition": "Stop if no lift.",
+                                "recommended_next_action": (
+                                    "Inspect the quality-window follow-up."
+                                ),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            global_rows = [
+                {
+                    "project_id": "global-project",
+                    "project_name": "Global Follow-up Project",
+                    "project_dir": "global-project",
+                    "status": "completed",
+                    "current_run_id": "global-run",
+                    "decision_gate_state": "negative",
+                    "research_outcome": "useful_signal",
+                    "hypothesis_status": "supported",
+                    "evidence_strength": "moderate",
+                    "bounded_paper_ready": False,
+                    "followup_recommended": True,
+                    "followup_type": "deepen",
+                    "followup_title": "Global ranked follow-up",
+                    "followup_hypothesis": "The global follow-up validates the signal.",
+                    "followup_required_evidence": [
+                        "real model trace",
+                        "baseline",
+                        "failure analysis",
+                        "artifact bundle",
+                    ],
+                    "followup_success_threshold": "Improve by 5 points.",
+                    "followup_stop_condition": "Stop if no lift.",
+                    "followup_depth": 0,
+                    "updated_at": "2026-05-31T00:00:00Z",
+                }
+            ]
+            with (
+                patch.dict(
+                    os.environ, {"ENOCH_RESEARCH_QUALITY_REPORT_PATH": str(report)}
+                ),
+                patch.object(
+                    ControlPlaneStore,
+                    "queue_counts_sql",
+                    return_value={"completed": 1},
+                ),
+                patch.object(ControlPlaneStore, "paper_counts_sql", return_value={}),
+                patch.object(ControlPlaneStore, "active_items_sql", return_value=[]),
+                patch.object(
+                    ControlPlaneStore, "next_candidate_sql", return_value=None
+                ),
+                patch.object(
+                    ControlPlaneStore,
+                    "operator_queue_rows_sql",
+                    return_value=global_rows,
+                ),
+                patch.object(
+                    ControlPlaneStore, "operator_paper_rows_sql", return_value=[]
+                ),
+            ):
+                client = _client(tmp)
+                response = client.get(
+                    "/control/api/v1/overview",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+        self.assertEqual(response.status_code, 200)
+        quality = response.json()["research_signal_quality"]
+        alignment = quality["followup_scope_alignment"]
+        self.assertEqual(alignment["global_ready_count"], 1)
+        self.assertFalse(alignment["same_project"])
+        self.assertEqual(
+            alignment["global_candidate"]["project_name"], "Global Follow-up Project"
+        )
+        self.assertEqual(
+            alignment["quality_window_candidate"]["project_name"],
+            "Quality Window Project",
+        )
+        self.assertIn("different scopes", alignment["operator_action"])
+
     def test_source_lineage_endpoint_and_readiness_use_configured_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             report = Path(tmp) / "source-lineage.json"

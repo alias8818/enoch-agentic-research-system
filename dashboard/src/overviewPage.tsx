@@ -214,6 +214,8 @@ type DecisionPostureSample = NonNullable<DecisionPosture['representative_useful_
 type FollowupReadiness = NonNullable<ResearchSignalQuality['followup_readiness']>
 type FollowupReadinessSample = NonNullable<FollowupReadiness['ready_followups']>[number]
 type PrioritizedFollowup = NonNullable<FollowupReadiness['prioritized_followups']>[number]
+type FollowupScopeAlignment = NonNullable<ResearchSignalQuality['followup_scope_alignment']>
+type FollowupScopeCandidate = NonNullable<FollowupScopeAlignment['global_candidate']>
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
@@ -349,6 +351,15 @@ function followupReadinessSampleTitle(row: FollowupReadinessSample): string {
   return displayText(row.followup_title || row.project_name || row.project_id, 'Unnamed follow-up')
 }
 
+function followupScopePostureLabel(alignment: FollowupScopeAlignment): string {
+  return alignment.same_project ? 'same follow-up scope' : 'different follow-up scopes'
+}
+
+function followupScopeCandidateLabel(scope: string, row: FollowupScopeCandidate | undefined): string {
+  if (!row) return `${scope}: none`
+  return `${scope}: ${displayText(row.project_name || row.followup_title || row.project_id, 'unnamed follow-up')}`
+}
+
 function prioritizedFollowupReasons(row: PrioritizedFollowup): string {
   return (row.priority_reasons ?? [])
     .slice(0, 3)
@@ -426,6 +437,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const decisionPosture = quality.decision_posture
   const decisionPostureSample = decisionPosture?.representative_useful_signals?.[0]
   const followupReadiness = quality.followup_readiness
+  const followupScopeAlignment = quality.followup_scope_alignment
   const readyFollowup = followupReadiness?.ready_followups?.[0]
   const prioritizedFollowup = followupReadiness?.prioritized_followups?.[0]
   const underspecifiedFollowup = followupReadiness?.underspecified_followups?.[0]
@@ -598,6 +610,16 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
             <p>{followupReadinessSampleTitle(underspecifiedFollowup)}</p>
           ) : null}
           <p>{displayText(followupReadiness.operator_action, 'Inspect follow-up readiness before queueing more work.')}</p>
+        </div>
+      ) : null}
+      {followupScopeAlignment ? (
+        <div className="quality-snapshot-detail">
+          <h4>Follow-up scope</h4>
+          <p>global ready {Number(followupScopeAlignment.global_ready_count ?? 0)}</p>
+          <p>{followupScopeCandidateLabel('global', followupScopeAlignment.global_candidate)}</p>
+          <p>{followupScopeCandidateLabel('quality window', followupScopeAlignment.quality_window_candidate)}</p>
+          <p>{followupScopePostureLabel(followupScopeAlignment)}</p>
+          <p>{displayText(followupScopeAlignment.operator_action, 'Compare global ranked follow-up selection against Research Quality window samples.')}</p>
         </div>
       ) : null}
       {hasWindowComparison && windowComparison ? (

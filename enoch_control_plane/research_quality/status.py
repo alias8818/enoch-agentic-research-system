@@ -595,10 +595,12 @@ def _decision_posture(decision_scores: Any) -> dict[str, Any]:
 
 
 def _followup_required_evidence_count(row: dict[str, Any]) -> int:
-    try:
-        return int(row.get("followup_required_evidence_count") or 0)
-    except (TypeError, ValueError):
-        pass
+    explicit_count = row.get("followup_required_evidence_count")
+    if explicit_count not in (None, ""):
+        try:
+            return int(explicit_count)
+        except (TypeError, ValueError):
+            pass
     evidence = row.get("followup_required_evidence")
     if isinstance(evidence, list):
         return len([item for item in evidence if str(item or "").strip()])
