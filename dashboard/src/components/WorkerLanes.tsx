@@ -97,6 +97,7 @@ function laneConfirmationMessage(lane: WorkerLane): string | null {
     active_confirmed: 'Worker confirmed active run.',
     active_unconfirmed: 'Active row is not confirmed by worker telemetry.',
     active_unconfirmed_grace: 'Worker restart grace: active row is not confirmed yet.',
+    preflight_stale_after_dispatch: 'Worker telemetry is older than this dispatch; refresh lane preflight.',
     stale_active: 'Stale active: worker reports no matching live run.',
     unknown: 'Worker confirmation unavailable.',
   }

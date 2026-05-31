@@ -305,6 +305,23 @@ it('explains unavailable worker confirmation with the backend reason', () => {
   expect(screen.getByText('Worker confirmation unavailable: preflight observation is for a different worker lane.')).toBeInTheDocument()
 })
 
+it('explains when worker preflight predates active dispatch without marking stale active', () => {
+  render(<WorkerLanes lanes={[
+    {
+      lane_key: 'cpu',
+      machine_target: 'cpu-proxmox-1',
+      status: 'active',
+      queued_count: 0,
+      dispatch_available: false,
+      active_item: { project_id: 'project-cpu', current_run_id: 'run-cpu', project_name: 'CPU job' },
+      active_confirmation: { state: 'preflight_stale_after_dispatch', reason: 'worker preflight observation predates active control-plane dispatch' },
+    },
+  ]} onRefresh={() => undefined} />)
+
+  expect(screen.getByText('Worker telemetry is older than this dispatch; refresh lane preflight.')).toBeInTheDocument()
+  expect(screen.queryByText('Run safe reconcile')).not.toBeInTheDocument()
+})
+
 it('exposes stale active lane reconcile as an explicit confirmed action', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     new Response(JSON.stringify({ ok: true, auto_reconcile: [{ ok: true }] }), { status: 200 }),

@@ -34,6 +34,7 @@ export interface WorkerLane {
     matched_run_id?: string
     matched_project_id?: string
     active_process_count?: number | null
+    suggested_action?: string
   } | null
   next_candidate?: { project_id?: string; project_name?: string } | null
   feed_pressure?: {
