@@ -83,7 +83,9 @@ def test_dashboard_v2_asset_names_preflight_stale_after_dispatch_state() -> None
     text = asset.read_text(encoding="utf-8")
 
     assert "preflight_stale_after_dispatch" in text
-    assert "Worker telemetry is older than this dispatch; refresh lane preflight." in text
+    assert (
+        "Worker telemetry is older than this dispatch; refresh lane preflight." in text
+    )
 
 
 def test_main_json_success_when_skip_build_and_assets_present(

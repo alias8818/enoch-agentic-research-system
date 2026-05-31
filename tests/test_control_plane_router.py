@@ -1840,8 +1840,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
             active_row=active_row,
         )
 
-        self.assertEqual(confirmation["state"], "active_unconfirmed")
+        self.assertEqual(confirmation["state"], "preflight_stale_after_dispatch")
+        self.assertNotEqual(confirmation["state"], "stale_active")
         self.assertIn("predates", confirmation["reason"])
+        self.assertIn("refresh lane preflight", confirmation["suggested_action"])
 
     def test_automation_readiness_does_not_refresh_worker_preflight(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -7720,13 +7722,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
             confirmation = lanes["cpu-proxmox-1"]["active_confirmation"]
-            self.assertEqual(
-                confirmation["state"], "preflight_stale_after_dispatch"
-            )
+            self.assertEqual(confirmation["state"], "preflight_stale_after_dispatch")
             self.assertEqual(confirmation["observed_at"], preflight_at.isoformat())
-            self.assertEqual(
-                confirmation["last_dispatch_at"], dispatch_at.isoformat()
-            )
+            self.assertEqual(confirmation["last_dispatch_at"], dispatch_at.isoformat())
             self.assertIn("refresh lane preflight", confirmation["suggested_action"])
             self.assertNotIn(
                 "stale active worker lane: cpu_worker", status["dispatch_blockers"]
