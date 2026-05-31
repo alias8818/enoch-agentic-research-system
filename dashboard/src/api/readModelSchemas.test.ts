@@ -231,6 +231,25 @@ it('parses command-center overview, status, and readiness payloads', () => {
           followup_stop_condition: 'Stop mixed follow-up if accuracy does not improve.',
           recommended_next_action: 'Run the mixed follow-up before treating this as paper-ready.',
         }],
+        prioritized_followups: [{
+          project_id: 'project-mixed',
+          project_name: 'Mixed project',
+          run_id: 'run-mixed',
+          followup_type: 'deepen',
+          followup_title: 'Mixed follow-up',
+          followup_required_evidence_count: 4,
+          followup_success_threshold: 'Mixed follow-up must improve accuracy by 5 points.',
+          followup_stop_condition: 'Stop mixed follow-up if accuracy does not improve.',
+          recommended_next_action: 'Run the mixed follow-up before treating this as paper-ready.',
+          priority_score: 75,
+          priority_reasons: [
+            'mixed_hypothesis',
+            'moderate_evidence',
+            'deepen_followup',
+            '4_required_evidence_items',
+            'explicit_success_and_stop_bounds',
+          ],
+        }],
         underspecified_followups: [{
           project_id: 'project-supported',
           project_name: 'Supported project',
@@ -365,6 +384,17 @@ it('parses command-center overview, status, and readiness payloads', () => {
       ready_followups: [{
         project_id: 'project-mixed',
         followup_title: 'Mixed follow-up',
+      }],
+      prioritized_followups: [{
+        project_id: 'project-mixed',
+        priority_score: 75,
+        priority_reasons: [
+          'mixed_hypothesis',
+          'moderate_evidence',
+          'deepen_followup',
+          '4_required_evidence_items',
+          'explicit_success_and_stop_bounds',
+        ],
       }],
       underspecified_followups: [{
         project_id: 'project-supported',

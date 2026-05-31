@@ -347,6 +347,35 @@ def test_quality_report_portfolio_summary_survives_classification() -> None:
                 ),
             }
         ],
+        "prioritized_followups": [
+            {
+                "project_id": "project-mixed",
+                "project_name": "Mixed project",
+                "run_id": "run-mixed",
+                "followup_type": "deepen",
+                "followup_title": "Mixed follow-up",
+                "followup_required_evidence_count": 4,
+                "followup_success_threshold": (
+                    "Mixed follow-up must improve accuracy by 5 points."
+                ),
+                "followup_stop_condition": (
+                    "Stop mixed follow-up if accuracy does not improve."
+                ),
+                "recommended_next_action": (
+                    "Run the mixed follow-up before treating this as paper-ready."
+                ),
+                "hypothesis_status": "mixed",
+                "evidence_strength": "moderate",
+                "priority_score": 75,
+                "priority_reasons": [
+                    "mixed_hypothesis",
+                    "moderate_evidence",
+                    "deepen_followup",
+                    "4_required_evidence_items",
+                    "explicit_success_and_stop_bounds",
+                ],
+            }
+        ],
         "underspecified_followups": [
             {
                 "project_id": "project-supported",
@@ -370,6 +399,57 @@ def test_quality_report_portfolio_summary_survives_classification() -> None:
             "fields before queueing it"
         ),
     }
+
+
+def test_followup_readiness_prioritizes_supported_ready_followups() -> None:
+    report = _report_with_decision("")
+    report["summary"]["decision_count"] = 2
+    report["decision_scores"] = [
+        {
+            "project_id": "project-mixed",
+            "project_name": "Mixed project",
+            "run_id": "run-mixed",
+            "hypothesis_status": "mixed",
+            "evidence_strength": "moderate",
+            "followup_recommended": True,
+            "followup_type": "deepen",
+            "followup_title": "Mixed follow-up",
+            "followup_required_evidence_count": 4,
+            "followup_success_threshold": "Mixed threshold.",
+            "followup_stop_condition": "Mixed stop.",
+            "recommended_next_action": "Run mixed.",
+        },
+        {
+            "project_id": "project-supported",
+            "project_name": "Supported project",
+            "run_id": "run-supported",
+            "hypothesis_status": "supported",
+            "evidence_strength": "moderate",
+            "followup_recommended": True,
+            "followup_type": "deepen",
+            "followup_title": "Supported follow-up",
+            "followup_required_evidence_count": 4,
+            "followup_success_threshold": "Supported threshold.",
+            "followup_stop_condition": "Supported stop.",
+            "recommended_next_action": "Run supported.",
+        },
+    ]
+
+    status = classify_quality_report(report)
+
+    prioritized = status["followup_readiness"]["prioritized_followups"]
+    assert [row["project_id"] for row in prioritized] == [
+        "project-supported",
+        "project-mixed",
+    ]
+    assert prioritized[0]["priority_score"] == 90
+    assert prioritized[0]["priority_reasons"] == [
+        "supported_hypothesis",
+        "moderate_evidence",
+        "deepen_followup",
+        "4_required_evidence_items",
+        "explicit_success_and_stop_bounds",
+    ]
 
 
 def test_weak_evidence_on_needs_review_inconclusive_with_bounded_followup_is_warning() -> (

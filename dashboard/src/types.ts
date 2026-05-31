@@ -270,6 +270,21 @@ export interface OverviewResponse {
         followup_stop_condition?: string
         recommended_next_action?: string
       }[]
+      prioritized_followups?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        followup_type?: string
+        followup_title?: string
+        followup_required_evidence_count?: number
+        followup_success_threshold?: string
+        followup_stop_condition?: string
+        recommended_next_action?: string
+        hypothesis_status?: string
+        evidence_strength?: string
+        priority_score?: number
+        priority_reasons?: string[]
+      }[]
       underspecified_followups?: {
         project_id?: string
         project_name?: string

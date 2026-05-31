@@ -299,6 +299,10 @@ const followupReadinessSampleSchema = z.object({
   followup_success_threshold: z.string().optional(),
   followup_stop_condition: z.string().optional(),
   recommended_next_action: z.string().optional(),
+  hypothesis_status: z.string().optional(),
+  evidence_strength: z.string().optional(),
+  priority_score: z.number().optional(),
+  priority_reasons: z.array(z.string()).optional(),
   missing_fields: z.array(z.string()).optional(),
 }).passthrough()
 
@@ -313,6 +317,7 @@ const followupReadinessSchema = z.object({
   thin_required_evidence_count: z.number().optional(),
   followup_type_counts: z.record(z.string(), z.number()).optional(),
   ready_followups: z.array(followupReadinessSampleSchema).optional(),
+  prioritized_followups: z.array(followupReadinessSampleSchema).optional(),
   underspecified_followups: z.array(followupReadinessSampleSchema).optional(),
   operator_action: z.string().optional(),
 }).passthrough()

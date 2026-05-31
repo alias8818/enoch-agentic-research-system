@@ -287,6 +287,27 @@ it('shows research signal quality in the overview side rail', async () => {
             followup_stop_condition: 'Stop mixed follow-up if accuracy does not improve.',
             recommended_next_action: 'Run the mixed follow-up before treating this as paper-ready.',
           }],
+          prioritized_followups: [{
+            project_id: 'project-mixed',
+            project_name: 'Mixed project',
+            run_id: 'run-mixed',
+            followup_type: 'deepen',
+            followup_title: 'Mixed follow-up',
+            followup_required_evidence_count: 4,
+            followup_success_threshold: 'Mixed follow-up must improve accuracy by 5 points.',
+            followup_stop_condition: 'Stop mixed follow-up if accuracy does not improve.',
+            recommended_next_action: 'Run the mixed follow-up before treating this as paper-ready.',
+            hypothesis_status: 'mixed',
+            evidence_strength: 'moderate',
+            priority_score: 75,
+            priority_reasons: [
+              'mixed_hypothesis',
+              'moderate_evidence',
+              'deepen_followup',
+              '4_required_evidence_items',
+              'explicit_success_and_stop_bounds',
+            ],
+          }],
           underspecified_followups: [{
             project_id: 'project-supported',
             project_name: 'Supported project',
@@ -397,15 +418,18 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('follow-up recommended 2')).toBeInTheDocument()
   expect(within(quality).getByText('posture followup only')).toBeInTheDocument()
   expect(within(quality).getByText('Mixed project')).toBeInTheDocument()
-  expect(within(quality).getByText('Run the mixed follow-up before treating this as paper-ready.')).toBeInTheDocument()
+  expect(within(quality).getAllByText('Run the mixed follow-up before treating this as paper-ready.').length).toBeGreaterThan(0)
   expect(within(quality).getByText('useful signals are present but none are bounded-paper-ready; run or review the listed follow-ups before treating this as publication output')).toBeInTheDocument()
   expect(within(quality).getByText('Follow-up readiness')).toBeInTheDocument()
   expect(within(quality).getByText('ready follow-ups 1 / 2 recommended')).toBeInTheDocument()
   expect(within(quality).getByText('underspecified 1')).toBeInTheDocument()
   expect(within(quality).getByText('missing stop 1')).toBeInTheDocument()
   expect(within(quality).getByText('deepen 2')).toBeInTheDocument()
-  expect(within(quality).getByText('Mixed follow-up')).toBeInTheDocument()
+  expect(within(quality).getAllByText('Mixed follow-up').length).toBeGreaterThan(0)
   expect(within(quality).getByText('Mixed follow-up must improve accuracy by 5 points.')).toBeInTheDocument()
+  expect(within(quality).getByText('Prioritized follow-up')).toBeInTheDocument()
+  expect(within(quality).getByText((_, element) => element?.textContent === 'priority 75')).toBeInTheDocument()
+  expect(within(quality).getByText('mixed hypothesis / moderate evidence / deepen followup')).toBeInTheDocument()
   expect(within(quality).getByText('1 recommended follow-up is underspecified; fill missing readiness fields before queueing it')).toBeInTheDocument()
   expect(within(quality).getByText('Window comparison')).toBeInTheDocument()
   expect(within(quality).getByText('admitted rate 0.6 now / 0.5 previous')).toBeInTheDocument()

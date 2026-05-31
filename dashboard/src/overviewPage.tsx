@@ -210,6 +210,7 @@ type DecisionPosture = NonNullable<ResearchSignalQuality['decision_posture']>
 type DecisionPostureSample = NonNullable<DecisionPosture['representative_useful_signals']>[number]
 type FollowupReadiness = NonNullable<ResearchSignalQuality['followup_readiness']>
 type FollowupReadinessSample = NonNullable<FollowupReadiness['ready_followups']>[number]
+type PrioritizedFollowup = NonNullable<FollowupReadiness['prioritized_followups']>[number]
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
@@ -319,6 +320,18 @@ function followupReadinessSampleTitle(row: FollowupReadinessSample): string {
   return displayText(row.followup_title || row.project_name || row.project_id, 'Unnamed follow-up')
 }
 
+function prioritizedFollowupReasons(row: PrioritizedFollowup): string {
+  return (row.priority_reasons ?? [])
+    .slice(0, 3)
+    .map((reason) => displayText(reason, '').replaceAll('_', ' '))
+    .filter(Boolean)
+    .join(' / ') || [
+      displayText(row.hypothesis_status, ''),
+      displayText(row.evidence_strength, ''),
+      displayText(row.followup_type, ''),
+    ].filter(Boolean).join(' / ') || 'no priority reasons returned'
+}
+
 function candidateStatusSampleTitle(status: string, row: CandidateStatusSample): string {
   return `${portfolioLabel(status)}: ${displayText(row.title, 'Unnamed candidate')}`
 }
@@ -382,6 +395,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const decisionPostureSample = decisionPosture?.representative_useful_signals?.[0]
   const followupReadiness = quality.followup_readiness
   const readyFollowup = followupReadiness?.ready_followups?.[0]
+  const prioritizedFollowup = followupReadiness?.prioritized_followups?.[0]
   const underspecifiedFollowup = followupReadiness?.underspecified_followups?.[0]
   const followupTypeCounts = followupReadiness ? followupReadinessTypeEntries(followupReadiness) : []
   const hasWindowComparison = Boolean(
@@ -526,6 +540,15 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
             <>
               <p>{followupReadinessSampleTitle(readyFollowup)}</p>
               <p>{displayText(readyFollowup.followup_success_threshold, 'No success threshold returned for ready follow-up.')}</p>
+            </>
+          ) : null}
+          {prioritizedFollowup ? (
+            <>
+              <p>Prioritized follow-up</p>
+              <p>{followupReadinessSampleTitle(prioritizedFollowup)}</p>
+              <p>priority {Number(prioritizedFollowup.priority_score ?? 0)}</p>
+              <p>{prioritizedFollowupReasons(prioritizedFollowup)}</p>
+              <p>{displayText(prioritizedFollowup.recommended_next_action, 'No next action returned for prioritized follow-up.')}</p>
             </>
           ) : null}
           {underspecifiedFollowup ? (

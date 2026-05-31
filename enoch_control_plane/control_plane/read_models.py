@@ -3230,7 +3230,7 @@ def _quality_decision_posture(value: Any) -> dict[str, Any]:
 
 
 def _quality_followup_readiness_sample(
-    row: Any, *, include_missing_fields: bool = False
+    row: Any, *, include_missing_fields: bool = False, include_priority: bool = False
 ) -> dict[str, Any] | None:
     if not isinstance(row, Mapping):
         return None
@@ -3256,18 +3256,36 @@ def _quality_followup_readiness_sample(
         sample["missing_fields"] = [
             _text(item) for item in row.get("missing_fields") or [] if _text(item)
         ]
+    if include_priority:
+        sample.update(
+            {
+                "hypothesis_status": _text(row.get("hypothesis_status")),
+                "evidence_strength": _text(row.get("evidence_strength")),
+                "priority_score": _safe_count(row.get("priority_score")),
+                "priority_reasons": [
+                    _text(item)
+                    for item in row.get("priority_reasons") or []
+                    if _text(item)
+                ],
+            }
+        )
     return sample
 
 
 def _quality_followup_readiness_samples(
-    value: Any, *, include_missing_fields: bool = False
+    value: Any,
+    *,
+    include_missing_fields: bool = False,
+    include_priority: bool = False,
 ) -> list[dict[str, Any]]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return []
     rows: list[dict[str, Any]] = []
     for raw in value:
         sample = _quality_followup_readiness_sample(
-            raw, include_missing_fields=include_missing_fields
+            raw,
+            include_missing_fields=include_missing_fields,
+            include_priority=include_priority,
         )
         if sample is not None:
             rows.append(sample)
@@ -3300,6 +3318,10 @@ def _quality_followup_readiness(value: Any) -> dict[str, Any]:
         ),
         "ready_followups": _quality_followup_readiness_samples(
             readiness.get("ready_followups")
+        ),
+        "prioritized_followups": _quality_followup_readiness_samples(
+            readiness.get("prioritized_followups"),
+            include_priority=True,
         ),
         "underspecified_followups": _quality_followup_readiness_samples(
             readiness.get("underspecified_followups"),

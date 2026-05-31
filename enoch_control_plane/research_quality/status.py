@@ -550,6 +550,87 @@ def _followup_readiness_sample(
     return sample
 
 
+def _followup_priority_components(row: dict[str, Any]) -> tuple[int, list[str]]:
+    score = 0
+    reasons: list[str] = []
+    hypothesis_status = str(row.get("hypothesis_status") or "").strip().lower()
+    if hypothesis_status in {"supported", "confirmed", "supportive"}:
+        score += 40
+        reasons.append("supported_hypothesis")
+    elif hypothesis_status in {"mixed", "inconclusive_but_useful"}:
+        score += 25
+        reasons.append("mixed_hypothesis")
+    elif hypothesis_status in {"unsupported", "negative"}:
+        reasons.append("unsupported_hypothesis")
+    else:
+        score += 10
+        reasons.append("unknown_hypothesis")
+
+    evidence_strength = str(row.get("evidence_strength") or "").strip().lower()
+    if evidence_strength in {"strong", "high"}:
+        score += 30
+        reasons.append("strong_evidence")
+    elif evidence_strength in {"moderate", "medium"}:
+        score += 20
+        reasons.append("moderate_evidence")
+    elif evidence_strength in {"weak", "low"}:
+        score += 5
+        reasons.append("weak_evidence")
+    else:
+        reasons.append("unknown_evidence")
+
+    followup_type = str(row.get("followup_type") or "").strip().lower()
+    if followup_type == "branch":
+        score += 10
+        reasons.append("branch_followup")
+    elif followup_type == "deepen":
+        score += 8
+        reasons.append("deepen_followup")
+    elif followup_type == "retry":
+        score += 5
+        reasons.append("retry_followup")
+    elif followup_type:
+        reasons.append(f"{followup_type}_followup")
+    else:
+        reasons.append("unknown_followup_type")
+
+    evidence_count = _followup_required_evidence_count(row)
+    if evidence_count > 0:
+        score += min(12, evidence_count * 3)
+        reasons.append(f"{evidence_count}_required_evidence_items")
+
+    has_success = bool(str(row.get("followup_success_threshold") or "").strip())
+    has_stop = bool(str(row.get("followup_stop_condition") or "").strip())
+    if has_success and has_stop:
+        score += 10
+        reasons.append("explicit_success_and_stop_bounds")
+    return score, reasons
+
+
+def _prioritized_followup_sample(row: dict[str, Any]) -> dict[str, Any]:
+    score, reasons = _followup_priority_components(row)
+    sample = _followup_readiness_sample(row)
+    sample.update(
+        {
+            "hypothesis_status": str(row.get("hypothesis_status") or "").strip(),
+            "evidence_strength": str(row.get("evidence_strength") or "").strip(),
+            "priority_score": min(100, score),
+            "priority_reasons": reasons,
+        }
+    )
+    return sample
+
+
+def _followup_priority_key(row: dict[str, Any]) -> tuple[int, str, str, str]:
+    score, _ = _followup_priority_components(row)
+    return (
+        -min(100, score),
+        str(row.get("project_id") or ""),
+        str(row.get("run_id") or ""),
+        str(row.get("followup_title") or ""),
+    )
+
+
 def _followup_readiness_operator_action(
     *, recommended_count: int, underspecified_count: int
 ) -> str:
@@ -586,6 +667,7 @@ def _followup_readiness(decision_scores: Any) -> dict[str, Any]:
         "thin_required_evidence_count": 0,
         "followup_type_counts": {},
         "ready_followups": [],
+        "prioritized_followups": [],
         "underspecified_followups": [],
         "operator_action": _followup_readiness_operator_action(
             recommended_count=0,
@@ -596,6 +678,7 @@ def _followup_readiness(decision_scores: Any) -> dict[str, Any]:
         return empty
     type_counts: Counter[str] = Counter()
     ready_followups: list[dict[str, Any]] = []
+    ready_rows: list[dict[str, Any]] = []
     underspecified_followups: list[dict[str, Any]] = []
     missing_title_count = 0
     missing_success_threshold_count = 0
@@ -630,6 +713,7 @@ def _followup_readiness(decision_scores: Any) -> dict[str, Any]:
                 )
         else:
             bounded_ready_count += 1
+            ready_rows.append(row)
             if len(ready_followups) < 3:
                 ready_followups.append(_followup_readiness_sample(row))
     underspecified_count = recommended_count - bounded_ready_count
@@ -644,6 +728,10 @@ def _followup_readiness(decision_scores: Any) -> dict[str, Any]:
         "thin_required_evidence_count": thin_required_evidence_count,
         "followup_type_counts": dict(sorted(type_counts.items())),
         "ready_followups": ready_followups,
+        "prioritized_followups": [
+            _prioritized_followup_sample(row)
+            for row in sorted(ready_rows, key=_followup_priority_key)[:3]
+        ],
         "underspecified_followups": underspecified_followups,
         "operator_action": _followup_readiness_operator_action(
             recommended_count=recommended_count,
