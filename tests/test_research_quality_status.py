@@ -251,6 +251,113 @@ def test_quality_status_includes_post_prompt_monitor(tmp_path: Path) -> None:
     assert monitor["useful_adjacent_followup"] == 2
     assert monitor["malformed_provider_response_count"] == 1
     assert monitor["last_malformed_at"] == "2026-05-11T11:17:08Z"
+    assert monitor["recent_malformed_provider_responses"] == [
+        {
+            "checked_at": "2026-05-11T11:17:08Z",
+            "recorded_at": "",
+            "provider_model": "",
+            "malformed_provider_response_count": 1,
+            "generated_count": 0,
+            "promoted_count": 0,
+            "dispatched_count": 0,
+            "operator_action": (
+                "inspect provider-generation output for this tick before "
+                "trusting new idea volume"
+            ),
+        }
+    ]
+
+
+def test_quality_status_summarizes_recent_malformed_provider_history(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "quality.json"
+    report_path.write_text(json.dumps(_report_with_decision("")), encoding="utf-8")
+    window_path = tmp_path / "window.json"
+    window_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "enoch_research_quality_window_comparison_v1",
+                "cutoff": "2026-05-11T09:58:00Z",
+                "post": {"candidate_count": 10, "decision_count": 10},
+                "delta": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    history_path = tmp_path / "history.jsonl"
+    history_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "checked_at": "2026-05-11T10:00:00Z",
+                        "recorded_at": "2026-05-11T10:02:00Z",
+                        "provider_model": "hf:model-a",
+                        "malformed_provider_response_count": 1,
+                        "generated_count": 0,
+                        "promoted_count": 1,
+                        "dispatched_count": 0,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "checked_at": "2026-05-11T11:00:00Z",
+                        "recorded_at": "2026-05-11T11:02:00Z",
+                        "provider_model": "hf:model-b",
+                        "malformed_provider_response_count": 2,
+                        "generated_count": 0,
+                        "promoted_count": 0,
+                        "dispatched_count": 1,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status = load_latest_quality_status(
+        [str(report_path)],
+        window_report_path=str(window_path),
+        autopilot_history_path=str(history_path),
+    )
+
+    monitor = status["post_prompt_monitor"]
+    assert monitor["malformed_provider_response_count"] == 3
+    assert monitor["malformed_provider_response_ticks"] == 2
+    assert monitor["malformed_provider_model_counts"] == {
+        "hf:model-a": 1,
+        "hf:model-b": 2,
+    }
+    assert monitor["recent_malformed_provider_responses"] == [
+        {
+            "checked_at": "2026-05-11T11:00:00Z",
+            "recorded_at": "2026-05-11T11:02:00Z",
+            "provider_model": "hf:model-b",
+            "malformed_provider_response_count": 2,
+            "generated_count": 0,
+            "promoted_count": 0,
+            "dispatched_count": 1,
+            "operator_action": (
+                "inspect provider-generation output for this tick before "
+                "trusting new idea volume"
+            ),
+        },
+        {
+            "checked_at": "2026-05-11T10:00:00Z",
+            "recorded_at": "2026-05-11T10:02:00Z",
+            "provider_model": "hf:model-a",
+            "malformed_provider_response_count": 1,
+            "generated_count": 0,
+            "promoted_count": 1,
+            "dispatched_count": 0,
+            "operator_action": (
+                "inspect provider-generation output for this tick before "
+                "trusting new idea volume"
+            ),
+        },
+    ]
 
 
 def test_quality_status_includes_refresh_sidecar_status(tmp_path: Path) -> None:

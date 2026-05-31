@@ -2804,6 +2804,90 @@ def _quality_recommendations(
     return recommendations
 
 
+def _quality_recent_malformed_provider_response(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, Mapping):
+        return None
+    count = _safe_count(row.get("malformed_provider_response_count"))
+    checked_at = _text(row.get("checked_at"))
+    if count <= 0 or not checked_at:
+        return None
+    return {
+        "checked_at": checked_at,
+        "recorded_at": _text(row.get("recorded_at")),
+        "provider_model": _text(row.get("provider_model")),
+        "malformed_provider_response_count": count,
+        "generated_count": _safe_count(row.get("generated_count")),
+        "promoted_count": _safe_count(row.get("promoted_count")),
+        "dispatched_count": _safe_count(row.get("dispatched_count")),
+        "operator_action": _text(row.get("operator_action"))
+        or (
+            "inspect provider-generation output for this tick before trusting "
+            "new idea volume"
+        ),
+    }
+
+
+def _quality_recent_malformed_provider_responses(
+    monitor: Mapping[str, Any], *, limit: int = 3
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in monitor.get("recent_malformed_provider_responses") or []:
+        normalized = _quality_recent_malformed_provider_response(row)
+        if normalized is not None:
+            rows.append(normalized)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _quality_model_counts(value: Any) -> dict[str, int]:
+    if not isinstance(value, Mapping):
+        return {}
+    counts: dict[str, int] = {}
+    for key, count in value.items():
+        model = _text(key)
+        if model:
+            counts[model] = _safe_count(count)
+    return counts
+
+
+def _post_prompt_warning_details(
+    *, malformed_count: int, malformed_ticks: int, useful_delta: float
+) -> list[dict[str, str]]:
+    details: list[dict[str, str]] = []
+    if malformed_count > 0:
+        tick_label = "recent tick" if malformed_ticks == 1 else "recent ticks"
+        details.append(
+            {
+                "code": "malformed_provider_responses",
+                "severity": "warning",
+                "message": (
+                    f"{malformed_count} malformed provider responses across "
+                    f"{malformed_ticks} {tick_label}"
+                ),
+                "operator_action": (
+                    "inspect provider-generation output for the listed ticks "
+                    "before trusting new idea volume"
+                ),
+            }
+        )
+    if useful_delta < 0:
+        details.append(
+            {
+                "code": "useful_followup_decline",
+                "severity": "warning",
+                "message": (
+                    f"useful adjacent follow-up signal declined by "
+                    f"{abs(useful_delta):.1f}"
+                ),
+                "operator_action": (
+                    "review recent follow-up quality before increasing throughput"
+                ),
+            }
+        )
+    return details
+
+
 def _quality_refresh_operator_action(refresh: Mapping[str, Any]) -> str:
     reason = _text(refresh.get("reason"))
     if bool(refresh.get("ok")):
@@ -2945,6 +3029,12 @@ def research_signal_quality_snapshot(
     warning_count = _quality_count(severity_counts, "warning")
     blocked_count = _quality_count(severity_counts, "blocked")
     malformed_count = _quality_count(monitor, "malformed_provider_response_count")
+    malformed_ticks = _safe_count(
+        _quality_value(monitor, "malformed_provider_response_ticks", 0)
+    )
+    recent_malformed = _quality_recent_malformed_provider_responses(monitor)
+    if malformed_count > 0 and malformed_ticks == 0:
+        malformed_ticks = len(recent_malformed)
     useful_delta = _quality_value(monitor, "useful_adjacent_followup_delta", 0.0)
     status = _text(quality.get("status")) or "unknown"
     refresh = _quality_mapping(quality.get("refresh_status"))
@@ -2998,8 +3088,15 @@ def research_signal_quality_snapshot(
             monitor, "moonshot_avg_score_delta", 0.0
         ),
         "malformed_provider_response_count": malformed_count,
-        "malformed_provider_response_ticks": _safe_count(
-            _quality_value(monitor, "malformed_provider_response_ticks", 0)
+        "malformed_provider_response_ticks": malformed_ticks,
+        "malformed_provider_model_counts": _quality_model_counts(
+            monitor.get("malformed_provider_model_counts")
+        ),
+        "recent_malformed_provider_responses": recent_malformed,
+        "post_prompt_warning_details": _post_prompt_warning_details(
+            malformed_count=malformed_count,
+            malformed_ticks=malformed_ticks,
+            useful_delta=float(useful_delta),
         ),
         "last_malformed_at": _quality_value(monitor, "last_malformed_at", ""),
         "last_checked_at": _quality_value(monitor, "last_checked_at", ""),

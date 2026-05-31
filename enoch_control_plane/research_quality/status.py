@@ -360,6 +360,28 @@ def _collect_autopilot_history_rows(
     return rows
 
 
+def _malformed_provider_operator_action() -> str:
+    return (
+        "inspect provider-generation output for this tick before trusting new "
+        "idea volume"
+    )
+
+
+def _malformed_provider_row(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "checked_at": _autopilot_history_item_timestamp(item),
+        "recorded_at": str(item.get("recorded_at") or ""),
+        "provider_model": str(item.get("provider_model") or ""),
+        "malformed_provider_response_count": _safe_int(
+            item.get("malformed_provider_response_count")
+        ),
+        "generated_count": _safe_int(item.get("generated_count")),
+        "promoted_count": _safe_int(item.get("promoted_count")),
+        "dispatched_count": _safe_int(item.get("dispatched_count")),
+        "operator_action": _malformed_provider_operator_action(),
+    }
+
+
 def _autopilot_history_summary_from_rows(
     path: str, rows: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -370,6 +392,13 @@ def _autopilot_history_summary_from_rows(
     ]
     last_row = rows[-1] if rows else None
     last_malformed = malformed_rows[-1] if malformed_rows else None
+    model_counts: Counter[str] = Counter()
+    for item in malformed_rows:
+        model = str(item.get("provider_model") or "").strip()
+        if model:
+            model_counts[model] += _safe_int(
+                item.get("malformed_provider_response_count")
+            )
     return {
         "path": path,
         "available": True,
@@ -387,6 +416,10 @@ def _autopilot_history_summary_from_rows(
         "last_checked_at": _autopilot_history_item_timestamp(last_row)
         if last_row
         else "",
+        "malformed_provider_model_counts": dict(sorted(model_counts.items())),
+        "recent_malformed_provider_responses": [
+            _malformed_provider_row(item) for item in reversed(malformed_rows[-3:])
+        ],
     }
 
 
@@ -458,6 +491,14 @@ def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, An
         "malformed_provider_response_ticks": _safe_int(
             history.get("malformed_provider_response_ticks")
         ),
+        "malformed_provider_model_counts": history.get(
+            "malformed_provider_model_counts"
+        )
+        or {},
+        "recent_malformed_provider_responses": history.get(
+            "recent_malformed_provider_responses"
+        )
+        or [],
         "last_malformed_at": history.get("last_malformed_at") or "",
         "last_checked_at": history.get("last_checked_at")
         or meta.get("candidate_last_created_at")

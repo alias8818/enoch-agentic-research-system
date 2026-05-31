@@ -66,12 +66,38 @@ it('parses command-center overview, status, and readiness payloads', () => {
       refresh_reason: 'missing database URL',
       signal_verdict: 'stale',
       signal_reasons: [{ code: 'quality_report_stale', severity: 'blocked' }],
+      malformed_provider_model_counts: { 'hf:model-a': 2 },
+      recent_malformed_provider_responses: [{
+        checked_at: '2026-05-30T03:00:30Z',
+        recorded_at: '2026-05-30T03:04:45Z',
+        provider_model: 'hf:model-a',
+        malformed_provider_response_count: 2,
+        generated_count: 0,
+        promoted_count: 0,
+        dispatched_count: 2,
+        operator_action: 'inspect provider-generation output for this tick before trusting new idea volume',
+      }],
+      post_prompt_warning_details: [{
+        code: 'malformed_provider_responses',
+        severity: 'warning',
+        message: '2 malformed provider responses across 1 recent tick',
+        operator_action: 'inspect provider-generation output for the listed ticks before trusting new idea volume',
+      }],
     },
   }).research_signal_quality).toMatchObject({
     malformed_provider_response_count: 16,
     refresh_reason: 'missing database URL',
     signal_verdict: 'stale',
     signal_reasons: [{ code: 'quality_report_stale', severity: 'blocked' }],
+    malformed_provider_model_counts: { 'hf:model-a': 2 },
+    recent_malformed_provider_responses: [{
+      provider_model: 'hf:model-a',
+      malformed_provider_response_count: 2,
+    }],
+    post_prompt_warning_details: [{
+      code: 'malformed_provider_responses',
+      severity: 'warning',
+    }],
   })
   expect(parseStatusResponse(statusFixture).worker_lanes?.[0]?.machine_target).toBe('cpu-proxmox-1')
   expect(parseAutomationReadiness({ ok: true, label: 'Long-haul mode: READY' }).label).toBe('Long-haul mode: READY')

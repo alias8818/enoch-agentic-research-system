@@ -105,6 +105,23 @@ it('shows research signal quality in the overview side rail', async () => {
           message: 'quality report is stale',
           operator_action: 'refresh the Research Quality report before relying on unattended automation',
         }],
+        malformed_provider_model_counts: { 'hf:model-a': 2 },
+        recent_malformed_provider_responses: [{
+          checked_at: '2026-05-30T03:00:30Z',
+          recorded_at: '2026-05-30T03:04:45Z',
+          provider_model: 'hf:model-a',
+          malformed_provider_response_count: 2,
+          generated_count: 0,
+          promoted_count: 0,
+          dispatched_count: 2,
+          operator_action: 'inspect provider-generation output for this tick before trusting new idea volume',
+        }],
+        post_prompt_warning_details: [{
+          code: 'malformed_provider_responses',
+          severity: 'warning',
+          message: '2 malformed provider responses across 1 recent tick',
+          operator_action: 'inspect provider-generation output for the listed ticks before trusting new idea volume',
+        }],
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
         recommendations: ['Run a bounded follow-up before treating this as paper-ready.'],
         top_problem_details: [{
@@ -137,6 +154,10 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('Research signal: stale')).toBeInTheDocument()
   expect(within(quality).getByText('quality report is stale')).toBeInTheDocument()
   expect(within(quality).getByText('refresh the Research Quality report before relying on unattended automation')).toBeInTheDocument()
+  expect(within(quality).getByText('Provider warning evidence')).toBeInTheDocument()
+  expect(within(quality).getByText('hf:model-a')).toBeInTheDocument()
+  expect(within(quality).getByText('2 malformed responses at 2026-05-30T03:00:30Z')).toBeInTheDocument()
+  expect(within(quality).getByText('inspect provider-generation output for this tick before trusting new idea volume')).toBeInTheDocument()
   expect(within(quality).getByText('quality report stale: 120.0h old; refresh before relying on unattended automation')).toBeInTheDocument()
   expect(within(quality).getByText('Refresh source')).toBeInTheDocument()
   expect(within(quality).getByText('missing database URL')).toBeInTheDocument()

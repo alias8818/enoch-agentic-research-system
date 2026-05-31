@@ -196,6 +196,15 @@ function qualityAgeLabel(value: unknown): string {
   return `${number.toFixed(1)}h`
 }
 
+type ResearchSignalQuality = NonNullable<OverviewResponse['research_signal_quality']>
+type MalformedProviderEvidence = NonNullable<ResearchSignalQuality['recent_malformed_provider_responses']>[number]
+
+function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
+  const count = Number(row.malformed_provider_response_count ?? 0)
+  const checkedAt = displayText(row.checked_at, 'unknown time')
+  return `${count} malformed responses at ${checkedAt}`
+}
+
 function qualityStatusClass(status: string | undefined, ok: boolean | undefined): string {
   if (status === 'blocked' || ok === false) return 'quality-pill quality-pill--bad'
   if (status === 'warnings') return 'quality-pill quality-pill--warn'
@@ -217,6 +226,8 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const affected = quality.top_problem_details?.[0]
   const recommendation = quality.recommendations?.[0]
   const signalReason = quality.signal_reasons?.[0]
+  const providerEvidence = quality.recent_malformed_provider_responses?.[0]
+  const postPromptWarning = quality.post_prompt_warning_details?.[0]
   return (
     <section className="quality-snapshot" aria-label="Research signal quality">
       <div>
@@ -248,6 +259,21 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
           <p>{displayText(quality.signal_label || quality.signal_verdict, 'No signal verdict returned.')}</p>
           {signalReason ? <p>{displayText(signalReason.message || signalReason.code, 'No signal reason returned.')}</p> : null}
           <p>{displayText(quality.signal_operator_action || signalReason?.operator_action, 'Inspect Research Quality before resuming unattended automation.')}</p>
+        </div>
+      ) : null}
+      {providerEvidence || postPromptWarning ? (
+        <div className="quality-snapshot-detail">
+          <h4>Provider warning evidence</h4>
+          {providerEvidence ? (
+            <>
+              <p>{displayText(providerEvidence.provider_model, 'Unknown provider model')}</p>
+              <p>{malformedProviderEvidenceLabel(providerEvidence)}</p>
+              <p>{displayText(providerEvidence.operator_action, 'Inspect provider-generation output before trusting new idea volume.')}</p>
+            </>
+          ) : null}
+          {!providerEvidence && postPromptWarning ? (
+            <p>{displayText(postPromptWarning.message || postPromptWarning.code, 'No provider warning detail returned.')}</p>
+          ) : null}
         </div>
       ) : null}
       {quality.freshness_summary ? (

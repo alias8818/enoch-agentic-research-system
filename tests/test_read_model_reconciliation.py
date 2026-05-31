@@ -162,6 +162,22 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
                 "available": True,
                 "useful_adjacent_followup_delta": -1.0,
                 "malformed_provider_response_count": 2,
+                "malformed_provider_model_counts": {"hf:model-a": 2},
+                "recent_malformed_provider_responses": [
+                    {
+                        "checked_at": "2026-05-30T03:00:30Z",
+                        "recorded_at": "2026-05-30T03:04:45Z",
+                        "provider_model": "hf:model-a",
+                        "malformed_provider_response_count": 2,
+                        "generated_count": 0,
+                        "promoted_count": 0,
+                        "dispatched_count": 2,
+                        "operator_action": (
+                            "inspect provider-generation output for this tick "
+                            "before trusting new idea volume"
+                        ),
+                    }
+                ],
             },
             "report_mtime": "2026-05-30T00:00:00Z",
             "refresh_status": {"available": True, "ok": True},
@@ -176,6 +192,41 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
         "malformed_provider_responses",
         "useful_followup_decline",
     }
+    assert snapshot["malformed_provider_model_counts"] == {"hf:model-a": 2}
+    assert snapshot["recent_malformed_provider_responses"] == [
+        {
+            "checked_at": "2026-05-30T03:00:30Z",
+            "recorded_at": "2026-05-30T03:04:45Z",
+            "provider_model": "hf:model-a",
+            "malformed_provider_response_count": 2,
+            "generated_count": 0,
+            "promoted_count": 0,
+            "dispatched_count": 2,
+            "operator_action": (
+                "inspect provider-generation output for this tick before "
+                "trusting new idea volume"
+            ),
+        }
+    ]
+    assert snapshot["post_prompt_warning_details"] == [
+        {
+            "code": "malformed_provider_responses",
+            "severity": "warning",
+            "message": "2 malformed provider responses across 1 recent tick",
+            "operator_action": (
+                "inspect provider-generation output for the listed ticks before "
+                "trusting new idea volume"
+            ),
+        },
+        {
+            "code": "useful_followup_decline",
+            "severity": "warning",
+            "message": "useful adjacent follow-up signal declined by 1.0",
+            "operator_action": (
+                "review recent follow-up quality before increasing throughput"
+            ),
+        },
+    ]
 
 
 def test_research_signal_quality_snapshot_marks_defensible_signal() -> None:
