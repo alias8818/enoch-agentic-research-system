@@ -673,6 +673,17 @@ def paper_links(row: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def research_quality_sample_links(row: Mapping[str, Any]) -> dict[str, str]:
+    project_id = _url_path_segment(row.get("project_id"))
+    run_id = _url_path_segment(row.get("run_id"))
+    return {
+        "project": f"/control/api/v1/projects/{project_id}" if project_id else "",
+        "run": f"/control/api/v1/runs/{run_id}" if run_id else "",
+        "legacy_project": f"/control/api/projects/{project_id}" if project_id else "",
+        "legacy_run": f"/control/api/runs/{run_id}" if run_id else "",
+    }
+
+
 def _project_row_stage_source(row: dict[str, Any]) -> dict[str, Any]:
     queue_status = row.get("queue_status") or row.get("status") or ""
     return {
@@ -3316,6 +3327,7 @@ def _quality_decision_posture_sample(row: Any) -> dict[str, Any] | None:
         "project_id": project_id,
         "project_name": _text(row.get("project_name")),
         "run_id": run_id,
+        "links": research_quality_sample_links(row),
         "decision": _text(row.get("decision")),
         "hypothesis_status": _text(row.get("hypothesis_status")),
         "evidence_strength": _text(row.get("evidence_strength")),
@@ -3352,6 +3364,7 @@ def _quality_paper_readiness_blocker_sample(row: Any) -> dict[str, Any] | None:
         "project_id": project_id,
         "project_name": _text(row.get("project_name")),
         "run_id": run_id,
+        "links": research_quality_sample_links(row),
         "hypothesis_status": _text(row.get("hypothesis_status")),
         "evidence_strength": _text(row.get("evidence_strength")),
         "research_outcome": _text(row.get("research_outcome")),
@@ -3446,6 +3459,7 @@ def _quality_followup_readiness_sample(
         "project_id": project_id,
         "project_name": _text(row.get("project_name")),
         "run_id": run_id,
+        "links": research_quality_sample_links(row),
         "followup_type": _text(row.get("followup_type")),
         "followup_title": title,
         "followup_required_evidence_count": _safe_count(

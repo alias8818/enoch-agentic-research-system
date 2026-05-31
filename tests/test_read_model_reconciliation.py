@@ -710,6 +710,18 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
             ],
         }
     ]
+    project_mixed_links = {
+        "project": "/control/api/v1/projects/project-mixed",
+        "run": "/control/api/v1/runs/run-mixed",
+        "legacy_project": "/control/api/projects/project-mixed",
+        "legacy_run": "/control/api/runs/run-mixed",
+    }
+    project_supported_links = {
+        "project": "/control/api/v1/projects/project-supported",
+        "run": "/control/api/v1/runs/run-supported",
+        "legacy_project": "/control/api/projects/project-supported",
+        "legacy_run": "/control/api/runs/run-supported",
+    }
     assert snapshot["decision_posture"] == {
         "available": True,
         "decisions_checked": 3,
@@ -736,6 +748,7 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
                 "project_id": "project-mixed",
                 "project_name": "Mixed project",
                 "run_id": "run-mixed",
+                "links": project_mixed_links,
                 "decision": "finalize_negative",
                 "hypothesis_status": "mixed",
                 "evidence_strength": "moderate",
@@ -768,6 +781,7 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
                 "project_id": "project-mixed",
                 "project_name": "Mixed project",
                 "run_id": "run-mixed",
+                "links": project_mixed_links,
                 "followup_type": "deepen",
                 "followup_title": "Mixed follow-up",
                 "followup_required_evidence_count": 4,
@@ -787,6 +801,7 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
                 "project_id": "project-mixed",
                 "project_name": "Mixed project",
                 "run_id": "run-mixed",
+                "links": project_mixed_links,
                 "followup_type": "deepen",
                 "followup_title": "Mixed follow-up",
                 "followup_required_evidence_count": 4,
@@ -816,6 +831,7 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
                 "project_id": "project-supported",
                 "project_name": "Supported project",
                 "run_id": "run-supported",
+                "links": project_supported_links,
                 "followup_type": "deepen",
                 "followup_title": "Supported follow-up",
                 "followup_required_evidence_count": 4,
@@ -1077,6 +1093,21 @@ def test_research_signal_quality_snapshot_surfaces_paper_readiness_blockers() ->
                 "followup_recommended_count": 2,
                 "compute_scale_blocked_count": 0,
                 "publication_posture": "followup_only",
+                "representative_useful_signals": [
+                    {
+                        "project_id": "project-mixed",
+                        "project_name": "Mixed project",
+                        "run_id": "run-mixed",
+                        "decision": "finalize_negative",
+                        "hypothesis_status": "mixed",
+                        "evidence_strength": "moderate",
+                        "research_outcome": "useful_signal",
+                        "bounded_paper_ready": False,
+                        "followup_recommended": True,
+                        "followup_title": "Mixed follow-up",
+                        "recommended_next_action": "Run mixed follow-up.",
+                    }
+                ],
                 "paper_readiness_blockers": {
                     "available": True,
                     "decisions_checked": 3,
@@ -1118,11 +1149,25 @@ def test_research_signal_quality_snapshot_surfaces_paper_readiness_blockers() ->
     assert blockers["paper_ready_count"] == 0
     assert blockers["blocker_counts"]["non_strong_evidence"] == 3
     assert blockers["samples"][0]["project_id"] == "project-mixed"
+    assert blockers["samples"][0]["links"] == {
+        "project": "/control/api/v1/projects/project-mixed",
+        "run": "/control/api/v1/runs/run-mixed",
+        "legacy_project": "/control/api/projects/project-mixed",
+        "legacy_run": "/control/api/runs/run-mixed",
+    }
     assert blockers["samples"][0]["blocker_reasons"] == [
         "not_bounded_paper_ready",
         "non_strong_evidence",
         "followup_required",
     ]
+    assert snapshot["decision_posture"]["representative_useful_signals"][0][
+        "links"
+    ] == {
+        "project": "/control/api/v1/projects/project-mixed",
+        "run": "/control/api/v1/runs/run-mixed",
+        "legacy_project": "/control/api/projects/project-mixed",
+        "legacy_run": "/control/api/runs/run-mixed",
+    }
     assert blockers["operator_action"] == (
         "no paper-ready decisions; dominant blocker is non-strong evidence "
         "across 3 decisions"

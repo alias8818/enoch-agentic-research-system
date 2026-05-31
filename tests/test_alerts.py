@@ -800,6 +800,18 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             ],
         }
     ]
+    project_mixed_links = {
+        "project": "/control/api/v1/projects/project-mixed",
+        "run": "/control/api/v1/runs/run-mixed",
+        "legacy_project": "/control/api/projects/project-mixed",
+        "legacy_run": "/control/api/runs/run-mixed",
+    }
+    project_supported_links = {
+        "project": "/control/api/v1/projects/project-supported",
+        "run": "/control/api/v1/runs/run-supported",
+        "legacy_project": "/control/api/projects/project-supported",
+        "legacy_run": "/control/api/runs/run-supported",
+    }
     assert finding.data["decision_posture"] == {
         "available": True,
         "decisions_checked": 3,
@@ -826,6 +838,7 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                 "project_id": "project-mixed",
                 "project_name": "Mixed project",
                 "run_id": "run-mixed",
+                "links": project_mixed_links,
                 "decision": "finalize_negative",
                 "hypothesis_status": "mixed",
                 "evidence_strength": "moderate",
@@ -858,6 +871,7 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                 "project_id": "project-mixed",
                 "project_name": "Mixed project",
                 "run_id": "run-mixed",
+                "links": project_mixed_links,
                 "followup_type": "deepen",
                 "followup_title": "Mixed follow-up",
                 "followup_required_evidence_count": 4,
@@ -877,6 +891,7 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                 "project_id": "project-mixed",
                 "project_name": "Mixed project",
                 "run_id": "run-mixed",
+                "links": project_mixed_links,
                 "followup_type": "deepen",
                 "followup_title": "Mixed follow-up",
                 "followup_required_evidence_count": 4,
@@ -906,6 +921,7 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                 "project_id": "project-supported",
                 "project_name": "Supported project",
                 "run_id": "run-supported",
+                "links": project_supported_links,
                 "followup_type": "deepen",
                 "followup_title": "Supported follow-up",
                 "followup_required_evidence_count": 4,
