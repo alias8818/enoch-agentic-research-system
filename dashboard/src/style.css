@@ -313,8 +313,8 @@ button:disabled { cursor: not-allowed; }
 .command-hero h1 {
   max-width: 18ch;
   margin: 0.55rem 0 0;
-  font-size: 3.85rem;
-  line-height: 0.96;
+  font-size: 3.2rem;
+  line-height: 1.04;
   letter-spacing: 0;
   font-weight: 950;
   text-wrap: balance;
@@ -659,13 +659,13 @@ button:disabled { cursor: not-allowed; }
   .lane-grid { grid-template-columns: 1fr; }
   .app-header,
   .command-hero { flex-direction: column; align-items: stretch; }
-  .command-hero h1 { font-size: 3.1rem; }
+  .command-hero h1 { font-size: 2.85rem; }
   .app-nav { justify-content: flex-start; }
 }
 
 @media (max-width: 680px) {
   .app-frame { padding: 0.65rem; }
-  .command-hero h1 { font-size: 2.35rem; }
+  .command-hero h1 { font-size: 2.2rem; }
   .freshness-bar,
   .safety-bar,
   .readiness-check-card,
