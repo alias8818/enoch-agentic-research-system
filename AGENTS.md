@@ -2,6 +2,17 @@
 
 Instructions for autonomous AI agents working on the Enoch Agentic Research System.
 
+This sub-project inherits `/home/jeremy/Desktop/projects/enoch-release/AGENTS.md`.
+For current issue status, priorities, blockers, mitigation tracking, release readiness,
+paper production, worker health, or "what next" decisions, follow the parent Linear
+source-of-truth and freshness-marker rule. The marker is:
+
+`/home/jeremy/.codex/state/enoch-linear-last-check.json`
+
+The marker only records when Linear was last checked. It is not a distilled issue
+snapshot and must not be used as issue status. Query Linear when the marker is
+missing, stale, or insufficient for the exact issue fields needed.
+
 ## Project Overview
 
 Enoch Control Plane is a Python FastAPI/LangGraph control plane for auditable agentic research automation. It queues ideas, gates dispatch, supervises local AI runs, preserves evidence, and packages AI-generated research artifacts with provenance.
