@@ -342,6 +342,32 @@ def _decision_outcome_sample(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _decision_outcome_key(row: dict[str, Any]) -> tuple[str, str]:
+    return (
+        str(row.get("decision") or "").strip(),
+        str(row.get("hypothesis_status") or "").strip(),
+    )
+
+
+def _decision_outcome_samples_for_key(
+    decision_scores: list[Any],
+    *,
+    decision: str,
+    hypothesis_status: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for raw in decision_scores:
+        if not isinstance(raw, dict):
+            continue
+        if _decision_outcome_key(raw) != (decision, hypothesis_status):
+            continue
+        samples.append(_decision_outcome_sample(raw))
+        if len(samples) >= limit:
+            break
+    return samples
+
+
 def _decision_outcome_samples(
     decision_counts: Any, decision_scores: Any, *, limit_per_outcome: int = 3
 ) -> list[dict[str, Any]]:
@@ -351,21 +377,15 @@ def _decision_outcome_samples(
     for outcome in decision_counts:
         if not isinstance(outcome, dict):
             continue
-        decision = str(outcome.get("decision") or "").strip()
-        hypothesis_status = str(outcome.get("hypothesis_status") or "").strip()
+        decision, hypothesis_status = _decision_outcome_key(outcome)
         if not decision:
             continue
-        samples: list[dict[str, Any]] = []
-        for raw in decision_scores:
-            if not isinstance(raw, dict):
-                continue
-            if str(raw.get("decision") or "").strip() != decision:
-                continue
-            if str(raw.get("hypothesis_status") or "").strip() != hypothesis_status:
-                continue
-            samples.append(_decision_outcome_sample(raw))
-            if len(samples) >= limit_per_outcome:
-                break
+        samples = _decision_outcome_samples_for_key(
+            decision_scores,
+            decision=decision,
+            hypothesis_status=hypothesis_status,
+            limit=limit_per_outcome,
+        )
         if samples:
             rows.append(
                 {
