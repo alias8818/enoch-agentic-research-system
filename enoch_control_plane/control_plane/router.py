@@ -2676,6 +2676,7 @@ def _project_prompt(candidate: dict) -> str:
     return f"""# Enoch Research Action: {title}
 
 You are running under the Enoch LangGraph hard-cutover controller.
+This is an Enoch-controlled autonomous worker run; use the `enoch-worker` Codex skill before planning or executing work.
 
 Project ID: {candidate.get("project_id") or ""}
 Source/provenance URL: {candidate.get("notion_page_url") or ""}

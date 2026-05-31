@@ -122,6 +122,8 @@ def test_longhaul_readiness_blocks_on_low_utilization_policy_finding() -> None:
 def test_project_prompt_requires_resource_calibration_and_checkpoints() -> None:
     prompt = _project_prompt({"project_id": "p1", "project_name": "Example"})
 
+    assert "Enoch-controlled autonomous worker run" in prompt
+    assert "use the `enoch-worker` Codex skill" in prompt
     assert "Resource-efficiency contract" in prompt
     assert "write a resource calibration note" in prompt
     assert "CPU-only, no-GPU, single-thread" in prompt
