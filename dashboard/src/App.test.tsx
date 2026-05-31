@@ -228,6 +228,10 @@ it('shows research signal quality in the overview side rail', async () => {
             project_id: 'project-mixed',
             project_name: 'Mixed project',
             run_id: 'run-mixed',
+            links: {
+              project: '/control/api/v1/projects/project-mixed',
+              run: '/control/api/v1/runs/run-mixed',
+            },
             decision: 'finalize_negative',
             hypothesis_status: 'mixed',
             evidence_strength: 'moderate',
@@ -315,6 +319,10 @@ it('shows research signal quality in the overview side rail', async () => {
             project_id: 'project-mixed',
             project_name: 'Mixed project',
             run_id: 'run-mixed',
+            links: {
+              project: '/control/api/v1/projects/project-mixed',
+              run: '/control/api/v1/runs/run-mixed',
+            },
             decision: 'finalize_negative',
             hypothesis_status: 'mixed',
             evidence_strength: 'moderate',
@@ -340,6 +348,10 @@ it('shows research signal quality in the overview side rail', async () => {
             project_id: 'project-mixed',
             project_name: 'Mixed project',
             run_id: 'run-mixed',
+            links: {
+              project: '/control/api/v1/projects/project-mixed',
+              run: '/control/api/v1/runs/run-mixed',
+            },
             followup_type: 'deepen',
             followup_title: 'Mixed follow-up',
             followup_required_evidence_count: 4,
@@ -351,6 +363,10 @@ it('shows research signal quality in the overview side rail', async () => {
             project_id: 'project-mixed',
             project_name: 'Mixed project',
             run_id: 'run-mixed',
+            links: {
+              project: '/control/api/v1/projects/project-mixed',
+              run: '/control/api/v1/runs/run-mixed',
+            },
             followup_type: 'deepen',
             followup_title: 'Mixed follow-up',
             followup_required_evidence_count: 4,
@@ -505,6 +521,8 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('follow-up recommended 2')).toBeInTheDocument()
   expect(within(quality).getByText('posture followup only')).toBeInTheDocument()
   expect(within(quality).getByText('Mixed project')).toBeInTheDocument()
+  expect(within(quality).getAllByRole('link', { name: 'project: Mixed project' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#project:project-mixed')).toBe(true)
+  expect(within(quality).getAllByRole('link', { name: 'run: run-mixed' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#run:run-mixed')).toBe(true)
   expect(within(quality).getAllByText('Run the mixed follow-up before treating this as paper-ready.').length).toBeGreaterThan(0)
   expect(within(quality).getByText('useful signals are present but none are bounded-paper-ready; run or review the listed follow-ups before treating this as publication output')).toBeInTheDocument()
   expect(within(quality).getByText('Paper blockers')).toBeInTheDocument()

@@ -67,6 +67,8 @@ export interface AutomationReadiness {
   summary?: { queued?: number; active?: number; queue_paused?: boolean; maintenance_mode?: boolean; [key: string]: unknown }
 }
 
+type ResearchQualitySampleLinks = Record<string, string>
+
 export interface OverviewResponse {
   ok: boolean
   generated_at?: string
@@ -118,6 +120,7 @@ export interface OverviewResponse {
         project_id?: string
         project_name?: string
         run_id?: string
+        links?: ResearchQualitySampleLinks
         decision?: string
         hypothesis_status?: string
         evidence_strength?: string
@@ -146,6 +149,7 @@ export interface OverviewResponse {
         project_id?: string
         project_name?: string
         run_id?: string
+        links?: ResearchQualitySampleLinks
         decision?: string
         hypothesis_status?: string
         score?: number
@@ -272,6 +276,7 @@ export interface OverviewResponse {
           project_id?: string
           project_name?: string
           run_id?: string
+          links?: ResearchQualitySampleLinks
           hypothesis_status?: string
           evidence_strength?: string
           research_outcome?: string
@@ -287,6 +292,7 @@ export interface OverviewResponse {
         project_id?: string
         project_name?: string
         run_id?: string
+        links?: ResearchQualitySampleLinks
         decision?: string
         hypothesis_status?: string
         evidence_strength?: string
@@ -312,6 +318,7 @@ export interface OverviewResponse {
         project_id?: string
         project_name?: string
         run_id?: string
+        links?: ResearchQualitySampleLinks
         followup_type?: string
         followup_title?: string
         followup_required_evidence_count?: number
@@ -323,6 +330,7 @@ export interface OverviewResponse {
         project_id?: string
         project_name?: string
         run_id?: string
+        links?: ResearchQualitySampleLinks
         followup_type?: string
         followup_title?: string
         followup_required_evidence_count?: number
@@ -338,6 +346,7 @@ export interface OverviewResponse {
         project_id?: string
         project_name?: string
         run_id?: string
+        links?: ResearchQualitySampleLinks
         followup_type?: string
         followup_title?: string
         followup_required_evidence_count?: number

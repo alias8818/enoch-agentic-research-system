@@ -11,6 +11,8 @@ import { PaperMiniStrip } from './components/PaperMiniStrip'
 import { PrimaryAction, resolvePrimaryAction } from './components/PrimaryAction'
 import { SafetyBar } from './components/SafetyBar'
 import { WorkerLanes } from './components/WorkerLanes'
+import { EntityLinkChips } from './components/ui'
+import type { EntityLink } from './detailOperatorSummary'
 import { displayText } from './displayText'
 import { OperatorQueueSnapshot } from './operatorQueueSnapshot'
 import { formatReadinessErrorMessage } from './readinessErrors'
@@ -219,6 +221,14 @@ type PrioritizedFollowup = NonNullable<FollowupReadiness['prioritized_followups'
 type FollowupScopeAlignment = NonNullable<ResearchSignalQuality['followup_scope_alignment']>
 type FollowupScopeCandidate = NonNullable<FollowupScopeAlignment['global_candidate']>
 
+type ResearchQualityLinkedSample = {
+  project_id?: string
+  project_name?: string
+  run_id?: string
+  paper_id?: string
+  links?: Record<string, string>
+}
+
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
   const checkedAt = displayText(row.checked_at, 'unknown time')
@@ -418,6 +428,21 @@ function qualityStatusClass(status: string | undefined, ok: boolean | undefined)
   return 'quality-pill quality-pill--good'
 }
 
+function researchQualitySampleLinks(row: ResearchQualityLinkedSample | undefined): EntityLink[] {
+  if (!row?.links) return []
+  const links: EntityLink[] = []
+  if (row.links.project && row.project_id) {
+    links.push({ kind: 'project', id: row.project_id, label: displayText(row.project_name, row.project_id) })
+  }
+  if (row.links.run && row.run_id) {
+    links.push({ kind: 'run', id: row.run_id, label: row.run_id })
+  }
+  if (row.links.paper && row.paper_id) {
+    links.push({ kind: 'paper', id: row.paper_id, label: row.paper_id })
+  }
+  return links
+}
+
 function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResponse['research_signal_quality'] }>) {
   if (!quality) {
     return (
@@ -576,6 +601,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
             <div key={`${group.decision ?? 'unknown'}-${group.hypothesis_status ?? 'unknown'}-${row.run_id ?? row.project_id ?? row.project_name ?? 'run'}`}>
               <p>{decisionOutcomeSampleTitle(group, row)}</p>
               <p>{decisionOutcomeSampleId(row)}</p>
+              <EntityLinkChips links={researchQualitySampleLinks(row)} />
             </div>
           ))}
         </div>
@@ -601,6 +627,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
             <>
               <p>{decisionPostureSampleTitle(decisionPostureSample)}</p>
               <p>{displayText(decisionPostureSample.recommended_next_action, 'No next action returned for representative useful signal.')}</p>
+              <EntityLinkChips links={researchQualitySampleLinks(decisionPostureSample)} />
             </>
           ) : null}
           <p>{displayText(decisionPosture.operator_action, 'Inspect decision posture before treating throughput as publication output.')}</p>
@@ -617,6 +644,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
             <>
               <p>{paperBlockerSampleTitle(paperBlockerSample)}</p>
               <p>{paperBlockerSampleReasons(paperBlockerSample)}</p>
+              <EntityLinkChips links={researchQualitySampleLinks(paperBlockerSample)} />
             </>
           ) : null}
           <p>{displayText(paperReadinessBlockers.operator_action, 'Inspect paper-readiness blockers before treating useful signals as publication output.')}</p>
@@ -635,6 +663,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
             <>
               <p>{followupReadinessSampleTitle(readyFollowup)}</p>
               <p>{displayText(readyFollowup.followup_success_threshold, 'No success threshold returned for ready follow-up.')}</p>
+              <EntityLinkChips links={researchQualitySampleLinks(readyFollowup)} />
             </>
           ) : null}
           {prioritizedFollowup ? (
@@ -644,10 +673,14 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
               <p>priority {Number(prioritizedFollowup.priority_score ?? 0)}</p>
               <p>{prioritizedFollowupReasons(prioritizedFollowup)}</p>
               <p>{displayText(prioritizedFollowup.recommended_next_action, 'No next action returned for prioritized follow-up.')}</p>
+              <EntityLinkChips links={researchQualitySampleLinks(prioritizedFollowup)} />
             </>
           ) : null}
           {underspecifiedFollowup ? (
-            <p>{followupReadinessSampleTitle(underspecifiedFollowup)}</p>
+            <>
+              <p>{followupReadinessSampleTitle(underspecifiedFollowup)}</p>
+              <EntityLinkChips links={researchQualitySampleLinks(underspecifiedFollowup)} />
+            </>
           ) : null}
           <p>{displayText(followupReadiness.operator_action, 'Inspect follow-up readiness before queueing more work.')}</p>
         </div>

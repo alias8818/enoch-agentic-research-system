@@ -182,6 +182,8 @@ const candidateCategoryCountSchema = z.object({
   count: z.number().optional(),
 }).passthrough()
 
+const researchQualitySampleLinksSchema = z.record(z.string(), z.string()).optional()
+
 const candidateStatusSampleSchema = z.object({
   candidate_id: z.string().optional(),
   title: z.string().optional(),
@@ -195,6 +197,7 @@ const decisionOutcomeSampleRowSchema = z.object({
   project_id: z.string().optional(),
   project_name: z.string().optional(),
   run_id: z.string().optional(),
+  links: researchQualitySampleLinksSchema,
   decision: z.string().optional(),
   hypothesis_status: z.string().optional(),
   evidence_strength: z.string().optional(),
@@ -264,6 +267,7 @@ const decisionPostureSampleSchema = z.object({
   project_id: z.string().optional(),
   project_name: z.string().optional(),
   run_id: z.string().optional(),
+  links: researchQualitySampleLinksSchema,
   decision: z.string().optional(),
   hypothesis_status: z.string().optional(),
   evidence_strength: z.string().optional(),
@@ -278,6 +282,7 @@ const paperReadinessBlockerSampleSchema = z.object({
   project_id: z.string().optional(),
   project_name: z.string().optional(),
   run_id: z.string().optional(),
+  links: researchQualitySampleLinksSchema,
   hypothesis_status: z.string().optional(),
   evidence_strength: z.string().optional(),
   research_outcome: z.string().optional(),
@@ -319,6 +324,7 @@ const followupReadinessSampleSchema = z.object({
   project_id: z.string().optional(),
   project_name: z.string().optional(),
   run_id: z.string().optional(),
+  links: researchQualitySampleLinksSchema,
   followup_type: z.string().optional(),
   followup_title: z.string().optional(),
   followup_required_evidence_count: z.number().optional(),
