@@ -158,6 +158,33 @@ const movementDiagnosisSchema = z.object({
   blockers: z.array(movementBlockerSchema),
 }).passthrough()
 
+const researchYieldTargetSchema = z.object({
+  project_id: z.string().optional(),
+  project_name: z.string().optional(),
+  run_id: z.string().optional(),
+  followup_title: z.string().optional(),
+  title: z.string().optional(),
+}).passthrough()
+
+const researchYieldSchema = z.object({
+  latest_paper_age_days: z.number().nullable().optional(),
+  paper_drought: z.object({
+    warning: z.boolean().optional(),
+    threshold_days: z.number().optional(),
+    explanation: z.string().optional(),
+  }).passthrough().optional(),
+  paper_recovery: z.object({
+    status: z.string().optional(),
+    next_action: z.string().optional(),
+    count: z.number().optional(),
+    reason: z.string().optional(),
+    target: researchYieldTargetSchema.nullable().optional(),
+  }).passthrough().optional(),
+  maturity_counts: z.record(z.string(), z.number()).optional(),
+  top_deepen_required_candidate: z.record(z.unknown()).nullable().optional(),
+  dominant_missing_evidence_reason: z.string().optional(),
+}).passthrough()
+
 const usefulFollowupEvidenceRowSchema = z.object({
   case_id: z.string().optional(),
   case_type: z.string().optional(),
@@ -484,6 +511,7 @@ export const overviewResponseSchema = z.object({
     paper_write_blocked: z.number().optional(),
     paper_gate_archive_summary: z.string().optional(),
   }).passthrough().optional(),
+  research_yield: researchYieldSchema.optional(),
   research_signal_quality: researchSignalQualitySchema.optional(),
   movement_diagnosis: movementDiagnosisSchema.optional(),
   flags: z.record(z.unknown()).optional(),

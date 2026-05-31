@@ -91,6 +91,30 @@ export interface OverviewResponse {
     paper_write_blocked?: number
     paper_gate_archive_summary?: string
   }
+  research_yield?: {
+    latest_paper_age_days?: number | null
+    paper_drought?: {
+      warning?: boolean
+      threshold_days?: number
+      explanation?: string
+    }
+    paper_recovery?: {
+      status?: string
+      next_action?: string
+      count?: number
+      reason?: string
+      target?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        followup_title?: string
+        title?: string
+      } | null
+    }
+    maturity_counts?: Record<string, number>
+    top_deepen_required_candidate?: Record<string, unknown> | null
+    dominant_missing_evidence_reason?: string
+  }
   research_signal_quality?: {
     status?: string
     ok?: boolean

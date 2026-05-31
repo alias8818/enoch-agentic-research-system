@@ -616,6 +616,60 @@ it('prefers active research signal reasons over recovered context', async () => 
   expect(within(quality).queryByText('provider generation recovered after malformed responses')).not.toBeInTheDocument()
 })
 
+it('surfaces research yield drought and recovery state in the overview side rail', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] },
+      flags: {},
+      research_yield: {
+        latest_paper_age_days: 12,
+        paper_drought: {
+          warning: true,
+          threshold_days: 9,
+          explanation: 'Paper drought is a visibility warning, not an operational-readiness blocker.',
+        },
+        paper_recovery: {
+          status: 'ranked_followup_ready',
+          next_action: 'queue_followup',
+          count: 3,
+          reason: 'recent useful signals need bounded follow-up evidence before paper drafting',
+          target: {
+            project_id: 'followup-project',
+            project_name: 'Follow-up Project',
+            run_id: 'followup-run',
+            followup_title: 'Real trace replay follow-up',
+          },
+        },
+        maturity_counts: {
+          pilot_signal: 12,
+          execution_complete: 7,
+          archive_no_paper: 4,
+        },
+        dominant_missing_evidence_reason: 'baseline_or_comparator_present',
+      },
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  const yieldPanel = await screen.findByLabelText('Research yield')
+  expect(within(yieldPanel).getByText('paper drought active')).toBeInTheDocument()
+  expect(within(yieldPanel).getByText('latest paper 12d ago / threshold 9d')).toBeInTheDocument()
+  expect(within(yieldPanel).getByText('recovery queue followup / ranked followup ready / 3')).toBeInTheDocument()
+  expect(within(yieldPanel).getByText('recent useful signals need bounded follow-up evidence before paper drafting')).toBeInTheDocument()
+  expect(within(yieldPanel).getByText('pilot signal 12')).toBeInTheDocument()
+  expect(within(yieldPanel).getByText('execution complete 7')).toBeInTheDocument()
+  expect(within(yieldPanel).getByText('archive no paper 4')).toBeInTheDocument()
+  expect(within(yieldPanel).getByText('dominant gap baseline_or_comparator_present')).toBeInTheDocument()
+  expect(within(yieldPanel).getByText('target Follow-up Project')).toBeInTheDocument()
+})
+
 it('surfaces the movement diagnosis before lane and action controls', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({

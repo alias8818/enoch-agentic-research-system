@@ -168,6 +168,7 @@ function OverviewPageBody({
             onCheckReadiness={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
           />
           <ResearchSignalQualityCard quality={data.research_signal_quality} />
+          <ResearchYieldCard researchYield={data.research_yield} />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
         </div>
       </div>
@@ -220,6 +221,8 @@ type FollowupReadinessSample = NonNullable<FollowupReadiness['ready_followups']>
 type PrioritizedFollowup = NonNullable<FollowupReadiness['prioritized_followups']>[number]
 type FollowupScopeAlignment = NonNullable<ResearchSignalQuality['followup_scope_alignment']>
 type FollowupScopeCandidate = NonNullable<FollowupScopeAlignment['global_candidate']>
+type ResearchYield = NonNullable<OverviewResponse['research_yield']>
+type ResearchYieldTarget = NonNullable<NonNullable<ResearchYield['paper_recovery']>['target']>
 
 type ResearchQualityLinkedSample = {
   project_id?: string
@@ -267,6 +270,48 @@ function windowCountEntries(value: Record<string, number> | undefined, limit = 2
 
 function windowCountLabel([label, count]: [string, number]): string {
   return `${portfolioLabel(label)} ${String(count)}`
+}
+
+function researchYieldDroughtLabel(researchYield: ResearchYield): string {
+  return researchYield.paper_drought?.warning ? 'paper drought active' : 'paper drought clear'
+}
+
+function researchYieldAgeLabel(researchYield: ResearchYield): string {
+  const age = researchYield.latest_paper_age_days
+  const ageLabel = typeof age === 'number' ? `${age}d ago` : 'unknown age'
+  const threshold = Number(researchYield.paper_drought?.threshold_days ?? 0)
+  return `latest paper ${ageLabel} / threshold ${threshold}d`
+}
+
+function researchYieldRecoveryLabel(researchYield: ResearchYield): string {
+  const recovery = researchYield.paper_recovery
+  const action = portfolioLabel(recovery?.next_action)
+  const status = portfolioLabel(recovery?.status)
+  const count = Number(recovery?.count ?? 0)
+  return `recovery ${action} / ${status} / ${count}`
+}
+
+function researchYieldMaturityEntries(researchYield: ResearchYield): [string, number][] {
+  return Object.entries(researchYield.maturity_counts ?? {})
+    .filter(([, count]) => Number(count) > 0)
+    .slice(0, 4)
+}
+
+function researchYieldTargetLabel(target: ResearchYieldTarget | null | undefined): string {
+  if (!target) return ''
+  return `target ${displayText(target.project_name || target.followup_title || target.title || target.project_id, 'Unnamed recovery target')}`
+}
+
+function researchYieldTargetLinks(target: ResearchYieldTarget | null | undefined): EntityLink[] {
+  if (!target) return []
+  const links: EntityLink[] = []
+  if (target.project_id) {
+    links.push({ kind: 'project', id: target.project_id, label: displayText(target.project_name, target.project_id) })
+  }
+  if (target.run_id) {
+    links.push({ kind: 'run', id: target.run_id, label: target.run_id })
+  }
+  return links
 }
 
 function windowAdmittedRateLabel(windowComparison: QualityWindowComparison): string {
@@ -749,6 +794,42 @@ function ResearchQualityRecommendedAction({ recommendation }: Readonly<{ recomme
       <h4>Recommended action</h4>
       <p>{recommendation}</p>
     </div>
+  )
+}
+
+function ResearchYieldCard({ researchYield }: Readonly<{ researchYield: OverviewResponse['research_yield'] }>) {
+  if (!researchYield) return null
+  const maturityEntries = researchYieldMaturityEntries(researchYield)
+  const target = researchYield.paper_recovery?.target
+  const targetLabel = researchYieldTargetLabel(target)
+  return (
+    <section className="quality-snapshot" aria-label="Research yield">
+      <div>
+        <h3>Research yield</h3>
+        <span className={researchYield.paper_drought?.warning ? 'quality-pill quality-pill--warn' : 'quality-pill quality-pill--good'}>
+          {researchYieldDroughtLabel(researchYield)}
+        </span>
+      </div>
+      <p>{researchYieldAgeLabel(researchYield)}</p>
+      <div className="quality-snapshot-detail">
+        <h4>Paper recovery</h4>
+        <p>{researchYieldRecoveryLabel(researchYield)}</p>
+        <p>{displayText(researchYield.paper_recovery?.reason, 'No deterministic paper-recovery action returned.')}</p>
+        {targetLabel ? <p>{targetLabel}</p> : null}
+        <EntityLinkChips links={researchYieldTargetLinks(target)} />
+      </div>
+      {maturityEntries.length > 0 ? (
+        <div className="quality-snapshot-detail">
+          <h4>Maturity states</h4>
+          {maturityEntries.map((entry) => (
+            <p key={`research-yield-maturity-${entry[0]}`}>{windowCountLabel(entry)}</p>
+          ))}
+        </div>
+      ) : null}
+      {researchYield.dominant_missing_evidence_reason ? (
+        <p>dominant gap {researchYield.dominant_missing_evidence_reason}</p>
+      ) : null}
+    </section>
   )
 }
 
