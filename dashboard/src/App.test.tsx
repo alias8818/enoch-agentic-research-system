@@ -567,6 +567,55 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).queryByText('No critical quality-layer warnings from the read-only audit heuristics.')).not.toBeInTheDocument()
 })
 
+it('prefers active research signal reasons over recovered context', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      generated_at: '2026-05-20T12:00:00Z',
+      counts: { active: 0, queued: 0 },
+      paper_counts: {},
+      movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] },
+      flags: {},
+      research_signal_quality: {
+        status: 'clean',
+        ok: true,
+        signal_verdict: 'review_required',
+        signal_label: 'Research signal: review required',
+        signal_operator_action: 'review recent follow-up quality before increasing throughput',
+        signal_reasons: [
+          {
+            code: 'provider_generation_recovered',
+            severity: 'info',
+            message: 'provider generation recovered after malformed responses',
+            operator_action: 'provider generation recovered; review the last malformed model before widening automation',
+            status: 'recovered',
+            active: false,
+          },
+          {
+            code: 'useful_followup_decline',
+            severity: 'warning',
+            message: 'useful adjacent follow-up signal declined',
+            operator_action: 'review recent follow-up quality before increasing throughput',
+            status: 'active',
+            active: true,
+          },
+        ],
+      },
+      recent_events: [],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  const quality = await screen.findByLabelText('Research signal quality')
+  expect(within(quality).getByText('Signal verdict')).toBeInTheDocument()
+  expect(within(quality).getByText('Research signal: review required')).toBeInTheDocument()
+  expect(within(quality).getByText('useful adjacent follow-up signal declined')).toBeInTheDocument()
+  expect(within(quality).getByText('review recent follow-up quality before increasing throughput')).toBeInTheDocument()
+  expect(within(quality).queryByText('provider generation recovered after malformed responses')).not.toBeInTheDocument()
+})
+
 it('surfaces the movement diagnosis before lane and action controls', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({

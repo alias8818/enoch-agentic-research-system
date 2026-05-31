@@ -417,6 +417,8 @@ export interface OverviewResponse {
       severity?: string
       message?: string
       operator_action?: string
+      status?: string
+      active?: boolean
     }[]
     refresh_ok?: boolean
     refresh_action?: string

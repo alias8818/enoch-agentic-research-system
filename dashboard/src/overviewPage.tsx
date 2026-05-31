@@ -443,8 +443,12 @@ function researchQualitySampleLinks(row: ResearchQualityLinkedSample | undefined
   return links
 }
 
+function activeSignalReason(quality: ResearchSignalQuality): NonNullable<ResearchSignalQuality['signal_reasons']>[number] | undefined {
+  return quality.signal_reasons?.find((reason) => reason.active || reason.status === 'active') ?? quality.signal_reasons?.[0]
+}
+
 function ResearchQualitySignalVerdict({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
-  const signalReason = quality.signal_reasons?.[0]
+  const signalReason = activeSignalReason(quality)
   if (!quality.signal_label && !signalReason) return null
   return (
     <div className="quality-snapshot-detail">
