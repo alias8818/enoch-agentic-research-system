@@ -139,6 +139,18 @@ def compare_windows(pre: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def window_order_direction(side: str) -> str:
+    """Return ordering for bounded comparison windows.
+
+    Both windows are recent samples relative to the cutoff: the pre side is the
+    latest rows before the cutoff, and the post side is the latest rows after
+    the cutoff. Using ascending order for post makes the "current" signal stale
+    immediately after enough newer rows exist.
+    """
+
+    return "desc"
+
+
 def _fetch_window(
     database_url: str, *, cutoff: str, side: str, limit: int
 ) -> tuple[list[CandidateRow], list[RawDecision], dict[str, Any]]:
@@ -146,7 +158,7 @@ def _fetch_window(
     from psycopg.rows import dict_row
 
     op = ">=" if side == "post" else "<"
-    direction = "asc" if side == "post" else "desc"
+    direction = window_order_direction(side)
     safe_limit = max(1, min(limit, 1000))
     with psycopg.connect(database_url, row_factory=dict_row) as conn:
         with conn.cursor() as cur:

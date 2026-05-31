@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from enoch_control_plane.research_quality.datasets import CandidateRow, DecisionRow
 from scripts.build_research_quality_evalset import RawDecision
-from scripts.compare_research_quality_windows import compare_windows, summarize_window
+from scripts.compare_research_quality_windows import (
+    compare_windows,
+    summarize_window,
+    window_order_direction,
+)
 
 
 def _candidate(
@@ -122,6 +126,11 @@ def test_compare_windows_reports_deltas() -> None:
     assert delta["useful_adjacent_followup_delta"] == 1
     assert delta["moonshot_avg_score_delta"] == 5
     assert delta["admitted_rate_delta"] == 0.25
+
+
+def test_post_cutoff_window_uses_latest_rows_as_current_window() -> None:
+    assert window_order_direction("post") == "desc"
+    assert window_order_direction("pre") == "desc"
 
 
 def test_eval_case_samples_include_bounded_followup_evidence() -> None:
