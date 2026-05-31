@@ -85,6 +85,22 @@ it('parses command-center overview, status, and readiness payloads', () => {
         message: '2 malformed provider responses across 1 recent tick',
         operator_action: 'inspect provider-generation output for the listed ticks before trusting new idea volume',
       }],
+      useful_adjacent_followup_evidence: {
+        current: [{
+          case_id: 'useful_adjacent_followup:post-run',
+          case_type: 'useful_adjacent_followup',
+          severity: 'info',
+          title: 'Current follow-up',
+          project_id: 'post-project',
+          project_name: 'Current Project',
+          run_id: 'post-run',
+          followup_title: 'Current follow-up',
+          followup_depth: 1,
+          expected_behavior: 'Prefer bounded follow-up.',
+        }],
+        previous: [],
+        delta: -4,
+      },
       operator_recommendations: [
         'inspect provider-generation failures before trusting new idea volume',
       ],
@@ -105,6 +121,15 @@ it('parses command-center overview, status, and readiness payloads', () => {
       code: 'malformed_provider_responses',
       severity: 'warning',
     }],
+    useful_adjacent_followup_evidence: {
+      current: [{
+        case_id: 'useful_adjacent_followup:post-run',
+        project_id: 'post-project',
+        followup_title: 'Current follow-up',
+      }],
+      previous: [],
+      delta: -4,
+    },
     operator_recommendations: [
       'inspect provider-generation failures before trusting new idea volume',
     ],

@@ -198,12 +198,24 @@ function qualityAgeLabel(value: unknown): string {
 
 type ResearchSignalQuality = NonNullable<OverviewResponse['research_signal_quality']>
 type MalformedProviderEvidence = NonNullable<ResearchSignalQuality['recent_malformed_provider_responses']>[number]
+type UsefulFollowupEvidence = NonNullable<NonNullable<ResearchSignalQuality['useful_adjacent_followup_evidence']>['current']>[number]
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
   const checkedAt = displayText(row.checked_at, 'unknown time')
   const runId = displayText(row.run_cycle_id || row.trace_id, '')
   return runId ? `${count} malformed responses at ${checkedAt} (${runId})` : `${count} malformed responses at ${checkedAt}`
+}
+
+function followupEvidenceTitle(prefix: string, row: UsefulFollowupEvidence): string {
+  return `${prefix}: ${displayText(row.followup_title || row.title, 'Unnamed follow-up')}`
+}
+
+function followupEvidenceId(row: UsefulFollowupEvidence): string {
+  return [
+    displayText(row.project_id, ''),
+    displayText(row.run_id, ''),
+  ].filter(Boolean).join(' / ') || displayText(row.case_id, 'unknown case')
 }
 
 function qualityStatusClass(status: string | undefined, ok: boolean | undefined): string {
@@ -229,6 +241,8 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const signalReason = quality.signal_reasons?.[0]
   const providerEvidence = quality.recent_malformed_provider_responses?.[0]
   const postPromptWarning = quality.post_prompt_warning_details?.[0]
+  const currentFollowupEvidence = quality.useful_adjacent_followup_evidence?.current?.[0]
+  const previousFollowupEvidence = quality.useful_adjacent_followup_evidence?.previous?.[0]
   return (
     <section className="quality-snapshot" aria-label="Research signal quality">
       <div>
@@ -274,6 +288,23 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
           ) : null}
           {!providerEvidence && postPromptWarning ? (
             <p>{displayText(postPromptWarning.message || postPromptWarning.code, 'No provider warning detail returned.')}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {currentFollowupEvidence || previousFollowupEvidence ? (
+        <div className="quality-snapshot-detail">
+          <h4>Follow-up trend evidence</h4>
+          {currentFollowupEvidence ? (
+            <>
+              <p>{followupEvidenceTitle('Current', currentFollowupEvidence)}</p>
+              <p>{followupEvidenceId(currentFollowupEvidence)}</p>
+            </>
+          ) : null}
+          {previousFollowupEvidence ? (
+            <>
+              <p>{followupEvidenceTitle('Previous', previousFollowupEvidence)}</p>
+              <p>{followupEvidenceId(previousFollowupEvidence)}</p>
+            </>
           ) : null}
         </div>
       ) : null}

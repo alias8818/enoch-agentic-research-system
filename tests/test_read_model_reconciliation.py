@@ -161,6 +161,37 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
             "post_prompt_monitor": {
                 "available": True,
                 "useful_adjacent_followup_delta": -1.0,
+                "useful_adjacent_followup_evidence": {
+                    "current": [
+                        {
+                            "case_id": "useful_adjacent_followup:post-run",
+                            "case_type": "useful_adjacent_followup",
+                            "severity": "info",
+                            "title": "Current follow-up",
+                            "project_id": "post-project",
+                            "project_name": "Current Project",
+                            "run_id": "post-run",
+                            "followup_title": "Current follow-up",
+                            "followup_depth": 1,
+                            "expected_behavior": "Prefer bounded follow-up.",
+                        }
+                    ],
+                    "previous": [
+                        {
+                            "case_id": "useful_adjacent_followup:pre-run",
+                            "case_type": "useful_adjacent_followup",
+                            "severity": "info",
+                            "title": "Previous follow-up",
+                            "project_id": "pre-project",
+                            "project_name": "Previous Project",
+                            "run_id": "pre-run",
+                            "followup_title": "Previous follow-up",
+                            "followup_depth": 0,
+                            "expected_behavior": "Prefer bounded follow-up.",
+                        }
+                    ],
+                    "delta": -1.0,
+                },
                 "malformed_provider_response_count": 2,
                 "malformed_provider_model_counts": {"hf:model-a": 2},
                 "recent_malformed_provider_responses": [
@@ -234,6 +265,37 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
             ),
         },
     ]
+    assert snapshot["useful_adjacent_followup_evidence"] == {
+        "current": [
+            {
+                "case_id": "useful_adjacent_followup:post-run",
+                "case_type": "useful_adjacent_followup",
+                "severity": "info",
+                "title": "Current follow-up",
+                "project_id": "post-project",
+                "project_name": "Current Project",
+                "run_id": "post-run",
+                "followup_title": "Current follow-up",
+                "followup_depth": 1,
+                "expected_behavior": "Prefer bounded follow-up.",
+            }
+        ],
+        "previous": [
+            {
+                "case_id": "useful_adjacent_followup:pre-run",
+                "case_type": "useful_adjacent_followup",
+                "severity": "info",
+                "title": "Previous follow-up",
+                "project_id": "pre-project",
+                "project_name": "Previous Project",
+                "run_id": "pre-run",
+                "followup_title": "Previous follow-up",
+                "followup_depth": 0,
+                "expected_behavior": "Prefer bounded follow-up.",
+            }
+        ],
+        "delta": -1.0,
+    }
     assert snapshot["recommendations"] == [
         "No critical quality-layer warnings from the read-only audit heuristics."
     ]

@@ -74,7 +74,41 @@ def summarize_window(
             pairwise_similarity(candidates, threshold=0.55, limit=10_000)
         ),
         "eval_case_counts": dict(case_counts.most_common()),
+        "eval_cases": cases,
     }
+
+
+def _sample_eval_case(case: dict[str, Any]) -> dict[str, Any]:
+    decision = (case.get("input") or {}).get("decision") or {}
+    return {
+        "case_id": str(case.get("case_id") or ""),
+        "case_type": str(case.get("case_type") or ""),
+        "severity": str(case.get("severity") or ""),
+        "title": str(case.get("title") or ""),
+        "project_id": str(decision.get("project_id") or ""),
+        "project_name": str(decision.get("project_name") or ""),
+        "run_id": str(decision.get("run_id") or ""),
+        "followup_title": str(decision.get("followup_title") or ""),
+        "followup_depth": int(decision.get("followup_depth") or 0),
+        "expected_behavior": str(case.get("expected_behavior") or ""),
+    }
+
+
+def eval_case_samples(
+    cases: list[dict[str, Any]],
+    *,
+    limit: int = 3,
+    case_types: tuple[str, ...] = ("useful_adjacent_followup",),
+) -> dict[str, list[dict[str, Any]]]:
+    samples: dict[str, list[dict[str, Any]]] = {
+        case_type: [] for case_type in case_types
+    }
+    for case in cases:
+        case_type = str(case.get("case_type") or "")
+        if case_type not in samples or len(samples[case_type]) >= limit:
+            continue
+        samples[case_type].append(_sample_eval_case(case))
+    return samples
 
 
 def compare_windows(pre: dict[str, Any], post: dict[str, Any]) -> dict[str, Any]:
@@ -228,9 +262,13 @@ def main(argv: list[str] | None = None) -> int:
         "limit": max(1, min(args.limit, 1000)),
         "pre_meta": pre_meta,
         "post_meta": post_meta,
-        "pre": pre,
-        "post": post,
+        "pre": {key: value for key, value in pre.items() if key != "eval_cases"},
+        "post": {key: value for key, value in post.items() if key != "eval_cases"},
         "delta": compare_windows(pre, post),
+        "eval_case_samples": {
+            "pre": eval_case_samples(pre.get("eval_cases") or []),
+            "post": eval_case_samples(post.get("eval_cases") or []),
+        },
     }
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

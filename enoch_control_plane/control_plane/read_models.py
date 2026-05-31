@@ -2887,6 +2887,47 @@ def _quality_recent_malformed_provider_responses(
     return rows
 
 
+def _quality_followup_evidence_row(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, Mapping):
+        return None
+    return {
+        "case_id": _text(row.get("case_id")),
+        "case_type": _text(row.get("case_type")),
+        "severity": _text(row.get("severity")),
+        "title": _text(row.get("title")),
+        "project_id": _text(row.get("project_id")),
+        "project_name": _text(row.get("project_name")),
+        "run_id": _text(row.get("run_id")),
+        "followup_title": _text(row.get("followup_title")),
+        "followup_depth": _safe_count(row.get("followup_depth")),
+        "expected_behavior": _text(row.get("expected_behavior")),
+    }
+
+
+def _quality_followup_evidence_rows(
+    value: Any, *, limit: int = 3
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for row in value or []:
+        normalized = _quality_followup_evidence_row(row)
+        if normalized is not None:
+            rows.append(normalized)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _quality_followup_evidence(monitor: Mapping[str, Any]) -> dict[str, Any]:
+    evidence = monitor.get("useful_adjacent_followup_evidence")
+    if not isinstance(evidence, Mapping):
+        return {"current": [], "previous": [], "delta": 0.0}
+    return {
+        "current": _quality_followup_evidence_rows(evidence.get("current")),
+        "previous": _quality_followup_evidence_rows(evidence.get("previous")),
+        "delta": _quality_value(evidence, "delta", 0.0),
+    }
+
+
 def _quality_model_counts(value: Any) -> dict[str, int]:
     if not isinstance(value, Mapping):
         return {}
@@ -3080,6 +3121,7 @@ def research_signal_quality_snapshot(
         _quality_value(monitor, "malformed_provider_response_ticks", 0)
     )
     recent_malformed = _quality_recent_malformed_provider_responses(monitor)
+    followup_evidence = _quality_followup_evidence(monitor)
     if malformed_count > 0 and malformed_ticks == 0:
         malformed_ticks = len(recent_malformed)
     useful_delta = _quality_value(monitor, "useful_adjacent_followup_delta", 0.0)
@@ -3147,6 +3189,7 @@ def research_signal_quality_snapshot(
             monitor.get("malformed_provider_model_counts")
         ),
         "recent_malformed_provider_responses": recent_malformed,
+        "useful_adjacent_followup_evidence": followup_evidence,
         "post_prompt_warning_details": post_prompt_warning_details,
         "last_malformed_at": _quality_value(monitor, "last_malformed_at", ""),
         "last_checked_at": _quality_value(monitor, "last_checked_at", ""),

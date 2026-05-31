@@ -123,6 +123,33 @@ export interface OverviewResponse {
       message?: string
       operator_action?: string
     }[]
+    useful_adjacent_followup_evidence?: {
+      current?: {
+        case_id?: string
+        case_type?: string
+        severity?: string
+        title?: string
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        followup_title?: string
+        followup_depth?: number
+        expected_behavior?: string
+      }[]
+      previous?: {
+        case_id?: string
+        case_type?: string
+        severity?: string
+        title?: string
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        followup_title?: string
+        followup_depth?: number
+        expected_behavior?: string
+      }[]
+      delta?: number
+    }
     report_age_hours?: number | null
     report_stale_after_hours?: number
     report_is_stale?: boolean

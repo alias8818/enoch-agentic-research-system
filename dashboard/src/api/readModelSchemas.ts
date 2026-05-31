@@ -158,6 +158,19 @@ const movementDiagnosisSchema = z.object({
   blockers: z.array(movementBlockerSchema),
 }).passthrough()
 
+const usefulFollowupEvidenceRowSchema = z.object({
+  case_id: z.string().optional(),
+  case_type: z.string().optional(),
+  severity: z.string().optional(),
+  title: z.string().optional(),
+  project_id: z.string().optional(),
+  project_name: z.string().optional(),
+  run_id: z.string().optional(),
+  followup_title: z.string().optional(),
+  followup_depth: z.number().optional(),
+  expected_behavior: z.string().optional(),
+}).passthrough()
+
 const researchSignalQualitySchema = z.object({
   status: z.string().optional(),
   ok: z.boolean().optional(),
@@ -192,6 +205,11 @@ const researchSignalQualitySchema = z.object({
     message: z.string().optional(),
     operator_action: z.string().optional(),
   }).passthrough()).optional(),
+  useful_adjacent_followup_evidence: z.object({
+    current: z.array(usefulFollowupEvidenceRowSchema).optional(),
+    previous: z.array(usefulFollowupEvidenceRowSchema).optional(),
+    delta: z.number().optional(),
+  }).passthrough().optional(),
   report_age_hours: z.number().nullable().optional(),
   report_stale_after_hours: z.number().optional(),
   report_is_stale: z.boolean().optional(),

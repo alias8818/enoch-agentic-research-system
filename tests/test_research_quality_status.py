@@ -210,6 +210,40 @@ def test_quality_status_includes_post_prompt_monitor(tmp_path: Path) -> None:
                     "useful_adjacent_followup_delta": -4,
                     "moonshot_avg_score_delta": 1.426,
                 },
+                "eval_case_samples": {
+                    "pre": {
+                        "useful_adjacent_followup": [
+                            {
+                                "case_id": "useful_adjacent_followup:pre-run",
+                                "case_type": "useful_adjacent_followup",
+                                "severity": "info",
+                                "title": "Previous follow-up",
+                                "project_id": "pre-project",
+                                "project_name": "Previous Project",
+                                "run_id": "pre-run",
+                                "followup_title": "Previous follow-up",
+                                "followup_depth": 0,
+                                "expected_behavior": "Prefer bounded follow-up.",
+                            }
+                        ]
+                    },
+                    "post": {
+                        "useful_adjacent_followup": [
+                            {
+                                "case_id": "useful_adjacent_followup:post-run",
+                                "case_type": "useful_adjacent_followup",
+                                "severity": "info",
+                                "title": "Current follow-up",
+                                "project_id": "post-project",
+                                "project_name": "Current Project",
+                                "run_id": "post-run",
+                                "followup_title": "Current follow-up",
+                                "followup_depth": 1,
+                                "expected_behavior": "Prefer bounded follow-up.",
+                            }
+                        ]
+                    },
+                },
             }
         ),
         encoding="utf-8",
@@ -249,6 +283,37 @@ def test_quality_status_includes_post_prompt_monitor(tmp_path: Path) -> None:
     assert monitor["proxy_only_positive"] == 4
     assert monitor["proxy_only_positive_delta"] == -4.0
     assert monitor["useful_adjacent_followup"] == 2
+    assert monitor["useful_adjacent_followup_evidence"] == {
+        "current": [
+            {
+                "case_id": "useful_adjacent_followup:post-run",
+                "case_type": "useful_adjacent_followup",
+                "severity": "info",
+                "title": "Current follow-up",
+                "project_id": "post-project",
+                "project_name": "Current Project",
+                "run_id": "post-run",
+                "followup_title": "Current follow-up",
+                "followup_depth": 1,
+                "expected_behavior": "Prefer bounded follow-up.",
+            }
+        ],
+        "previous": [
+            {
+                "case_id": "useful_adjacent_followup:pre-run",
+                "case_type": "useful_adjacent_followup",
+                "severity": "info",
+                "title": "Previous follow-up",
+                "project_id": "pre-project",
+                "project_name": "Previous Project",
+                "run_id": "pre-run",
+                "followup_title": "Previous follow-up",
+                "followup_depth": 0,
+                "expected_behavior": "Prefer bounded follow-up.",
+            }
+        ],
+        "delta": -4.0,
+    }
     assert monitor["malformed_provider_response_count"] == 1
     assert monitor["last_malformed_at"] == "2026-05-11T11:17:08Z"
     assert monitor["recent_malformed_provider_responses"] == [

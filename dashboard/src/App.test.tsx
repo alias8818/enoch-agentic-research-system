@@ -122,6 +122,33 @@ it('shows research signal quality in the overview side rail', async () => {
           message: '2 malformed provider responses across 1 recent tick',
           operator_action: 'inspect provider-generation output for the listed ticks before trusting new idea volume',
         }],
+        useful_adjacent_followup_evidence: {
+          current: [{
+            case_id: 'useful_adjacent_followup:post-run',
+            case_type: 'useful_adjacent_followup',
+            severity: 'info',
+            title: 'Current follow-up',
+            project_id: 'post-project',
+            project_name: 'Current Project',
+            run_id: 'post-run',
+            followup_title: 'Current follow-up',
+            followup_depth: 1,
+            expected_behavior: 'Prefer bounded follow-up.',
+          }],
+          previous: [{
+            case_id: 'useful_adjacent_followup:pre-run',
+            case_type: 'useful_adjacent_followup',
+            severity: 'info',
+            title: 'Previous follow-up',
+            project_id: 'pre-project',
+            project_name: 'Previous Project',
+            run_id: 'pre-run',
+            followup_title: 'Previous follow-up',
+            followup_depth: 0,
+            expected_behavior: 'Prefer bounded follow-up.',
+          }],
+          delta: -4,
+        },
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
         operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
         recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
@@ -159,6 +186,10 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('hf:model-a')).toBeInTheDocument()
   expect(within(quality).getByText('2 malformed responses at 2026-05-30T03:00:30Z')).toBeInTheDocument()
   expect(within(quality).getByText('inspect provider-generation output for this tick before trusting new idea volume')).toBeInTheDocument()
+  expect(within(quality).getByText('Follow-up trend evidence')).toBeInTheDocument()
+  expect(within(quality).getByText('Current: Current follow-up')).toBeInTheDocument()
+  expect(within(quality).getByText('Previous: Previous follow-up')).toBeInTheDocument()
+  expect(within(quality).getByText('post-project / post-run')).toBeInTheDocument()
   expect(within(quality).getByText('quality report stale: 120.0h old; refresh before relying on unattended automation')).toBeInTheDocument()
   expect(within(quality).getByText('Refresh source')).toBeInTheDocument()
   expect(within(quality).getByText('missing database URL')).toBeInTheDocument()

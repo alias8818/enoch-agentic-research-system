@@ -445,6 +445,36 @@ def _load_autopilot_history_summary(
     return _autopilot_history_summary_from_rows(path, rows)
 
 
+def _window_eval_case_sample(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "case_id": str(item.get("case_id") or ""),
+        "case_type": str(item.get("case_type") or ""),
+        "severity": str(item.get("severity") or ""),
+        "title": str(item.get("title") or ""),
+        "project_id": str(item.get("project_id") or ""),
+        "project_name": str(item.get("project_name") or ""),
+        "run_id": str(item.get("run_id") or ""),
+        "followup_title": str(item.get("followup_title") or ""),
+        "followup_depth": _safe_int(item.get("followup_depth")),
+        "expected_behavior": str(item.get("expected_behavior") or ""),
+    }
+
+
+def _window_eval_case_samples(
+    window: dict[str, Any], side: str, case_type: str, *, limit: int = 3
+) -> list[dict[str, Any]]:
+    samples = window.get("eval_case_samples") or {}
+    side_samples = samples.get(side) if isinstance(samples, dict) else {}
+    case_samples = side_samples.get(case_type) if isinstance(side_samples, dict) else []
+    rows: list[dict[str, Any]] = []
+    for item in case_samples or []:
+        if isinstance(item, dict):
+            rows.append(_window_eval_case_sample(item))
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, Any]:
     window = _load_json_file(window_path)
     if not window:
@@ -469,6 +499,7 @@ def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, An
     decision_coverage = (
         round(decision_count / candidate_count, 3) if candidate_count else 0.0
     )
+    useful_delta = _safe_float(delta.get("useful_adjacent_followup_delta"))
     return {
         "available": True,
         "window_path": window_path,
@@ -483,9 +514,16 @@ def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, An
         "useful_adjacent_followup": _safe_int(
             eval_counts.get("useful_adjacent_followup")
         ),
-        "useful_adjacent_followup_delta": _safe_float(
-            delta.get("useful_adjacent_followup_delta")
-        ),
+        "useful_adjacent_followup_delta": useful_delta,
+        "useful_adjacent_followup_evidence": {
+            "current": _window_eval_case_samples(
+                window, "post", "useful_adjacent_followup"
+            ),
+            "previous": _window_eval_case_samples(
+                window, "pre", "useful_adjacent_followup"
+            ),
+            "delta": useful_delta,
+        },
         "high_similarity_pair_count": _safe_int(post.get("high_similarity_pair_count")),
         "moonshot_count": _safe_int(post.get("moonshot_count")),
         "moonshot_avg_score": _safe_float(post.get("moonshot_avg_score")),

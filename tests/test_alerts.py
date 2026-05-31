@@ -229,6 +229,24 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                 "malformed_provider_response_count": 2,
                 "malformed_provider_response_ticks": 1,
                 "useful_adjacent_followup_delta": -4.0,
+                "useful_adjacent_followup_evidence": {
+                    "current": [
+                        {
+                            "case_id": "useful_adjacent_followup:post-run",
+                            "case_type": "useful_adjacent_followup",
+                            "severity": "info",
+                            "title": "Current follow-up",
+                            "project_id": "post-project",
+                            "project_name": "Current Project",
+                            "run_id": "post-run",
+                            "followup_title": "Current follow-up",
+                            "followup_depth": 1,
+                            "expected_behavior": "Prefer bounded follow-up.",
+                        }
+                    ],
+                    "previous": [],
+                    "delta": -4.0,
+                },
                 "recent_malformed_provider_responses": [
                     {
                         "checked_at": "2026-05-30T03:00:30Z",
@@ -333,6 +351,24 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             ),
         }
     ]
+    assert finding.data["useful_adjacent_followup_evidence"] == {
+        "current": [
+            {
+                "case_id": "useful_adjacent_followup:post-run",
+                "case_type": "useful_adjacent_followup",
+                "severity": "info",
+                "title": "Current follow-up",
+                "project_id": "post-project",
+                "project_name": "Current Project",
+                "run_id": "post-run",
+                "followup_title": "Current follow-up",
+                "followup_depth": 1,
+                "expected_behavior": "Prefer bounded follow-up.",
+            }
+        ],
+        "previous": [],
+        "delta": -4.0,
+    }
 
 
 def test_queue_alert_findings_blocks_missing_research_quality_report_during_hold(

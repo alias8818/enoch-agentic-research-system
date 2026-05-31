@@ -30,10 +30,14 @@ def _candidate(
 
 
 def _decision(
-    project_id: str, *, hypothesis_status: str, stop_reason: str
+    project_id: str,
+    *,
+    hypothesis_status: str,
+    stop_reason: str,
+    followup_recommended: bool = False,
 ) -> RawDecision:
     row = {
-        "followup_depth": 2,
+        "followup_depth": 0,
         "payload_json": {
             "project_decision": {
                 "project_decision": "finalize_negative",
@@ -54,14 +58,22 @@ def _decision(
             hypothesis_status=hypothesis_status,
             evidence_strength="moderate",
             confidence="medium",
-            followup_recommended=False,
-            followup_type="",
-            followup_title="",
-            followup_hypothesis="",
-            followup_required_evidence_count=0,
-            followup_success_threshold="",
-            followup_stop_condition="",
-            recommended_next_action="Stop this proxy-only branch unless direct evidence changes.",
+            followup_recommended=followup_recommended,
+            followup_type="deepen" if followup_recommended else "",
+            followup_title="Bounded adjacent follow-up" if followup_recommended else "",
+            followup_hypothesis="A changed mechanism should improve direct evidence."
+            if followup_recommended
+            else "",
+            followup_required_evidence_count=2 if followup_recommended else 0,
+            followup_success_threshold="beat the baseline by 10%"
+            if followup_recommended
+            else "",
+            followup_stop_condition="stop if no direct lift"
+            if followup_recommended
+            else "",
+            recommended_next_action="Run the bounded adjacent follow-up."
+            if followup_recommended
+            else "Stop this proxy-only branch unless direct evidence changes.",
             stop_reason=stop_reason,
             created_at="2026-05-11T00:00:00Z",
         ),
@@ -110,3 +122,41 @@ def test_compare_windows_reports_deltas() -> None:
     assert delta["useful_adjacent_followup_delta"] == 1
     assert delta["moonshot_avg_score_delta"] == 5
     assert delta["admitted_rate_delta"] == 0.25
+
+
+def test_eval_case_samples_include_bounded_followup_evidence() -> None:
+    from scripts.compare_research_quality_windows import eval_case_samples
+
+    summary = summarize_window(
+        candidates=[],
+        decisions=[
+            _decision(
+                "project-followup",
+                hypothesis_status="mixed",
+                stop_reason="A bounded adjacent mechanism remains worth testing.",
+                followup_recommended=True,
+            )
+        ],
+        max_followup_depth=2,
+    )
+
+    samples = eval_case_samples(summary["eval_cases"], limit=2)
+
+    assert samples["useful_adjacent_followup"] == [
+        {
+            "case_id": "useful_adjacent_followup:project-followup-run",
+            "case_type": "useful_adjacent_followup",
+            "severity": "info",
+            "title": "Bounded adjacent follow-up",
+            "project_id": "project-followup",
+            "project_name": "project-followup",
+            "run_id": "project-followup-run",
+            "followup_title": "Bounded adjacent follow-up",
+            "followup_depth": 0,
+            "expected_behavior": (
+                "Prefer promoting a bounded follow-up when it has a changed "
+                "hypothesis, at least two required evidence items, a success "
+                "threshold, and a stop condition."
+            ),
+        }
+    ]

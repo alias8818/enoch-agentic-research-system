@@ -498,6 +498,10 @@ def _research_quality_alert_finding(
                 "recent_malformed_provider_responses"
             )
             or [],
+            "useful_adjacent_followup_evidence": signal.get(
+                "useful_adjacent_followup_evidence"
+            )
+            or {"current": [], "previous": [], "delta": 0.0},
         },
     )
 
