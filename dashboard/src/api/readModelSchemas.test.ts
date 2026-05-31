@@ -70,6 +70,8 @@ it('parses command-center overview, status, and readiness payloads', () => {
       recent_malformed_provider_responses: [{
         checked_at: '2026-05-30T03:00:30Z',
         recorded_at: '2026-05-30T03:04:45Z',
+        trace_id: 'research-cycle-trace-a',
+        run_cycle_id: 'run-cycle-a',
         provider_model: 'hf:model-a',
         malformed_provider_response_count: 2,
         generated_count: 0,
@@ -94,6 +96,8 @@ it('parses command-center overview, status, and readiness payloads', () => {
     signal_reasons: [{ code: 'quality_report_stale', severity: 'blocked' }],
     malformed_provider_model_counts: { 'hf:model-a': 2 },
     recent_malformed_provider_responses: [{
+      trace_id: 'research-cycle-trace-a',
+      run_cycle_id: 'run-cycle-a',
       provider_model: 'hf:model-a',
       malformed_provider_response_count: 2,
     }],

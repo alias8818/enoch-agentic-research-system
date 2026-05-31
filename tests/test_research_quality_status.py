@@ -293,6 +293,8 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
                     {
                         "checked_at": "2026-05-11T10:00:00Z",
                         "recorded_at": "2026-05-11T10:02:00Z",
+                        "trace_id": "research-cycle-trace-a",
+                        "run_cycle_id": "run-cycle-a",
                         "provider_model": "hf:model-a",
                         "malformed_provider_response_count": 1,
                         "generated_count": 0,
@@ -304,6 +306,8 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
                     {
                         "checked_at": "2026-05-11T11:00:00Z",
                         "recorded_at": "2026-05-11T11:02:00Z",
+                        "trace_id": "research-cycle-trace-b",
+                        "run_cycle_id": "run-cycle-b",
                         "provider_model": "hf:model-b",
                         "malformed_provider_response_count": 2,
                         "generated_count": 0,
@@ -334,6 +338,8 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
         {
             "checked_at": "2026-05-11T11:00:00Z",
             "recorded_at": "2026-05-11T11:02:00Z",
+            "trace_id": "research-cycle-trace-b",
+            "run_cycle_id": "run-cycle-b",
             "provider_model": "hf:model-b",
             "malformed_provider_response_count": 2,
             "generated_count": 0,
@@ -347,6 +353,8 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
         {
             "checked_at": "2026-05-11T10:00:00Z",
             "recorded_at": "2026-05-11T10:02:00Z",
+            "trace_id": "research-cycle-trace-a",
+            "run_cycle_id": "run-cycle-a",
             "provider_model": "hf:model-a",
             "malformed_provider_response_count": 1,
             "generated_count": 0,

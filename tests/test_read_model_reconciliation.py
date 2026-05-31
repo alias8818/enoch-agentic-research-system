@@ -167,6 +167,8 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
                     {
                         "checked_at": "2026-05-30T03:00:30Z",
                         "recorded_at": "2026-05-30T03:04:45Z",
+                        "trace_id": "research-cycle-trace-a",
+                        "run_cycle_id": "run-cycle-a",
                         "provider_model": "hf:model-a",
                         "malformed_provider_response_count": 2,
                         "generated_count": 0,
@@ -200,6 +202,8 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
         {
             "checked_at": "2026-05-30T03:00:30Z",
             "recorded_at": "2026-05-30T03:04:45Z",
+            "trace_id": "research-cycle-trace-a",
+            "run_cycle_id": "run-cycle-a",
             "provider_model": "hf:model-a",
             "malformed_provider_response_count": 2,
             "generated_count": 0,

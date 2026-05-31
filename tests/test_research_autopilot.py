@@ -277,6 +277,8 @@ def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeyp
         "promoted_count": 1,
         "dispatched_count": 1,
         "initial_promotable_count": 8,
+        "trace_id": "research-cycle-trace-123",
+        "run_cycle_id": "run-cycle-123",
         "stages": [
             {
                 "stage": "provider_generation",
@@ -291,6 +293,8 @@ def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeyp
     assert append["ok"] is True
     row = json.loads(history.read_text(encoding="utf-8"))
     assert row["checked_at"] == "2026-05-11T11:17:08Z"
+    assert row["trace_id"] == "research-cycle-trace-123"
+    assert row["run_cycle_id"] == "run-cycle-123"
     assert row["malformed_provider_response_count"] == 1
     assert row["generated_count"] == 0
 

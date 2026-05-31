@@ -177,6 +177,8 @@ const researchSignalQualitySchema = z.object({
   recent_malformed_provider_responses: z.array(z.object({
     checked_at: z.string().optional(),
     recorded_at: z.string().optional(),
+    trace_id: z.string().optional(),
+    run_cycle_id: z.string().optional(),
     provider_model: z.string().optional(),
     malformed_provider_response_count: z.number().optional(),
     generated_count: z.number().optional(),

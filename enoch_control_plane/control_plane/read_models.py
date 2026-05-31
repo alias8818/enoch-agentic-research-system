@@ -2853,7 +2853,7 @@ def _quality_recent_malformed_provider_response(row: Any) -> dict[str, Any] | No
     checked_at = _text(row.get("checked_at"))
     if count <= 0 or not checked_at:
         return None
-    return {
+    normalized = {
         "checked_at": checked_at,
         "recorded_at": _text(row.get("recorded_at")),
         "provider_model": _text(row.get("provider_model")),
@@ -2867,6 +2867,11 @@ def _quality_recent_malformed_provider_response(row: Any) -> dict[str, Any] | No
             "new idea volume"
         ),
     }
+    for key in ("trace_id", "run_cycle_id"):
+        value = _text(row.get(key))
+        if value:
+            normalized[key] = value
+    return normalized
 
 
 def _quality_recent_malformed_provider_responses(

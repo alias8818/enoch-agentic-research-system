@@ -617,6 +617,8 @@ def append_research_autopilot_history(result: dict) -> dict:
     entry = {
         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "checked_at": (result.get("budget") or {}).get("checked_at") or "",
+        "trace_id": result.get("trace_id") or "",
+        "run_cycle_id": result.get("run_cycle_id") or "",
         "ok": bool(result.get("ok")),
         "reason": result.get("reason") or "",
         "provider_model": result.get("provider_model") or "",

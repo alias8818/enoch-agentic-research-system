@@ -202,7 +202,8 @@ type MalformedProviderEvidence = NonNullable<ResearchSignalQuality['recent_malfo
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
   const checkedAt = displayText(row.checked_at, 'unknown time')
-  return `${count} malformed responses at ${checkedAt}`
+  const runId = displayText(row.run_cycle_id || row.trace_id, '')
+  return runId ? `${count} malformed responses at ${checkedAt} (${runId})` : `${count} malformed responses at ${checkedAt}`
 }
 
 function qualityStatusClass(status: string | undefined, ok: boolean | undefined): string {

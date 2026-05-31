@@ -368,7 +368,7 @@ def _malformed_provider_operator_action() -> str:
 
 
 def _malformed_provider_row(item: dict[str, Any]) -> dict[str, Any]:
-    return {
+    row = {
         "checked_at": _autopilot_history_item_timestamp(item),
         "recorded_at": str(item.get("recorded_at") or ""),
         "provider_model": str(item.get("provider_model") or ""),
@@ -380,6 +380,11 @@ def _malformed_provider_row(item: dict[str, Any]) -> dict[str, Any]:
         "dispatched_count": _safe_int(item.get("dispatched_count")),
         "operator_action": _malformed_provider_operator_action(),
     }
+    for key in ("trace_id", "run_cycle_id"):
+        value = str(item.get(key) or "")
+        if value:
+            row[key] = value
+    return row
 
 
 def _autopilot_history_summary_from_rows(

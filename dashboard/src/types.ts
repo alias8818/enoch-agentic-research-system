@@ -108,6 +108,8 @@ export interface OverviewResponse {
     recent_malformed_provider_responses?: {
       checked_at?: string
       recorded_at?: string
+      trace_id?: string
+      run_cycle_id?: string
       provider_model?: string
       malformed_provider_response_count?: number
       generated_count?: number
