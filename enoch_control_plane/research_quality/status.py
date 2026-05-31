@@ -569,9 +569,9 @@ def _paper_readiness_blocker_operator_action(
         )
     if not blocker_counts:
         return "no paper-ready decisions; inspect decision rows before publication"
-    dominant_reason, dominant_count = sorted(
+    dominant_reason, dominant_count = min(
         blocker_counts.items(), key=lambda item: (-item[1], item[0])
-    )[0]
+    )
     reason_labels = {
         "compute_scale_blocked": "compute-scale blocked",
         "followup_required": "follow-up required",
