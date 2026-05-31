@@ -274,6 +274,29 @@ const decisionPostureSampleSchema = z.object({
   recommended_next_action: z.string().optional(),
 }).passthrough()
 
+const paperReadinessBlockerSampleSchema = z.object({
+  project_id: z.string().optional(),
+  project_name: z.string().optional(),
+  run_id: z.string().optional(),
+  hypothesis_status: z.string().optional(),
+  evidence_strength: z.string().optional(),
+  research_outcome: z.string().optional(),
+  bounded_paper_ready: z.boolean().optional(),
+  followup_recommended: z.boolean().optional(),
+  followup_title: z.string().optional(),
+  recommended_next_action: z.string().optional(),
+  blocker_reasons: z.array(z.string()).optional(),
+}).passthrough()
+
+const paperReadinessBlockersSchema = z.object({
+  available: z.boolean().optional(),
+  decisions_checked: z.number().optional(),
+  paper_ready_count: z.number().optional(),
+  blocker_counts: z.record(z.string(), z.number()).optional(),
+  samples: z.array(paperReadinessBlockerSampleSchema).optional(),
+  operator_action: z.string().optional(),
+}).passthrough()
+
 const decisionPostureSchema = z.object({
   available: z.boolean().optional(),
   decisions_checked: z.number().optional(),
@@ -287,6 +310,7 @@ const decisionPostureSchema = z.object({
   hypothesis_status_counts: z.record(z.string(), z.number()).optional(),
   evidence_strength_counts: z.record(z.string(), z.number()).optional(),
   decision_counts: z.record(z.string(), z.number()).optional(),
+  paper_readiness_blockers: paperReadinessBlockersSchema.optional(),
   representative_useful_signals: z.array(decisionPostureSampleSchema).optional(),
   operator_action: z.string().optional(),
 }).passthrough()

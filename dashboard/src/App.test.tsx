@@ -280,6 +280,37 @@ it('shows research signal quality in the overview side rail', async () => {
             'finalize_negative:supported': 1,
             'finalize_negative:unsupported': 1,
           },
+          paper_readiness_blockers: {
+            available: true,
+            decisions_checked: 3,
+            paper_ready_count: 0,
+            blocker_counts: {
+              not_bounded_paper_ready: 3,
+              non_strong_evidence: 3,
+              mixed_or_unsupported_hypothesis: 2,
+              negative_outcome: 1,
+              followup_required: 2,
+            },
+            samples: [{
+              project_id: 'project-mixed',
+              project_name: 'Mixed project',
+              run_id: 'run-mixed',
+              hypothesis_status: 'mixed',
+              evidence_strength: 'moderate',
+              research_outcome: 'useful_signal',
+              bounded_paper_ready: false,
+              followup_recommended: true,
+              followup_title: 'Mixed follow-up',
+              recommended_next_action: 'Run the mixed follow-up before treating this as paper-ready.',
+              blocker_reasons: [
+                'not_bounded_paper_ready',
+                'non_strong_evidence',
+                'mixed_or_unsupported_hypothesis',
+                'followup_required',
+              ],
+            }],
+            operator_action: 'no paper-ready decisions; dominant blocker is non-strong evidence across 3 decisions',
+          },
           representative_useful_signals: [{
             project_id: 'project-mixed',
             project_name: 'Mixed project',
@@ -476,6 +507,13 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('Mixed project')).toBeInTheDocument()
   expect(within(quality).getAllByText('Run the mixed follow-up before treating this as paper-ready.').length).toBeGreaterThan(0)
   expect(within(quality).getByText('useful signals are present but none are bounded-paper-ready; run or review the listed follow-ups before treating this as publication output')).toBeInTheDocument()
+  expect(within(quality).getByText('Paper blockers')).toBeInTheDocument()
+  expect(within(quality).getByText('paper-ready 0 / 3 decisions')).toBeInTheDocument()
+  expect(within(quality).getByText('non strong evidence 3')).toBeInTheDocument()
+  expect(within(quality).getByText('mixed or unsupported hypothesis 2')).toBeInTheDocument()
+  expect(within(quality).getByText('sample Mixed project')).toBeInTheDocument()
+  expect(within(quality).getByText('not bounded paper ready / non strong evidence / mixed or unsupported hypothesis')).toBeInTheDocument()
+  expect(within(quality).getByText('no paper-ready decisions; dominant blocker is non-strong evidence across 3 decisions')).toBeInTheDocument()
   expect(within(quality).getByText('Follow-up readiness')).toBeInTheDocument()
   expect(within(quality).getByText('ready follow-ups 1 / 2 recommended')).toBeInTheDocument()
   expect(within(quality).getByText('underspecified 1')).toBeInTheDocument()

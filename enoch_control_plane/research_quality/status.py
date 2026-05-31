@@ -518,6 +518,112 @@ def _decision_publication_posture(
     return "no_publication_signal"
 
 
+def _paper_readiness_blocker_reasons(row: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if not as_bool(row.get("bounded_paper_ready")):
+        reasons.append("not_bounded_paper_ready")
+    evidence = str(row.get("evidence_strength") or "").strip().lower()
+    if evidence != "strong":
+        reasons.append("non_strong_evidence")
+    hypothesis = str(row.get("hypothesis_status") or "").strip().lower()
+    if hypothesis in {"", "mixed", "unsupported", "inconclusive", "unknown"}:
+        reasons.append("mixed_or_unsupported_hypothesis")
+    if str(row.get("research_outcome") or "").strip() == "negative":
+        reasons.append("negative_outcome")
+    if as_bool(row.get("followup_recommended")):
+        reasons.append("followup_required")
+    if as_bool(row.get("compute_scale_blocked")):
+        reasons.append("compute_scale_blocked")
+    return reasons
+
+
+def _paper_readiness_blocker_sample(
+    row: dict[str, Any], reasons: list[str]
+) -> dict[str, Any]:
+    return {
+        "project_id": str(row.get("project_id") or "").strip(),
+        "project_name": str(row.get("project_name") or "").strip(),
+        "run_id": str(row.get("run_id") or "").strip(),
+        "hypothesis_status": str(row.get("hypothesis_status") or "").strip(),
+        "evidence_strength": str(row.get("evidence_strength") or "").strip(),
+        "research_outcome": str(row.get("research_outcome") or "").strip(),
+        "bounded_paper_ready": as_bool(row.get("bounded_paper_ready")),
+        "followup_recommended": as_bool(row.get("followup_recommended")),
+        "followup_title": str(row.get("followup_title") or "").strip(),
+        "recommended_next_action": str(
+            row.get("recommended_next_action") or ""
+        ).strip(),
+        "blocker_reasons": reasons,
+    }
+
+
+def _paper_readiness_blocker_operator_action(
+    *, blocker_counts: Counter[str], decision_count: int, paper_ready_count: int
+) -> str:
+    if decision_count <= 0:
+        return "run or refresh Research Quality before judging paper readiness"
+    if paper_ready_count > 0:
+        return (
+            "paper-ready decisions are present; inspect the samples before "
+            "publication or widening automation"
+        )
+    if not blocker_counts:
+        return "no paper-ready decisions; inspect decision rows before publication"
+    dominant_reason, dominant_count = sorted(
+        blocker_counts.items(), key=lambda item: (-item[1], item[0])
+    )[0]
+    reason_labels = {
+        "compute_scale_blocked": "compute-scale blocked",
+        "followup_required": "follow-up required",
+        "mixed_or_unsupported_hypothesis": "mixed or unsupported hypothesis",
+        "negative_outcome": "negative outcome",
+        "non_strong_evidence": "non-strong evidence",
+        "not_bounded_paper_ready": "not bounded-paper-ready",
+    }
+    label = reason_labels.get(dominant_reason, dominant_reason.replace("_", " "))
+    return (
+        f"no paper-ready decisions; dominant blocker is {label} across "
+        f"{dominant_count} decisions"
+    )
+
+
+def _paper_readiness_blockers(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    decision_count = len(rows)
+    if decision_count <= 0:
+        return {
+            "available": False,
+            "decisions_checked": 0,
+            "paper_ready_count": 0,
+            "blocker_counts": {},
+            "samples": [],
+            "operator_action": _paper_readiness_blocker_operator_action(
+                blocker_counts=Counter(), decision_count=0, paper_ready_count=0
+            ),
+        }
+    blocker_counts: Counter[str] = Counter()
+    paper_ready_count = 0
+    samples: list[dict[str, Any]] = []
+    for row in rows:
+        if as_bool(row.get("bounded_paper_ready")):
+            paper_ready_count += 1
+        reasons = _paper_readiness_blocker_reasons(row)
+        blocker_counts.update(reasons)
+        if reasons and len(samples) < 3:
+            samples.append(_paper_readiness_blocker_sample(row, reasons))
+    return {
+        "available": True,
+        "decisions_checked": decision_count,
+        "paper_ready_count": paper_ready_count,
+        "blocker_counts": dict(sorted(blocker_counts.items())),
+        "samples": samples,
+        "operator_action": _paper_readiness_blocker_operator_action(
+            blocker_counts=blocker_counts,
+            decision_count=decision_count,
+            paper_ready_count=paper_ready_count,
+        ),
+    }
+
+
 def _decision_posture(decision_scores: Any) -> dict[str, Any]:
     if not isinstance(decision_scores, list):
         return {
@@ -585,6 +691,7 @@ def _decision_posture(decision_scores: Any) -> dict[str, Any]:
         "hypothesis_status_counts": dict(sorted(hypothesis_counts.items())),
         "evidence_strength_counts": dict(sorted(evidence_counts.items())),
         "decision_counts": dict(sorted(decision_counts.items())),
+        "paper_readiness_blockers": _paper_readiness_blockers(rows),
         "representative_useful_signals": useful_samples,
         "operator_action": _decision_posture_operator_action(
             decision_count=decision_count,

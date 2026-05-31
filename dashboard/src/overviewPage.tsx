@@ -211,6 +211,8 @@ type QualityWindowComparison = NonNullable<ResearchSignalQuality['window_compari
 type ProviderGenerationHealth = NonNullable<ResearchSignalQuality['provider_generation_health']>
 type DecisionPosture = NonNullable<ResearchSignalQuality['decision_posture']>
 type DecisionPostureSample = NonNullable<DecisionPosture['representative_useful_signals']>[number]
+type PaperReadinessBlockers = NonNullable<DecisionPosture['paper_readiness_blockers']>
+type PaperReadinessBlockerSample = NonNullable<PaperReadinessBlockers['samples']>[number]
 type FollowupReadiness = NonNullable<ResearchSignalQuality['followup_readiness']>
 type FollowupReadinessSample = NonNullable<FollowupReadiness['ready_followups']>[number]
 type PrioritizedFollowup = NonNullable<FollowupReadiness['prioritized_followups']>[number]
@@ -333,6 +335,25 @@ function decisionPostureSampleTitle(row: DecisionPostureSample): string {
   return displayText(row.project_name || row.followup_title || row.project_id, 'Unnamed useful signal')
 }
 
+function paperBlockerReasonLabel(reason: string): string {
+  return reason.replaceAll('_', ' ')
+}
+
+function paperBlockerCountLabel(entry: [string, number]): string {
+  return `${paperBlockerReasonLabel(entry[0])} ${entry[1]}`
+}
+
+function paperBlockerSampleTitle(row: PaperReadinessBlockerSample): string {
+  return `sample ${displayText(row.project_name || row.followup_title || row.project_id, 'Unnamed paper blocker')}`
+}
+
+function paperBlockerSampleReasons(row: PaperReadinessBlockerSample): string {
+  return (row.blocker_reasons ?? [])
+    .slice(0, 3)
+    .map(paperBlockerReasonLabel)
+    .join(' / ')
+}
+
 function followupReadinessReadyLabel(readiness: FollowupReadiness): string {
   const ready = Number(readiness.bounded_ready_count ?? 0)
   const recommended = Number(readiness.recommended_count ?? 0)
@@ -436,6 +457,9 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const qualityFloorDecision = qualityFloor?.decision_samples?.[0]
   const decisionPosture = quality.decision_posture
   const decisionPostureSample = decisionPosture?.representative_useful_signals?.[0]
+  const paperReadinessBlockers = decisionPosture?.paper_readiness_blockers
+  const paperBlockerSample = paperReadinessBlockers?.samples?.[0]
+  const paperBlockerCounts = Object.entries(paperReadinessBlockers?.blocker_counts ?? {}).slice(0, 4)
   const followupReadiness = quality.followup_readiness
   const followupScopeAlignment = quality.followup_scope_alignment
   const readyFollowup = followupReadiness?.ready_followups?.[0]
@@ -580,6 +604,22 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
             </>
           ) : null}
           <p>{displayText(decisionPosture.operator_action, 'Inspect decision posture before treating throughput as publication output.')}</p>
+        </div>
+      ) : null}
+      {paperReadinessBlockers ? (
+        <div className="quality-snapshot-detail">
+          <h4>Paper blockers</h4>
+          <p>paper-ready {Number(paperReadinessBlockers.paper_ready_count ?? 0)} / {Number(paperReadinessBlockers.decisions_checked ?? 0)} decisions</p>
+          {paperBlockerCounts.map((entry) => (
+            <p key={`paper-blocker-${entry[0]}`}>{paperBlockerCountLabel(entry)}</p>
+          ))}
+          {paperBlockerSample ? (
+            <>
+              <p>{paperBlockerSampleTitle(paperBlockerSample)}</p>
+              <p>{paperBlockerSampleReasons(paperBlockerSample)}</p>
+            </>
+          ) : null}
+          <p>{displayText(paperReadinessBlockers.operator_action, 'Inspect paper-readiness blockers before treating useful signals as publication output.')}</p>
         </div>
       ) : null}
       {followupReadiness ? (

@@ -263,6 +263,26 @@ export interface OverviewResponse {
       hypothesis_status_counts?: Record<string, number>
       evidence_strength_counts?: Record<string, number>
       decision_counts?: Record<string, number>
+      paper_readiness_blockers?: {
+        available?: boolean
+        decisions_checked?: number
+        paper_ready_count?: number
+        blocker_counts?: Record<string, number>
+        samples?: {
+          project_id?: string
+          project_name?: string
+          run_id?: string
+          hypothesis_status?: string
+          evidence_strength?: string
+          research_outcome?: string
+          bounded_paper_ready?: boolean
+          followup_recommended?: boolean
+          followup_title?: string
+          recommended_next_action?: string
+          blocker_reasons?: string[]
+        }[]
+        operator_action?: string
+      }
       representative_useful_signals?: {
         project_id?: string
         project_name?: string

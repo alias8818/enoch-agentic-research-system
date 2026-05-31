@@ -3340,11 +3340,61 @@ def _quality_decision_posture_samples(value: Any) -> list[dict[str, Any]]:
     return rows
 
 
+def _quality_paper_readiness_blocker_sample(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, Mapping):
+        return None
+    project_id = _text(row.get("project_id"))
+    run_id = _text(row.get("run_id"))
+    if not project_id and not run_id:
+        return None
+    reasons = [_text(item) for item in row.get("blocker_reasons") or [] if _text(item)]
+    return {
+        "project_id": project_id,
+        "project_name": _text(row.get("project_name")),
+        "run_id": run_id,
+        "hypothesis_status": _text(row.get("hypothesis_status")),
+        "evidence_strength": _text(row.get("evidence_strength")),
+        "research_outcome": _text(row.get("research_outcome")),
+        "bounded_paper_ready": _quality_bool(row.get("bounded_paper_ready")),
+        "followup_recommended": _quality_bool(row.get("followup_recommended")),
+        "followup_title": _text(row.get("followup_title")),
+        "recommended_next_action": _text(row.get("recommended_next_action")),
+        "blocker_reasons": reasons,
+    }
+
+
+def _quality_paper_readiness_blocker_samples(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value:
+        sample = _quality_paper_readiness_blocker_sample(raw)
+        if sample is not None:
+            rows.append(sample)
+        if len(rows) >= 3:
+            break
+    return rows
+
+
+def _quality_paper_readiness_blockers(value: Any) -> dict[str, Any]:
+    blockers = _quality_mapping(value)
+    if not blockers:
+        return {}
+    return {
+        "available": bool(blockers.get("available")),
+        "decisions_checked": _safe_count(blockers.get("decisions_checked")),
+        "paper_ready_count": _safe_count(blockers.get("paper_ready_count")),
+        "blocker_counts": _quality_model_counts(blockers.get("blocker_counts")),
+        "samples": _quality_paper_readiness_blocker_samples(blockers.get("samples")),
+        "operator_action": _text(blockers.get("operator_action")),
+    }
+
+
 def _quality_decision_posture(value: Any) -> dict[str, Any]:
     posture = _quality_mapping(value)
     if not posture:
         return {}
-    return {
+    normalized = {
         "available": bool(posture.get("available")),
         "decisions_checked": _safe_count(posture.get("decisions_checked")),
         "useful_signal_count": _safe_count(posture.get("useful_signal_count")),
@@ -3374,6 +3424,12 @@ def _quality_decision_posture(value: Any) -> dict[str, Any]:
         ),
         "operator_action": _text(posture.get("operator_action")),
     }
+    blockers = _quality_paper_readiness_blockers(
+        posture.get("paper_readiness_blockers")
+    )
+    if blockers:
+        normalized["paper_readiness_blockers"] = blockers
+    return normalized
 
 
 def _quality_followup_readiness_sample(

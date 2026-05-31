@@ -407,6 +407,81 @@ def test_quality_report_portfolio_summary_survives_classification() -> None:
             "finalize_negative:supported": 1,
             "finalize_negative:unsupported": 1,
         },
+        "paper_readiness_blockers": {
+            "available": True,
+            "decisions_checked": 3,
+            "paper_ready_count": 0,
+            "blocker_counts": {
+                "followup_required": 2,
+                "mixed_or_unsupported_hypothesis": 2,
+                "negative_outcome": 1,
+                "non_strong_evidence": 3,
+                "not_bounded_paper_ready": 3,
+            },
+            "samples": [
+                {
+                    "project_id": "project-mixed",
+                    "project_name": "Mixed project",
+                    "run_id": "run-mixed",
+                    "hypothesis_status": "mixed",
+                    "evidence_strength": "moderate",
+                    "research_outcome": "useful_signal",
+                    "bounded_paper_ready": False,
+                    "followup_recommended": True,
+                    "followup_title": "Mixed follow-up",
+                    "recommended_next_action": (
+                        "Run the mixed follow-up before treating this as paper-ready."
+                    ),
+                    "blocker_reasons": [
+                        "not_bounded_paper_ready",
+                        "non_strong_evidence",
+                        "mixed_or_unsupported_hypothesis",
+                        "followup_required",
+                    ],
+                },
+                {
+                    "project_id": "project-supported",
+                    "project_name": "Supported project",
+                    "run_id": "run-supported",
+                    "hypothesis_status": "supported",
+                    "evidence_strength": "moderate",
+                    "research_outcome": "useful_signal",
+                    "bounded_paper_ready": False,
+                    "followup_recommended": True,
+                    "followup_title": "Supported follow-up",
+                    "recommended_next_action": (
+                        "Run the supported follow-up before treating this as paper-ready."
+                    ),
+                    "blocker_reasons": [
+                        "not_bounded_paper_ready",
+                        "non_strong_evidence",
+                        "followup_required",
+                    ],
+                },
+                {
+                    "project_id": "project-negative",
+                    "project_name": "Negative project",
+                    "run_id": "run-negative",
+                    "hypothesis_status": "unsupported",
+                    "evidence_strength": "moderate",
+                    "research_outcome": "negative",
+                    "bounded_paper_ready": False,
+                    "followup_recommended": False,
+                    "followup_title": "",
+                    "recommended_next_action": "Stop this line.",
+                    "blocker_reasons": [
+                        "not_bounded_paper_ready",
+                        "non_strong_evidence",
+                        "mixed_or_unsupported_hypothesis",
+                        "negative_outcome",
+                    ],
+                },
+            ],
+            "operator_action": (
+                "no paper-ready decisions; dominant blocker is non-strong evidence "
+                "across 3 decisions"
+            ),
+        },
         "representative_useful_signals": [
             {
                 "project_id": "project-mixed",

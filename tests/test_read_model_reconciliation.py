@@ -1061,6 +1061,74 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
     ]
 
 
+def test_research_signal_quality_snapshot_surfaces_paper_readiness_blockers() -> None:
+    snapshot = research_signal_quality_snapshot(
+        {
+            "ok": True,
+            "status": "clean",
+            "severity_counts": {},
+            "problem_counts": {},
+            "decision_posture": {
+                "available": True,
+                "decisions_checked": 3,
+                "useful_signal_count": 2,
+                "negative_count": 1,
+                "bounded_paper_ready_count": 0,
+                "followup_recommended_count": 2,
+                "compute_scale_blocked_count": 0,
+                "publication_posture": "followup_only",
+                "paper_readiness_blockers": {
+                    "available": True,
+                    "decisions_checked": 3,
+                    "paper_ready_count": 0,
+                    "blocker_counts": {
+                        "not_bounded_paper_ready": 3,
+                        "non_strong_evidence": 3,
+                        "followup_required": 2,
+                    },
+                    "samples": [
+                        {
+                            "project_id": "project-mixed",
+                            "project_name": "Mixed project",
+                            "run_id": "run-mixed",
+                            "hypothesis_status": "mixed",
+                            "evidence_strength": "moderate",
+                            "research_outcome": "useful_signal",
+                            "bounded_paper_ready": False,
+                            "followup_recommended": True,
+                            "followup_title": "Mixed follow-up",
+                            "recommended_next_action": "Run mixed follow-up.",
+                            "blocker_reasons": [
+                                "not_bounded_paper_ready",
+                                "non_strong_evidence",
+                                "followup_required",
+                            ],
+                        }
+                    ],
+                    "operator_action": (
+                        "no paper-ready decisions; dominant blocker is non-strong "
+                        "evidence across 3 decisions"
+                    ),
+                },
+            },
+        }
+    )
+
+    blockers = snapshot["decision_posture"]["paper_readiness_blockers"]
+    assert blockers["paper_ready_count"] == 0
+    assert blockers["blocker_counts"]["non_strong_evidence"] == 3
+    assert blockers["samples"][0]["project_id"] == "project-mixed"
+    assert blockers["samples"][0]["blocker_reasons"] == [
+        "not_bounded_paper_ready",
+        "non_strong_evidence",
+        "followup_required",
+    ]
+    assert blockers["operator_action"] == (
+        "no paper-ready decisions; dominant blocker is non-strong evidence "
+        "across 3 decisions"
+    )
+
+
 def test_research_signal_quality_snapshot_marks_defensible_signal() -> None:
     snapshot = research_signal_quality_snapshot(
         {
