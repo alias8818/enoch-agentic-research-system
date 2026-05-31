@@ -569,6 +569,10 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
     assert finding.data["status"] == "clean"
     assert finding.data["signal_verdict"] == "review_required"
     assert finding.data["signal_label"] == "Research signal: review required"
+    assert (
+        finding.data["signal_operator_action"]
+        == "inspect provider-generation failures before trusting new idea volume"
+    )
     assert finding.data["operator_recommendations"] == [
         "inspect provider-generation failures before trusting new idea volume",
         "review recent follow-up quality before increasing throughput",
