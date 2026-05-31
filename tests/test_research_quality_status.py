@@ -93,6 +93,16 @@ def test_decision_outcome_samples_s3776_helpers_extracted() -> None:
     assert "def _decision_outcome_samples_for_key(" in source
 
 
+def test_followup_priority_components_s3776_helpers_extracted() -> None:
+    source = Path("enoch_control_plane/research_quality/status.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "def _score_followup_hypothesis(" in source
+    assert "def _score_followup_evidence(" in source
+    assert "def _score_followup_type(" in source
+
+
 def test_quality_report_exposes_quality_floor_review_required() -> None:
     report = _report_with_decision("")
     report["summary"]["candidate_count"] = 2

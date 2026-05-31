@@ -761,60 +761,69 @@ def _followup_readiness_sample(
     return sample
 
 
-def _followup_priority_components(row: dict[str, Any]) -> tuple[int, list[str]]:
-    score = 0
-    reasons: list[str] = []
+def _score_followup_hypothesis(row: dict[str, Any]) -> tuple[int, str]:
     hypothesis_status = str(row.get("hypothesis_status") or "").strip().lower()
     if hypothesis_status in {"supported", "confirmed", "supportive"}:
-        score += 40
-        reasons.append("supported_hypothesis")
-    elif hypothesis_status in {"mixed", "inconclusive_but_useful"}:
-        score += 25
-        reasons.append("mixed_hypothesis")
-    elif hypothesis_status in {"unsupported", "negative"}:
-        reasons.append("unsupported_hypothesis")
-    else:
-        score += 10
-        reasons.append("unknown_hypothesis")
+        return 40, "supported_hypothesis"
+    if hypothesis_status in {"mixed", "inconclusive_but_useful"}:
+        return 25, "mixed_hypothesis"
+    if hypothesis_status in {"unsupported", "negative"}:
+        return 0, "unsupported_hypothesis"
+    return 10, "unknown_hypothesis"
 
+
+def _score_followup_evidence(row: dict[str, Any]) -> tuple[int, str]:
     evidence_strength = str(row.get("evidence_strength") or "").strip().lower()
     if evidence_strength in {"strong", "high"}:
-        score += 30
-        reasons.append("strong_evidence")
-    elif evidence_strength in {"moderate", "medium"}:
-        score += 20
-        reasons.append("moderate_evidence")
-    elif evidence_strength in {"weak", "low"}:
-        score += 5
-        reasons.append("weak_evidence")
-    else:
-        reasons.append("unknown_evidence")
+        return 30, "strong_evidence"
+    if evidence_strength in {"moderate", "medium"}:
+        return 20, "moderate_evidence"
+    if evidence_strength in {"weak", "low"}:
+        return 5, "weak_evidence"
+    return 0, "unknown_evidence"
 
+
+def _score_followup_type(row: dict[str, Any]) -> tuple[int, str]:
     followup_type = str(row.get("followup_type") or "").strip().lower()
     if followup_type == "branch":
-        score += 10
-        reasons.append("branch_followup")
-    elif followup_type == "deepen":
-        score += 8
-        reasons.append("deepen_followup")
-    elif followup_type == "retry":
-        score += 5
-        reasons.append("retry_followup")
-    elif followup_type:
-        reasons.append(f"{followup_type}_followup")
-    else:
-        reasons.append("unknown_followup_type")
+        return 10, "branch_followup"
+    if followup_type == "deepen":
+        return 8, "deepen_followup"
+    if followup_type == "retry":
+        return 5, "retry_followup"
+    if followup_type:
+        return 0, f"{followup_type}_followup"
+    return 0, "unknown_followup_type"
 
+
+def _score_followup_required_evidence(row: dict[str, Any]) -> tuple[int, list[str]]:
     evidence_count = _followup_required_evidence_count(row)
-    if evidence_count > 0:
-        score += min(12, evidence_count * 3)
-        reasons.append(f"{evidence_count}_required_evidence_items")
+    if evidence_count <= 0:
+        return 0, []
+    return min(12, evidence_count * 3), [f"{evidence_count}_required_evidence_items"]
 
+
+def _score_followup_bounds(row: dict[str, Any]) -> tuple[int, list[str]]:
     has_success = bool(str(row.get("followup_success_threshold") or "").strip())
     has_stop = bool(str(row.get("followup_stop_condition") or "").strip())
-    if has_success and has_stop:
-        score += 10
-        reasons.append("explicit_success_and_stop_bounds")
+    if not (has_success and has_stop):
+        return 0, []
+    return 10, ["explicit_success_and_stop_bounds"]
+
+
+def _followup_priority_components(row: dict[str, Any]) -> tuple[int, list[str]]:
+    scored_reasons = [
+        _score_followup_hypothesis(row),
+        _score_followup_evidence(row),
+        _score_followup_type(row),
+    ]
+    score = sum(value for value, _reason in scored_reasons)
+    reasons = [reason for _value, reason in scored_reasons]
+    evidence_score, evidence_reasons = _score_followup_required_evidence(row)
+    bounds_score, bounds_reasons = _score_followup_bounds(row)
+    score += evidence_score + bounds_score
+    reasons.extend(evidence_reasons)
+    reasons.extend(bounds_reasons)
     return score, reasons
 
 
