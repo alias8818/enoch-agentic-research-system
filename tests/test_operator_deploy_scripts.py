@@ -202,6 +202,72 @@ def test_runtime_drift_report_checks_gb10_user_service() -> None:
     assert "'mcp_servers_fingerprint': mcp_server_fingerprint(mcp_names)" in script
 
 
+def test_runtime_drift_report_executes_without_literal_mcp_names(
+    tmp_path: Path,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_ssh = fake_bin / "ssh"
+    fake_ssh.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+host="$1"
+case "$host" in
+  enoch-core.exe.xyz)
+    printf '%s\n' '{"host":"control","status_counts":{},"worker_lanes":[]}'
+    ;;
+  100.92.44.26)
+    printf '%s\n' '{"host":"gb10","mcp_server_count":2,"mcp_servers_fingerprint":"gb10hash"}'
+    ;;
+  root@enoch-worker-cpu-1)
+    printf '%s\n' '{"host":"cpu","mcp_server_count":2,"mcp_servers_fingerprint":"cpuhash"}'
+    ;;
+  *)
+    printf 'unexpected host: %s\n' "$host" >&2
+    exit 2
+    ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_ssh.chmod(0o755)
+    output = tmp_path / "runtime-drift.json"
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+    }
+
+    result = subprocess.run(
+        [
+            str(ROOT / "scripts" / "enoch-runtime-drift-report.sh"),
+            "--output",
+            str(output),
+        ],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+    )
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(output.read_text(encoding="utf-8"))
+    for snapshot in report["workers"].values():
+        assert "mcp_servers" not in snapshot
+        assert snapshot["mcp_server_count"] == 2
+        assert snapshot["mcp_servers_fingerprint"]
+
+
+def test_runtime_drift_report_records_probe_timeouts() -> None:
+    script = (ROOT / "scripts" / "enoch-runtime-drift-report.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "except subprocess.TimeoutExpired as exc:" in script
+    assert '"returncode": -1' in script
+    assert '"stderr": f"command timed out after {timeout}s:' in script
+
+
 def test_deploy_script_restarts_gb10_user_service() -> None:
     script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
 

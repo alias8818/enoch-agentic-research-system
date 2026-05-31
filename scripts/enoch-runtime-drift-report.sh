@@ -78,13 +78,23 @@ cpu_codex_home = sys.argv[7]
 
 
 def run(argv: list[str], *, timeout: int = 30) -> dict[str, Any]:
-    proc = subprocess.run(
-        argv,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "ok": False,
+            "returncode": -1,
+            "stdout": (exc.stdout or "").strip()
+            if isinstance(exc.stdout, str)
+            else "",
+            "stderr": f"command timed out after {timeout}s: {' '.join(argv)}",
+        }
     return {
         "ok": proc.returncode == 0,
         "returncode": proc.returncode,
@@ -209,7 +219,7 @@ def mcp_server_names():
     if not config.exists():
         return []
     data = tomllib.loads(config.read_text())
-    return sorted((data.get('mcp_servers') or {}).keys())
+    return sorted((data.get('mcp_servers') or {{}}).keys())
 def mcp_server_fingerprint(names):
     return hashlib.sha256('\n'.join(names).encode()).hexdigest()[:16] if names else ''
 def cmd(args):
