@@ -190,7 +190,7 @@ def codex_snapshot(
     service_scope: str = "system",
 ) -> dict[str, Any]:
     command = rf"""python3 - <<'PYREMOTE'
-import hashlib, json, pathlib, shutil, subprocess
+import hashlib, json, pathlib, shutil, subprocess, tomllib
 home = pathlib.Path({codex_home!r})
 codex_candidates = [
     'codex',
@@ -204,6 +204,14 @@ def digest(name):
 def size(name):
     p = home / name
     return p.stat().st_size if p.exists() else 0
+def mcp_server_names():
+    config = home / 'config.toml'
+    if not config.exists():
+        return []
+    data = tomllib.loads(config.read_text())
+    return sorted((data.get('mcp_servers') or {}).keys())
+def mcp_server_fingerprint(names):
+    return hashlib.sha256('\n'.join(names).encode()).hexdigest()[:16] if names else ''
 def cmd(args):
     p = subprocess.run(args, capture_output=True, text=True, check=False)
     return {{'ok': p.returncode == 0, 'stdout': p.stdout.strip(), 'stderr': p.stderr.strip(), 'returncode': p.returncode}}
@@ -221,6 +229,7 @@ def codex_version():
         if p.returncode == 0 and p.stdout.strip():
             return p.stdout.strip()
     return ''
+mcp_names = mcp_server_names()
 payload = {{
   'host': subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip(),
   'codex_home': str(home),
@@ -231,7 +240,8 @@ payload = {{
   'auth_size': size('auth.json'),
   'plugins_sha': (home / '.tmp/plugins.sha').read_text().strip() if (home / '.tmp/plugins.sha').exists() else '',
   'skills_present': sorted([p.name for p in (home / 'skills').iterdir()]) if (home / 'skills').exists() else [],
-  'mcp_servers': sorted((__import__('tomllib').loads((home / 'config.toml').read_text()).get('mcp_servers') or {{}}).keys()) if (home / 'config.toml').exists() else [],
+  'mcp_server_count': len(mcp_names),
+  'mcp_servers_fingerprint': mcp_server_fingerprint(mcp_names),
 }}
 print(json.dumps(payload, sort_keys=True))
 PYREMOTE"""

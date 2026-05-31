@@ -19,6 +19,9 @@ DEFAULT_WINDOW_REPORT_PATH = (
 DEFAULT_AUTOPILOT_HISTORY_PATH = (
     "/var/lib/enoch-control-plane/research-quality/autopilot-history.jsonl"
 )
+DEFAULT_REFRESH_STATUS_PATH = (
+    "/var/lib/enoch-control-plane/research-quality/latest-refresh.json"
+)
 
 RESEARCH_QUALITY_LABEL_BLOCKED = "Research quality: BLOCKED"
 RESEARCH_QUALITY_LABEL_CLEAN = "Research quality: clean"
@@ -153,6 +156,37 @@ def _blocked_malformed_quality_report(
     }
 
 
+def _blocked_unreadable_quality_report(
+    *,
+    report_path: str,
+    report_mtime: str,
+    problem: str,
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": "blocked",
+        "label": RESEARCH_QUALITY_LABEL_BLOCKED,
+        "report_path": report_path,
+        "report_mtime": report_mtime,
+        "report_generated_at": "",
+        "schema_version": "",
+        "decisions_checked": 0,
+        "candidates_checked": 0,
+        "problem_counts": {problem: 1},
+        "raw_problem_counts": {},
+        "severity_counts": {"blocked": 1},
+        "problem_details": [
+            {
+                "section": "report",
+                "severity": "blocked",
+                "problem": problem,
+                "reason": reason,
+            }
+        ],
+    }
+
+
 def _quality_problem_detail(
     section_name: str,
     problem: str,
@@ -280,6 +314,23 @@ def _load_json_file(path: str) -> dict[str, Any] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _load_refresh_status(path: str) -> dict[str, Any]:
+    if not path:
+        return {"available": False, "reason": "not_configured", "path": path}
+    payload = _load_json_file(path)
+    if payload is None:
+        return {"available": False, "reason": "missing_refresh_status", "path": path}
+    return {
+        "available": True,
+        "ok": bool(payload.get("ok")),
+        "action": str(payload.get("action") or ""),
+        "reason": str(payload.get("reason") or ""),
+        "recorded_at": str(payload.get("recorded_at") or ""),
+        "output": str(payload.get("output") or ""),
+        "path": path,
+    }
 
 
 def _autopilot_history_item_timestamp(item: dict[str, Any]) -> str:
@@ -419,7 +470,9 @@ def load_latest_quality_status(
     *,
     window_report_path: str = DEFAULT_WINDOW_REPORT_PATH,
     autopilot_history_path: str = DEFAULT_AUTOPILOT_HISTORY_PATH,
+    refresh_status_path: str = DEFAULT_REFRESH_STATUS_PATH,
 ) -> dict[str, Any]:
+    refresh_status = _load_refresh_status(refresh_status_path)
     chosen = next((Path(path) for path in paths if path and Path(path).exists()), None)
     if chosen is None:
         report_path = str(paths[0]) if paths else ""
@@ -445,13 +498,53 @@ def load_latest_quality_status(
             "post_prompt_monitor": _post_prompt_monitor(
                 window_path=window_report_path, history_path=autopilot_history_path
             ),
+            "refresh_status": refresh_status,
         }
-    with chosen.open("r", encoding="utf-8") as handle:
-        report = json.load(handle)
+    report_mtime = _utc_iso_from_mtime(chosen)
+    try:
+        with chosen.open("r", encoding="utf-8") as handle:
+            report = json.load(handle)
+    except json.JSONDecodeError as exc:
+        status = _blocked_unreadable_quality_report(
+            report_path=str(chosen),
+            report_mtime=report_mtime,
+            problem="malformed_quality_report",
+            reason=str(exc),
+        )
+        status["post_prompt_monitor"] = _post_prompt_monitor(
+            window_path=window_report_path, history_path=autopilot_history_path
+        )
+        status["refresh_status"] = refresh_status
+        return status
+    except OSError as exc:
+        status = _blocked_unreadable_quality_report(
+            report_path=str(chosen),
+            report_mtime=report_mtime,
+            problem="unreadable_quality_report",
+            reason=str(exc),
+        )
+        status["post_prompt_monitor"] = _post_prompt_monitor(
+            window_path=window_report_path, history_path=autopilot_history_path
+        )
+        status["refresh_status"] = refresh_status
+        return status
+    if not isinstance(report, dict):
+        status = _blocked_unreadable_quality_report(
+            report_path=str(chosen),
+            report_mtime=report_mtime,
+            problem="malformed_quality_report",
+            reason="top-level report payload must be an object",
+        )
+        status["post_prompt_monitor"] = _post_prompt_monitor(
+            window_path=window_report_path, history_path=autopilot_history_path
+        )
+        status["refresh_status"] = refresh_status
+        return status
     status = classify_quality_report(
-        report, report_path=str(chosen), report_mtime=_utc_iso_from_mtime(chosen)
+        report, report_path=str(chosen), report_mtime=report_mtime
     )
     status["post_prompt_monitor"] = _post_prompt_monitor(
         window_path=window_report_path, history_path=autopilot_history_path
     )
+    status["refresh_status"] = refresh_status
     return status

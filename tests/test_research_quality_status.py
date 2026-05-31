@@ -253,6 +253,41 @@ def test_quality_status_includes_post_prompt_monitor(tmp_path: Path) -> None:
     assert monitor["last_malformed_at"] == "2026-05-11T11:17:08Z"
 
 
+def test_quality_status_includes_refresh_sidecar_status(tmp_path: Path) -> None:
+    report_path = tmp_path / "quality.json"
+    report_path.write_text(
+        json.dumps(_report_with_decision("weak_or_missing_evidence_strength")),
+        encoding="utf-8",
+    )
+    refresh_status_path = tmp_path / "latest-refresh.json"
+    refresh_status_path.write_text(
+        json.dumps(
+            {
+                "ok": False,
+                "action": "research_quality_refresh_skipped",
+                "reason": "missing database URL",
+                "recorded_at": "2026-05-30T14:41:25Z",
+                "output": str(report_path),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = load_latest_quality_status(
+        [str(report_path)], refresh_status_path=str(refresh_status_path)
+    )
+
+    assert status["refresh_status"] == {
+        "available": True,
+        "ok": False,
+        "action": "research_quality_refresh_skipped",
+        "reason": "missing database URL",
+        "recorded_at": "2026-05-30T14:41:25Z",
+        "output": str(report_path),
+        "path": str(refresh_status_path),
+    }
+
+
 def test_missing_quality_report_blocks_readiness() -> None:
     status = load_latest_quality_status(["/definitely/missing/research-quality.json"])
 
@@ -266,6 +301,20 @@ def test_malformed_quality_report_blocks_readiness_instead_of_passing_clean() ->
 
     assert status["ok"] is False
     assert status["status"] == "blocked"
+    assert status["problem_counts"] == {"malformed_quality_report": 1}
+    assert status["severity_counts"] == {"blocked": 1}
+    assert status["problem_details"][0]["problem"] == "malformed_quality_report"
+
+
+def test_malformed_quality_report_file_blocks_readiness(tmp_path: Path) -> None:
+    report_path = tmp_path / "quality.json"
+    report_path.write_text("{not-json", encoding="utf-8")
+
+    status = load_latest_quality_status([str(report_path)])
+
+    assert status["ok"] is False
+    assert status["status"] == "blocked"
+    assert status["report_path"] == str(report_path)
     assert status["problem_counts"] == {"malformed_quality_report": 1}
     assert status["severity_counts"] == {"blocked": 1}
     assert status["problem_details"][0]["problem"] == "malformed_quality_report"

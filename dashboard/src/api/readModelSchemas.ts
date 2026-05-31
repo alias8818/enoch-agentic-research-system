@@ -177,6 +177,12 @@ const researchSignalQualitySchema = z.object({
   report_stale_after_hours: z.number().optional(),
   report_is_stale: z.boolean().optional(),
   freshness_summary: z.string().optional(),
+  refresh_ok: z.boolean().optional(),
+  refresh_action: z.string().optional(),
+  refresh_reason: z.string().optional(),
+  refresh_recorded_at: z.string().optional(),
+  refresh_status_path: z.string().optional(),
+  refresh_operator_action: z.string().optional(),
   last_malformed_at: z.string().optional(),
   last_checked_at: z.string().optional(),
   top_problem_details: z.array(z.object({

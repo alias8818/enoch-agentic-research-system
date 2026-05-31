@@ -108,6 +108,12 @@ export interface OverviewResponse {
     report_stale_after_hours?: number
     report_is_stale?: boolean
     freshness_summary?: string
+    refresh_ok?: boolean
+    refresh_action?: string
+    refresh_reason?: string
+    refresh_recorded_at?: string
+    refresh_status_path?: string
+    refresh_operator_action?: string
     last_malformed_at?: string
     last_checked_at?: string
     top_problem_details?: {

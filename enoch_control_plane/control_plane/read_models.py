@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
-import os
 import hashlib
+import json
 import math
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, NamedTuple, Sequence
@@ -2804,6 +2804,23 @@ def _quality_recommendations(
     return recommendations
 
 
+def _quality_refresh_operator_action(refresh: Mapping[str, Any]) -> str:
+    reason = _text(refresh.get("reason"))
+    if bool(refresh.get("ok")):
+        return ""
+    if reason == "missing database URL":
+        return (
+            "configure the Research Quality database URL so the read-only refresh "
+            "can update the report"
+        )
+    if reason in {"missing_refresh_status", "not_configured"}:
+        return (
+            "run the Research Quality refresh-only sidecar so refresh health is "
+            "recorded"
+        )
+    return "inspect the Research Quality refresh sidecar before relying on unattended automation"
+
+
 def research_signal_quality_snapshot(
     quality: Mapping[str, Any], *, now: datetime | None = None
 ) -> dict[str, Any]:
@@ -2818,6 +2835,7 @@ def research_signal_quality_snapshot(
     malformed_count = _quality_count(monitor, "malformed_provider_response_count")
     useful_delta = _quality_value(monitor, "useful_adjacent_followup_delta", 0.0)
     status = _text(quality.get("status")) or "unknown"
+    refresh = _quality_mapping(quality.get("refresh_status"))
     parts = [
         f"quality={status}",
         f"weak evidence={weak_evidence_count}",
@@ -2838,6 +2856,12 @@ def research_signal_quality_snapshot(
         "report_path": quality.get("report_path") or "",
         "report_mtime": report_mtime,
         **research_quality_report_freshness(report_mtime, now=now),
+        "refresh_ok": bool(refresh.get("ok")),
+        "refresh_action": _text(refresh.get("action")),
+        "refresh_reason": _text(refresh.get("reason")),
+        "refresh_recorded_at": _text(refresh.get("recorded_at")),
+        "refresh_status_path": _text(refresh.get("path")),
+        "refresh_operator_action": _quality_refresh_operator_action(refresh),
         "post_prompt_available": bool(_quality_value(monitor, "available", False)),
         "decision_coverage": _quality_value(monitor, "decision_coverage", 0.0),
         "proxy_only_positive": _quality_count(monitor, "proxy_only_positive"),

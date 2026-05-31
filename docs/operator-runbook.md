@@ -140,11 +140,12 @@ scripts/enoch-runtime-drift-report.sh \
 
 The report is read-only and records source/runtime commits, package versions,
 service status, worker lane counts, recent experiment labels, Codex versions,
-and non-secret Codex config/auth fingerprints. Compare consecutive reports when
-queue behavior changes, Codex behavior shifts, or a worker starts failing after
-a rollout. Treat unexpected drift in deployed code, Codex versions, plugin
-fingerprints, worker queue depth, or experiment mix as an operator question
-before widening automation.
+and non-secret Codex config/auth fingerprints. MCP server names are not emitted;
+the snapshot records only their count and a stable fingerprint for drift
+comparison. Compare consecutive reports when queue behavior changes, Codex
+behavior shifts, or a worker starts failing after a rollout. Treat unexpected
+drift in deployed code, Codex versions, plugin fingerprints, worker queue depth,
+or experiment mix as an operator question before widening automation.
 
 ## Dashboard questions
 

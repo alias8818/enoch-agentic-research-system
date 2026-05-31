@@ -209,6 +209,92 @@ def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
     ]
 
 
+def test_queue_alert_findings_blocks_missing_research_quality_report_during_hold(
+    monkeypatch, tmp_path
+) -> None:
+    missing_report = tmp_path / "missing-quality.json"
+    monkeypatch.setattr(
+        alerts,
+        "load_latest_quality_status",
+        lambda *_args, **_kwargs: {
+            "ok": False,
+            "status": "blocked",
+            "label": "Research quality: BLOCKED",
+            "severity_counts": {"blocked": 1},
+            "problem_counts": {"missing_quality_report": 1},
+            "report_mtime": "",
+            "report_path": str(missing_report),
+            "post_prompt_monitor": {},
+            "problem_details": [
+                {
+                    "section": "report",
+                    "severity": "blocked",
+                    "problem": "missing_quality_report",
+                }
+            ],
+        },
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.severity == "critical"
+    assert finding.source == "research_quality"
+    assert finding.message == "research quality is blocked"
+    assert finding.data["report_path"] == str(missing_report)
+    assert finding.data["blocked_problem_count"] == 1
+    assert finding.data["top_problem_details"] == [
+        {
+            "severity": "blocked",
+            "problem": "missing_quality_report",
+            "project_id": "",
+            "run_id": "",
+            "title": "",
+        }
+    ]
+
+
+def test_queue_alert_findings_blocks_research_quality_loader_errors_during_hold(
+    monkeypatch, tmp_path
+) -> None:
+    report_path = tmp_path / "quality.json"
+
+    def fail_load(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise ValueError("malformed quality report")
+
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REPORT_PATH", str(report_path))
+    monkeypatch.setattr(alerts, "load_latest_quality_status", fail_load)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.severity == "critical"
+    assert finding.source == "research_quality"
+    assert finding.message == "research quality is blocked"
+    assert finding.data["report_path"] == str(report_path)
+    assert finding.data["top_problem_details"][0]["problem"] == (
+        "research_quality_status_load_failed"
+    )
+
+
 def test_queue_alert_findings_ignores_clean_research_quality(monkeypatch) -> None:
     monkeypatch.setattr(
         alerts,

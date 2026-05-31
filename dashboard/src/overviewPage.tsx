@@ -247,6 +247,13 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
           <p>{quality.freshness_summary}</p>
         </div>
       ) : null}
+      {quality.refresh_reason || quality.refresh_operator_action ? (
+        <div className="quality-snapshot-detail">
+          <h4>Refresh source</h4>
+          <p>{displayText(quality.refresh_reason || quality.refresh_action, 'No refresh status returned.')}</p>
+          <p>{displayText(quality.refresh_operator_action, 'Inspect the Research Quality refresh sidecar before resuming unattended automation.')}</p>
+        </div>
+      ) : null}
       {affected ? (
         <div className="quality-snapshot-detail">
           <h4>Affected artifact</h4>

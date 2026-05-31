@@ -59,6 +59,14 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
                 "Run a bounded follow-up before treating this as paper-ready."
             ],
             "report_mtime": "2026-05-25T00:00:00Z",
+            "refresh_status": {
+                "available": True,
+                "ok": False,
+                "action": "research_quality_refresh_skipped",
+                "reason": "missing database URL",
+                "recorded_at": "2026-05-30T00:00:00Z",
+                "path": "/var/lib/enoch-control-plane/research-quality/latest-refresh.json",
+            },
         },
         now=datetime(2026, 5, 30, tzinfo=timezone.utc),
     )
@@ -94,6 +102,13 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
     assert (
         snapshot["freshness_summary"]
         == "quality report stale: 120.0h old; refresh before relying on unattended automation"
+    )
+    assert snapshot["refresh_ok"] is False
+    assert snapshot["refresh_action"] == "research_quality_refresh_skipped"
+    assert snapshot["refresh_reason"] == "missing database URL"
+    assert (
+        snapshot["refresh_operator_action"]
+        == "configure the Research Quality database URL so the read-only refresh can update the report"
     )
 
 

@@ -92,6 +92,10 @@ it('shows research signal quality in the overview side rail', async () => {
         report_stale_after_hours: 48,
         report_is_stale: true,
         freshness_summary: 'quality report stale: 120.0h old; refresh before relying on unattended automation',
+        refresh_ok: false,
+        refresh_action: 'research_quality_refresh_skipped',
+        refresh_reason: 'missing database URL',
+        refresh_operator_action: 'configure the Research Quality database URL so the read-only refresh can update the report',
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
         recommendations: ['Run a bounded follow-up before treating this as paper-ready.'],
         top_problem_details: [{
@@ -121,6 +125,9 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('Report age')).toBeInTheDocument()
   expect(within(quality).getByText('120.0h')).toBeInTheDocument()
   expect(within(quality).getByText('quality report stale: 120.0h old; refresh before relying on unattended automation')).toBeInTheDocument()
+  expect(within(quality).getByText('Refresh source')).toBeInTheDocument()
+  expect(within(quality).getByText('missing database URL')).toBeInTheDocument()
+  expect(within(quality).getByText('configure the Research Quality database URL so the read-only refresh can update the report')).toBeInTheDocument()
   expect(within(quality).getByText('Affected artifact')).toBeInTheDocument()
   expect(within(quality).getByText('Weak Evidence Project')).toBeInTheDocument()
   expect(within(quality).getByText('weak_or_missing_evidence_strength')).toBeInTheDocument()

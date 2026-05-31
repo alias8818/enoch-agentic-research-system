@@ -55,6 +55,20 @@ def _config(tmp: str) -> GateConfig:
 
 def _live_config(tmp: str) -> GateConfig:
     base = _config(tmp)
+    quality_dir = Path(base.state_dir) / "research-quality"
+    quality_dir.mkdir(parents=True, exist_ok=True)
+    (quality_dir / "latest-report.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "enoch_research_quality_report_v1",
+                "generated_at": "2026-05-30T00:00:00Z",
+                "summary": {"candidate_count": 0, "decision_count": 0},
+                "candidate_scores": [],
+                "decision_scores": [],
+            }
+        ),
+        encoding="utf-8",
+    )
     return base.model_copy(
         update={
             "live_dispatch_enabled": True,

@@ -191,6 +191,44 @@ def _timeout_reason(timeout: int) -> str:
     return f"timeout after {timeout}s"
 
 
+def _research_quality_refresh_status_path() -> Path:
+    return Path(
+        os.environ.get(
+            "ENOCH_RESEARCH_QUALITY_REFRESH_STATUS_PATH",
+            "/var/lib/enoch-control-plane/research-quality/latest-refresh.json",
+        )
+    )
+
+
+def _record_research_quality_refresh_status(result: dict) -> dict:
+    payload = {
+        key: result.get(key)
+        for key in (
+            "ok",
+            "action",
+            "reason",
+            "returncode",
+            "output",
+            "limit",
+        )
+        if key in result
+    }
+    payload["recorded_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    path = _research_quality_refresh_status_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        result["refresh_status_write"] = {
+            "ok": False,
+            "path": str(path),
+            "reason": f"{type(exc).__name__}: {exc}",
+        }
+        return result
+    result["refresh_status_write"] = {"ok": True, "path": str(path)}
+    return result
+
+
 def refresh_research_quality_report() -> dict:
     """Refresh the read-only Research Facility quality report.
 
@@ -201,19 +239,13 @@ def refresh_research_quality_report() -> dict:
     """
 
     if _truthy("ENOCH_RESEARCH_QUALITY_REFRESH_DISABLED"):
-        return {
-            "ok": True,
-            "action": "research_quality_refresh_skipped",
-            "reason": "disabled",
-        }
-
-    database_url = _database_url()
-    if not database_url:
-        return {
-            "ok": False,
-            "action": "research_quality_refresh_skipped",
-            "reason": MISSING_DATABASE_URL_REASON,
-        }
+        return _record_research_quality_refresh_status(
+            {
+                "ok": True,
+                "action": "research_quality_refresh_skipped",
+                "reason": "disabled",
+            }
+        )
 
     output = Path(
         os.environ.get(
@@ -221,6 +253,18 @@ def refresh_research_quality_report() -> dict:
             "/var/lib/enoch-control-plane/research-quality/latest-report.json",
         )
     )
+
+    database_url = _database_url()
+    if not database_url:
+        return _record_research_quality_refresh_status(
+            {
+                "ok": False,
+                "action": "research_quality_refresh_skipped",
+                "reason": MISSING_DATABASE_URL_REASON,
+                "output": str(output),
+            }
+        )
+
     output.parent.mkdir(parents=True, exist_ok=True)
     limit = _bounded_int("ENOCH_RESEARCH_QUALITY_LIMIT", 100, 1, 1000)
     timeout = _bounded_int("ENOCH_RESEARCH_QUALITY_TIMEOUT_SECONDS", 90, 10, 600)
@@ -248,34 +292,40 @@ def refresh_research_quality_report() -> dict:
             env=_database_url_env(database_url),
         )
     except subprocess.TimeoutExpired:
-        return {
-            "ok": False,
-            "action": "research_quality_refresh_failed",
-            "reason": _timeout_reason(timeout),
-            "command": display_cmd,
-            "output": str(output),
-        }
+        return _record_research_quality_refresh_status(
+            {
+                "ok": False,
+                "action": "research_quality_refresh_failed",
+                "reason": _timeout_reason(timeout),
+                "command": display_cmd,
+                "output": str(output),
+            }
+        )
     except OSError as exc:
-        return {
-            "ok": False,
-            "action": "research_quality_refresh_failed",
-            "reason": f"{type(exc).__name__}: {exc}",
-            "command": display_cmd,
-            "output": str(output),
-        }
+        return _record_research_quality_refresh_status(
+            {
+                "ok": False,
+                "action": "research_quality_refresh_failed",
+                "reason": f"{type(exc).__name__}: {exc}",
+                "command": display_cmd,
+                "output": str(output),
+            }
+        )
 
     stdout = proc.stdout.strip()
     stderr = proc.stderr.strip()
-    return {
-        "ok": proc.returncode == 0,
-        "action": "research_quality_refresh",
-        "returncode": proc.returncode,
-        "output": str(output),
-        "limit": limit,
-        "stdout": stdout[-2000:],
-        "stderr": stderr[-2000:],
-        "command": display_cmd,
-    }
+    return _record_research_quality_refresh_status(
+        {
+            "ok": proc.returncode == 0,
+            "action": "research_quality_refresh",
+            "returncode": proc.returncode,
+            "output": str(output),
+            "limit": limit,
+            "stdout": stdout[-2000:],
+            "stderr": stderr[-2000:],
+            "command": display_cmd,
+        }
+    )
 
 
 def refresh_research_quality_window_comparison() -> dict:

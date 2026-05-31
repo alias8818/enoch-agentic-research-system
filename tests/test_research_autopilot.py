@@ -194,6 +194,31 @@ def test_research_quality_refresh_timeout_does_not_report_secret(tmp_path, monke
     assert "--database-url" not in result["command"]
 
 
+def test_research_quality_refresh_records_missing_database_status(
+    tmp_path, monkeypatch
+):
+    status_path = tmp_path / "latest-refresh.json"
+    output = tmp_path / "latest-report.json"
+
+    monkeypatch.delenv("ENOCH_RESEARCH_QUALITY_DATABASE_URL", raising=False)
+    monkeypatch.delenv("ENOCH_SUPABASE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("ENOCH_CONTROL_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REFRESH_STATUS_PATH", str(status_path))
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REPORT_PATH", str(output))
+
+    result = autopilot.refresh_research_quality_report()
+
+    assert result["ok"] is False
+    assert result["reason"] == "missing database URL"
+    payload = json.loads(status_path.read_text(encoding="utf-8"))
+    assert payload["ok"] is False
+    assert payload["action"] == "research_quality_refresh_skipped"
+    assert payload["reason"] == "missing database URL"
+    assert payload["output"] == str(output)
+    assert payload["recorded_at"]
+
+
 def test_research_autopilot_includes_quality_refresh_result(
     tmp_path, capsys, monkeypatch
 ):
@@ -314,11 +339,9 @@ def test_research_quality_refresh_missing_database_url_is_fail_soft(monkeypatch)
     monkeypatch.delenv("ENOCH_CONTROL_DATABASE_URL", raising=False)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     result = autopilot.refresh_research_quality_report()
-    assert result == {
-        "ok": False,
-        "action": "research_quality_refresh_skipped",
-        "reason": "missing database URL",
-    }
+    assert result["ok"] is False
+    assert result["action"] == "research_quality_refresh_skipped"
+    assert result["reason"] == "missing database URL"
 
 
 def test_janitor_llm_review_disabled_by_default(monkeypatch):

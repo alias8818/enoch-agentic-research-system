@@ -361,8 +361,25 @@ def _latest_research_quality_status(
                 DEFAULT_AUTOPILOT_HISTORY_PATH,
             ),
         )
-    except Exception:
-        return {}
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": "blocked",
+            "label": "Research quality: BLOCKED",
+            "report_path": str(paths[0]) if paths else "",
+            "report_mtime": "",
+            "problem_counts": {"research_quality_status_load_failed": 1},
+            "severity_counts": {"blocked": 1},
+            "problem_details": [
+                {
+                    "section": "report",
+                    "severity": "blocked",
+                    "problem": "research_quality_status_load_failed",
+                    "reason": str(exc),
+                }
+            ],
+            "post_prompt_monitor": {},
+        }
 
 
 def _safe_dict(value: Any) -> dict[str, Any]:
@@ -440,7 +457,7 @@ def _research_quality_alert_finding(
 ) -> DashboardFinding | None:
     quality = _latest_research_quality_status(status)
     report_path = str(quality.get("report_path") or "")
-    if not report_path or not Path(report_path).is_file():
+    if not report_path:
         return None
     status = str(quality.get("status") or "unknown").strip().lower()
     counts = _research_quality_signal_counts(quality)
