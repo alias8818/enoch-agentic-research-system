@@ -102,7 +102,7 @@ def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None
     combined = service + script
     assert "Environment=ENOCH_ENABLE_RESEARCH_AUTOPILOT=0" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
-    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" not in service
+    assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" in service
     assert (
         "Environment=ENOCH_RESEARCH_QUALITY_REPORT_PATH=/var/lib/enoch-control-plane/research-quality/latest-report.json"
         in service
