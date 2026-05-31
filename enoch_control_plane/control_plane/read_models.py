@@ -3274,6 +3274,27 @@ def _quality_floor_summary(floor: Mapping[str, Any]) -> str:
     return f"quality floor=satisfied ({checked} checked; threshold {threshold:.2f})"
 
 
+def _quality_publication_posture_label(value: Any) -> str:
+    return (_text(value) or "unknown").replace("_", " ")
+
+
+def _quality_decision_posture_summary(posture: Mapping[str, Any]) -> str:
+    if not posture or not bool(posture.get("available")):
+        return ""
+    label = _quality_publication_posture_label(posture.get("publication_posture"))
+    useful = _safe_count(posture.get("useful_signal_count"))
+    paper_ready = _safe_count(posture.get("bounded_paper_ready_count"))
+    return f"decision posture={label} ({useful} useful; {paper_ready} paper-ready)"
+
+
+def _quality_followup_readiness_summary(readiness: Mapping[str, Any]) -> str:
+    if not readiness or not bool(readiness.get("available")):
+        return ""
+    ready = _safe_count(readiness.get("bounded_ready_count"))
+    recommended = _safe_count(readiness.get("recommended_count"))
+    return f"follow-ups={ready} ready / {recommended} recommended"
+
+
 def _quality_bool(value: Any) -> bool:
     if value is True or value == 1:
         return True
@@ -3769,9 +3790,15 @@ def research_signal_quality_snapshot(
     )
     window_comparison = _quality_window_comparison(monitor.get("window_comparison"))
     quality_floor = _quality_floor(quality.get("quality_floor"))
+    decision_posture = _quality_decision_posture(quality.get("decision_posture"))
+    followup_readiness = _quality_followup_readiness(quality.get("followup_readiness"))
+    decision_posture_summary = _quality_decision_posture_summary(decision_posture)
+    followup_readiness_summary = _quality_followup_readiness_summary(followup_readiness)
     parts = [
         f"quality={status}",
         *([_quality_floor_summary(quality_floor)] if quality_floor else []),
+        *([decision_posture_summary] if decision_posture_summary else []),
+        *([followup_readiness_summary] if followup_readiness_summary else []),
         f"weak evidence={weak_evidence_count}",
         _quality_provider_summary(
             malformed_count=malformed_count,
@@ -3806,10 +3833,8 @@ def research_signal_quality_snapshot(
             quality.get("decision_outcome_samples")
         ),
         "quality_floor": quality_floor,
-        "decision_posture": _quality_decision_posture(quality.get("decision_posture")),
-        "followup_readiness": _quality_followup_readiness(
-            quality.get("followup_readiness")
-        ),
+        "decision_posture": decision_posture,
+        "followup_readiness": followup_readiness,
         "weak_evidence_count": weak_evidence_count,
         "warning_problem_count": warning_count,
         "blocked_problem_count": blocked_count,

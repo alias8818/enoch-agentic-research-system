@@ -834,6 +834,13 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
             "fields before queueing it"
         ),
     }
+    assert snapshot["operator_summary"] == (
+        "quality=warnings; decision posture=followup only "
+        "(2 useful; 0 paper-ready); follow-ups=1 ready / 2 recommended; "
+        "weak evidence=1; provider malformed=active "
+        "(2 responses across 1 recent tick); useful follow-up=active decline -1.0 "
+        "(2 current vs 6 previous)"
+    )
     assert snapshot["window_comparison"] == {
         "cutoff": "2026-05-11T09:58:00Z",
         "limit": 20,
@@ -1016,9 +1023,9 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
     )
     assert snapshot["provider_generation_health"]["active_malformed_warning"] is False
     assert snapshot["operator_summary"] == (
-        "quality=clean; weak evidence=0; provider malformed=recovered "
-        "(16 responses; 69 clean ticks); useful follow-up=active decline -4.0 "
-        "(2 current vs 6 previous)"
+        "quality=clean; weak evidence=0; "
+        "provider malformed=recovered (16 responses; 69 clean ticks); "
+        "useful follow-up=active decline -4.0 (2 current vs 6 previous)"
     )
     assert "malformed provider responses=16" not in snapshot["operator_summary"]
     assert snapshot["signal_reasons"] == [

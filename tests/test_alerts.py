@@ -584,9 +584,10 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
     assert finding.data["status"] == "clean"
     assert finding.data["operator_summary"] == (
         "quality=clean; quality floor=satisfied (95 checked; threshold 0.70); "
-        "weak evidence=0; provider malformed=active "
-        "(2 responses across 1 recent tick); useful follow-up=active decline -4.0 "
-        "(2 current vs 6 previous)"
+        "decision posture=followup only (2 useful; 0 paper-ready); "
+        "follow-ups=1 ready / 2 recommended; weak evidence=0; "
+        "provider malformed=active (2 responses across 1 recent tick); "
+        "useful follow-up=active decline -4.0 (2 current vs 6 previous)"
     )
     assert finding.data["quality_floor"] == {
         "available": True,
