@@ -1197,9 +1197,7 @@ def _provider_generation_tick(item: dict[str, Any] | None) -> dict[str, Any]:
     return row
 
 
-def _consecutive_provider_zero_count(
-    rows: list[dict[str, Any]], field: str
-) -> int:
+def _consecutive_provider_zero_count(rows: list[dict[str, Any]], field: str) -> int:
     count = 0
     for item in reversed(rows):
         if _safe_int(item.get(field)) > 0:

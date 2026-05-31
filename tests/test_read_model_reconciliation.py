@@ -1057,12 +1057,15 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
     assert snapshot["provider_generation_health"]["latest_yield_status"] == (
         "backlog_satisfied"
     )
-    assert snapshot["provider_generation_health"]["latest_tick"][
-        "initial_promotable_count"
-    ] == 2
-    assert snapshot["provider_generation_health"][
-        "consecutive_zero_generated_ticks"
-    ] == 69
+    assert (
+        snapshot["provider_generation_health"]["latest_tick"][
+            "initial_promotable_count"
+        ]
+        == 2
+    )
+    assert (
+        snapshot["provider_generation_health"]["consecutive_zero_generated_ticks"] == 69
+    )
     assert snapshot["operator_summary"] == (
         "quality=clean; weak evidence=0; "
         "provider malformed=recovered (16 responses; 69 clean ticks); "
