@@ -419,6 +419,28 @@ def _research_quality_degraded(status: str, counts: dict[str, Any]) -> bool:
     )
 
 
+def _research_quality_ready_with_recovered_context(
+    status: str,
+    counts: dict[str, Any],
+    signal: dict[str, Any],
+    readiness: dict[str, Any],
+) -> bool:
+    if status != "clean":
+        return False
+    if counts["blocked_problem_count"] > 0 or counts["warning_problem_count"] > 0:
+        return False
+    if counts["useful_adjacent_followup_delta"] < 0:
+        return False
+    if signal.get("signal_verdict") != "defensible":
+        return False
+    if readiness.get("state") != "ready" or readiness.get("failed_invariants"):
+        return False
+    for reason in signal.get("signal_reasons") or []:
+        if isinstance(reason, dict) and bool(reason.get("active", True)):
+            return False
+    return counts["malformed_provider_response_count"] > 0
+
+
 def _research_quality_alert_heading(
     quality: dict[str, Any],
     status: str,
@@ -560,6 +582,10 @@ def _research_quality_alert_finding(
         },
     )
     signal["research_output_readiness"] = readiness
+    if _research_quality_ready_with_recovered_context(
+        quality_status, counts, signal, readiness
+    ):
+        return None
     severity, message = _research_quality_alert_heading(
         quality, quality_status, counts, signal, readiness
     )
