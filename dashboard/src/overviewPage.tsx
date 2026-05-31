@@ -204,6 +204,7 @@ type CandidateCategoryCount = NonNullable<ResearchSignalQuality['top_candidate_c
 type CandidateStatusSample = NonNullable<ResearchSignalQuality['candidate_status_samples']>[string][number]
 type DecisionOutcomeSampleGroup = NonNullable<ResearchSignalQuality['decision_outcome_samples']>[number]
 type DecisionOutcomeSample = NonNullable<DecisionOutcomeSampleGroup['samples']>[number]
+type QualityWindowComparison = NonNullable<ResearchSignalQuality['window_comparison']>
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
@@ -235,6 +236,20 @@ function decisionOutcomeLabel(row: DecisionOutcomeCount): string {
 
 function categoryCountLabel(row: CandidateCategoryCount): string {
   return `${portfolioLabel(row.category)} ${String(row.count ?? 0)}`
+}
+
+function windowCountEntries(value: Record<string, number> | undefined, limit = 2): [string, number][] {
+  return Object.entries(value ?? {}).slice(0, limit)
+}
+
+function windowCountLabel([label, count]: [string, number]): string {
+  return `${portfolioLabel(label)} ${String(count)}`
+}
+
+function windowAdmittedRateLabel(windowComparison: QualityWindowComparison): string {
+  const current = String(windowComparison.current?.admitted_rate ?? 0)
+  const previous = String(windowComparison.previous?.admitted_rate ?? 0)
+  return `admitted rate ${current} now / ${previous} previous`
 }
 
 function candidateStatusSampleTitle(status: string, row: CandidateStatusSample): string {
@@ -292,6 +307,17 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
     .flatMap((group) => (group.samples ?? []).slice(0, 1).map((row) => ({ group, row })))
     .slice(0, 2)
   const hasPortfolioEvidence = candidateStatusSamples.length > 0 || decisionOutcomeSamples.length > 0
+  const windowComparison = quality.window_comparison
+  const windowGenerationModes = windowCountEntries(windowComparison?.current?.generation_mode_counts)
+  const windowCategories = windowCountEntries(windowComparison?.current?.category_counts)
+  const hasWindowComparison = Boolean(
+    windowComparison && (
+      windowGenerationModes.length > 0
+      || windowCategories.length > 0
+      || typeof windowComparison.current?.admitted_rate === 'number'
+      || typeof windowComparison.previous?.admitted_rate === 'number'
+    ),
+  )
   return (
     <section className="quality-snapshot" aria-label="Research signal quality">
       <div>
@@ -386,6 +412,19 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
               <p>{decisionOutcomeSampleId(row)}</p>
             </div>
           ))}
+        </div>
+      ) : null}
+      {hasWindowComparison && windowComparison ? (
+        <div className="quality-snapshot-detail">
+          <h4>Window comparison</h4>
+          <p>{windowAdmittedRateLabel(windowComparison)}</p>
+          {windowGenerationModes.map((entry) => (
+            <p key={`generation-${entry[0]}`}>{windowCountLabel(entry)}</p>
+          ))}
+          {windowCategories.map((entry) => (
+            <p key={`category-${entry[0]}`}>{windowCountLabel(entry)}</p>
+          ))}
+          <p>high similarity pairs {String(windowComparison.current?.high_similarity_pair_count ?? 0)}</p>
         </div>
       ) : null}
       {quality.freshness_summary ? (

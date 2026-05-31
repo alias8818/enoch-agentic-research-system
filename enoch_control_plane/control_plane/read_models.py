@@ -2939,6 +2939,53 @@ def _quality_model_counts(value: Any) -> dict[str, int]:
     return counts
 
 
+def _quality_window_deltas(value: Any) -> dict[str, float]:
+    if not isinstance(value, Mapping):
+        return {}
+    deltas: dict[str, float] = {}
+    for key, delta in value.items():
+        label = _text(key)
+        if not label:
+            continue
+        try:
+            deltas[label] = float(delta)
+        except (TypeError, ValueError):
+            deltas[label] = 0.0
+    return deltas
+
+
+def _quality_window_side(value: Any) -> dict[str, Any]:
+    side = _quality_mapping(value)
+    return {
+        "candidate_count": _safe_count(side.get("candidate_count")),
+        "decision_count": _safe_count(side.get("decision_count")),
+        "admitted_rate": _quality_value(side, "admitted_rate", 0.0),
+        "avg_total_score": _quality_value(side, "avg_total_score", 0.0),
+        "status_counts": _quality_model_counts(side.get("status_counts")),
+        "category_counts": _quality_model_counts(side.get("category_counts")),
+        "generation_mode_counts": _quality_model_counts(
+            side.get("generation_mode_counts")
+        ),
+        "eval_case_counts": _quality_model_counts(side.get("eval_case_counts")),
+        "high_similarity_pair_count": _safe_count(
+            side.get("high_similarity_pair_count")
+        ),
+    }
+
+
+def _quality_window_comparison(value: Any) -> dict[str, Any]:
+    comparison = _quality_mapping(value)
+    if not comparison:
+        return {}
+    return {
+        "cutoff": _text(comparison.get("cutoff")),
+        "limit": _safe_count(comparison.get("limit")),
+        "delta": _quality_window_deltas(comparison.get("delta")),
+        "current": _quality_window_side(comparison.get("current")),
+        "previous": _quality_window_side(comparison.get("previous")),
+    }
+
+
 def _quality_count_rows(
     value: Any, *, required_label: str, optional_label: str = "", limit: int = 10
 ) -> list[dict[str, Any]]:
@@ -3317,6 +3364,9 @@ def research_signal_quality_snapshot(
         "malformed_provider_response_ticks": malformed_ticks,
         "malformed_provider_model_counts": _quality_model_counts(
             monitor.get("malformed_provider_model_counts")
+        ),
+        "window_comparison": _quality_window_comparison(
+            monitor.get("window_comparison")
         ),
         "recent_malformed_provider_responses": recent_malformed,
         "useful_adjacent_followup_evidence": followup_evidence,

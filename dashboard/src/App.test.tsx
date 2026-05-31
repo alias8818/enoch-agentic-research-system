@@ -193,6 +193,38 @@ it('shows research signal quality in the overview side rail', async () => {
             problems: [],
           }],
         }],
+        window_comparison: {
+          cutoff: '2026-05-11T09:58:00Z',
+          limit: 20,
+          delta: {
+            admitted_rate_delta: 0.1,
+            proxy_only_positive_delta: -4,
+            useful_adjacent_followup_delta: -4,
+            moonshot_avg_score_delta: 1.426,
+          },
+          current: {
+            candidate_count: 20,
+            decision_count: 20,
+            admitted_rate: 0.6,
+            avg_total_score: 73.093,
+            status_counts: { admitted: 12, rejected: 4 },
+            category_counts: { 'home-training': 3, 'long-context': 4 },
+            generation_mode_counts: { fresh_grounded: 9, moonshot: 10 },
+            eval_case_counts: { proxy_only_positive: 6, useful_adjacent_followup: 2 },
+            high_similarity_pair_count: 0,
+          },
+          previous: {
+            candidate_count: 20,
+            decision_count: 20,
+            admitted_rate: 0.5,
+            avg_total_score: 71.82,
+            status_counts: { admitted: 10, rejected: 2 },
+            category_counts: { 'home-training': 4, 'spec-decoding': 4 },
+            generation_mode_counts: { fresh_grounded: 7, moonshot: 7 },
+            eval_case_counts: { proxy_only_positive: 8, useful_adjacent_followup: 6 },
+            high_similarity_pair_count: 0,
+          },
+        },
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
         operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
         recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
@@ -246,6 +278,13 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('candidate-needs-review')).toBeInTheDocument()
   expect(within(quality).getByText('finalize negative / mixed: Mixed project')).toBeInTheDocument()
   expect(within(quality).getByText('project-mixed / run-mixed')).toBeInTheDocument()
+  expect(within(quality).getByText('Window comparison')).toBeInTheDocument()
+  expect(within(quality).getByText('admitted rate 0.6 now / 0.5 previous')).toBeInTheDocument()
+  expect(within(quality).getByText('fresh grounded 9')).toBeInTheDocument()
+  expect(within(quality).getByText('moonshot 10')).toBeInTheDocument()
+  expect(within(quality).getByText('home-training 3')).toBeInTheDocument()
+  expect(within(quality).getByText('long-context 4')).toBeInTheDocument()
+  expect(within(quality).getByText('high similarity pairs 0')).toBeInTheDocument()
   expect(within(quality).getByText('quality report stale: 120.0h old; refresh before relying on unattended automation')).toBeInTheDocument()
   expect(within(quality).getByText('Refresh source')).toBeInTheDocument()
   expect(within(quality).getByText('missing database URL')).toBeInTheDocument()

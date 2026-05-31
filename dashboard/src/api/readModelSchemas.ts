@@ -209,6 +209,26 @@ const decisionOutcomeSampleGroupSchema = z.object({
   samples: z.array(decisionOutcomeSampleRowSchema).optional(),
 }).passthrough()
 
+const qualityWindowSideSchema = z.object({
+  candidate_count: z.number().optional(),
+  decision_count: z.number().optional(),
+  admitted_rate: z.number().optional(),
+  avg_total_score: z.number().optional(),
+  status_counts: z.record(z.string(), z.number()).optional(),
+  category_counts: z.record(z.string(), z.number()).optional(),
+  generation_mode_counts: z.record(z.string(), z.number()).optional(),
+  eval_case_counts: z.record(z.string(), z.number()).optional(),
+  high_similarity_pair_count: z.number().optional(),
+}).passthrough()
+
+const qualityWindowComparisonSchema = z.object({
+  cutoff: z.string().optional(),
+  limit: z.number().optional(),
+  delta: z.record(z.string(), z.number()).optional(),
+  current: qualityWindowSideSchema.optional(),
+  previous: qualityWindowSideSchema.optional(),
+}).passthrough()
+
 const researchSignalQualitySchema = z.object({
   status: z.string().optional(),
   ok: z.boolean().optional(),
@@ -221,6 +241,7 @@ const researchSignalQualitySchema = z.object({
     z.array(candidateStatusSampleSchema),
   ).optional(),
   decision_outcome_samples: z.array(decisionOutcomeSampleGroupSchema).optional(),
+  window_comparison: qualityWindowComparisonSchema.optional(),
   weak_evidence_count: z.number().optional(),
   warning_problem_count: z.number().optional(),
   blocked_problem_count: z.number().optional(),

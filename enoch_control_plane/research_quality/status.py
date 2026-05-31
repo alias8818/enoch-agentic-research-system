@@ -622,6 +622,55 @@ def _window_eval_case_samples(
     return rows
 
 
+def _window_count_mapping(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for key, count in value.items():
+        label = str(key or "")
+        if label:
+            counts[label] = _safe_int(count)
+    return counts
+
+
+def _window_delta_mapping(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+    deltas: dict[str, float] = {}
+    for key, delta in value.items():
+        label = str(key or "")
+        if label:
+            deltas[label] = _safe_float(delta)
+    return deltas
+
+
+def _window_side_summary(value: Any) -> dict[str, Any]:
+    side = value if isinstance(value, dict) else {}
+    return {
+        "candidate_count": _safe_int(side.get("candidate_count")),
+        "decision_count": _safe_int(side.get("decision_count")),
+        "admitted_rate": _safe_float(side.get("admitted_rate")),
+        "avg_total_score": _safe_float(side.get("avg_total_score")),
+        "status_counts": _window_count_mapping(side.get("status_counts")),
+        "category_counts": _window_count_mapping(side.get("category_counts")),
+        "generation_mode_counts": _window_count_mapping(
+            side.get("generation_mode_counts")
+        ),
+        "eval_case_counts": _window_count_mapping(side.get("eval_case_counts")),
+        "high_similarity_pair_count": _safe_int(side.get("high_similarity_pair_count")),
+    }
+
+
+def _window_comparison_summary(window: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "cutoff": str(window.get("cutoff") or ""),
+        "limit": _safe_int(window.get("limit")),
+        "delta": _window_delta_mapping(window.get("delta")),
+        "current": _window_side_summary(window.get("post")),
+        "previous": _window_side_summary(window.get("pre")),
+    }
+
+
 def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, Any]:
     window = _load_json_file(window_path)
     if not window:
@@ -651,6 +700,7 @@ def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, An
         "available": True,
         "window_path": window_path,
         "cutoff": cutoff,
+        "window_comparison": _window_comparison_summary(window),
         "candidate_count": candidate_count,
         "decision_count": decision_count,
         "decision_coverage": decision_coverage,

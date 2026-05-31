@@ -126,6 +126,33 @@ export interface OverviewResponse {
         problems?: string[]
       }[]
     }[]
+    window_comparison?: {
+      cutoff?: string
+      limit?: number
+      delta?: Record<string, number>
+      current?: {
+        candidate_count?: number
+        decision_count?: number
+        admitted_rate?: number
+        avg_total_score?: number
+        status_counts?: Record<string, number>
+        category_counts?: Record<string, number>
+        generation_mode_counts?: Record<string, number>
+        eval_case_counts?: Record<string, number>
+        high_similarity_pair_count?: number
+      }
+      previous?: {
+        candidate_count?: number
+        decision_count?: number
+        admitted_rate?: number
+        avg_total_score?: number
+        status_counts?: Record<string, number>
+        category_counts?: Record<string, number>
+        generation_mode_counts?: Record<string, number>
+        eval_case_counts?: Record<string, number>
+        high_similarity_pair_count?: number
+      }
+    }
     weak_evidence_count?: number
     warning_problem_count?: number
     blocked_problem_count?: number

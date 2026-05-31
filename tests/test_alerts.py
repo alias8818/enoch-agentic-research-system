@@ -283,6 +283,50 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             "report_mtime": "2026-05-31T00:22:14Z",
             "report_path": str(report_path),
             "post_prompt_monitor": {
+                "window_comparison": {
+                    "cutoff": "2026-05-11T09:58:00Z",
+                    "limit": 20,
+                    "delta": {
+                        "admitted_rate_delta": 0.1,
+                        "proxy_only_positive_delta": -4.0,
+                        "useful_adjacent_followup_delta": -4.0,
+                        "moonshot_avg_score_delta": 1.426,
+                    },
+                    "current": {
+                        "candidate_count": 20,
+                        "decision_count": 20,
+                        "admitted_rate": 0.6,
+                        "avg_total_score": 73.093,
+                        "status_counts": {"admitted": 12, "rejected": 4},
+                        "category_counts": {"home-training": 3, "long-context": 4},
+                        "generation_mode_counts": {
+                            "fresh_grounded": 9,
+                            "moonshot": 10,
+                        },
+                        "eval_case_counts": {
+                            "proxy_only_positive": 6,
+                            "useful_adjacent_followup": 2,
+                        },
+                        "high_similarity_pair_count": 0,
+                    },
+                    "previous": {
+                        "candidate_count": 20,
+                        "decision_count": 20,
+                        "admitted_rate": 0.5,
+                        "avg_total_score": 71.82,
+                        "status_counts": {"admitted": 10, "rejected": 2},
+                        "category_counts": {"home-training": 4, "spec-decoding": 4},
+                        "generation_mode_counts": {
+                            "fresh_grounded": 7,
+                            "moonshot": 7,
+                        },
+                        "eval_case_counts": {
+                            "proxy_only_positive": 8,
+                            "useful_adjacent_followup": 6,
+                        },
+                        "high_similarity_pair_count": 0,
+                    },
+                },
                 "malformed_provider_response_count": 2,
                 "malformed_provider_response_ticks": 1,
                 "useful_adjacent_followup_delta": -4.0,
@@ -483,6 +527,44 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             ],
         }
     ]
+    assert finding.data["window_comparison"] == {
+        "cutoff": "2026-05-11T09:58:00Z",
+        "limit": 20,
+        "delta": {
+            "admitted_rate_delta": 0.1,
+            "proxy_only_positive_delta": -4.0,
+            "useful_adjacent_followup_delta": -4.0,
+            "moonshot_avg_score_delta": 1.426,
+        },
+        "current": {
+            "candidate_count": 20,
+            "decision_count": 20,
+            "admitted_rate": 0.6,
+            "avg_total_score": 73.093,
+            "status_counts": {"admitted": 12, "rejected": 4},
+            "category_counts": {"home-training": 3, "long-context": 4},
+            "generation_mode_counts": {"fresh_grounded": 9, "moonshot": 10},
+            "eval_case_counts": {
+                "proxy_only_positive": 6,
+                "useful_adjacent_followup": 2,
+            },
+            "high_similarity_pair_count": 0,
+        },
+        "previous": {
+            "candidate_count": 20,
+            "decision_count": 20,
+            "admitted_rate": 0.5,
+            "avg_total_score": 71.82,
+            "status_counts": {"admitted": 10, "rejected": 2},
+            "category_counts": {"home-training": 4, "spec-decoding": 4},
+            "generation_mode_counts": {"fresh_grounded": 7, "moonshot": 7},
+            "eval_case_counts": {
+                "proxy_only_positive": 8,
+                "useful_adjacent_followup": 6,
+            },
+            "high_similarity_pair_count": 0,
+        },
+    }
 
 
 def test_queue_alert_findings_blocks_missing_research_quality_report_during_hold(
