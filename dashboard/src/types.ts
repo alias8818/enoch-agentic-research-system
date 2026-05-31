@@ -126,6 +126,33 @@ export interface OverviewResponse {
         problems?: string[]
       }[]
     }[]
+    quality_floor?: {
+      available?: boolean
+      threshold?: number
+      posture?: string
+      candidates_checked?: number
+      decisions_checked?: number
+      candidate_below_floor_count?: number
+      decision_below_floor_count?: number
+      below_floor_count?: number
+      candidate_samples?: {
+        candidate_id?: string
+        title?: string
+        status?: string
+        score?: number
+        problems?: string[]
+      }[]
+      decision_samples?: {
+        project_id?: string
+        project_name?: string
+        run_id?: string
+        decision?: string
+        hypothesis_status?: string
+        score?: number
+        problems?: string[]
+      }[]
+      operator_action?: string
+    }
     window_comparison?: {
       cutoff?: string
       limit?: number

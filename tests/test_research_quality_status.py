@@ -84,6 +84,128 @@ def test_quality_report_recommendations_survive_classification() -> None:
     ]
 
 
+def test_quality_report_exposes_quality_floor_review_required() -> None:
+    report = _report_with_decision("")
+    report["summary"]["candidate_count"] = 2
+    report["summary"]["decision_count"] = 2
+    report["candidate_scores"] = [
+        {
+            "candidate_id": "candidate-good",
+            "title": "Good candidate",
+            "status": "admitted",
+            "deterministic_total_score": 82.0,
+            "contract_quality_score": 1.0,
+            "problems": [],
+        },
+        {
+            "candidate_id": "candidate-low",
+            "title": "Thin candidate",
+            "status": "needs_review",
+            "deterministic_total_score": 52.0,
+            "contract_quality_score": 0.55,
+            "problems": ["thin_expected_artifacts"],
+        },
+    ]
+    report["decision_scores"] = [
+        {
+            "project_id": "project-good",
+            "project_name": "Good project",
+            "run_id": "run-good",
+            "decision": "finalize_negative",
+            "hypothesis_status": "unsupported",
+            "evidence_strength": "moderate",
+            "decision_quality_score": 0.85,
+            "problems": [],
+        },
+        {
+            "project_id": "project-low",
+            "project_name": "Thin decision",
+            "run_id": "run-low",
+            "decision": "blocked",
+            "hypothesis_status": "unknown",
+            "evidence_strength": "weak",
+            "decision_quality_score": 0.4,
+            "problems": ["weak_or_missing_evidence_strength"],
+        },
+    ]
+
+    status = classify_quality_report(report)
+
+    assert status["quality_floor"] == {
+        "available": True,
+        "threshold": 0.7,
+        "posture": "review_required",
+        "candidates_checked": 2,
+        "decisions_checked": 2,
+        "candidate_below_floor_count": 1,
+        "decision_below_floor_count": 1,
+        "below_floor_count": 2,
+        "candidate_samples": [
+            {
+                "candidate_id": "candidate-low",
+                "title": "Thin candidate",
+                "status": "needs_review",
+                "score": 0.55,
+                "problems": ["thin_expected_artifacts"],
+            }
+        ],
+        "decision_samples": [
+            {
+                "project_id": "project-low",
+                "project_name": "Thin decision",
+                "run_id": "run-low",
+                "decision": "blocked",
+                "hypothesis_status": "unknown",
+                "score": 0.4,
+                "problems": ["weak_or_missing_evidence_strength"],
+            }
+        ],
+        "operator_action": (
+            "review 2 below-floor Research Quality artifacts before widening "
+            "automation or treating outputs as externally useful"
+        ),
+    }
+
+
+def test_quality_report_exposes_satisfied_quality_floor() -> None:
+    report = _report_with_decision("")
+    report["summary"]["candidate_count"] = 1
+    report["summary"]["decision_count"] = 1
+    report["candidate_scores"] = [
+        {
+            "candidate_id": "candidate-good",
+            "title": "Good candidate",
+            "status": "admitted",
+            "deterministic_total_score": 82.0,
+            "contract_quality_score": 1.0,
+            "problems": [],
+        }
+    ]
+    report["decision_scores"] = [
+        {
+            "project_id": "project-good",
+            "project_name": "Good project",
+            "run_id": "run-good",
+            "decision": "finalize_negative",
+            "hypothesis_status": "unsupported",
+            "evidence_strength": "moderate",
+            "decision_quality_score": 1.0,
+            "problems": [],
+        }
+    ]
+
+    status = classify_quality_report(report)
+
+    assert status["quality_floor"]["posture"] == "satisfied"
+    assert status["quality_floor"]["threshold"] == 0.7
+    assert status["quality_floor"]["candidate_below_floor_count"] == 0
+    assert status["quality_floor"]["decision_below_floor_count"] == 0
+    assert status["quality_floor"]["below_floor_count"] == 0
+    assert status["quality_floor"]["operator_action"] == (
+        "quality floor satisfied across 1 candidates and 1 decisions"
+    )
+
+
 def test_quality_report_portfolio_summary_survives_classification() -> None:
     report = _report_with_decision("")
     report["summary"].update(

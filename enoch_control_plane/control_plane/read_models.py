@@ -3173,6 +3173,107 @@ def _quality_decision_outcome_samples(value: Any) -> list[dict[str, Any]]:
     return outcomes
 
 
+def _quality_floor_candidate_sample(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, Mapping):
+        return None
+    candidate_id = _text(row.get("candidate_id"))
+    title = _text(row.get("title"))
+    if not candidate_id and not title:
+        return None
+    return {
+        "candidate_id": candidate_id,
+        "title": title,
+        "status": _text(row.get("status")),
+        "score": _quality_value(row, "score", 0.0),
+        "problems": _quality_problem_names(row.get("problems")),
+    }
+
+
+def _quality_floor_decision_sample(row: Any) -> dict[str, Any] | None:
+    if not isinstance(row, Mapping):
+        return None
+    project_id = _text(row.get("project_id"))
+    run_id = _text(row.get("run_id"))
+    title = _text(row.get("project_name"))
+    if not project_id and not run_id and not title:
+        return None
+    return {
+        "project_id": project_id,
+        "project_name": title,
+        "run_id": run_id,
+        "decision": _text(row.get("decision")),
+        "hypothesis_status": _text(row.get("hypothesis_status")),
+        "score": _quality_value(row, "score", 0.0),
+        "problems": _quality_problem_names(row.get("problems")),
+    }
+
+
+def _quality_floor_candidate_samples(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value:
+        sample = _quality_floor_candidate_sample(raw)
+        if sample is not None:
+            rows.append(sample)
+        if len(rows) >= 3:
+            break
+    return rows
+
+
+def _quality_floor_decision_samples(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value:
+        sample = _quality_floor_decision_sample(raw)
+        if sample is not None:
+            rows.append(sample)
+        if len(rows) >= 3:
+            break
+    return rows
+
+
+def _quality_floor(value: Any) -> dict[str, Any]:
+    floor = _quality_mapping(value)
+    if not floor:
+        return {}
+    return {
+        "available": bool(floor.get("available")),
+        "threshold": _quality_value(floor, "threshold", 0.0),
+        "posture": _text(floor.get("posture")),
+        "candidates_checked": _safe_count(floor.get("candidates_checked")),
+        "decisions_checked": _safe_count(floor.get("decisions_checked")),
+        "candidate_below_floor_count": _safe_count(
+            floor.get("candidate_below_floor_count")
+        ),
+        "decision_below_floor_count": _safe_count(
+            floor.get("decision_below_floor_count")
+        ),
+        "below_floor_count": _safe_count(floor.get("below_floor_count")),
+        "candidate_samples": _quality_floor_candidate_samples(
+            floor.get("candidate_samples")
+        ),
+        "decision_samples": _quality_floor_decision_samples(
+            floor.get("decision_samples")
+        ),
+        "operator_action": _text(floor.get("operator_action")),
+    }
+
+
+def _quality_floor_summary(floor: Mapping[str, Any]) -> str:
+    if not floor:
+        return ""
+    threshold = _quality_value(floor, "threshold", 0.0)
+    below_floor_count = _safe_count(floor.get("below_floor_count"))
+    if _text(floor.get("posture")) == "review_required" or below_floor_count > 0:
+        return f"quality floor=review {below_floor_count} below {threshold:.2f}"
+    checked = _safe_count(floor.get("candidates_checked")) + _safe_count(
+        floor.get("decisions_checked")
+    )
+    return f"quality floor=satisfied ({checked} checked; threshold {threshold:.2f})"
+
+
 def _quality_bool(value: Any) -> bool:
     if value is True or value == 1:
         return True
@@ -3667,8 +3768,10 @@ def research_signal_quality_snapshot(
         provider_generation_health=provider_generation_health,
     )
     window_comparison = _quality_window_comparison(monitor.get("window_comparison"))
+    quality_floor = _quality_floor(quality.get("quality_floor"))
     parts = [
         f"quality={status}",
+        *([_quality_floor_summary(quality_floor)] if quality_floor else []),
         f"weak evidence={weak_evidence_count}",
         _quality_provider_summary(
             malformed_count=malformed_count,
@@ -3702,6 +3805,7 @@ def research_signal_quality_snapshot(
         "decision_outcome_samples": _quality_decision_outcome_samples(
             quality.get("decision_outcome_samples")
         ),
+        "quality_floor": quality_floor,
         "decision_posture": _quality_decision_posture(quality.get("decision_posture")),
         "followup_readiness": _quality_followup_readiness(
             quality.get("followup_readiness")

@@ -26,6 +26,7 @@ DEFAULT_REFRESH_STATUS_PATH = (
 RESEARCH_QUALITY_LABEL_BLOCKED = "Research quality: BLOCKED"
 RESEARCH_QUALITY_LABEL_CLEAN = "Research quality: clean"
 RESEARCH_QUALITY_LABEL_WARNINGS = "Research quality: warnings"
+QUALITY_FLOOR_THRESHOLD = 0.7
 
 
 def _utc_iso_from_mtime(path: Path) -> str:
@@ -374,6 +375,87 @@ def _decision_outcome_samples(
                 }
             )
     return rows
+
+
+def _quality_floor_candidate_sample(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "candidate_id": str(row.get("candidate_id") or "").strip(),
+        "title": str(row.get("title") or "").strip(),
+        "status": str(row.get("status") or "").strip(),
+        "score": _safe_float(row.get("contract_quality_score")),
+        "problems": _problem_list(row.get("problems")),
+    }
+
+
+def _quality_floor_decision_sample(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "project_id": str(row.get("project_id") or "").strip(),
+        "project_name": str(row.get("project_name") or "").strip(),
+        "run_id": str(row.get("run_id") or "").strip(),
+        "decision": str(row.get("decision") or "").strip(),
+        "hypothesis_status": str(row.get("hypothesis_status") or "").strip(),
+        "score": _safe_float(row.get("decision_quality_score")),
+        "problems": _problem_list(row.get("problems")),
+    }
+
+
+def _quality_floor_operator_action(
+    *,
+    below_floor_count: int,
+    candidates_checked: int,
+    decisions_checked: int,
+) -> str:
+    if below_floor_count > 0:
+        return (
+            f"review {below_floor_count} below-floor Research Quality artifacts "
+            "before widening automation or treating outputs as externally useful"
+        )
+    return (
+        f"quality floor satisfied across {candidates_checked} candidates and "
+        f"{decisions_checked} decisions"
+    )
+
+
+def _quality_floor(
+    candidate_scores: Any,
+    decision_scores: Any,
+    *,
+    threshold: float = QUALITY_FLOOR_THRESHOLD,
+) -> dict[str, Any]:
+    candidates = [row for row in candidate_scores or [] if isinstance(row, dict)]
+    decisions = [row for row in decision_scores or [] if isinstance(row, dict)]
+    low_candidates = [
+        row
+        for row in candidates
+        if _safe_float(row.get("contract_quality_score")) < threshold
+    ]
+    low_decisions = [
+        row
+        for row in decisions
+        if _safe_float(row.get("decision_quality_score")) < threshold
+    ]
+    below_floor_count = len(low_candidates) + len(low_decisions)
+    return {
+        "available": bool(candidates or decisions),
+        "threshold": threshold,
+        "posture": "review_required" if below_floor_count else "satisfied",
+        "candidates_checked": len(candidates),
+        "decisions_checked": len(decisions),
+        "candidate_below_floor_count": len(low_candidates),
+        "decision_below_floor_count": len(low_decisions),
+        "below_floor_count": below_floor_count,
+        "candidate_samples": [
+            _quality_floor_candidate_sample(row) for row in low_candidates[:3]
+        ],
+        "decision_samples": [
+            _quality_floor_decision_sample(row) for row in low_decisions[:3]
+        ],
+        "operator_action": _quality_floor_operator_action(
+            below_floor_count=below_floor_count,
+            candidates_checked=len(candidates),
+            decisions_checked=len(decisions),
+        ),
+    }
 
 
 def _decision_posture_sample(row: dict[str, Any]) -> dict[str, Any]:
@@ -786,6 +868,9 @@ def classify_quality_report(
         "decision_outcome_samples": _decision_outcome_samples(
             summary.get("decision_counts"),
             report.get("decision_scores"),
+        ),
+        "quality_floor": _quality_floor(
+            report.get("candidate_scores"), report.get("decision_scores")
         ),
         "decision_posture": _decision_posture(report.get("decision_scores")),
         "followup_readiness": _followup_readiness(report.get("decision_scores")),

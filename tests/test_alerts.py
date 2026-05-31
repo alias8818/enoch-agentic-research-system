@@ -409,6 +409,21 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                     "readiness fields before queueing it"
                 ),
             },
+            "quality_floor": {
+                "available": True,
+                "threshold": 0.7,
+                "posture": "satisfied",
+                "candidates_checked": 45,
+                "decisions_checked": 50,
+                "candidate_below_floor_count": 0,
+                "decision_below_floor_count": 0,
+                "below_floor_count": 0,
+                "candidate_samples": [],
+                "decision_samples": [],
+                "operator_action": (
+                    "quality floor satisfied across 45 candidates and 50 decisions"
+                ),
+            },
             "report_mtime": "2026-05-31T00:22:14Z",
             "report_path": str(report_path),
             "post_prompt_monitor": {
@@ -568,10 +583,26 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
     )
     assert finding.data["status"] == "clean"
     assert finding.data["operator_summary"] == (
-        "quality=clean; weak evidence=0; provider malformed=active "
+        "quality=clean; quality floor=satisfied (95 checked; threshold 0.70); "
+        "weak evidence=0; provider malformed=active "
         "(2 responses across 1 recent tick); useful follow-up=active decline -4.0 "
         "(2 current vs 6 previous)"
     )
+    assert finding.data["quality_floor"] == {
+        "available": True,
+        "threshold": 0.7,
+        "posture": "satisfied",
+        "candidates_checked": 45,
+        "decisions_checked": 50,
+        "candidate_below_floor_count": 0,
+        "decision_below_floor_count": 0,
+        "below_floor_count": 0,
+        "candidate_samples": [],
+        "decision_samples": [],
+        "operator_action": (
+            "quality floor satisfied across 45 candidates and 50 decisions"
+        ),
+    }
     assert finding.data["signal_verdict"] == "review_required"
     assert finding.data["signal_label"] == "Research signal: review required"
     assert (

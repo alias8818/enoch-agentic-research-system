@@ -234,8 +234,35 @@ it('shows research signal quality in the overview side rail', async () => {
             research_outcome: 'useful_signal',
             followup_title: 'Mixed follow-up',
             problems: [],
-          }],
+            }],
         }],
+        quality_floor: {
+          available: true,
+          threshold: 0.7,
+          posture: 'review_required',
+          candidates_checked: 45,
+          decisions_checked: 50,
+          candidate_below_floor_count: 1,
+          decision_below_floor_count: 1,
+          below_floor_count: 2,
+          candidate_samples: [{
+            candidate_id: 'candidate-low',
+            title: 'Thin candidate',
+            status: 'needs_review',
+            score: 0.55,
+            problems: ['thin_expected_artifacts'],
+          }],
+          decision_samples: [{
+            project_id: 'project-low',
+            project_name: 'Thin decision',
+            run_id: 'run-low',
+            decision: 'blocked',
+            hypothesis_status: 'unknown',
+            score: 0.4,
+            problems: ['weak_or_missing_evidence_strength'],
+          }],
+          operator_action: 'review 2 below-floor Research Quality artifacts before widening automation or treating outputs as externally useful',
+        },
         decision_posture: {
           available: true,
           decisions_checked: 3,
@@ -356,7 +383,7 @@ it('shows research signal quality in the overview side rail', async () => {
             high_similarity_pair_count: 0,
           },
         },
-        operator_summary: 'quality=warnings; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)',
+        operator_summary: 'quality=warnings; quality floor=review 2 below 0.70; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)',
         operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
         recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
         top_problem_details: [{
@@ -415,6 +442,12 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('candidate-needs-review')).toBeInTheDocument()
   expect(within(quality).getByText('finalize negative / mixed: Mixed project')).toBeInTheDocument()
   expect(within(quality).getByText('project-mixed / run-mixed')).toBeInTheDocument()
+  expect(within(quality).getByText('Quality floor')).toBeInTheDocument()
+  expect(within(quality).getByText('floor review required at 0.70')).toBeInTheDocument()
+  expect(within(quality).getByText('below floor 2 / 95 checked')).toBeInTheDocument()
+  expect(within(quality).getByText('candidate Thin candidate 0.55')).toBeInTheDocument()
+  expect(within(quality).getByText('decision Thin decision 0.40')).toBeInTheDocument()
+  expect(within(quality).getByText('review 2 below-floor Research Quality artifacts before widening automation or treating outputs as externally useful')).toBeInTheDocument()
   expect(within(quality).getByText('Decision posture')).toBeInTheDocument()
   expect(within(quality).getByText('useful signals 2 / 3 decisions')).toBeInTheDocument()
   expect(within(quality).getByText('publication-ready 0')).toBeInTheDocument()

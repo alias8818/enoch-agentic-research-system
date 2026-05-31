@@ -204,6 +204,9 @@ type CandidateCategoryCount = NonNullable<ResearchSignalQuality['top_candidate_c
 type CandidateStatusSample = NonNullable<ResearchSignalQuality['candidate_status_samples']>[string][number]
 type DecisionOutcomeSampleGroup = NonNullable<ResearchSignalQuality['decision_outcome_samples']>[number]
 type DecisionOutcomeSample = NonNullable<DecisionOutcomeSampleGroup['samples']>[number]
+type QualityFloor = NonNullable<ResearchSignalQuality['quality_floor']>
+type QualityFloorCandidateSample = NonNullable<QualityFloor['candidate_samples']>[number]
+type QualityFloorDecisionSample = NonNullable<QualityFloor['decision_samples']>[number]
 type QualityWindowComparison = NonNullable<ResearchSignalQuality['window_comparison']>
 type ProviderGenerationHealth = NonNullable<ResearchSignalQuality['provider_generation_health']>
 type DecisionPosture = NonNullable<ResearchSignalQuality['decision_posture']>
@@ -256,6 +259,28 @@ function windowAdmittedRateLabel(windowComparison: QualityWindowComparison): str
   const current = String(windowComparison.current?.admitted_rate ?? 0)
   const previous = String(windowComparison.previous?.admitted_rate ?? 0)
   return `admitted rate ${current} now / ${previous} previous`
+}
+
+function qualityFloorPostureLabel(floor: QualityFloor): string {
+  const posture = portfolioLabel(floor.posture)
+  const threshold = Number(floor.threshold ?? 0)
+  return `floor ${posture} at ${threshold.toFixed(2)}`
+}
+
+function qualityFloorCountLabel(floor: QualityFloor): string {
+  const below = Number(floor.below_floor_count ?? 0)
+  const checked = Number(floor.candidates_checked ?? 0) + Number(floor.decisions_checked ?? 0)
+  return `below floor ${below} / ${checked} checked`
+}
+
+function qualityFloorCandidateTitle(row: QualityFloorCandidateSample): string {
+  const score = Number(row.score ?? 0).toFixed(2)
+  return `candidate ${displayText(row.title || row.candidate_id, 'unnamed candidate')} ${score}`
+}
+
+function qualityFloorDecisionTitle(row: QualityFloorDecisionSample): string {
+  const score = Number(row.score ?? 0).toFixed(2)
+  return `decision ${displayText(row.project_name || row.project_id || row.run_id, 'unnamed decision')} ${score}`
 }
 
 function providerCleanStreakLabel(health: ProviderGenerationHealth): string {
@@ -395,6 +420,9 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const windowGenerationModes = windowCountEntries(windowComparison?.current?.generation_mode_counts)
   const windowCategories = windowCountEntries(windowComparison?.current?.category_counts)
   const providerHealth = quality.provider_generation_health
+  const qualityFloor = quality.quality_floor
+  const qualityFloorCandidate = qualityFloor?.candidate_samples?.[0]
+  const qualityFloorDecision = qualityFloor?.decision_samples?.[0]
   const decisionPosture = quality.decision_posture
   const decisionPostureSample = decisionPosture?.representative_useful_signals?.[0]
   const followupReadiness = quality.followup_readiness
@@ -514,6 +542,16 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
               <p>{decisionOutcomeSampleId(row)}</p>
             </div>
           ))}
+        </div>
+      ) : null}
+      {qualityFloor ? (
+        <div className="quality-snapshot-detail">
+          <h4>Quality floor</h4>
+          <p>{qualityFloorPostureLabel(qualityFloor)}</p>
+          <p>{qualityFloorCountLabel(qualityFloor)}</p>
+          {qualityFloorCandidate ? <p>{qualityFloorCandidateTitle(qualityFloorCandidate)}</p> : null}
+          {qualityFloorDecision ? <p>{qualityFloorDecisionTitle(qualityFloorDecision)}</p> : null}
+          <p>{displayText(qualityFloor.operator_action, 'Inspect quality-floor posture before widening automation.')}</p>
         </div>
       ) : null}
       {decisionPosture ? (

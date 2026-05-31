@@ -152,6 +152,100 @@ def test_research_signal_quality_snapshot_marks_blocked_quality() -> None:
     assert snapshot["signal_reasons"][0]["code"] == "quality_blocked"
 
 
+def test_research_signal_quality_snapshot_surfaces_quality_floor_posture() -> None:
+    snapshot = research_signal_quality_snapshot(
+        {
+            "ok": True,
+            "status": "warnings",
+            "decisions_checked": 2,
+            "candidates_checked": 2,
+            "problem_counts": {},
+            "severity_counts": {"warning": 1},
+            "quality_floor": {
+                "available": True,
+                "threshold": 0.7,
+                "posture": "review_required",
+                "candidates_checked": 2,
+                "decisions_checked": 2,
+                "candidate_below_floor_count": 1,
+                "decision_below_floor_count": 1,
+                "below_floor_count": 2,
+                "candidate_samples": [
+                    {
+                        "candidate_id": "candidate-low",
+                        "title": "Thin candidate",
+                        "status": "needs_review",
+                        "score": 0.55,
+                        "problems": ["thin_expected_artifacts"],
+                    }
+                ],
+                "decision_samples": [
+                    {
+                        "project_id": "project-low",
+                        "project_name": "Thin decision",
+                        "run_id": "run-low",
+                        "decision": "blocked",
+                        "hypothesis_status": "unknown",
+                        "score": 0.4,
+                        "problems": ["weak_or_missing_evidence_strength"],
+                    }
+                ],
+                "operator_action": (
+                    "review 2 below-floor Research Quality artifacts before "
+                    "widening automation or treating outputs as externally useful"
+                ),
+            },
+            "post_prompt_monitor": {
+                "available": True,
+                "useful_adjacent_followup_delta": 0.0,
+                "malformed_provider_response_count": 0,
+            },
+            "report_mtime": "2026-05-30T00:00:00Z",
+            "refresh_status": {"available": True, "ok": True},
+        },
+        now=datetime(2026, 5, 30, tzinfo=timezone.utc),
+    )
+
+    assert snapshot["quality_floor"] == {
+        "available": True,
+        "threshold": 0.7,
+        "posture": "review_required",
+        "candidates_checked": 2,
+        "decisions_checked": 2,
+        "candidate_below_floor_count": 1,
+        "decision_below_floor_count": 1,
+        "below_floor_count": 2,
+        "candidate_samples": [
+            {
+                "candidate_id": "candidate-low",
+                "title": "Thin candidate",
+                "status": "needs_review",
+                "score": 0.55,
+                "problems": ["thin_expected_artifacts"],
+            }
+        ],
+        "decision_samples": [
+            {
+                "project_id": "project-low",
+                "project_name": "Thin decision",
+                "run_id": "run-low",
+                "decision": "blocked",
+                "hypothesis_status": "unknown",
+                "score": 0.4,
+                "problems": ["weak_or_missing_evidence_strength"],
+            }
+        ],
+        "operator_action": (
+            "review 2 below-floor Research Quality artifacts before widening "
+            "automation or treating outputs as externally useful"
+        ),
+    }
+    assert snapshot["operator_summary"] == (
+        "quality=warnings; quality floor=review 2 below 0.70; "
+        "weak evidence=0; provider malformed=clean; useful follow-up=stable 0.0"
+    )
+
+
 def test_research_signal_quality_snapshot_marks_review_required_signal() -> None:
     snapshot = research_signal_quality_snapshot(
         {
