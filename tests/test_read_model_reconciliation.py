@@ -1005,6 +1005,14 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
                         "checked_at": "2026-05-30T14:41:20Z",
                         "provider_model": "hf:model-clean",
                         "malformed_provider_response_count": 0,
+                        "initial_promotable_count": 2,
+                        "generated_count": 0,
+                        "promoted_count": 0,
+                        "dispatched_count": 0,
+                        "reason": (
+                            "bounded research cycle completed; broad queue pause "
+                            "preserved and paper stages were positive-gated"
+                        ),
                         "status": "clean",
                     },
                     "last_malformed_tick": {
@@ -1017,6 +1025,14 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
                         "provider generation has 69 clean ticks since the last "
                         "malformed response; review the last malformed model "
                         "before widening automation"
+                    ),
+                    "consecutive_zero_generated_ticks": 69,
+                    "consecutive_zero_promoted_ticks": 69,
+                    "latest_yield_status": "backlog_satisfied",
+                    "yield_operator_action": (
+                        "fresh provider generation is not yielding new candidates "
+                        "because 2 promotable candidate(s) were already available; "
+                        "monitor yield before treating provider health as idea volume"
                     ),
                 },
                 "window_comparison": {
@@ -1038,9 +1054,20 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
         "recovered"
     )
     assert snapshot["provider_generation_health"]["active_malformed_warning"] is False
+    assert snapshot["provider_generation_health"]["latest_yield_status"] == (
+        "backlog_satisfied"
+    )
+    assert snapshot["provider_generation_health"]["latest_tick"][
+        "initial_promotable_count"
+    ] == 2
+    assert snapshot["provider_generation_health"][
+        "consecutive_zero_generated_ticks"
+    ] == 69
     assert snapshot["operator_summary"] == (
         "quality=clean; weak evidence=0; "
         "provider malformed=recovered (16 responses; 69 clean ticks); "
+        "provider yield=backlog satisfied (0 generated; 2 promotable; "
+        "69 zero-generation ticks); "
         "useful follow-up=active decline -4.0 (2 current vs 6 previous)"
     )
     assert "malformed provider responses=16" not in snapshot["operator_summary"]

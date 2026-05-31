@@ -141,9 +141,11 @@ it('shows research signal quality in the overview side rail', async () => {
             run_cycle_id: 'run-cycle-b',
             provider_model: 'hf:model-b',
             malformed_provider_response_count: 0,
+            initial_promotable_count: 2,
             generated_count: 3,
             promoted_count: 1,
             dispatched_count: 0,
+            reason: 'bounded research cycle completed',
             status: 'clean',
             operator_action: 'provider generation is currently clean; keep monitoring before widening automation',
           },
@@ -160,6 +162,10 @@ it('shows research signal quality in the overview side rail', async () => {
             status: 'malformed',
             operator_action: 'inspect provider-generation output for this tick before trusting new idea volume',
           },
+          consecutive_zero_generated_ticks: 0,
+          consecutive_zero_promoted_ticks: 0,
+          latest_yield_status: 'yielding',
+          yield_operator_action: 'provider generation yielded 3 candidate(s) and promoted 1; use yield counts alongside malformed-output recovery',
           operator_action: 'provider generation has 2 clean ticks since the last malformed response; review the last malformed model before widening automation',
         },
         useful_adjacent_followup_evidence: {
@@ -491,6 +497,10 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('provider warning recovered')).toBeInTheDocument()
   expect(within(quality).getByText('2 clean ticks since last malformed')).toBeInTheDocument()
   expect(within(quality).getByText('latest hf:model-b clean at 2026-05-30T04:00:30Z')).toBeInTheDocument()
+  expect(within(quality).getByText('Provider yield')).toBeInTheDocument()
+  expect(within(quality).getByText('yielding: 3 generated / 1 promoted / 2 initially promotable')).toBeInTheDocument()
+  expect(within(quality).getByText('0 zero-generation ticks / 0 zero-promotion ticks')).toBeInTheDocument()
+  expect(within(quality).getByText('provider generation yielded 3 candidate(s) and promoted 1; use yield counts alongside malformed-output recovery')).toBeInTheDocument()
   expect(within(quality).getByText('last malformed hf:model-a 2 at 2026-05-30T03:00:30Z')).toBeInTheDocument()
   expect(within(quality).getByText('provider generation has 2 clean ticks since the last malformed response; review the last malformed model before widening automation')).toBeInTheDocument()
   expect(within(quality).getByText('Follow-up trend evidence')).toBeInTheDocument()

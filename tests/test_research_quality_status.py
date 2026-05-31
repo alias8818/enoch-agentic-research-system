@@ -1179,9 +1179,11 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
             "run_cycle_id": "run-cycle-d",
             "provider_model": "hf:model-c",
             "malformed_provider_response_count": 0,
+            "initial_promotable_count": 0,
             "generated_count": 3,
             "promoted_count": 2,
             "dispatched_count": 0,
+            "reason": "",
             "status": "clean",
             "operator_action": (
                 "provider generation is currently clean; keep monitoring "
@@ -1195,15 +1197,24 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
             "run_cycle_id": "run-cycle-b",
             "provider_model": "hf:model-b",
             "malformed_provider_response_count": 2,
+            "initial_promotable_count": 0,
             "generated_count": 0,
             "promoted_count": 0,
             "dispatched_count": 1,
+            "reason": "",
             "status": "malformed",
             "operator_action": (
                 "inspect provider-generation output for this tick before "
                 "trusting new idea volume"
             ),
         },
+        "consecutive_zero_generated_ticks": 0,
+        "consecutive_zero_promoted_ticks": 0,
+        "latest_yield_status": "yielding",
+        "yield_operator_action": (
+            "provider generation yielded 3 candidate(s) and promoted 2; use "
+            "yield counts alongside malformed-output recovery"
+        ),
         "operator_action": (
             "provider generation has 2 clean ticks since the last malformed "
             "response; review the last malformed model before widening automation"
@@ -1245,6 +1256,77 @@ def test_quality_status_summarizes_recent_malformed_provider_history(
             ),
         },
     ]
+
+
+def test_quality_status_exposes_provider_generation_yield_posture(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "quality.json"
+    report_path.write_text(json.dumps(_report_with_decision("")), encoding="utf-8")
+    window_path = tmp_path / "window.json"
+    window_path.write_text(json.dumps({"ok": True}), encoding="utf-8")
+    history_path = tmp_path / "history.jsonl"
+    history_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "checked_at": "2026-05-11T10:00:00Z",
+                        "recorded_at": "2026-05-11T10:02:00Z",
+                        "provider_model": "hf:model-a",
+                        "malformed_provider_response_count": 0,
+                        "initial_promotable_count": 3,
+                        "generated_count": 0,
+                        "promoted_count": 0,
+                        "dispatched_count": 0,
+                        "reason": (
+                            "bounded research cycle completed; broad queue pause "
+                            "preserved and paper stages were positive-gated"
+                        ),
+                    }
+                ),
+                json.dumps(
+                    {
+                        "checked_at": "2026-05-11T11:00:00Z",
+                        "recorded_at": "2026-05-11T11:02:00Z",
+                        "provider_model": "hf:model-b",
+                        "malformed_provider_response_count": 0,
+                        "initial_promotable_count": 2,
+                        "generated_count": 0,
+                        "promoted_count": 0,
+                        "dispatched_count": 0,
+                        "reason": (
+                            "bounded research cycle completed; broad queue pause "
+                            "preserved and paper stages were positive-gated"
+                        ),
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    status = load_latest_quality_status(
+        [str(report_path)],
+        window_report_path=str(window_path),
+        autopilot_history_path=str(history_path),
+    )
+
+    provider_health = status["post_prompt_monitor"]["provider_generation_health"]
+    assert provider_health["latest_tick"]["initial_promotable_count"] == 2
+    assert provider_health["latest_tick"]["reason"] == (
+        "bounded research cycle completed; broad queue pause preserved and paper "
+        "stages were positive-gated"
+    )
+    assert provider_health["consecutive_zero_generated_ticks"] == 2
+    assert provider_health["consecutive_zero_promoted_ticks"] == 2
+    assert provider_health["latest_yield_status"] == "backlog_satisfied"
+    assert provider_health["yield_operator_action"] == (
+        "fresh provider generation is not yielding new candidates because 2 "
+        "promotable candidate(s) were already available; monitor yield before "
+        "treating provider health as idea volume"
+    )
 
 
 def test_quality_status_includes_refresh_sidecar_status(tmp_path: Path) -> None:

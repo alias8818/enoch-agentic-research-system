@@ -266,9 +266,11 @@ const providerGenerationTickSchema = z.object({
   run_cycle_id: z.string().optional(),
   provider_model: z.string().optional(),
   malformed_provider_response_count: z.number().optional(),
+  initial_promotable_count: z.number().optional(),
   generated_count: z.number().optional(),
   promoted_count: z.number().optional(),
   dispatched_count: z.number().optional(),
+  reason: z.string().optional(),
   status: z.string().optional(),
   operator_action: z.string().optional(),
 }).passthrough()
@@ -287,6 +289,10 @@ const providerGenerationHealthSchema = z.object({
   malformed_provider_model_counts: z.record(z.string(), z.number()).optional(),
   latest_tick: providerGenerationTickSchema.optional(),
   last_malformed_tick: providerGenerationTickSchema.optional(),
+  consecutive_zero_generated_ticks: z.number().optional(),
+  consecutive_zero_promoted_ticks: z.number().optional(),
+  latest_yield_status: z.string().optional(),
+  yield_operator_action: z.string().optional(),
   operator_action: z.string().optional(),
 }).passthrough()
 

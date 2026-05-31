@@ -1180,9 +1180,11 @@ def _provider_generation_tick(item: dict[str, Any] | None) -> dict[str, Any]:
         "recorded_at": str(item.get("recorded_at") or ""),
         "provider_model": str(item.get("provider_model") or ""),
         "malformed_provider_response_count": malformed_count,
+        "initial_promotable_count": _safe_int(item.get("initial_promotable_count")),
         "generated_count": _safe_int(item.get("generated_count")),
         "promoted_count": _safe_int(item.get("promoted_count")),
         "dispatched_count": _safe_int(item.get("dispatched_count")),
+        "reason": str(item.get("reason") or ""),
         "status": status,
         "operator_action": _malformed_provider_operator_action()
         if status == "malformed"
@@ -1193,6 +1195,54 @@ def _provider_generation_tick(item: dict[str, Any] | None) -> dict[str, Any]:
         if value:
             row[key] = value
     return row
+
+
+def _consecutive_provider_zero_count(
+    rows: list[dict[str, Any]], field: str
+) -> int:
+    count = 0
+    for item in reversed(rows):
+        if _safe_int(item.get(field)) > 0:
+            break
+        count += 1
+    return count
+
+
+def _provider_generation_latest_yield_status(
+    latest_tick: dict[str, Any],
+) -> str:
+    generated = _safe_int(latest_tick.get("generated_count"))
+    promoted = _safe_int(latest_tick.get("promoted_count"))
+    initial_promotable = _safe_int(latest_tick.get("initial_promotable_count"))
+    if generated > 0 or promoted > 0:
+        return "yielding"
+    if initial_promotable > 0:
+        return "backlog_satisfied"
+    return "zero_yield"
+
+
+def _provider_generation_yield_operator_action(
+    latest_tick: dict[str, Any], *, latest_yield_status: str
+) -> str:
+    generated = _safe_int(latest_tick.get("generated_count"))
+    promoted = _safe_int(latest_tick.get("promoted_count"))
+    initial_promotable = _safe_int(latest_tick.get("initial_promotable_count"))
+    if latest_yield_status == "yielding":
+        return (
+            f"provider generation yielded {generated} candidate(s) and promoted "
+            f"{promoted}; use yield counts alongside malformed-output recovery"
+        )
+    if latest_yield_status == "backlog_satisfied":
+        return (
+            "fresh provider generation is not yielding new candidates because "
+            f"{initial_promotable} promotable candidate(s) were already available; "
+            "monitor yield before treating provider health as idea volume"
+        )
+    return (
+        "latest provider tick produced no generated or promoted candidates; "
+        "inspect provider budget, backlog, and model responses before trusting "
+        "idea volume"
+    )
 
 
 def _provider_generation_health_operator_action(
@@ -1235,6 +1285,8 @@ def _provider_generation_health(
         consecutive_clean_ticks += 1
     last_row = rows[-1] if rows else None
     last_malformed = malformed_rows[-1] if malformed_rows else None
+    latest_tick = _provider_generation_tick(last_row)
+    latest_yield_status = _provider_generation_latest_yield_status(latest_tick)
     return {
         "available": True,
         "rows_checked": len(rows),
@@ -1255,8 +1307,19 @@ def _provider_generation_health(
         if last_malformed
         else "",
         "malformed_provider_model_counts": dict(sorted(model_counts.items())),
-        "latest_tick": _provider_generation_tick(last_row),
+        "latest_tick": latest_tick,
         "last_malformed_tick": _provider_generation_tick(last_malformed),
+        "consecutive_zero_generated_ticks": _consecutive_provider_zero_count(
+            rows, "generated_count"
+        ),
+        "consecutive_zero_promoted_ticks": _consecutive_provider_zero_count(
+            rows, "promoted_count"
+        ),
+        "latest_yield_status": latest_yield_status,
+        "yield_operator_action": _provider_generation_yield_operator_action(
+            latest_tick,
+            latest_yield_status=latest_yield_status,
+        ),
         "operator_action": _provider_generation_health_operator_action(
             rows_checked=len(rows),
             consecutive_clean_ticks=consecutive_clean_ticks,

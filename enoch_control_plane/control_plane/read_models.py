@@ -2918,6 +2918,12 @@ def _quality_provider_generation_tick(value: Any) -> dict[str, Any]:
         "status": _text(row.get("status")),
         "operator_action": _text(row.get("operator_action")),
     }
+    if "initial_promotable_count" in row:
+        normalized["initial_promotable_count"] = _safe_count(
+            row.get("initial_promotable_count")
+        )
+    if "reason" in row:
+        normalized["reason"] = _text(row.get("reason"))
     for key in ("trace_id", "run_cycle_id"):
         text_value = _text(row.get(key))
         if text_value:
@@ -2949,7 +2955,7 @@ def _quality_provider_generation_health(value: Any) -> dict[str, Any]:
     else:
         malformed_status = "active"
         active_malformed_warning = True
-    return {
+    normalized = {
         "available": bool(health.get("available")),
         "rows_checked": _safe_count(health.get("rows_checked")),
         "malformed_provider_response_count": malformed_count,
@@ -2971,6 +2977,16 @@ def _quality_provider_generation_health(value: Any) -> dict[str, Any]:
         ),
         "operator_action": _text(health.get("operator_action")),
     }
+    for key in (
+        "consecutive_zero_generated_ticks",
+        "consecutive_zero_promoted_ticks",
+    ):
+        if key in health:
+            normalized[key] = _safe_count(health.get(key))
+    for key in ("latest_yield_status", "yield_operator_action"):
+        if key in health:
+            normalized[key] = _text(health.get(key))
+    return normalized
 
 
 def _quality_followup_evidence_row(row: Any) -> dict[str, Any] | None:
@@ -3639,6 +3655,34 @@ def _quality_provider_summary(
     )
 
 
+def _quality_provider_yield_summary(
+    provider_generation_health: Mapping[str, Any],
+) -> str:
+    latest_tick = _quality_mapping(provider_generation_health.get("latest_tick"))
+    latest_yield_status = _text(provider_generation_health.get("latest_yield_status"))
+    if not latest_yield_status:
+        return ""
+    generated = _safe_count(latest_tick.get("generated_count"))
+    promoted = _safe_count(latest_tick.get("promoted_count"))
+    initial_promotable = _safe_count(latest_tick.get("initial_promotable_count"))
+    zero_generated = _safe_count(
+        provider_generation_health.get("consecutive_zero_generated_ticks")
+    )
+    if latest_yield_status == "yielding":
+        return f"provider yield=yielding ({generated} generated; {promoted} promoted)"
+    if latest_yield_status == "backlog_satisfied":
+        return (
+            "provider yield=backlog satisfied "
+            f"({generated} generated; {initial_promotable} promotable; "
+            f"{zero_generated} zero-generation ticks)"
+        )
+    return (
+        "provider yield=zero "
+        f"({generated} generated; {promoted} promoted; "
+        f"{zero_generated} zero-generation ticks)"
+    )
+
+
 def _quality_useful_followup_window_counts(
     window_comparison: Mapping[str, Any],
 ) -> tuple[int, int] | None:
@@ -3916,8 +3960,10 @@ def research_signal_quality_snapshot(
             malformed_ticks=malformed_ticks,
             provider_generation_health=provider_generation_health,
         ),
+        _quality_provider_yield_summary(provider_generation_health),
         _quality_useful_followup_summary(float(useful_delta), window_comparison),
     ]
+    parts = [part for part in parts if part]
     raw_recommendations = _quality_recommendations(quality)
     return {
         "status": status,

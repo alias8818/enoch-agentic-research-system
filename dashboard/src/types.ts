@@ -258,9 +258,11 @@ export interface OverviewResponse {
         run_cycle_id?: string
         provider_model?: string
         malformed_provider_response_count?: number
+        initial_promotable_count?: number
         generated_count?: number
         promoted_count?: number
         dispatched_count?: number
+        reason?: string
         status?: string
         operator_action?: string
       }
@@ -271,12 +273,18 @@ export interface OverviewResponse {
         run_cycle_id?: string
         provider_model?: string
         malformed_provider_response_count?: number
+        initial_promotable_count?: number
         generated_count?: number
         promoted_count?: number
         dispatched_count?: number
+        reason?: string
         status?: string
         operator_action?: string
       }
+      consecutive_zero_generated_ticks?: number
+      consecutive_zero_promoted_ticks?: number
+      latest_yield_status?: string
+      yield_operator_action?: string
       operator_action?: string
     }
     decision_posture?: {

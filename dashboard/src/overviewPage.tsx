@@ -390,6 +390,21 @@ function providerLatestTickLabel(health: ProviderGenerationHealth): string {
   return `latest ${model} ${status} at ${checkedAt}`
 }
 
+function providerYieldLabel(health: ProviderGenerationHealth): string {
+  const latest = health.latest_tick
+  const status = portfolioLabel(health.latest_yield_status || 'unknown')
+  const generated = Number(latest?.generated_count ?? 0)
+  const promoted = Number(latest?.promoted_count ?? 0)
+  const initialPromotable = Number(latest?.initial_promotable_count ?? 0)
+  return `${status}: ${generated} generated / ${promoted} promoted / ${initialPromotable} initially promotable`
+}
+
+function providerYieldStreakLabel(health: ProviderGenerationHealth): string {
+  const zeroGenerated = Number(health.consecutive_zero_generated_ticks ?? 0)
+  const zeroPromoted = Number(health.consecutive_zero_promoted_ticks ?? 0)
+  return `${zeroGenerated} zero-generation ticks / ${zeroPromoted} zero-promotion ticks`
+}
+
 function providerLastMalformedLabel(health: ProviderGenerationHealth): string {
   const last = health.last_malformed_tick
   const model = displayText(last?.provider_model, 'unknown model')
@@ -561,6 +576,10 @@ function ResearchQualityProviderRecovery({ providerHealth }: Readonly<{ provider
       <p>{providerWarningPostureLabel(providerHealth)}</p>
       <p>{providerCleanStreakLabel(providerHealth)}</p>
       <p>{providerLatestTickLabel(providerHealth)}</p>
+      <h4>Provider yield</h4>
+      <p>{providerYieldLabel(providerHealth)}</p>
+      <p>{providerYieldStreakLabel(providerHealth)}</p>
+      <p>{displayText(providerHealth.yield_operator_action, 'Inspect provider-generation yield before trusting idea volume.')}</p>
       <p>{providerLastMalformedLabel(providerHealth)}</p>
       <p>{displayText(providerHealth.operator_action, 'Inspect provider-generation history before trusting new idea volume.')}</p>
     </div>
