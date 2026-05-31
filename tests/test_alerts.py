@@ -209,6 +209,128 @@ def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
     ]
 
 
+def test_queue_alert_findings_explains_review_required_signal_during_hold(
+    monkeypatch, tmp_path
+) -> None:
+    report_path = tmp_path / "research-quality.json"
+    report_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        alerts,
+        "load_latest_quality_status",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "status": "clean",
+            "label": "Research quality: clean",
+            "severity_counts": {},
+            "problem_counts": {},
+            "report_mtime": "2026-05-31T00:22:14Z",
+            "report_path": str(report_path),
+            "post_prompt_monitor": {
+                "malformed_provider_response_count": 2,
+                "malformed_provider_response_ticks": 1,
+                "useful_adjacent_followup_delta": -4.0,
+                "recent_malformed_provider_responses": [
+                    {
+                        "checked_at": "2026-05-30T03:00:30Z",
+                        "recorded_at": "2026-05-30T03:04:45Z",
+                        "provider_model": "hf:model-a",
+                        "malformed_provider_response_count": 2,
+                        "generated_count": 0,
+                        "promoted_count": 0,
+                        "dispatched_count": 2,
+                    }
+                ],
+            },
+            "problem_details": [],
+            "recommendations": [
+                "No critical quality-layer warnings from the read-only audit heuristics."
+            ],
+            "refresh_status": {"available": True, "ok": True},
+        },
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding.message == "research signal requires review"
+    assert (
+        finding.suggested_action
+        == "inspect provider-generation failures before trusting new idea volume"
+    )
+    assert finding.data["status"] == "clean"
+    assert finding.data["signal_verdict"] == "review_required"
+    assert finding.data["signal_label"] == "Research signal: review required"
+    assert finding.data["operator_recommendations"] == [
+        "inspect provider-generation failures before trusting new idea volume",
+        "review recent follow-up quality before increasing throughput",
+        (
+            "inspect provider-generation output for the listed ticks before "
+            "trusting new idea volume"
+        ),
+    ]
+    assert finding.data["signal_reasons"] == [
+        {
+            "code": "malformed_provider_responses",
+            "severity": "warning",
+            "message": "provider generation produced malformed responses",
+            "operator_action": (
+                "inspect provider-generation failures before trusting new idea volume"
+            ),
+        },
+        {
+            "code": "useful_followup_decline",
+            "severity": "warning",
+            "message": "useful adjacent follow-up signal declined",
+            "operator_action": (
+                "review recent follow-up quality before increasing throughput"
+            ),
+        },
+    ]
+    assert finding.data["post_prompt_warning_details"] == [
+        {
+            "code": "malformed_provider_responses",
+            "severity": "warning",
+            "message": "2 malformed provider responses across 1 recent tick",
+            "operator_action": (
+                "inspect provider-generation output for the listed ticks before "
+                "trusting new idea volume"
+            ),
+        },
+        {
+            "code": "useful_followup_decline",
+            "severity": "warning",
+            "message": "useful adjacent follow-up signal declined by 4.0",
+            "operator_action": (
+                "review recent follow-up quality before increasing throughput"
+            ),
+        },
+    ]
+    assert finding.data["recent_malformed_provider_responses"] == [
+        {
+            "checked_at": "2026-05-30T03:00:30Z",
+            "recorded_at": "2026-05-30T03:04:45Z",
+            "provider_model": "hf:model-a",
+            "malformed_provider_response_count": 2,
+            "generated_count": 0,
+            "promoted_count": 0,
+            "dispatched_count": 2,
+            "operator_action": (
+                "inspect provider-generation output for this tick before "
+                "trusting new idea volume"
+            ),
+        }
+    ]
+
+
 def test_queue_alert_findings_blocks_missing_research_quality_report_during_hold(
     monkeypatch, tmp_path
 ) -> None:

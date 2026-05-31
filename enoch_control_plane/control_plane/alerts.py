@@ -21,6 +21,7 @@ from ..research_quality.status import (
 from ..timeutils import parse_utc_datetime
 from ..url_safety import validate_http_url
 from .models import DashboardFinding, DashboardStatusResponse
+from .read_models import research_signal_quality_snapshot
 from .research_quality_freshness import research_quality_report_freshness
 from .store import ControlPlaneStore
 
@@ -416,7 +417,7 @@ def _research_quality_degraded(status: str, counts: dict[str, Any]) -> bool:
 
 
 def _research_quality_alert_heading(
-    quality: dict[str, Any], status: str, counts: dict[str, Any]
+    quality: dict[str, Any], status: str, counts: dict[str, Any], signal: dict[str, Any]
 ) -> tuple[str, str]:
     if (
         status == "blocked"
@@ -424,6 +425,8 @@ def _research_quality_alert_heading(
         or not quality.get("ok")
     ):
         return "critical", "research quality is blocked"
+    if signal.get("signal_verdict") == "review_required":
+        return "warn", "research signal requires review"
     return "warn", "research quality warnings present"
 
 
@@ -463,14 +466,21 @@ def _research_quality_alert_finding(
     counts = _research_quality_signal_counts(quality)
     if not _research_quality_degraded(status, counts):
         return None
-    severity, message = _research_quality_alert_heading(quality, status, counts)
+    signal = research_signal_quality_snapshot(quality)
+    severity, message = _research_quality_alert_heading(quality, status, counts, signal)
+    operator_recommendations = signal.get("operator_recommendations") or []
+    suggested_action = (
+        operator_recommendations[0]
+        if operator_recommendations
+        else "inspect the latest research-quality report before resuming unattended automation"
+    )
     return DashboardFinding(
         severity=severity,
         source="research_quality",
         authority="latest read-only DSPy/research-quality report",
         message=message,
         observed_at=str(quality.get("report_mtime") or ""),
-        suggested_action="inspect the latest research-quality report before resuming unattended automation",
+        suggested_action=suggested_action,
         data={
             "status": status,
             "label": quality.get("label") or "",
@@ -478,6 +488,16 @@ def _research_quality_alert_finding(
             **research_quality_report_freshness(quality.get("report_mtime")),
             **counts,
             "top_problem_details": _research_quality_problem_details(quality),
+            "signal_verdict": signal.get("signal_verdict"),
+            "signal_label": signal.get("signal_label"),
+            "signal_reasons": signal.get("signal_reasons") or [],
+            "operator_recommendations": operator_recommendations,
+            "post_prompt_warning_details": signal.get("post_prompt_warning_details")
+            or [],
+            "recent_malformed_provider_responses": signal.get(
+                "recent_malformed_provider_responses"
+            )
+            or [],
         },
     )
 
