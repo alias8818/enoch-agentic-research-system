@@ -77,7 +77,8 @@ def test_research_signal_quality_snapshot_surfaces_operator_quality_signals() ->
     assert snapshot["useful_adjacent_followup_delta"] == -4.0
     assert (
         snapshot["operator_summary"]
-        == "quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0"
+        == "quality=warnings; weak evidence=2; provider malformed=active "
+        "(7 responses across 4 recent ticks); useful follow-up=active decline -4.0"
     )
     assert snapshot["top_problem_details"] == [
         {
@@ -916,6 +917,11 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
         "recovered"
     )
     assert snapshot["provider_generation_health"]["active_malformed_warning"] is False
+    assert snapshot["operator_summary"] == (
+        "quality=clean; weak evidence=0; provider malformed=recovered "
+        "(16 responses; 69 clean ticks); useful follow-up=active decline -4.0"
+    )
+    assert "malformed provider responses=16" not in snapshot["operator_summary"]
     assert snapshot["signal_reasons"] == [
         {
             "code": "provider_generation_recovered",

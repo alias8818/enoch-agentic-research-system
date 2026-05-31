@@ -491,6 +491,7 @@ def _research_quality_alert_finding(
             "signal_verdict": signal.get("signal_verdict"),
             "signal_label": signal.get("signal_label"),
             "signal_operator_action": signal.get("signal_operator_action"),
+            "operator_summary": signal.get("operator_summary"),
             "signal_reasons": signal.get("signal_reasons") or [],
             "operator_recommendations": operator_recommendations,
             "candidate_status_counts": signal.get("candidate_status_counts") or {},

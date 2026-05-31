@@ -3413,6 +3413,36 @@ def _post_prompt_warning_details(
     return details
 
 
+def _quality_provider_summary(
+    *,
+    malformed_count: int,
+    malformed_ticks: int,
+    provider_generation_health: Mapping[str, Any],
+) -> str:
+    status = _text(provider_generation_health.get("malformed_history_status"))
+    clean_ticks = _safe_count(provider_generation_health.get("consecutive_clean_ticks"))
+    if malformed_count <= 0:
+        return "provider malformed=clean"
+    if status == "recovered":
+        return (
+            f"provider malformed=recovered ({malformed_count} responses; "
+            f"{clean_ticks} clean ticks)"
+        )
+    tick_label = "recent tick" if malformed_ticks == 1 else "recent ticks"
+    return (
+        f"provider malformed=active ({malformed_count} responses across "
+        f"{malformed_ticks} {tick_label})"
+    )
+
+
+def _quality_useful_followup_summary(useful_delta: float) -> str:
+    if useful_delta < 0:
+        return f"useful follow-up=active decline {useful_delta:.1f}"
+    if useful_delta > 0:
+        return f"useful follow-up=improving +{useful_delta:.1f}"
+    return "useful follow-up=stable 0.0"
+
+
 def _quality_refresh_operator_action(refresh: Mapping[str, Any]) -> str:
     reason = _text(refresh.get("reason"))
     if bool(refresh.get("ok")):
@@ -3592,12 +3622,6 @@ def research_signal_quality_snapshot(
     useful_delta = _quality_value(monitor, "useful_adjacent_followup_delta", 0.0)
     status = _text(quality.get("status")) or "unknown"
     refresh = _quality_mapping(quality.get("refresh_status"))
-    parts = [
-        f"quality={status}",
-        f"weak evidence={weak_evidence_count}",
-        f"malformed provider responses={malformed_count}",
-        f"useful follow-up delta={useful_delta}",
-    ]
     report_mtime = quality.get("report_mtime") or ""
     freshness = research_quality_report_freshness(report_mtime, now=now)
     quality_ok = bool(quality.get("ok"))
@@ -3621,6 +3645,16 @@ def research_signal_quality_snapshot(
         useful_delta=float(useful_delta),
         provider_generation_health=provider_generation_health,
     )
+    parts = [
+        f"quality={status}",
+        f"weak evidence={weak_evidence_count}",
+        _quality_provider_summary(
+            malformed_count=malformed_count,
+            malformed_ticks=malformed_ticks,
+            provider_generation_health=provider_generation_health,
+        ),
+        _quality_useful_followup_summary(float(useful_delta)),
+    ]
     raw_recommendations = _quality_recommendations(quality)
     return {
         "status": status,

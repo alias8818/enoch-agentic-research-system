@@ -356,7 +356,7 @@ it('shows research signal quality in the overview side rail', async () => {
             high_similarity_pair_count: 0,
           },
         },
-        operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
+        operator_summary: 'quality=warnings; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0',
         operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
         recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
         top_problem_details: [{
