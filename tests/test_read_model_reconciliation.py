@@ -902,6 +902,10 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
                         "before widening automation"
                     ),
                 },
+                "window_comparison": {
+                    "current": {"eval_case_counts": {"useful_adjacent_followup": 2}},
+                    "previous": {"eval_case_counts": {"useful_adjacent_followup": 6}},
+                },
             },
             "refresh_status": {"available": True, "ok": True},
             "report_mtime": "2026-05-30T00:00:00Z",
@@ -919,7 +923,8 @@ def test_recovered_provider_history_does_not_dominate_signal_action() -> None:
     assert snapshot["provider_generation_health"]["active_malformed_warning"] is False
     assert snapshot["operator_summary"] == (
         "quality=clean; weak evidence=0; provider malformed=recovered "
-        "(16 responses; 69 clean ticks); useful follow-up=active decline -4.0"
+        "(16 responses; 69 clean ticks); useful follow-up=active decline -4.0 "
+        "(2 current vs 6 previous)"
     )
     assert "malformed provider responses=16" not in snapshot["operator_summary"]
     assert snapshot["signal_reasons"] == [

@@ -3435,12 +3435,33 @@ def _quality_provider_summary(
     )
 
 
-def _quality_useful_followup_summary(useful_delta: float) -> str:
+def _quality_useful_followup_window_counts(
+    window_comparison: Mapping[str, Any],
+) -> tuple[int, int] | None:
+    current_counts = _quality_mapping(
+        _quality_mapping(window_comparison.get("current")).get("eval_case_counts")
+    )
+    previous_counts = _quality_mapping(
+        _quality_mapping(window_comparison.get("previous")).get("eval_case_counts")
+    )
+    key = "useful_adjacent_followup"
+    if key not in current_counts or key not in previous_counts:
+        return None
+    return _safe_count(current_counts.get(key)), _safe_count(previous_counts.get(key))
+
+
+def _quality_useful_followup_summary(
+    useful_delta: float, window_comparison: Mapping[str, Any]
+) -> str:
+    counts = _quality_useful_followup_window_counts(window_comparison)
+    count_summary = (
+        f" ({counts[0]} current vs {counts[1]} previous)" if counts is not None else ""
+    )
     if useful_delta < 0:
-        return f"useful follow-up=active decline {useful_delta:.1f}"
+        return f"useful follow-up=active decline {useful_delta:.1f}{count_summary}"
     if useful_delta > 0:
-        return f"useful follow-up=improving +{useful_delta:.1f}"
-    return "useful follow-up=stable 0.0"
+        return f"useful follow-up=improving +{useful_delta:.1f}{count_summary}"
+    return f"useful follow-up=stable 0.0{count_summary}"
 
 
 def _quality_refresh_operator_action(refresh: Mapping[str, Any]) -> str:
@@ -3645,6 +3666,7 @@ def research_signal_quality_snapshot(
         useful_delta=float(useful_delta),
         provider_generation_health=provider_generation_health,
     )
+    window_comparison = _quality_window_comparison(monitor.get("window_comparison"))
     parts = [
         f"quality={status}",
         f"weak evidence={weak_evidence_count}",
@@ -3653,7 +3675,7 @@ def research_signal_quality_snapshot(
             malformed_ticks=malformed_ticks,
             provider_generation_health=provider_generation_health,
         ),
-        _quality_useful_followup_summary(float(useful_delta)),
+        _quality_useful_followup_summary(float(useful_delta), window_comparison),
     ]
     raw_recommendations = _quality_recommendations(quality)
     return {
@@ -3715,9 +3737,7 @@ def research_signal_quality_snapshot(
             monitor.get("malformed_provider_model_counts")
         ),
         "provider_generation_health": provider_generation_health,
-        "window_comparison": _quality_window_comparison(
-            monitor.get("window_comparison")
-        ),
+        "window_comparison": window_comparison,
         "recent_malformed_provider_responses": recent_malformed,
         "useful_adjacent_followup_evidence": followup_evidence,
         "post_prompt_warning_details": post_prompt_warning_details,
