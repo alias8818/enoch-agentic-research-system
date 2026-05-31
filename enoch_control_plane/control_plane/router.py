@@ -2283,9 +2283,14 @@ def _unmatched_worker_run_confirmation(
     if no_live and no_live.get("ok") is True:
         if _preflight_predates_active_dispatch(preflight, active_row):
             return {
-                "state": "active_unconfirmed",
+                "state": "preflight_stale_after_dispatch",
                 "matched": False,
                 "reason": "worker preflight observation predates active control-plane dispatch",
+                "observed_at": preflight.observed_at,
+                "last_dispatch_at": str(active_row.get("last_dispatch_at") or ""),
+                "suggested_action": (
+                    "refresh lane preflight before treating this active row as stale"
+                ),
                 "worker_check": no_live,
             }
         return _active_confirmation_for_no_live_check(

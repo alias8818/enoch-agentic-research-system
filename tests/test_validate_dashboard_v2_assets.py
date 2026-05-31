@@ -76,6 +76,16 @@ def test_validate_dashboard_v2_assets_rejects_missing_committed_dir(
     assert report["failures"][0].startswith("missing committed assets directory:")
 
 
+def test_dashboard_v2_asset_names_preflight_stale_after_dispatch_state() -> None:
+    asset = next(
+        Path("enoch_control_plane/control_plane/dashboard_v2/assets").glob("index-*.js")
+    )
+    text = asset.read_text(encoding="utf-8")
+
+    assert "preflight_stale_after_dispatch" in text
+    assert "Worker telemetry is older than this dispatch; refresh lane preflight." in text
+
+
 def test_main_json_success_when_skip_build_and_assets_present(
     tmp_path: Path, capsys
 ) -> None:
