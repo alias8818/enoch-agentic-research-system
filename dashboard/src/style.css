@@ -317,7 +317,7 @@ button:disabled { cursor: not-allowed; }
   line-height: 1.04;
   letter-spacing: 0;
   font-weight: 950;
-  text-wrap: balance;
+  text-wrap: normal;
 }
 
 .hero-reason {
