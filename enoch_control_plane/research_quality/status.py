@@ -933,9 +933,7 @@ def _followup_readiness_missing_counts(
     readiness_rows: list[dict[str, Any]],
 ) -> dict[str, int]:
     counts = Counter(
-        field
-        for item in readiness_rows
-        for field in item.get("missing_fields", [])
+        field for item in readiness_rows for field in item.get("missing_fields", [])
     )
     return {
         "missing_title_count": counts["missing_title"],
