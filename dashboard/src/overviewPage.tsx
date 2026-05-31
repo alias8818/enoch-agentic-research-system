@@ -238,7 +238,7 @@ function followupEvidenceId(row: UsefulFollowupEvidence): string {
 }
 
 function portfolioLabel(value: string | undefined): string {
-  return displayText(value, 'unknown').replace(/_/g, ' ')
+  return displayText(value, 'unknown').replaceAll('_', ' ')
 }
 
 function decisionOutcomeLabel(row: DecisionOutcomeCount): string {
