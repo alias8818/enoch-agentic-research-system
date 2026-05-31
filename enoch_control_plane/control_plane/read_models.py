@@ -2939,6 +2939,30 @@ def _quality_model_counts(value: Any) -> dict[str, int]:
     return counts
 
 
+def _quality_count_rows(
+    value: Any, *, required_label: str, optional_label: str = "", limit: int = 10
+) -> list[dict[str, Any]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, Mapping):
+            continue
+        label = _text(raw.get(required_label))
+        if not label:
+            continue
+        row: dict[str, Any] = {
+            required_label: label,
+            "count": _safe_count(raw.get("count")),
+        }
+        if optional_label:
+            row[optional_label] = _text(raw.get(optional_label))
+        rows.append(row)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 def _post_prompt_warning_details(
     *, malformed_count: int, malformed_ticks: int, useful_delta: float
 ) -> list[dict[str, str]]:
@@ -3158,6 +3182,18 @@ def research_signal_quality_snapshot(
         "label": quality.get("label") or "",
         "decisions_checked": _safe_count(quality.get("decisions_checked")),
         "candidates_checked": _safe_count(quality.get("candidates_checked")),
+        "candidate_status_counts": _quality_model_counts(
+            quality.get("candidate_status_counts")
+        ),
+        "decision_outcome_counts": _quality_count_rows(
+            quality.get("decision_outcome_counts"),
+            required_label="decision",
+            optional_label="hypothesis_status",
+        ),
+        "top_candidate_categories": _quality_count_rows(
+            quality.get("top_candidate_categories"),
+            required_label="category",
+        ),
         "weak_evidence_count": weak_evidence_count,
         "warning_problem_count": warning_count,
         "blocked_problem_count": blocked_count,

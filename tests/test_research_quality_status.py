@@ -84,6 +84,60 @@ def test_quality_report_recommendations_survive_classification() -> None:
     ]
 
 
+def test_quality_report_portfolio_summary_survives_classification() -> None:
+    report = _report_with_decision("")
+    report["summary"].update(
+        {
+            "candidate_count": 100,
+            "candidate_status_counts": {
+                "admitted": 45,
+                "needs_review": 53,
+                "rejected": 2,
+            },
+            "decision_counts": [
+                {
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "count": 50,
+                },
+                {
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "supported",
+                    "count": 34,
+                },
+            ],
+            "top_candidate_categories": [
+                {"category": "home-training", "count": 22},
+                {"category": "spec-decoding", "count": 18},
+            ],
+        }
+    )
+
+    status = classify_quality_report(report)
+
+    assert status["candidate_status_counts"] == {
+        "admitted": 45,
+        "needs_review": 53,
+        "rejected": 2,
+    }
+    assert status["decision_outcome_counts"] == [
+        {
+            "decision": "finalize_negative",
+            "hypothesis_status": "mixed",
+            "count": 50,
+        },
+        {
+            "decision": "finalize_negative",
+            "hypothesis_status": "supported",
+            "count": 34,
+        },
+    ]
+    assert status["top_candidate_categories"] == [
+        {"category": "home-training", "count": 22},
+        {"category": "spec-decoding", "count": 18},
+    ]
+
+
 def test_weak_evidence_on_needs_review_inconclusive_with_bounded_followup_is_warning() -> (
     None
 ):

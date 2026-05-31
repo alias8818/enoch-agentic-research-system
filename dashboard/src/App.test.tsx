@@ -149,6 +149,20 @@ it('shows research signal quality in the overview side rail', async () => {
           }],
           delta: -4,
         },
+        candidate_status_counts: {
+          admitted: 45,
+          needs_review: 53,
+          rejected: 2,
+        },
+        decision_outcome_counts: [{
+          decision: 'finalize_negative',
+          hypothesis_status: 'mixed',
+          count: 50,
+        }],
+        top_candidate_categories: [{
+          category: 'home-training',
+          count: 22,
+        }],
         operator_summary: 'quality=warnings; weak evidence=2; malformed provider responses=7; useful follow-up delta=-4.0',
         operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
         recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
@@ -190,6 +204,11 @@ it('shows research signal quality in the overview side rail', async () => {
   expect(within(quality).getByText('Current: Current follow-up')).toBeInTheDocument()
   expect(within(quality).getByText('Previous: Previous follow-up')).toBeInTheDocument()
   expect(within(quality).getByText('post-project / post-run')).toBeInTheDocument()
+  expect(within(quality).getByText('Portfolio composition')).toBeInTheDocument()
+  expect(within(quality).getByText('admitted 45')).toBeInTheDocument()
+  expect(within(quality).getByText('needs review 53')).toBeInTheDocument()
+  expect(within(quality).getByText('finalize negative / mixed 50')).toBeInTheDocument()
+  expect(within(quality).getByText('home-training 22')).toBeInTheDocument()
   expect(within(quality).getByText('quality report stale: 120.0h old; refresh before relying on unattended automation')).toBeInTheDocument()
   expect(within(quality).getByText('Refresh source')).toBeInTheDocument()
   expect(within(quality).getByText('missing database URL')).toBeInTheDocument()

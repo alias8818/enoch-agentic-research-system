@@ -158,6 +158,22 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
             "candidates_checked": 10,
             "problem_counts": {"weak_or_missing_evidence_strength": 1},
             "severity_counts": {"warning": 1},
+            "candidate_status_counts": {
+                "admitted": 45,
+                "needs_review": 53,
+                "rejected": 2,
+            },
+            "decision_outcome_counts": [
+                {
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "count": 50,
+                }
+            ],
+            "top_candidate_categories": [
+                {"category": "home-training", "count": 22},
+                {"category": "spec-decoding", "count": 18},
+            ],
             "post_prompt_monitor": {
                 "available": True,
                 "useful_adjacent_followup_delta": -1.0,
@@ -229,6 +245,22 @@ def test_research_signal_quality_snapshot_marks_review_required_signal() -> None
         "useful_followup_decline",
     }
     assert snapshot["malformed_provider_model_counts"] == {"hf:model-a": 2}
+    assert snapshot["candidate_status_counts"] == {
+        "admitted": 45,
+        "needs_review": 53,
+        "rejected": 2,
+    }
+    assert snapshot["decision_outcome_counts"] == [
+        {
+            "decision": "finalize_negative",
+            "hypothesis_status": "mixed",
+            "count": 50,
+        }
+    ]
+    assert snapshot["top_candidate_categories"] == [
+        {"category": "home-training", "count": 22},
+        {"category": "spec-decoding", "count": 18},
+    ]
     assert snapshot["recent_malformed_provider_responses"] == [
         {
             "checked_at": "2026-05-30T03:00:30Z",

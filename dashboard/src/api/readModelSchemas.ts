@@ -171,10 +171,24 @@ const usefulFollowupEvidenceRowSchema = z.object({
   expected_behavior: z.string().optional(),
 }).passthrough()
 
+const decisionOutcomeCountSchema = z.object({
+  decision: z.string().optional(),
+  hypothesis_status: z.string().optional(),
+  count: z.number().optional(),
+}).passthrough()
+
+const candidateCategoryCountSchema = z.object({
+  category: z.string().optional(),
+  count: z.number().optional(),
+}).passthrough()
+
 const researchSignalQualitySchema = z.object({
   status: z.string().optional(),
   ok: z.boolean().optional(),
   decisions_checked: z.number().optional(),
+  candidate_status_counts: z.record(z.string(), z.number()).optional(),
+  decision_outcome_counts: z.array(decisionOutcomeCountSchema).optional(),
+  top_candidate_categories: z.array(candidateCategoryCountSchema).optional(),
   weak_evidence_count: z.number().optional(),
   warning_problem_count: z.number().optional(),
   blocked_problem_count: z.number().optional(),

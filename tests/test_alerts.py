@@ -223,6 +223,22 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
             "label": "Research quality: clean",
             "severity_counts": {},
             "problem_counts": {},
+            "candidate_status_counts": {
+                "admitted": 45,
+                "needs_review": 53,
+                "rejected": 2,
+            },
+            "decision_outcome_counts": [
+                {
+                    "decision": "finalize_negative",
+                    "hypothesis_status": "mixed",
+                    "count": 50,
+                }
+            ],
+            "top_candidate_categories": [
+                {"category": "home-training", "count": 22},
+                {"category": "spec-decoding", "count": 18},
+            ],
             "report_mtime": "2026-05-31T00:22:14Z",
             "report_path": str(report_path),
             "post_prompt_monitor": {
@@ -369,6 +385,22 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
         "previous": [],
         "delta": -4.0,
     }
+    assert finding.data["candidate_status_counts"] == {
+        "admitted": 45,
+        "needs_review": 53,
+        "rejected": 2,
+    }
+    assert finding.data["decision_outcome_counts"] == [
+        {
+            "decision": "finalize_negative",
+            "hypothesis_status": "mixed",
+            "count": 50,
+        }
+    ]
+    assert finding.data["top_candidate_categories"] == [
+        {"category": "home-training", "count": 22},
+        {"category": "spec-decoding", "count": 18},
+    ]
 
 
 def test_queue_alert_findings_blocks_missing_research_quality_report_during_hold(

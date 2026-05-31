@@ -93,6 +93,16 @@ export interface OverviewResponse {
     status?: string
     ok?: boolean
     decisions_checked?: number
+    candidate_status_counts?: Record<string, number>
+    decision_outcome_counts?: {
+      decision?: string
+      hypothesis_status?: string
+      count?: number
+    }[]
+    top_candidate_categories?: {
+      category?: string
+      count?: number
+    }[]
     weak_evidence_count?: number
     warning_problem_count?: number
     blocked_problem_count?: number

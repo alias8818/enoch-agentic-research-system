@@ -199,6 +199,8 @@ function qualityAgeLabel(value: unknown): string {
 type ResearchSignalQuality = NonNullable<OverviewResponse['research_signal_quality']>
 type MalformedProviderEvidence = NonNullable<ResearchSignalQuality['recent_malformed_provider_responses']>[number]
 type UsefulFollowupEvidence = NonNullable<NonNullable<ResearchSignalQuality['useful_adjacent_followup_evidence']>['current']>[number]
+type DecisionOutcomeCount = NonNullable<ResearchSignalQuality['decision_outcome_counts']>[number]
+type CandidateCategoryCount = NonNullable<ResearchSignalQuality['top_candidate_categories']>[number]
 
 function malformedProviderEvidenceLabel(row: MalformedProviderEvidence): string {
   const count = Number(row.malformed_provider_response_count ?? 0)
@@ -216,6 +218,20 @@ function followupEvidenceId(row: UsefulFollowupEvidence): string {
     displayText(row.project_id, ''),
     displayText(row.run_id, ''),
   ].filter(Boolean).join(' / ') || displayText(row.case_id, 'unknown case')
+}
+
+function portfolioLabel(value: string | undefined): string {
+  return displayText(value, 'unknown').replace(/_/g, ' ')
+}
+
+function decisionOutcomeLabel(row: DecisionOutcomeCount): string {
+  const decision = portfolioLabel(row.decision)
+  const hypothesis = portfolioLabel(row.hypothesis_status)
+  return `${decision} / ${hypothesis} ${String(row.count ?? 0)}`
+}
+
+function categoryCountLabel(row: CandidateCategoryCount): string {
+  return `${portfolioLabel(row.category)} ${String(row.count ?? 0)}`
 }
 
 function qualityStatusClass(status: string | undefined, ok: boolean | undefined): string {
@@ -243,6 +259,10 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   const postPromptWarning = quality.post_prompt_warning_details?.[0]
   const currentFollowupEvidence = quality.useful_adjacent_followup_evidence?.current?.[0]
   const previousFollowupEvidence = quality.useful_adjacent_followup_evidence?.previous?.[0]
+  const candidateStatusCounts = Object.entries(quality.candidate_status_counts ?? {}).slice(0, 3)
+  const decisionOutcomeCounts = quality.decision_outcome_counts?.slice(0, 2) ?? []
+  const topCandidateCategories = quality.top_candidate_categories?.slice(0, 2) ?? []
+  const hasPortfolioComposition = candidateStatusCounts.length > 0 || decisionOutcomeCounts.length > 0 || topCandidateCategories.length > 0
   return (
     <section className="quality-snapshot" aria-label="Research signal quality">
       <div>
@@ -306,6 +326,20 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
               <p>{followupEvidenceId(previousFollowupEvidence)}</p>
             </>
           ) : null}
+        </div>
+      ) : null}
+      {hasPortfolioComposition ? (
+        <div className="quality-snapshot-detail">
+          <h4>Portfolio composition</h4>
+          {candidateStatusCounts.map(([status, count]) => (
+            <p key={status}>{portfolioLabel(status)} {String(count)}</p>
+          ))}
+          {decisionOutcomeCounts.map((row) => (
+            <p key={`${row.decision ?? 'unknown'}-${row.hypothesis_status ?? 'unknown'}`}>{decisionOutcomeLabel(row)}</p>
+          ))}
+          {topCandidateCategories.map((row) => (
+            <p key={row.category ?? 'unknown'}>{categoryCountLabel(row)}</p>
+          ))}
         </div>
       ) : null}
       {quality.freshness_summary ? (

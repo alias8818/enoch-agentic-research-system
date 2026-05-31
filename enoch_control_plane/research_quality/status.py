@@ -248,6 +248,48 @@ def _quality_status_from_severity_counts(
     return status, label
 
 
+def _summary_count_mapping(value: Any, *, limit: int = 20) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for key, count in value.items():
+        label = str(key or "").strip()
+        if not label:
+            continue
+        try:
+            counts[label] = int(count or 0)
+        except (TypeError, ValueError):
+            counts[label] = 0
+        if len(counts) >= limit:
+            break
+    return counts
+
+
+def _summary_count_rows(
+    value: Any, *, required_label: str, optional_label: str = "", limit: int = 10
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        label = str(raw.get(required_label) or "").strip()
+        if not label:
+            continue
+        row: dict[str, Any] = {required_label: label}
+        if optional_label:
+            row[optional_label] = str(raw.get(optional_label) or "").strip()
+        try:
+            row["count"] = int(raw.get("count") or 0)
+        except (TypeError, ValueError):
+            row["count"] = 0
+        rows.append(row)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
 def classify_quality_report(
     report: dict[str, Any], *, report_path: str = "", report_mtime: str = ""
 ) -> dict[str, Any]:
@@ -276,6 +318,18 @@ def classify_quality_report(
         "schema_version": report.get("schema_version") or "",
         "decisions_checked": int(summary.get("decision_count") or 0),
         "candidates_checked": int(summary.get("candidate_count") or 0),
+        "candidate_status_counts": _summary_count_mapping(
+            summary.get("candidate_status_counts")
+        ),
+        "decision_outcome_counts": _summary_count_rows(
+            summary.get("decision_counts"),
+            required_label="decision",
+            optional_label="hypothesis_status",
+        ),
+        "top_candidate_categories": _summary_count_rows(
+            summary.get("top_candidate_categories"),
+            required_label="category",
+        ),
         "problem_counts": dict(actionable_problem_counts),
         "raw_problem_counts": raw_problem_counts,
         "severity_counts": dict(severity_counts),

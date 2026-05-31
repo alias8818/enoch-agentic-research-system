@@ -101,6 +101,20 @@ it('parses command-center overview, status, and readiness payloads', () => {
         previous: [],
         delta: -4,
       },
+      candidate_status_counts: {
+        admitted: 45,
+        needs_review: 53,
+        rejected: 2,
+      },
+      decision_outcome_counts: [{
+        decision: 'finalize_negative',
+        hypothesis_status: 'mixed',
+        count: 50,
+      }],
+      top_candidate_categories: [{
+        category: 'home-training',
+        count: 22,
+      }],
       operator_recommendations: [
         'inspect provider-generation failures before trusting new idea volume',
       ],
@@ -130,6 +144,20 @@ it('parses command-center overview, status, and readiness payloads', () => {
       previous: [],
       delta: -4,
     },
+    candidate_status_counts: {
+      admitted: 45,
+      needs_review: 53,
+      rejected: 2,
+    },
+    decision_outcome_counts: [{
+      decision: 'finalize_negative',
+      hypothesis_status: 'mixed',
+      count: 50,
+    }],
+    top_candidate_categories: [{
+      category: 'home-training',
+      count: 22,
+    }],
     operator_recommendations: [
       'inspect provider-generation failures before trusting new idea volume',
     ],
