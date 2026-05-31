@@ -85,6 +85,11 @@ if [[ ! -f "$source_dir/scripts/validate_runtime_deploy.py" ]]; then
   exit 1
 fi
 
+wait_for_remote_health() {
+  echo "waiting for service health on $host"
+  ssh "$host" "set -euo pipefail; for attempt in \$(seq 1 30); do curl -fsS http://127.0.0.1:8787/healthz >/dev/null && exit 0; sleep 1; done; curl -fsS http://127.0.0.1:8787/healthz >/dev/null"
+}
+
 rsync_args=(
   -az --delete
   --exclude .git
@@ -118,6 +123,8 @@ case "$service_scope" in
     ;;
 esac
 
+wait_for_remote_health
+
 echo "validating runtime deploy on $host"
 ssh "$host" "set -euo pipefail; cd '$runtime'; python3 scripts/validate_runtime_deploy.py --source '$runtime' --runtime '$runtime' --summary-only"
 
@@ -134,7 +141,7 @@ case "$profile" in
     ;;
   cpu-worker|gb10-worker)
     echo "checking worker health on $host"
-    ssh "$host" "set -euo pipefail; for attempt in \$(seq 1 30); do curl -fsS http://127.0.0.1:8787/healthz >/dev/null && exit 0; sleep 1; done; curl -fsS http://127.0.0.1:8787/healthz >/dev/null"
+    wait_for_remote_health
     ;;
 esac
 

@@ -286,6 +286,15 @@ def test_deploy_script_retries_worker_health_after_restart() -> None:
     assert "curl -fsS http://127.0.0.1:8787/healthz" in script
 
 
+def test_deploy_script_waits_for_control_health_before_smoke() -> None:
+    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
+
+    assert "wait_for_remote_health" in script
+    assert script.index("wait_for_remote_health") < script.index(
+        "running control dashboard smoke on $host"
+    )
+
+
 def test_operator_scripts_expose_help_without_network_calls() -> None:
     for script_name in (
         "deploy-enoch-runtime.sh",
