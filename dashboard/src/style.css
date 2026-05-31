@@ -311,7 +311,7 @@ button:disabled { cursor: not-allowed; }
 .command-hero--blocked { border-color: rgba(194, 80, 70, 0.48); background: linear-gradient(135deg, rgba(97, 24, 24, 0.72), rgba(12, 12, 10, 0.82)); }
 
 .command-hero h1 {
-  max-width: 18ch;
+  max-width: 24ch;
   margin: 0.55rem 0 0;
   font-size: 2.75rem;
   line-height: 1.04;
