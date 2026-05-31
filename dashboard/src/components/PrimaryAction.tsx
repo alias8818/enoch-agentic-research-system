@@ -35,13 +35,18 @@ type PrimaryActionViewProps = PrimaryActionCtaProps & {
 
 function ResultCard({ result, stale }: Readonly<{ result: CommandResult | null; stale?: boolean }>) {
   if (!result) return null
-  return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
+  return (
+    <CommandResultSummary
+      className="primary-action-result"
+      result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }}
+    />
+  )
 }
 
 function PrimaryActionIdle() {
   return (
     <section className="primary-action primary-action--idle" aria-label="Primary action">
-      <div>
+      <div className="primary-action-copy">
         <p className="eyebrow">Primary action</p>
         <h2>Nothing to click right now</h2>
         <p>No decisive operator action is available right now.</p>
@@ -122,7 +127,7 @@ function PrimaryActionView(props: Readonly<PrimaryActionViewProps>) {
   const { action, result, staleReady, dialog } = props
   return (
     <section className="primary-action" aria-label="Primary action">
-      <div>
+      <div className="primary-action-copy">
         <p className="eyebrow">Primary action</p>
         <h2>{action.title}</h2>
         <p>{action.summary}</p>

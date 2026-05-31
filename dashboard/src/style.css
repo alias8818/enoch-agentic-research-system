@@ -311,11 +311,11 @@ button:disabled { cursor: not-allowed; }
 .command-hero--blocked { border-color: rgba(194, 80, 70, 0.48); background: linear-gradient(135deg, rgba(97, 24, 24, 0.72), rgba(12, 12, 10, 0.82)); }
 
 .command-hero h1 {
-  max-width: 13ch;
+  max-width: 18ch;
   margin: 0.55rem 0 0;
-  font-size: clamp(2.35rem, 7vw, 5.6rem);
-  line-height: 0.86;
-  letter-spacing: -0.09em;
+  font-size: 3.85rem;
+  line-height: 0.96;
+  letter-spacing: 0;
   font-weight: 950;
   text-wrap: balance;
 }
@@ -525,17 +525,44 @@ button:disabled { cursor: not-allowed; }
 .lane-confirmation--warn { color: #fcd34d; border-color: rgba(252, 211, 77, 0.72); }
 .lane-confirmation--bad { color: #fca5a5; border-color: rgba(248, 113, 113, 0.78); }
 
-.primary-action { min-height: 9rem; align-items: center; }
+.primary-action {
+  min-height: 0;
+  display: grid;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 0.9rem;
+}
 .primary-action--idle { border-color: rgba(89, 205, 135, 0.18); }
-.primary-action-cta { text-decoration: none; }
-.primary-action-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
+.primary-action-copy { min-width: 0; }
+.primary-action h2 {
+  line-height: 1.18;
+  letter-spacing: 0;
+}
+.primary-action p:not(.eyebrow) {
+  max-width: 34rem;
+}
+.primary-action-cta {
+  min-height: 2.65rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-decoration: none;
+}
+.primary-action > .primary-action-cta {
+  width: 100%;
+}
+.primary-action-buttons {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
 .primary-action-disabled-reason {
-  flex-basis: 100%;
   margin: 0.1rem 0 0;
   color: #a7a199;
   font-size: 0.76rem;
   line-height: 1.35;
-  text-align: right;
+  text-align: left;
 }
 
 .paper-strip { align-items: stretch; flex-direction: column; }
@@ -632,16 +659,17 @@ button:disabled { cursor: not-allowed; }
   .lane-grid { grid-template-columns: 1fr; }
   .app-header,
   .command-hero { flex-direction: column; align-items: stretch; }
+  .command-hero h1 { font-size: 3.1rem; }
   .app-nav { justify-content: flex-start; }
 }
 
 @media (max-width: 680px) {
   .app-frame { padding: 0.65rem; }
+  .command-hero h1 { font-size: 2.35rem; }
   .freshness-bar,
   .safety-bar,
   .readiness-check-card,
   .lane-console-head,
-  .primary-action,
   .movement-head { flex-direction: column; align-items: stretch; }
   .hero-state-strip,
   .paper-steps,
