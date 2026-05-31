@@ -443,6 +443,311 @@ function researchQualitySampleLinks(row: ResearchQualityLinkedSample | undefined
   return links
 }
 
+function ResearchQualitySignalVerdict({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
+  const signalReason = quality.signal_reasons?.[0]
+  if (!quality.signal_label && !signalReason) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Signal verdict</h4>
+      <p>{displayText(quality.signal_label || quality.signal_verdict, 'No signal verdict returned.')}</p>
+      {signalReason ? <p>{displayText(signalReason.message || signalReason.code, 'No signal reason returned.')}</p> : null}
+      <p>{displayText(quality.signal_operator_action || signalReason?.operator_action, 'Inspect Research Quality before resuming unattended automation.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityProviderEvidence({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
+  const providerEvidence = quality.recent_malformed_provider_responses?.[0]
+  const postPromptWarning = quality.post_prompt_warning_details?.[0]
+  if (!providerEvidence && !postPromptWarning) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Provider warning evidence</h4>
+      {providerEvidence ? (
+        <>
+          <p>{displayText(providerEvidence.provider_model, 'Unknown provider model')}</p>
+          <p>{malformedProviderEvidenceLabel(providerEvidence)}</p>
+          <p>{displayText(providerEvidence.operator_action, 'Inspect provider-generation output before trusting new idea volume.')}</p>
+        </>
+      ) : <p>{displayText(postPromptWarning?.message || postPromptWarning?.code, 'No provider warning detail returned.')}</p>}
+    </div>
+  )
+}
+
+function ResearchQualityProviderRecovery({ providerHealth }: Readonly<{ providerHealth: ResearchSignalQuality['provider_generation_health'] }>) {
+  if (!providerHealth) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Provider recovery</h4>
+      <p>{providerWarningPostureLabel(providerHealth)}</p>
+      <p>{providerCleanStreakLabel(providerHealth)}</p>
+      <p>{providerLatestTickLabel(providerHealth)}</p>
+      <p>{providerLastMalformedLabel(providerHealth)}</p>
+      <p>{displayText(providerHealth.operator_action, 'Inspect provider-generation history before trusting new idea volume.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityFollowupTrend({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
+  const currentFollowupEvidence = quality.useful_adjacent_followup_evidence?.current?.[0]
+  const previousFollowupEvidence = quality.useful_adjacent_followup_evidence?.previous?.[0]
+  if (!currentFollowupEvidence && !previousFollowupEvidence) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Follow-up trend evidence</h4>
+      {currentFollowupEvidence ? (
+        <>
+          <p>{followupEvidenceTitle('Current', currentFollowupEvidence)}</p>
+          <p>{followupEvidenceId(currentFollowupEvidence)}</p>
+        </>
+      ) : null}
+      {previousFollowupEvidence ? (
+        <>
+          <p>{followupEvidenceTitle('Previous', previousFollowupEvidence)}</p>
+          <p>{followupEvidenceId(previousFollowupEvidence)}</p>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function ResearchQualityPortfolioComposition({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
+  const candidateStatusCounts = Object.entries(quality.candidate_status_counts ?? {}).slice(0, 3)
+  const decisionOutcomeCounts = quality.decision_outcome_counts?.slice(0, 2) ?? []
+  const topCandidateCategories = quality.top_candidate_categories?.slice(0, 2) ?? []
+  if (candidateStatusCounts.length === 0 && decisionOutcomeCounts.length === 0 && topCandidateCategories.length === 0) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Portfolio composition</h4>
+      {candidateStatusCounts.map(([status, count]) => (
+        <p key={status}>{portfolioLabel(status)} {String(count)}</p>
+      ))}
+      {decisionOutcomeCounts.map((row) => (
+        <p key={`${row.decision ?? 'unknown'}-${row.hypothesis_status ?? 'unknown'}`}>{decisionOutcomeLabel(row)}</p>
+      ))}
+      {topCandidateCategories.map((row) => (
+        <p key={row.category ?? 'unknown'}>{categoryCountLabel(row)}</p>
+      ))}
+    </div>
+  )
+}
+
+function ResearchQualityPortfolioEvidence({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
+  const candidateStatusSamples = Object.entries(quality.candidate_status_samples ?? {})
+    .flatMap(([status, rows]) => rows.slice(0, 1).map((row) => ({ status, row })))
+    .slice(0, 3)
+  const decisionOutcomeSamples = (quality.decision_outcome_samples ?? [])
+    .flatMap((group) => (group.samples ?? []).slice(0, 1).map((row) => ({ group, row })))
+    .slice(0, 2)
+  if (candidateStatusSamples.length === 0 && decisionOutcomeSamples.length === 0) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Portfolio evidence</h4>
+      {candidateStatusSamples.map(({ status, row }) => (
+        <div key={`${status}-${row.candidate_id ?? row.title ?? 'candidate'}`}>
+          <p>{candidateStatusSampleTitle(status, row)}</p>
+          <p>{candidateStatusSampleId(row)}</p>
+        </div>
+      ))}
+      {decisionOutcomeSamples.map(({ group, row }) => (
+        <div key={`${group.decision ?? 'unknown'}-${group.hypothesis_status ?? 'unknown'}-${row.run_id ?? row.project_id ?? row.project_name ?? 'run'}`}>
+          <p>{decisionOutcomeSampleTitle(group, row)}</p>
+          <p>{decisionOutcomeSampleId(row)}</p>
+          <EntityLinkChips links={researchQualitySampleLinks(row)} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ResearchQualityFloor({ qualityFloor }: Readonly<{ qualityFloor: ResearchSignalQuality['quality_floor'] }>) {
+  if (!qualityFloor) return null
+  const qualityFloorCandidate = qualityFloor.candidate_samples?.[0]
+  const qualityFloorDecision = qualityFloor.decision_samples?.[0]
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Quality floor</h4>
+      <p>{qualityFloorPostureLabel(qualityFloor)}</p>
+      <p>{qualityFloorCountLabel(qualityFloor)}</p>
+      {qualityFloorCandidate ? <p>{qualityFloorCandidateTitle(qualityFloorCandidate)}</p> : null}
+      {qualityFloorDecision ? <p>{qualityFloorDecisionTitle(qualityFloorDecision)}</p> : null}
+      <p>{displayText(qualityFloor.operator_action, 'Inspect quality-floor posture before widening automation.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityDecisionPosture({ decisionPosture }: Readonly<{ decisionPosture: ResearchSignalQuality['decision_posture'] }>) {
+  if (!decisionPosture) return null
+  const decisionPostureSample = decisionPosture.representative_useful_signals?.[0]
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Decision posture</h4>
+      <p>{decisionPostureUsefulLabel(decisionPosture)}</p>
+      <p>{decisionPostureReadyLabel(decisionPosture)}</p>
+      <p>{decisionPostureFollowupLabel(decisionPosture)}</p>
+      <p>{decisionPostureLabel(decisionPosture)}</p>
+      {decisionPostureSample ? (
+        <>
+          <p>{decisionPostureSampleTitle(decisionPostureSample)}</p>
+          <p>{displayText(decisionPostureSample.recommended_next_action, 'No next action returned for representative useful signal.')}</p>
+          <EntityLinkChips links={researchQualitySampleLinks(decisionPostureSample)} />
+        </>
+      ) : null}
+      <p>{displayText(decisionPosture.operator_action, 'Inspect decision posture before treating throughput as publication output.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityPaperBlockers({ paperReadinessBlockers }: Readonly<{ paperReadinessBlockers: PaperReadinessBlockers | undefined }>) {
+  if (!paperReadinessBlockers) return null
+  const paperBlockerSample = paperReadinessBlockers.samples?.[0]
+  const paperBlockerCounts = Object.entries(paperReadinessBlockers.blocker_counts ?? {}).slice(0, 4) as [string, number][]
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Paper blockers</h4>
+      <p>paper-ready {Number(paperReadinessBlockers.paper_ready_count ?? 0)} / {Number(paperReadinessBlockers.decisions_checked ?? 0)} decisions</p>
+      {paperBlockerCounts.map((entry) => (
+        <p key={`paper-blocker-${entry[0]}`}>{paperBlockerCountLabel(entry)}</p>
+      ))}
+      {paperBlockerSample ? (
+        <>
+          <p>{paperBlockerSampleTitle(paperBlockerSample)}</p>
+          <p>{paperBlockerSampleReasons(paperBlockerSample)}</p>
+          <EntityLinkChips links={researchQualitySampleLinks(paperBlockerSample)} />
+        </>
+      ) : null}
+      <p>{displayText(paperReadinessBlockers.operator_action, 'Inspect paper-readiness blockers before treating useful signals as publication output.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityFollowupReadiness({ followupReadiness }: Readonly<{ followupReadiness: ResearchSignalQuality['followup_readiness'] }>) {
+  if (!followupReadiness) return null
+  const readyFollowup = followupReadiness.ready_followups?.[0]
+  const prioritizedFollowup = followupReadiness.prioritized_followups?.[0]
+  const underspecifiedFollowup = followupReadiness.underspecified_followups?.[0]
+  const followupTypeCounts = followupReadinessTypeEntries(followupReadiness)
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Follow-up readiness</h4>
+      <p>{followupReadinessReadyLabel(followupReadiness)}</p>
+      <p>underspecified {Number(followupReadiness.underspecified_count ?? 0)}</p>
+      <p>{followupReadinessMissingStopLabel(followupReadiness)}</p>
+      {followupTypeCounts.map((entry) => (
+        <p key={`followup-type-${entry[0]}`}>{windowCountLabel(entry)}</p>
+      ))}
+      {readyFollowup ? (
+        <>
+          <p>{followupReadinessSampleTitle(readyFollowup)}</p>
+          <p>{displayText(readyFollowup.followup_success_threshold, 'No success threshold returned for ready follow-up.')}</p>
+          <EntityLinkChips links={researchQualitySampleLinks(readyFollowup)} />
+        </>
+      ) : null}
+      {prioritizedFollowup ? (
+        <>
+          <p>Prioritized follow-up</p>
+          <p>{followupReadinessSampleTitle(prioritizedFollowup)}</p>
+          <p>priority {Number(prioritizedFollowup.priority_score ?? 0)}</p>
+          <p>{prioritizedFollowupReasons(prioritizedFollowup)}</p>
+          <p>{displayText(prioritizedFollowup.recommended_next_action, 'No next action returned for prioritized follow-up.')}</p>
+          <EntityLinkChips links={researchQualitySampleLinks(prioritizedFollowup)} />
+        </>
+      ) : null}
+      {underspecifiedFollowup ? (
+        <>
+          <p>{followupReadinessSampleTitle(underspecifiedFollowup)}</p>
+          <EntityLinkChips links={researchQualitySampleLinks(underspecifiedFollowup)} />
+        </>
+      ) : null}
+      <p>{displayText(followupReadiness.operator_action, 'Inspect follow-up readiness before queueing more work.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityFollowupScope({ followupScopeAlignment }: Readonly<{ followupScopeAlignment: ResearchSignalQuality['followup_scope_alignment'] }>) {
+  if (!followupScopeAlignment) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Follow-up scope</h4>
+      <p>global ready {Number(followupScopeAlignment.global_ready_count ?? 0)}</p>
+      <p>{followupScopeCandidateLabel('global', followupScopeAlignment.global_candidate)}</p>
+      <p>{followupScopeCandidateLabel('quality window', followupScopeAlignment.quality_window_candidate)}</p>
+      <p>{followupScopePostureLabel(followupScopeAlignment)}</p>
+      <p>{displayText(followupScopeAlignment.operator_action, 'Compare global ranked follow-up selection against Research Quality window samples.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityWindowComparison({ windowComparison }: Readonly<{ windowComparison: ResearchSignalQuality['window_comparison'] }>) {
+  const windowGenerationModes = windowCountEntries(windowComparison?.current?.generation_mode_counts)
+  const windowCategories = windowCountEntries(windowComparison?.current?.category_counts)
+  const hasWindowComparison = Boolean(
+    windowComparison && (
+      windowGenerationModes.length > 0
+      || windowCategories.length > 0
+      || typeof windowComparison.current?.admitted_rate === 'number'
+      || typeof windowComparison.previous?.admitted_rate === 'number'
+    ),
+  )
+  if (!hasWindowComparison || !windowComparison) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Window comparison</h4>
+      <p>{windowAdmittedRateLabel(windowComparison)}</p>
+      {windowGenerationModes.map((entry) => (
+        <p key={`generation-${entry[0]}`}>{windowCountLabel(entry)}</p>
+      ))}
+      {windowCategories.map((entry) => (
+        <p key={`category-${entry[0]}`}>{windowCountLabel(entry)}</p>
+      ))}
+      <p>high similarity pairs {String(windowComparison.current?.high_similarity_pair_count ?? 0)}</p>
+    </div>
+  )
+}
+
+function ResearchQualityReportFreshness({ freshnessSummary }: Readonly<{ freshnessSummary?: string | null }>) {
+  if (!freshnessSummary) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Report freshness</h4>
+      <p>{freshnessSummary}</p>
+    </div>
+  )
+}
+
+function ResearchQualityRefreshSource({ quality }: Readonly<{ quality: ResearchSignalQuality }>) {
+  if (!quality.refresh_reason && !quality.refresh_operator_action) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Refresh source</h4>
+      <p>{displayText(quality.refresh_reason || quality.refresh_action, 'No refresh status returned.')}</p>
+      <p>{displayText(quality.refresh_operator_action, 'Inspect the Research Quality refresh sidecar before resuming unattended automation.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityAffectedArtifact({ affected }: Readonly<{ affected: NonNullable<ResearchSignalQuality['top_problem_details']>[number] | undefined }>) {
+  if (!affected) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Affected artifact</h4>
+      <p>{displayText(affected.title || affected.project_id || affected.candidate_id, 'Unnamed artifact')}</p>
+      <p>{displayText(affected.problem, 'No quality problem returned.')}</p>
+      <p>{displayText(affected.operator_action, 'Inspect the affected artifact before resuming unattended automation.')}</p>
+    </div>
+  )
+}
+
+function ResearchQualityRecommendedAction({ recommendation }: Readonly<{ recommendation?: string }>) {
+  if (!recommendation) return null
+  return (
+    <div className="quality-snapshot-detail">
+      <h4>Recommended action</h4>
+      <p>{recommendation}</p>
+    </div>
+  )
+}
+
 function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResponse['research_signal_quality'] }>) {
   if (!quality) {
     return (
@@ -457,48 +762,7 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
   }
   const affected = quality.top_problem_details?.[0]
   const recommendation = quality.operator_recommendations?.[0] || quality.recommendations?.[0]
-  const signalReason = quality.signal_reasons?.[0]
-  const providerEvidence = quality.recent_malformed_provider_responses?.[0]
-  const postPromptWarning = quality.post_prompt_warning_details?.[0]
-  const currentFollowupEvidence = quality.useful_adjacent_followup_evidence?.current?.[0]
-  const previousFollowupEvidence = quality.useful_adjacent_followup_evidence?.previous?.[0]
-  const candidateStatusCounts = Object.entries(quality.candidate_status_counts ?? {}).slice(0, 3)
-  const decisionOutcomeCounts = quality.decision_outcome_counts?.slice(0, 2) ?? []
-  const topCandidateCategories = quality.top_candidate_categories?.slice(0, 2) ?? []
-  const hasPortfolioComposition = candidateStatusCounts.length > 0 || decisionOutcomeCounts.length > 0 || topCandidateCategories.length > 0
-  const candidateStatusSamples = Object.entries(quality.candidate_status_samples ?? {})
-    .flatMap(([status, rows]) => rows.slice(0, 1).map((row) => ({ status, row })))
-    .slice(0, 3)
-  const decisionOutcomeSamples = (quality.decision_outcome_samples ?? [])
-    .flatMap((group) => (group.samples ?? []).slice(0, 1).map((row) => ({ group, row })))
-    .slice(0, 2)
-  const hasPortfolioEvidence = candidateStatusSamples.length > 0 || decisionOutcomeSamples.length > 0
-  const windowComparison = quality.window_comparison
-  const windowGenerationModes = windowCountEntries(windowComparison?.current?.generation_mode_counts)
-  const windowCategories = windowCountEntries(windowComparison?.current?.category_counts)
-  const providerHealth = quality.provider_generation_health
-  const qualityFloor = quality.quality_floor
-  const qualityFloorCandidate = qualityFloor?.candidate_samples?.[0]
-  const qualityFloorDecision = qualityFloor?.decision_samples?.[0]
   const decisionPosture = quality.decision_posture
-  const decisionPostureSample = decisionPosture?.representative_useful_signals?.[0]
-  const paperReadinessBlockers = decisionPosture?.paper_readiness_blockers
-  const paperBlockerSample = paperReadinessBlockers?.samples?.[0]
-  const paperBlockerCounts = Object.entries(paperReadinessBlockers?.blocker_counts ?? {}).slice(0, 4)
-  const followupReadiness = quality.followup_readiness
-  const followupScopeAlignment = quality.followup_scope_alignment
-  const readyFollowup = followupReadiness?.ready_followups?.[0]
-  const prioritizedFollowup = followupReadiness?.prioritized_followups?.[0]
-  const underspecifiedFollowup = followupReadiness?.underspecified_followups?.[0]
-  const followupTypeCounts = followupReadiness ? followupReadinessTypeEntries(followupReadiness) : []
-  const hasWindowComparison = Boolean(
-    windowComparison && (
-      windowGenerationModes.length > 0
-      || windowCategories.length > 0
-      || typeof windowComparison.current?.admitted_rate === 'number'
-      || typeof windowComparison.previous?.admitted_rate === 'number'
-    ),
-  )
   return (
     <section className="quality-snapshot" aria-label="Research signal quality">
       <div>
@@ -524,217 +788,22 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
         </div>
       </dl>
       <p>{displayText(quality.operator_summary, 'No research-quality summary returned.')}</p>
-      {quality.signal_label || signalReason ? (
-        <div className="quality-snapshot-detail">
-          <h4>Signal verdict</h4>
-          <p>{displayText(quality.signal_label || quality.signal_verdict, 'No signal verdict returned.')}</p>
-          {signalReason ? <p>{displayText(signalReason.message || signalReason.code, 'No signal reason returned.')}</p> : null}
-          <p>{displayText(quality.signal_operator_action || signalReason?.operator_action, 'Inspect Research Quality before resuming unattended automation.')}</p>
-        </div>
-      ) : null}
-      {providerEvidence || postPromptWarning ? (
-        <div className="quality-snapshot-detail">
-          <h4>Provider warning evidence</h4>
-          {providerEvidence ? (
-            <>
-              <p>{displayText(providerEvidence.provider_model, 'Unknown provider model')}</p>
-              <p>{malformedProviderEvidenceLabel(providerEvidence)}</p>
-              <p>{displayText(providerEvidence.operator_action, 'Inspect provider-generation output before trusting new idea volume.')}</p>
-            </>
-          ) : null}
-          {!providerEvidence && postPromptWarning ? (
-            <p>{displayText(postPromptWarning.message || postPromptWarning.code, 'No provider warning detail returned.')}</p>
-          ) : null}
-        </div>
-      ) : null}
-      {providerHealth ? (
-        <div className="quality-snapshot-detail">
-          <h4>Provider recovery</h4>
-          <p>{providerWarningPostureLabel(providerHealth)}</p>
-          <p>{providerCleanStreakLabel(providerHealth)}</p>
-          <p>{providerLatestTickLabel(providerHealth)}</p>
-          <p>{providerLastMalformedLabel(providerHealth)}</p>
-          <p>{displayText(providerHealth.operator_action, 'Inspect provider-generation history before trusting new idea volume.')}</p>
-        </div>
-      ) : null}
-      {currentFollowupEvidence || previousFollowupEvidence ? (
-        <div className="quality-snapshot-detail">
-          <h4>Follow-up trend evidence</h4>
-          {currentFollowupEvidence ? (
-            <>
-              <p>{followupEvidenceTitle('Current', currentFollowupEvidence)}</p>
-              <p>{followupEvidenceId(currentFollowupEvidence)}</p>
-            </>
-          ) : null}
-          {previousFollowupEvidence ? (
-            <>
-              <p>{followupEvidenceTitle('Previous', previousFollowupEvidence)}</p>
-              <p>{followupEvidenceId(previousFollowupEvidence)}</p>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {hasPortfolioComposition ? (
-        <div className="quality-snapshot-detail">
-          <h4>Portfolio composition</h4>
-          {candidateStatusCounts.map(([status, count]) => (
-            <p key={status}>{portfolioLabel(status)} {String(count)}</p>
-          ))}
-          {decisionOutcomeCounts.map((row) => (
-            <p key={`${row.decision ?? 'unknown'}-${row.hypothesis_status ?? 'unknown'}`}>{decisionOutcomeLabel(row)}</p>
-          ))}
-          {topCandidateCategories.map((row) => (
-            <p key={row.category ?? 'unknown'}>{categoryCountLabel(row)}</p>
-          ))}
-        </div>
-      ) : null}
-      {hasPortfolioEvidence ? (
-        <div className="quality-snapshot-detail">
-          <h4>Portfolio evidence</h4>
-          {candidateStatusSamples.map(({ status, row }) => (
-            <div key={`${status}-${row.candidate_id ?? row.title ?? 'candidate'}`}>
-              <p>{candidateStatusSampleTitle(status, row)}</p>
-              <p>{candidateStatusSampleId(row)}</p>
-            </div>
-          ))}
-          {decisionOutcomeSamples.map(({ group, row }) => (
-            <div key={`${group.decision ?? 'unknown'}-${group.hypothesis_status ?? 'unknown'}-${row.run_id ?? row.project_id ?? row.project_name ?? 'run'}`}>
-              <p>{decisionOutcomeSampleTitle(group, row)}</p>
-              <p>{decisionOutcomeSampleId(row)}</p>
-              <EntityLinkChips links={researchQualitySampleLinks(row)} />
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {qualityFloor ? (
-        <div className="quality-snapshot-detail">
-          <h4>Quality floor</h4>
-          <p>{qualityFloorPostureLabel(qualityFloor)}</p>
-          <p>{qualityFloorCountLabel(qualityFloor)}</p>
-          {qualityFloorCandidate ? <p>{qualityFloorCandidateTitle(qualityFloorCandidate)}</p> : null}
-          {qualityFloorDecision ? <p>{qualityFloorDecisionTitle(qualityFloorDecision)}</p> : null}
-          <p>{displayText(qualityFloor.operator_action, 'Inspect quality-floor posture before widening automation.')}</p>
-        </div>
-      ) : null}
-      {decisionPosture ? (
-        <div className="quality-snapshot-detail">
-          <h4>Decision posture</h4>
-          <p>{decisionPostureUsefulLabel(decisionPosture)}</p>
-          <p>{decisionPostureReadyLabel(decisionPosture)}</p>
-          <p>{decisionPostureFollowupLabel(decisionPosture)}</p>
-          <p>{decisionPostureLabel(decisionPosture)}</p>
-          {decisionPostureSample ? (
-            <>
-              <p>{decisionPostureSampleTitle(decisionPostureSample)}</p>
-              <p>{displayText(decisionPostureSample.recommended_next_action, 'No next action returned for representative useful signal.')}</p>
-              <EntityLinkChips links={researchQualitySampleLinks(decisionPostureSample)} />
-            </>
-          ) : null}
-          <p>{displayText(decisionPosture.operator_action, 'Inspect decision posture before treating throughput as publication output.')}</p>
-        </div>
-      ) : null}
-      {paperReadinessBlockers ? (
-        <div className="quality-snapshot-detail">
-          <h4>Paper blockers</h4>
-          <p>paper-ready {Number(paperReadinessBlockers.paper_ready_count ?? 0)} / {Number(paperReadinessBlockers.decisions_checked ?? 0)} decisions</p>
-          {paperBlockerCounts.map((entry) => (
-            <p key={`paper-blocker-${entry[0]}`}>{paperBlockerCountLabel(entry)}</p>
-          ))}
-          {paperBlockerSample ? (
-            <>
-              <p>{paperBlockerSampleTitle(paperBlockerSample)}</p>
-              <p>{paperBlockerSampleReasons(paperBlockerSample)}</p>
-              <EntityLinkChips links={researchQualitySampleLinks(paperBlockerSample)} />
-            </>
-          ) : null}
-          <p>{displayText(paperReadinessBlockers.operator_action, 'Inspect paper-readiness blockers before treating useful signals as publication output.')}</p>
-        </div>
-      ) : null}
-      {followupReadiness ? (
-        <div className="quality-snapshot-detail">
-          <h4>Follow-up readiness</h4>
-          <p>{followupReadinessReadyLabel(followupReadiness)}</p>
-          <p>underspecified {Number(followupReadiness.underspecified_count ?? 0)}</p>
-          <p>{followupReadinessMissingStopLabel(followupReadiness)}</p>
-          {followupTypeCounts.map((entry) => (
-            <p key={`followup-type-${entry[0]}`}>{windowCountLabel(entry)}</p>
-          ))}
-          {readyFollowup ? (
-            <>
-              <p>{followupReadinessSampleTitle(readyFollowup)}</p>
-              <p>{displayText(readyFollowup.followup_success_threshold, 'No success threshold returned for ready follow-up.')}</p>
-              <EntityLinkChips links={researchQualitySampleLinks(readyFollowup)} />
-            </>
-          ) : null}
-          {prioritizedFollowup ? (
-            <>
-              <p>Prioritized follow-up</p>
-              <p>{followupReadinessSampleTitle(prioritizedFollowup)}</p>
-              <p>priority {Number(prioritizedFollowup.priority_score ?? 0)}</p>
-              <p>{prioritizedFollowupReasons(prioritizedFollowup)}</p>
-              <p>{displayText(prioritizedFollowup.recommended_next_action, 'No next action returned for prioritized follow-up.')}</p>
-              <EntityLinkChips links={researchQualitySampleLinks(prioritizedFollowup)} />
-            </>
-          ) : null}
-          {underspecifiedFollowup ? (
-            <>
-              <p>{followupReadinessSampleTitle(underspecifiedFollowup)}</p>
-              <EntityLinkChips links={researchQualitySampleLinks(underspecifiedFollowup)} />
-            </>
-          ) : null}
-          <p>{displayText(followupReadiness.operator_action, 'Inspect follow-up readiness before queueing more work.')}</p>
-        </div>
-      ) : null}
-      {followupScopeAlignment ? (
-        <div className="quality-snapshot-detail">
-          <h4>Follow-up scope</h4>
-          <p>global ready {Number(followupScopeAlignment.global_ready_count ?? 0)}</p>
-          <p>{followupScopeCandidateLabel('global', followupScopeAlignment.global_candidate)}</p>
-          <p>{followupScopeCandidateLabel('quality window', followupScopeAlignment.quality_window_candidate)}</p>
-          <p>{followupScopePostureLabel(followupScopeAlignment)}</p>
-          <p>{displayText(followupScopeAlignment.operator_action, 'Compare global ranked follow-up selection against Research Quality window samples.')}</p>
-        </div>
-      ) : null}
-      {hasWindowComparison && windowComparison ? (
-        <div className="quality-snapshot-detail">
-          <h4>Window comparison</h4>
-          <p>{windowAdmittedRateLabel(windowComparison)}</p>
-          {windowGenerationModes.map((entry) => (
-            <p key={`generation-${entry[0]}`}>{windowCountLabel(entry)}</p>
-          ))}
-          {windowCategories.map((entry) => (
-            <p key={`category-${entry[0]}`}>{windowCountLabel(entry)}</p>
-          ))}
-          <p>high similarity pairs {String(windowComparison.current?.high_similarity_pair_count ?? 0)}</p>
-        </div>
-      ) : null}
-      {quality.freshness_summary ? (
-        <div className="quality-snapshot-detail">
-          <h4>Report freshness</h4>
-          <p>{quality.freshness_summary}</p>
-        </div>
-      ) : null}
-      {quality.refresh_reason || quality.refresh_operator_action ? (
-        <div className="quality-snapshot-detail">
-          <h4>Refresh source</h4>
-          <p>{displayText(quality.refresh_reason || quality.refresh_action, 'No refresh status returned.')}</p>
-          <p>{displayText(quality.refresh_operator_action, 'Inspect the Research Quality refresh sidecar before resuming unattended automation.')}</p>
-        </div>
-      ) : null}
-      {affected ? (
-        <div className="quality-snapshot-detail">
-          <h4>Affected artifact</h4>
-          <p>{displayText(affected.title || affected.project_id || affected.candidate_id, 'Unnamed artifact')}</p>
-          <p>{displayText(affected.problem, 'No quality problem returned.')}</p>
-          <p>{displayText(affected.operator_action, 'Inspect the affected artifact before resuming unattended automation.')}</p>
-        </div>
-      ) : null}
-      {recommendation ? (
-        <div className="quality-snapshot-detail">
-          <h4>Recommended action</h4>
-          <p>{recommendation}</p>
-        </div>
-      ) : null}
+      <ResearchQualitySignalVerdict quality={quality} />
+      <ResearchQualityProviderEvidence quality={quality} />
+      <ResearchQualityProviderRecovery providerHealth={quality.provider_generation_health} />
+      <ResearchQualityFollowupTrend quality={quality} />
+      <ResearchQualityPortfolioComposition quality={quality} />
+      <ResearchQualityPortfolioEvidence quality={quality} />
+      <ResearchQualityFloor qualityFloor={quality.quality_floor} />
+      <ResearchQualityDecisionPosture decisionPosture={decisionPosture} />
+      <ResearchQualityPaperBlockers paperReadinessBlockers={decisionPosture?.paper_readiness_blockers} />
+      <ResearchQualityFollowupReadiness followupReadiness={quality.followup_readiness} />
+      <ResearchQualityFollowupScope followupScopeAlignment={quality.followup_scope_alignment} />
+      <ResearchQualityWindowComparison windowComparison={quality.window_comparison} />
+      <ResearchQualityReportFreshness freshnessSummary={quality.freshness_summary} />
+      <ResearchQualityRefreshSource quality={quality} />
+      <ResearchQualityAffectedArtifact affected={affected} />
+      <ResearchQualityRecommendedAction recommendation={recommendation} />
     </section>
   )
 }
