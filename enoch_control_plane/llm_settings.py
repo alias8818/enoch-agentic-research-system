@@ -68,9 +68,9 @@ class LLMProviderSettings(BaseModel):
     def _validate_provider(self) -> "LLMProviderSettings":
         self.provider_id = _normalize_id(self.provider_id, field_name="provider_id")
         self.label = _bounded_text(self.label or self.provider_id, limit=80)
-        self.base_url = validate_http_url(self.base_url, field_name="provider base_url").rstrip(
-            "/"
-        )
+        self.base_url = validate_http_url(
+            self.base_url, field_name="provider base_url"
+        ).rstrip("/")
         self.api_key_env = _normalize_secret_env(self.api_key_env)
         self.notes = _bounded_text(self.notes)
         return self
@@ -88,7 +88,9 @@ class LLMModelSettings(BaseModel):
     def _validate_model(self) -> "LLMModelSettings":
         model_id = str(self.model_id or "").strip()
         if not model_id or any(ord(ch) < 32 or ord(ch) == 127 for ch in model_id):
-            raise ValueError("model_id must be non-empty and must not contain control characters")
+            raise ValueError(
+                "model_id must be non-empty and must not contain control characters"
+            )
         if len(model_id) > 180:
             raise ValueError("model_id must be 180 characters or fewer")
         self.model_id = model_id
@@ -117,7 +119,11 @@ class LLMWorkflowSettings(BaseModel):
             for item in self.provider_ids
             if str(item or "").strip()
         ]
-        self.model_pool = [str(item or "").strip() for item in self.model_pool if str(item or "").strip()]
+        self.model_pool = [
+            str(item or "").strip()
+            for item in self.model_pool
+            if str(item or "").strip()
+        ]
         self.default_model = str(self.default_model or "").strip()
         self.notes = _bounded_text(self.notes)
         return self
@@ -134,7 +140,9 @@ class LLMSettings(BaseModel):
     @model_validator(mode="after")
     def _validate_settings(self) -> "LLMSettings":
         if self.schema_version != SETTINGS_SCHEMA_VERSION:
-            raise ValueError(f"unsupported llm settings schema_version: {self.schema_version}")
+            raise ValueError(
+                f"unsupported llm settings schema_version: {self.schema_version}"
+            )
         provider_ids = [provider.provider_id for provider in self.providers]
         if len(provider_ids) != len(set(provider_ids)):
             raise ValueError("provider_id values must be unique")
@@ -146,7 +154,9 @@ class LLMSettings(BaseModel):
         model_id_set = set(model_ids)
         for model in self.models:
             if model.provider_id not in provider_id_set:
-                raise ValueError(f"model {model.model_id!r} references unknown provider {model.provider_id!r}")
+                raise ValueError(
+                    f"model {model.model_id!r} references unknown provider {model.provider_id!r}"
+                )
 
         workflow_ids = [workflow.workflow_id for workflow in self.workflows]
         if len(workflow_ids) != len(set(workflow_ids)):
@@ -164,12 +174,17 @@ class LLMSettings(BaseModel):
                     f"workflow {workflow.workflow_id!r} references unknown models: "
                     f"{', '.join(unknown_models)}"
                 )
-            if workflow.default_model and workflow.default_model not in workflow.model_pool:
+            if (
+                workflow.default_model
+                and workflow.default_model not in workflow.model_pool
+            ):
                 raise ValueError(
                     f"workflow {workflow.workflow_id!r} default_model must be in model_pool"
                 )
             if workflow.enabled and not workflow.model_pool:
-                raise ValueError(f"workflow {workflow.workflow_id!r} requires a model_pool")
+                raise ValueError(
+                    f"workflow {workflow.workflow_id!r} requires a model_pool"
+                )
         self.updated_at = _bounded_text(self.updated_at)
         self.updated_by = _bounded_text(self.updated_by, limit=120)
         return self
@@ -249,8 +264,12 @@ def default_llm_settings(config: GateConfig | None = None) -> LLMSettings:
                 provider_ids=["synthetic"],
                 model_pool=[paper_model],
                 default_model=paper_model,
-                temperature=float(getattr(config, "paper_writer_temperature", 0.2) or 0.2),
-                max_tokens=int(getattr(config, "paper_writer_max_tokens", 12000) or 12000),
+                temperature=float(
+                    getattr(config, "paper_writer_temperature", 0.2) or 0.2
+                ),
+                max_tokens=int(
+                    getattr(config, "paper_writer_max_tokens", 12000) or 12000
+                ),
             ),
             LLMWorkflowSettings(
                 workflow_id="research_review",
@@ -296,9 +315,9 @@ def write_llm_settings(
     validated.updated_by = _bounded_text(updated_by or "operator", limit=120)
     path = llm_settings_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(validated.model_dump(mode="json"), indent=2, sort_keys=True).encode(
-        "utf-8"
-    )
+    payload = json.dumps(
+        validated.model_dump(mode="json"), indent=2, sort_keys=True
+    ).encode("utf-8")
     tmp: Path | None = None
     try:
         with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
@@ -356,7 +375,9 @@ def resolve_workflow_model(
     candidate_model = str(requested_model or "").strip() or workflow.default_model
     if not candidate_model:
         enabled_pool = [
-            model_id for model_id in workflow.model_pool if model_settings(settings, model_id).enabled
+            model_id
+            for model_id in workflow.model_pool
+            if model_settings(settings, model_id).enabled
         ]
         candidate_model = enabled_pool[0] if enabled_pool else ""
     if candidate_model not in workflow.model_pool:

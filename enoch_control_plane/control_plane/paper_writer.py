@@ -1045,8 +1045,10 @@ def synthetic_glm_markdown(
         provider_model = model.model_id
         provider_api_key_env = provider.api_key_env
     api_key = (
-        os.environ.get(provider_api_key_env, "") if provider_api_key_env else ""
-    ) or config.paper_writer_api_key or os.environ.get("SYNTHETIC_API_KEY", "")
+        (os.environ.get(provider_api_key_env, "") if provider_api_key_env else "")
+        or config.paper_writer_api_key
+        or os.environ.get("SYNTHETIC_API_KEY", "")
+    )
     if not api_key:
         raise RuntimeError(f"{provider_label} API key is not configured")
     prompt = f"""Write a publication-quality technical paper draft in Markdown for this research result.

@@ -6755,9 +6755,7 @@ def _cp_mount_lane_aware_worker_observation_refresher(
                 key: value for key, value in observations.items() if value is not None
             }
         for request in requests:
-            record_preflight_observations(
-                run_worker_preflight(request, store.flags())
-            )
+            record_preflight_observations(run_worker_preflight(request, store.flags()))
         return store.latest_dashboard_observations()
 
     return refresh_worker_observations

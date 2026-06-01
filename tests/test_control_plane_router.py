@@ -7833,9 +7833,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                             detail="dashboard API reachable",
                             data={
                                 "body": {
-                                    "timestamp": datetime.now(
-                                        timezone.utc
-                                    ).isoformat(),
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
                                     "runs": runs,
                                     "totals": {"live": len(runs)},
                                 }

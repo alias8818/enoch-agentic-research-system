@@ -665,12 +665,16 @@ def _research_quality_alert_finding(
         },
     )
     signal["research_output_readiness"] = readiness
-    if _research_quality_ready_with_recovered_context(
-        quality_status, counts, signal, readiness
-    ) or _research_quality_provider_recovery_grace_is_nonpaging(
-        quality_status, counts, signal, readiness
-    ) or _research_quality_no_paper_ready_is_nonpaging(
-        quality_status, counts, signal, readiness
+    if (
+        _research_quality_ready_with_recovered_context(
+            quality_status, counts, signal, readiness
+        )
+        or _research_quality_provider_recovery_grace_is_nonpaging(
+            quality_status, counts, signal, readiness
+        )
+        or _research_quality_no_paper_ready_is_nonpaging(
+            quality_status, counts, signal, readiness
+        )
     ):
         return None
     severity, message = _research_quality_alert_heading(

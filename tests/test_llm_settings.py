@@ -67,7 +67,9 @@ def test_llm_settings_reject_unknown_workflow_model() -> None:
         LLMSettings.model_validate(settings)
 
 
-def test_llm_settings_api_does_not_expose_secret_values(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_llm_settings_api_does_not_expose_secret_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         monkeypatch.setenv("SYNTHETIC_API_KEY", "secret-value-that-must-not-return")
         client = _client(_config(tmp))
@@ -93,7 +95,9 @@ def test_llm_settings_api_persists_valid_updates() -> None:
         client = _client(config)
         settings = default_llm_settings(config)
         openrouter = next(
-            provider for provider in settings.providers if provider.provider_id == "openrouter"
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
         )
         openrouter.enabled = True
         settings.models.append(
@@ -121,7 +125,10 @@ def test_llm_settings_api_persists_valid_updates() -> None:
         )
 
         assert response.status_code == 200
-        assert response.json()["settings"]["workflows"][0]["default_model"] == "openrouter/auto"
+        assert (
+            response.json()["settings"]["workflows"][0]["default_model"]
+            == "openrouter/auto"
+        )
         persisted = read_llm_settings(config)
         assert persisted.workflows[0].default_model == "openrouter/auto"
 
@@ -131,7 +138,9 @@ def test_research_provider_selection_uses_persisted_settings() -> None:
         config = _config(tmp)
         settings = default_llm_settings(config)
         openrouter = next(
-            provider for provider in settings.providers if provider.provider_id == "openrouter"
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
         )
         openrouter.enabled = True
         settings.models.append(
@@ -144,7 +153,9 @@ def test_research_provider_selection_uses_persisted_settings() -> None:
             )
         )
         workflow = next(
-            item for item in settings.workflows if item.workflow_id == "research_generation"
+            item
+            for item in settings.workflows
+            if item.workflow_id == "research_generation"
         )
         workflow.provider_ids = ["openrouter"]
         workflow.model_pool = ["openrouter/auto"]
