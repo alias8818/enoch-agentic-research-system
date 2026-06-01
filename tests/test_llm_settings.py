@@ -131,6 +131,41 @@ def test_llm_settings_api_persists_one_time_provider_secret() -> None:
         assert llm_provider_api_key(config, openrouter) == "or-secret-value"
 
 
+def test_llm_settings_api_recovers_secret_pasted_into_env_field() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        client = _client(config)
+        settings = default_llm_settings(config).model_dump(mode="json")
+        openrouter = next(
+            provider
+            for provider in settings["providers"]
+            if provider["provider_id"] == "openrouter"
+        )
+        openrouter["enabled"] = True
+        openrouter["api_key_env"] = "sk-or-operator-pasted-key"
+        openrouter["api_key_configured"] = False
+
+        response = client.post(
+            "/control/api/settings/llm",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={"requested_by": "test", "settings": settings},
+        )
+
+        assert response.status_code == 200
+        persisted = read_llm_settings(config)
+        openrouter_saved = next(
+            provider
+            for provider in persisted.providers
+            if provider.provider_id == "openrouter"
+        )
+        assert openrouter_saved.api_key_env == ""
+        assert (
+            llm_provider_secret_path(config, "openrouter").read_text(encoding="utf-8")
+            == "sk-or-operator-pasted-key\n"
+        )
+        assert "sk-or-operator-pasted-key" not in response.text
+
+
 def test_llm_settings_secret_status_uses_secret_file_when_env_missing() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         config = _config(tmp)
@@ -217,6 +252,72 @@ def test_llm_settings_api_persists_valid_updates() -> None:
         )
         persisted = read_llm_settings(config)
         assert persisted.workflows[0].default_model == "openrouter/auto"
+
+
+def test_llm_settings_model_test_calls_exact_openai_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, *_args: object) -> bytes:
+            return b'{"choices":[{"message":{"content":"ok"}}]}'
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        client = _client(config)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        settings.models.append(
+            LLMModelSettings(
+                model_id="moonshotai/kimi-k2.6",
+                provider_id="openrouter",
+                label="Kimi K2.6",
+                enabled=True,
+                weight=90,
+            )
+        )
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+        seen: dict[str, object] = {}
+
+        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+            seen["url"] = req.full_url
+            seen["headers"] = dict(req.header_items())
+            seen["body"] = req.data.decode("utf-8")
+            seen["timeout"] = timeout
+            return FakeResponse()
+
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            fake_urlopen,
+        )
+
+        response = client.post(
+            "/control/api/settings/llm/test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={"provider_id": "openrouter", "model_id": "moonshotai/kimi-k2.6"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+        assert seen["url"] == "https://openrouter.ai/api/v1/chat/completions"
+        assert seen["timeout"] == 20
+        assert "Bearer or-secret-value" in str(seen["headers"])
+        assert '"model": "moonshotai/kimi-k2.6"' in str(seen["body"])
 
 
 def test_research_provider_selection_uses_persisted_settings() -> None:

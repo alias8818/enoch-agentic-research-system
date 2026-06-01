@@ -996,7 +996,7 @@ button:disabled { cursor: not-allowed; }
 }
 .settings-row {
   display: grid;
-  grid-template-columns: minmax(7rem, 0.65fr) minmax(8rem, 0.75fr) minmax(8rem, 0.75fr) minmax(12rem, 1.35fr) minmax(10rem, 0.9fr) minmax(12rem, 1fr) auto minmax(6.5rem, auto);
+  grid-template-columns: minmax(7rem, 0.65fr) minmax(8rem, 0.75fr) minmax(8rem, 0.75fr) minmax(12rem, 1.35fr) minmax(10rem, 0.9fr) minmax(12rem, 1fr) auto minmax(11rem, auto);
   gap: 0.55rem;
   align-items: end;
   border: 1px solid rgba(244,241,234,0.09);
@@ -1005,7 +1005,7 @@ button:disabled { cursor: not-allowed; }
   padding: 0.65rem;
 }
 .settings-row--model {
-  grid-template-columns: minmax(14rem, 1.4fr) minmax(8rem, 0.8fr) minmax(10rem, 1fr) minmax(6rem, 0.45fr) auto;
+  grid-template-columns: minmax(14rem, 1.4fr) minmax(8rem, 0.8fr) minmax(10rem, 1fr) minmax(7rem, 0.55fr) auto minmax(9rem, auto);
 }
 .settings-row--compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1027,6 +1027,7 @@ button:disabled { cursor: not-allowed; }
 .settings-row input,
 .settings-row select,
 .settings-row textarea,
+.settings-choice-group,
 .workflow-card input,
 .workflow-card select,
 .workflow-card textarea {
@@ -1087,6 +1088,53 @@ button:disabled { cursor: not-allowed; }
   font-size: 0.72rem;
   font-weight: 850;
   white-space: nowrap;
+}
+.settings-actions {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.settings-small-button {
+  min-height: 2.05rem;
+  padding: 0.36rem 0.54rem;
+  font-size: 0.72rem;
+}
+.settings-test-result {
+  flex-basis: 100%;
+  color: #b8afa2;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+.settings-test-result--ok { color: #86efac; }
+.settings-test-result--fail { color: #fecaca; }
+.settings-range-value {
+  color: #d9d1c3;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+.settings-note {
+  grid-column: 1 / -1;
+  margin: -0.15rem 0 0;
+  color: #a9a196;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+.settings-choice-group {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 13rem;
+  overflow: auto;
+}
+.settings-choice-group legend {
+  margin-bottom: 0.4rem;
+  color: #8d867d;
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 .settings-validation-list {
   display: grid;

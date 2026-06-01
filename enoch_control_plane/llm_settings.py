@@ -4,6 +4,7 @@ import json
 import os
 import re
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
@@ -412,6 +413,43 @@ def write_llm_provider_secrets(
                     pass
         written.append(provider_id)
     return written
+
+
+def settings_update_payload(
+    settings_payload: Mapping[str, Any],
+    provider_secrets: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    """Return a schema payload plus provider secrets recovered from operator input.
+
+    The dashboard response includes derived fields such as api_key_configured.
+    Operators also routinely paste provider keys into the env-name field.  The
+    persisted schema should never keep either value, but the save path should
+    salvage the secret instead of forcing another key-entry round trip.
+    """
+
+    payload = deepcopy(dict(settings_payload))
+    secrets = dict(provider_secrets)
+    recovered: list[str] = []
+    providers = payload.get("providers") or []
+    if not isinstance(providers, list):
+        return payload, secrets, recovered
+    for provider in providers:
+        if not isinstance(provider, dict):
+            continue
+        provider.pop("api_key_configured", None)
+        provider_id_raw = str(provider.get("provider_id") or "").strip()
+        env_value = str(provider.get("api_key_env") or "").strip()
+        if not env_value:
+            continue
+        try:
+            _normalize_secret_env(env_value)
+        except ValueError:
+            provider_id = _normalize_id(provider_id_raw, field_name="provider_id")
+            if not str(secrets.get(provider_id) or "").strip():
+                secrets[provider_id] = env_value
+                recovered.append(provider_id)
+            provider["api_key_env"] = ""
+    return payload, secrets, recovered
 
 
 def settings_response(

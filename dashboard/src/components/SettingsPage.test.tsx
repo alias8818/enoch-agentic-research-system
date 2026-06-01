@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
-import { fetchMockRequestBody } from '../test/fetchMockBody'
+import { fetchMockCallUrl, fetchMockRequestBody } from '../test/fetchMockBody'
 import { SettingsPage } from './SettingsPage'
 
 function renderWithClient(ui: React.ReactElement) {
@@ -101,9 +101,7 @@ it('edits provider endpoints, model catalog, and workflow pools through the sett
     target: { value: 'https://openrouter.example/api/v1' },
   })
   fireEvent.click(screen.getByLabelText('Claude Sonnet 4.5 via OpenRouter enabled'))
-  fireEvent.change(screen.getByLabelText('Research agents model pool'), {
-    target: { value: 'hf:moonshotai/Kimi-K2.6\nopenrouter/anthropic/claude-sonnet-4.5' },
-  })
+  fireEvent.click(screen.getByLabelText('Research agents model openrouter/anthropic/claude-sonnet-4.5'))
   fireEvent.change(screen.getByLabelText('Research agents default model'), {
     target: { value: 'openrouter/anthropic/claude-sonnet-4.5' },
   })
@@ -122,6 +120,7 @@ it('edits provider endpoints, model catalog, and workflow pools through the sett
   )
   const body = JSON.parse(fetchMockRequestBody(fetchMock, 1))
   expect(body.requested_by).toBe('dashboard-v2')
+  expect(body.settings.providers[1]).not.toHaveProperty('api_key_configured')
   expect(body.settings.providers[1]).toMatchObject({
     provider_id: 'openrouter',
     base_url: 'https://openrouter.example/api/v1',
@@ -170,21 +169,57 @@ it('blocks saves when an API key is entered into the environment variable field'
     target: { value: 'or-secret-value' },
   })
 
-  expect(await screen.findByText(/OpenRouter API key environment variable must be an uppercase env var name/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
+  expect(await screen.findByText(/OpenRouter environment variable name is invalid/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Save settings' })).not.toBeDisabled()
   expect(fetchMock).toHaveBeenCalledTimes(1)
 })
 
-it('blocks saves when a workflow references a model outside the catalog', async () => {
+it('deletes models and prunes workflow references before save', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+
+  renderWithClient(<SettingsPage />)
+
+  await screen.findByDisplayValue('https://openrouter.ai/api/v1')
+  fireEvent.click(screen.getByLabelText('Research agents model openrouter/anthropic/claude-sonnet-4.5'))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[1])
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+  const body = JSON.parse(fetchMockRequestBody(fetchMock, 1))
+  expect(body.settings.models.map((model: { model_id: string }) => model.model_id)).not.toContain('openrouter/anthropic/claude-sonnet-4.5')
+  expect(body.settings.workflows[0].model_pool).not.toContain('openrouter/anthropic/claude-sonnet-4.5')
+})
+
+it('tests an exact model id through the settings API', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, provider_id: 'synthetic', model_id: 'hf:moonshotai/Kimi-K2.6', status_code: 200, latency_ms: 42 }), { status: 200 }))
+
+  renderWithClient(<SettingsPage />)
+
+  await screen.findByDisplayValue('https://openrouter.ai/api/v1')
+  fireEvent.click(screen.getAllByRole('button', { name: 'Test' })[2])
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(fetchMockCallUrl(fetchMock, 1)).toBe('/control/api/settings/llm/test')
+  const body = JSON.parse(fetchMockRequestBody(fetchMock, 1))
+  expect(body).toEqual({ provider_id: 'synthetic', model_id: 'hf:moonshotai/Kimi-K2.6' })
+  expect(await screen.findByText('ok 42ms')).toBeInTheDocument()
+})
+
+it('applies recommended routing with checkboxes instead of typed workflow pools', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(settingsPayload), { status: 200 }))
 
   renderWithClient(<SettingsPage />)
 
   await screen.findByDisplayValue('https://openrouter.ai/api/v1')
-  fireEvent.change(screen.getByLabelText('Research agents model pool'), {
-    target: { value: 'openrouter/missing-model' },
-  })
+  fireEvent.click(screen.getByRole('button', { name: 'Apply recommended routing' }))
 
-  expect(await screen.findByText(/Research agents references models not in the catalog: openrouter\/missing-model/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
+  expect(screen.getByLabelText('Research agents model openrouter/anthropic/claude-sonnet-4.5')).toBeChecked()
+  expect(screen.queryByLabelText('Research agents model pool')).not.toBeInTheDocument()
 })

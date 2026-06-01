@@ -55,18 +55,26 @@ type LlmSettingsResponse = {
   generated_at: string
 }
 
+type LlmTestResponse = {
+  ok: boolean
+  provider_id: string
+  model_id: string
+  status_code: number
+  latency_ms: number
+  response_preview?: string
+  error?: string
+}
+
 const API_KEY_ENV_RE = /^[A-Z][A-Z0-9_]{0,127}$/
+const OPENROUTER_PROVIDER_ID = 'openrouter'
 
 function updateAt<T>(items: T[], index: number, update: (item: T) => T): T[] {
   return items.map((item, itemIndex) => (itemIndex === index ? update(item) : item))
 }
 
-function splitList(value: string): string[] {
-  return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean)
-}
-
-function listText(value: string[]): string {
-  return value.join('\n')
+function toggleItem(items: string[], item: string, enabled: boolean): string[] {
+  const next = items.filter((current) => current !== item)
+  return enabled ? [...next, item] : next
 }
 
 function modelOptions(models: LlmModel[]): { value: string; label: string }[] {
@@ -91,6 +99,152 @@ function duplicateValues(values: string[]): string[] {
   return Array.from(duplicates)
 }
 
+function sanitizeSettingsForSave(settings: LlmSettings): LlmSettings {
+  return {
+    ...settings,
+    providers: settings.providers.map(({ api_key_configured: _ignored, ...provider }) => provider),
+  }
+}
+
+function providerIdsForModels(models: LlmModel[], modelIds: string[]): string[] {
+  const providerIds = new Set<string>()
+  for (const modelId of modelIds) {
+    const model = models.find((item) => item.model_id === modelId)
+    if (model?.provider_id) providerIds.add(model.provider_id)
+  }
+  return Array.from(providerIds)
+}
+
+function canonicalModelId(model: LlmModel): string {
+  const id = model.model_id.trim()
+  const label = `${model.label} ${id}`.toLowerCase()
+  if (model.provider_id !== OPENROUTER_PROVIDER_ID) return id
+  if (label.includes('owl-alpha') || label.includes('owl alpha')) return 'openrouter/owl-alpha'
+  if (label.includes('kimi') || label.includes('moonshot')) return 'moonshotai/kimi-k2.6'
+  if (label.includes('deepseek')) return 'deepseek/deepseek-v4-pro'
+  if (label.includes('mimo') || label.includes('xiaomi')) return 'xiaomi/mimo-v2.5-pro'
+  if (label.includes('minimax')) return 'minimax/minimax-m2.7'
+  if (label.includes('glm') || label.includes('z-ai')) return 'z-ai/glm-5.1'
+  return id
+}
+
+function recommendedWeight(model: LlmModel): number {
+  const text = `${model.label} ${model.model_id}`.toLowerCase()
+  if (text.includes('glm-5.1')) return 92
+  if (text.includes('kimi')) return 90
+  if (text.includes('deepseek')) return 88
+  if (text.includes('mimo')) return 84
+  if (text.includes('minimax')) return 80
+  if (text.includes('owl')) return 74
+  return Math.max(35, Math.min(70, Number(model.weight) || 50))
+}
+
+function recommendedNotes(model: LlmModel): string {
+  const text = `${model.label} ${model.model_id}`.toLowerCase()
+  if (text.includes('glm-5.1')) return 'Recommended for long-horizon coding/review; OpenRouter lists ~203K context.'
+  if (text.includes('kimi')) return 'Recommended for research generation and agentic coding; OpenRouter lists ~262K context.'
+  if (text.includes('deepseek')) return 'Recommended for review/writing and low-cost long-context reasoning; OpenRouter lists ~1M context.'
+  if (text.includes('mimo')) return 'Recommended as a low-cost long-context agent model; OpenRouter lists ~1M context.'
+  if (text.includes('minimax')) return 'Recommended as a long-horizon agent/writing fallback; OpenRouter lists ~205K context.'
+  if (text.includes('owl')) return 'Recommended as an OpenRouter agentic smoke-test/general fallback.'
+  return model.notes || ''
+}
+
+function sortedEnabledModelIds(models: LlmModel[]): string[] {
+  return [...models]
+    .filter((model) => model.enabled)
+    .sort((left, right) => (right.weight || 0) - (left.weight || 0) || left.model_id.localeCompare(right.model_id))
+    .map((model) => model.model_id)
+}
+
+function firstAvailable(preferred: string[], fallback: string[]): string {
+  return preferred.find((modelId) => fallback.includes(modelId)) || fallback[0] || ''
+}
+
+function applyRecommendedRouting(settings: LlmSettings): LlmSettings {
+  const idMap = new Map<string, string>()
+  const mergedModels = new Map<string, LlmModel>()
+  for (const model of settings.models) {
+    const modelId = canonicalModelId(model)
+    idMap.set(model.model_id, modelId)
+    const normalized = {
+      ...model,
+      model_id: modelId,
+      enabled: true,
+      weight: recommendedWeight({ ...model, model_id: modelId }),
+      notes: recommendedNotes({ ...model, model_id: modelId }),
+    }
+    const existing = mergedModels.get(modelId)
+    if (!existing || normalized.weight > existing.weight) mergedModels.set(modelId, normalized)
+  }
+  const models = Array.from(mergedModels.values())
+  const allPool = sortedEnabledModelIds(models)
+  const withDefault = (workflow: LlmWorkflow): LlmWorkflow => {
+    const preferred = {
+      research_generation: ['moonshotai/kimi-k2.6', 'hf:zai-org/GLM-5.1', 'deepseek/deepseek-v4-pro'],
+      paper_writing: ['deepseek/deepseek-v4-pro', 'moonshotai/kimi-k2.6', 'hf:zai-org/GLM-5.1'],
+      research_review: ['hf:zai-org/GLM-5.1', 'deepseek/deepseek-v4-pro', 'moonshotai/kimi-k2.6'],
+      general_agent: ['openrouter/owl-alpha', 'xiaomi/mimo-v2.5-pro', 'minimax/minimax-m2.7'],
+    }[workflow.workflow_id]
+    const modelPool = workflow.workflow_id === 'general_agent' ? allPool.slice(0, 4) : allPool
+    const defaultModel = firstAvailable(preferred, modelPool)
+    return {
+      ...workflow,
+      provider_ids: providerIdsForModels(models, modelPool),
+      model_pool: modelPool,
+      default_model: defaultModel,
+      temperature: workflow.workflow_id === 'research_generation' ? 0.7 : workflow.workflow_id === 'general_agent' ? 0.3 : 0.2,
+      max_tokens: workflow.workflow_id === 'paper_writing' ? 12000 : 8000,
+    }
+  }
+  return {
+    ...settings,
+    providers: settings.providers.map((provider) => ({
+      ...provider,
+      enabled: provider.enabled || ['synthetic', OPENROUTER_PROVIDER_ID].includes(provider.provider_id),
+    })),
+    models,
+    workflows: settings.workflows.map(withDefault),
+  }
+}
+
+function pruneDeletedProvider(settings: LlmSettings, providerId: string): LlmSettings {
+  const modelsToDelete = settings.models.filter((model) => model.provider_id === providerId).map((model) => model.model_id)
+  const modelDeleteSet = new Set(modelsToDelete)
+  const models = settings.models.filter((model) => model.provider_id !== providerId)
+  return {
+    ...settings,
+    providers: settings.providers.filter((provider) => provider.provider_id !== providerId),
+    models,
+    workflows: settings.workflows.map((workflow) => {
+      const modelPool = workflow.model_pool.filter((modelId) => !modelDeleteSet.has(modelId))
+      return {
+        ...workflow,
+        provider_ids: workflow.provider_ids.filter((item) => item !== providerId),
+        model_pool: modelPool,
+        default_model: modelPool.includes(workflow.default_model) ? workflow.default_model : modelPool[0] || '',
+      }
+    }),
+  }
+}
+
+function pruneDeletedModel(settings: LlmSettings, modelId: string): LlmSettings {
+  const models = settings.models.filter((model) => model.model_id !== modelId)
+  return {
+    ...settings,
+    models,
+    workflows: settings.workflows.map((workflow) => {
+      const modelPool = workflow.model_pool.filter((item) => item !== modelId)
+      return {
+        ...workflow,
+        provider_ids: providerIdsForModels(models, modelPool),
+        model_pool: modelPool,
+        default_model: modelPool.includes(workflow.default_model) ? workflow.default_model : modelPool[0] || '',
+      }
+    }),
+  }
+}
+
 function validateDraftSettings(settings: LlmSettings): string[] {
   const errors: string[] = []
   const providerIds = settings.providers.map((provider) => provider.provider_id.trim()).filter(Boolean)
@@ -101,7 +255,7 @@ function validateDraftSettings(settings: LlmSettings): string[] {
   for (const provider of settings.providers) {
     const envName = provider.api_key_env.trim()
     if (envName && !API_KEY_ENV_RE.test(envName)) {
-      errors.push(`${provider.label || provider.provider_id} API key environment variable must be an uppercase env var name such as OPENROUTER_API_KEY. Paste actual keys into the one-time secret field instead.`)
+      errors.push(`${provider.label || provider.provider_id} environment variable name is invalid. Save will store this value as a one-time provider secret and clear the env field.`)
     }
   }
   for (const modelId of duplicateValues(modelIds)) errors.push(`Duplicate model id: ${modelId}`)
@@ -130,7 +284,7 @@ function SettingsValidationCard({ errors }: Readonly<{ errors: string[] }>) {
   if (!errors.length) return null
   return (
     <section className="state-card state-card--error state-card--compact" aria-label="Settings validation">
-      <strong>Settings cannot be saved yet.</strong>
+      <strong>Settings needs attention.</strong>
       <ul className="settings-validation-list">
         {errors.map((error) => <li key={error}>{error}</li>)}
       </ul>
@@ -138,16 +292,31 @@ function SettingsValidationCard({ errors }: Readonly<{ errors: string[] }>) {
   )
 }
 
+function TestResult({ result }: Readonly<{ result?: LlmTestResponse | 'pending' }>) {
+  if (!result) return null
+  if (result === 'pending') return <span className="settings-test-result">testing...</span>
+  return (
+    <span className={`settings-test-result ${result.ok ? 'settings-test-result--ok' : 'settings-test-result--fail'}`}>
+      {result.ok ? `ok ${result.latency_ms}ms` : `failed ${result.status_code || ''}`.trim()}
+      {result.error ? `: ${result.error}` : ''}
+    </span>
+  )
+}
+
 function ProviderRows({
   settings,
   providerSecrets,
+  testResults,
   onChange,
   onSecretChange,
+  onTestProvider,
 }: Readonly<{
   settings: LlmSettings
   providerSecrets: Record<string, string>
+  testResults: Record<string, LlmTestResponse | 'pending'>
   onChange: (settings: LlmSettings) => void
   onSecretChange: (providerId: string, value: string) => void
+  onTestProvider: (providerId: string) => void
 }>) {
   return (
     <section className="settings-panel" aria-label="LLM providers">
@@ -180,6 +349,7 @@ function ProviderRows({
       <div className="settings-table settings-table--providers">
         {settings.providers.map((provider, index) => {
           const providerName = provider.label || provider.provider_id || `Provider ${index + 1}`
+          const testKey = `provider:${provider.provider_id}`
           return (
           <article className="settings-row" key={`${provider.provider_id}-${index}`}>
             <label>
@@ -202,7 +372,7 @@ function ProviderRows({
               <input aria-label={`${providerName} base URL`} value={provider.base_url} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, base_url: event.target.value })) })} />
             </label>
             <label>
-              API key environment variable
+              Environment variable name
               <input aria-label={`${providerName} API key environment variable`} placeholder={provider.api_key_env || 'OPENROUTER_API_KEY'} value={provider.api_key_env} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, api_key_env: event.target.value })) })} />
             </label>
             <label>
@@ -213,7 +383,12 @@ function ProviderRows({
               <input aria-label={`${providerName} enabled`} type="checkbox" checked={provider.enabled} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, enabled: event.target.checked })) })} />
               Enabled
             </label>
-            <span className="settings-status">{providerStatus(provider)}</span>
+            <div className="settings-actions">
+              <span className="settings-status">{providerStatus(provider)}</span>
+              <button className="secondary-button settings-small-button" type="button" onClick={() => onTestProvider(provider.provider_id)}>Test</button>
+              <button className="danger-button settings-small-button" type="button" onClick={() => onChange(pruneDeletedProvider(settings, provider.provider_id))}>Delete</button>
+              <TestResult result={testResults[testKey]} />
+            </div>
           </article>
           )
         })}
@@ -222,7 +397,17 @@ function ProviderRows({
   )
 }
 
-function ModelRows({ settings, onChange }: Readonly<{ settings: LlmSettings; onChange: (settings: LlmSettings) => void }>) {
+function ModelRows({
+  settings,
+  testResults,
+  onChange,
+  onTestModel,
+}: Readonly<{
+  settings: LlmSettings
+  testResults: Record<string, LlmTestResponse | 'pending'>
+  onChange: (settings: LlmSettings) => void
+  onTestModel: (model: LlmModel) => void
+}>) {
   return (
     <section className="settings-panel" aria-label="LLM models">
       <div className="settings-panel-head">
@@ -242,7 +427,7 @@ function ModelRows({ settings, onChange }: Readonly<{ settings: LlmSettings; onC
                 provider_id: settings.providers[0]?.provider_id || 'synthetic',
                 label: 'New model',
                 enabled: false,
-                weight: 1,
+                weight: 35,
               },
             ],
           })}
@@ -251,32 +436,43 @@ function ModelRows({ settings, onChange }: Readonly<{ settings: LlmSettings; onC
         </button>
       </div>
       <div className="settings-table">
-        {settings.models.map((model, index) => (
+        {settings.models.map((model, index) => {
+          const modelName = model.label || model.model_id
+          const testKey = `model:${model.provider_id}:${model.model_id}`
+          return (
           <article className="settings-row settings-row--model" key={`${model.model_id}-${index}`}>
             <label className="settings-field-wide">
               Model id
-              <input aria-label={`${model.label || model.model_id} model id`} value={model.model_id} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, model_id: event.target.value })) })} />
+              <input aria-label={`${modelName} model id`} value={model.model_id} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, model_id: event.target.value })) })} />
             </label>
             <label>
               Provider
-              <select aria-label={`${model.label || model.model_id} provider`} value={model.provider_id} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, provider_id: event.target.value })) })}>
+              <select aria-label={`${modelName} provider`} value={model.provider_id} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, provider_id: event.target.value })) })}>
                 {settings.providers.map((provider) => <option key={provider.provider_id} value={provider.provider_id}>{provider.label || provider.provider_id}</option>)}
               </select>
             </label>
             <label>
               Label
-              <input aria-label={`${model.label || model.model_id} label`} value={model.label} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, label: event.target.value })) })} />
+              <input aria-label={`${modelName} label`} value={model.label} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, label: event.target.value })) })} />
             </label>
             <label>
               Weight
-              <input aria-label={`${model.label || model.model_id} weight`} type="number" min={0} max={100} value={model.weight} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, weight: Number(event.target.value) })) })} />
+              <input aria-label={`${modelName} weight`} type="range" min={0} max={100} value={model.weight} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, weight: Number(event.target.value) })) })} />
+              <span className="settings-range-value">{model.weight}</span>
             </label>
             <label className="settings-checkbox">
-              <input aria-label={`${model.label || model.model_id} enabled`} type="checkbox" checked={model.enabled} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, enabled: event.target.checked })) })} />
+              <input aria-label={`${modelName} enabled`} type="checkbox" checked={model.enabled} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, enabled: event.target.checked })) })} />
               Enabled
             </label>
+            <div className="settings-actions">
+              <button className="secondary-button settings-small-button" type="button" onClick={() => onTestModel(model)}>Test</button>
+              <button className="danger-button settings-small-button" type="button" onClick={() => onChange(pruneDeletedModel(settings, model.model_id))}>Delete</button>
+              <TestResult result={testResults[testKey]} />
+            </div>
+            {model.notes ? <p className="settings-note">{model.notes}</p> : null}
           </article>
-        ))}
+          )
+        })}
       </div>
     </section>
   )
@@ -291,9 +487,16 @@ function WorkflowRows({ settings, onChange }: Readonly<{ settings: LlmSettings; 
           <p className="eyebrow">Workflow pools</p>
           <h2>Agent routing</h2>
         </div>
+        <button className="secondary-button" type="button" onClick={() => onChange(applyRecommendedRouting(settings))}>
+          Apply recommended routing
+        </button>
       </div>
       <div className="workflow-grid">
-        {settings.workflows.map((workflow, index) => (
+        {settings.workflows.map((workflow, index) => {
+          const selectedModels = new Set(workflow.model_pool)
+          const selectedProviders = new Set(workflow.provider_ids)
+          const availableDefaults = options.filter((option) => selectedModels.has(option.value))
+          return (
           <article className="workflow-card" key={workflow.workflow_id}>
             <div className="workflow-card-head">
               <div>
@@ -309,20 +512,51 @@ function WorkflowRows({ settings, onChange }: Readonly<{ settings: LlmSettings; 
                 Enabled
               </label>
             </div>
-            <label>
-              Providers
-              <textarea aria-label={`${workflow.label} providers`} value={listText(workflow.provider_ids)} onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, provider_ids: splitList(event.target.value) })) })} />
-            </label>
+            <fieldset className="settings-choice-group">
+              <legend>Providers</legend>
+              {settings.providers.map((provider) => (
+                <label className="settings-checkbox" key={provider.provider_id}>
+                  <input
+                    aria-label={`${workflow.label} provider ${provider.provider_id}`}
+                    type="checkbox"
+                    checked={selectedProviders.has(provider.provider_id)}
+                    onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, provider_ids: toggleItem(item.provider_ids, provider.provider_id, event.target.checked) })) })}
+                  />
+                  {provider.label || provider.provider_id}
+                </label>
+              ))}
+            </fieldset>
             <label>
               Default model
               <select aria-label={`${workflow.label} default model`} value={workflow.default_model} onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, default_model: event.target.value })) })}>
-                {options.map((model) => <option key={model.value} value={model.value}>{model.label}</option>)}
+                {availableDefaults.map((model) => <option key={model.value} value={model.value}>{model.label}</option>)}
               </select>
             </label>
-            <label>
-              Model pool
-              <textarea aria-label={`${workflow.label} model pool`} value={listText(workflow.model_pool)} onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, model_pool: splitList(event.target.value) })) })} />
-            </label>
+            <fieldset className="settings-choice-group">
+              <legend>Model pool</legend>
+              {settings.models.map((model) => (
+                <label className="settings-checkbox" key={model.model_id}>
+                  <input
+                    aria-label={`${workflow.label} model ${model.model_id}`}
+                    type="checkbox"
+                    checked={selectedModels.has(model.model_id)}
+                    onChange={(event) => onChange({
+                      ...settings,
+                      workflows: updateAt(settings.workflows, index, (item) => {
+                        const modelPool = toggleItem(item.model_pool, model.model_id, event.target.checked)
+                        return {
+                          ...item,
+                          model_pool: modelPool,
+                          provider_ids: providerIdsForModels(settings.models, modelPool),
+                          default_model: modelPool.includes(item.default_model) ? item.default_model : modelPool[0] || '',
+                        }
+                      }),
+                    })}
+                  />
+                  {model.label || model.model_id}
+                </label>
+              ))}
+            </fieldset>
             <div className="settings-row settings-row--compact">
               <label>
                 Temperature
@@ -334,7 +568,8 @@ function WorkflowRows({ settings, onChange }: Readonly<{ settings: LlmSettings; 
               </label>
             </div>
           </article>
-        ))}
+          )
+        })}
       </div>
     </section>
   )
@@ -347,23 +582,50 @@ export function SettingsPage() {
   })
   const [draft, setDraft] = useState<LlmSettings | null>(null)
   const [providerSecrets, setProviderSecrets] = useState<Record<string, string>>({})
+  const [testResults, setTestResults] = useState<Record<string, LlmTestResponse | 'pending'>>({})
   useEffect(() => {
     if (query.data?.settings) setDraft(query.data.settings)
   }, [query.data])
   const mutation = useMutation({
     mutationFn: (settings: LlmSettings) => {
       const secrets = Object.fromEntries(Object.entries(providerSecrets).filter(([, value]) => value.trim()))
-      return apiPost<Record<string, unknown>>('/control/api/settings/llm', { requested_by: 'dashboard-v2', settings, provider_secrets: secrets })
+      return apiPost<Record<string, unknown>>('/control/api/settings/llm', { requested_by: 'dashboard-v2', settings: sanitizeSettingsForSave(settings), provider_secrets: secrets })
     },
     onSuccess: () => {
       setProviderSecrets({})
       query.refetch()
     },
   })
+  const testMutation = useMutation({
+    mutationFn: (payload: { provider_id: string; model_id?: string }) => apiPost<LlmTestResponse>('/control/api/settings/llm/test', payload),
+  })
+  const runProviderTest = (providerId: string) => {
+    const key = `provider:${providerId}`
+    setTestResults((current) => ({ ...current, [key]: 'pending' }))
+    testMutation.mutate(
+      { provider_id: providerId },
+      {
+        onSuccess: (result) => setTestResults((current) => ({ ...current, [key]: result })),
+        onError: (error) => setTestResults((current) => ({ ...current, [key]: { ok: false, provider_id: providerId, model_id: '', status_code: 0, latency_ms: 0, error: String(error) } })),
+      },
+    )
+  }
+  const runModelTest = (model: LlmModel) => {
+    const key = `model:${model.provider_id}:${model.model_id}`
+    setTestResults((current) => ({ ...current, [key]: 'pending' }))
+    testMutation.mutate(
+      { provider_id: model.provider_id, model_id: model.model_id },
+      {
+        onSuccess: (result) => setTestResults((current) => ({ ...current, [key]: result })),
+        onError: (error) => setTestResults((current) => ({ ...current, [key]: { ok: false, provider_id: model.provider_id, model_id: model.model_id, status_code: 0, latency_ms: 0, error: String(error) } })),
+      },
+    )
+  }
   if (query.isLoading) return <LoadingStateCard label="LLM settings" />
   if (query.error) return <InlineErrorStateCard prefix="Settings load failed" message={String(query.error)} />
   if (!draft) return <InlineErrorStateCard prefix="Settings unavailable" message="No settings payload returned." />
   const validationErrors = validateDraftSettings(draft)
+  const blockingErrors = validationErrors.filter((error) => !error.includes('Save will store this value as a one-time provider secret'))
 
   return (
     <PageShell
@@ -371,7 +633,7 @@ export function SettingsPage() {
       subtitle="Providers, model catalog, and workflow model pools"
       dataSource={`${displayText(query.data?.path, 'default settings')} ${query.data?.persisted ? 'persisted' : 'defaults'}`}
       action={(
-        <button className="primary-button" type="button" disabled={mutation.isPending || validationErrors.length > 0} onClick={() => mutation.mutate(draft)}>
+        <button className="primary-button" type="button" disabled={mutation.isPending || blockingErrors.length > 0} onClick={() => mutation.mutate(draft)}>
           {mutation.isPending ? 'Saving settings' : 'Save settings'}
         </button>
       )}
@@ -382,10 +644,12 @@ export function SettingsPage() {
       <ProviderRows
         settings={draft}
         providerSecrets={providerSecrets}
+        testResults={testResults}
         onChange={setDraft}
         onSecretChange={(providerId, value) => setProviderSecrets((current) => ({ ...current, [providerId]: value }))}
+        onTestProvider={runProviderTest}
       />
-      <ModelRows settings={draft} onChange={setDraft} />
+      <ModelRows settings={draft} testResults={testResults} onChange={setDraft} onTestModel={runModelTest} />
       <WorkflowRows settings={draft} onChange={setDraft} />
     </PageShell>
   )

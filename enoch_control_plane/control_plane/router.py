@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from functools import partial
+import json
 import io
 import hashlib
 import mimetypes
@@ -15,6 +16,8 @@ import subprocess
 import tempfile
 import time
 from typing import Annotated, Any, Callable, Mapping
+import urllib.error
+import urllib.request
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Header, HTTPException, Query
@@ -37,6 +40,7 @@ from ..llm_settings import (
     read_llm_settings,
     resolve_workflow_model,
     settings_response,
+    settings_update_payload,
     write_llm_provider_secrets,
     write_llm_settings,
 )
@@ -6908,6 +6912,151 @@ def _register_control_plane_llm_settings_routes(
     store: Any,
     require_bearer: RequireBearer,
 ) -> None:
+    def _provider_by_id(settings: LLMSettings, provider_id: str):
+        for provider in settings.providers:
+            if provider.provider_id == provider_id:
+                return provider
+        raise HTTPException(status_code=404, detail="unknown LLM provider")
+
+    def _model_by_id(settings: LLMSettings, model_id: str):
+        for model in settings.models:
+            if model.model_id == model_id:
+                return model
+        raise HTTPException(status_code=404, detail="unknown LLM model")
+
+    def _provider_auth_headers(provider: Any) -> dict[str, str]:
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "User-Agent": "EnochControlPlane/llm-settings-test",
+        }
+        api_key = llm_provider_api_key(config, provider)
+        host = (urlparse(provider.base_url).hostname or "").rstrip(".").lower()
+        if api_key and host != "synthetic.int.exe.xyz":
+            if provider.api_format == "anthropic_messages":
+                headers["x-api-key"] = api_key
+                headers["anthropic-version"] = "2023-06-01"
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
+    def _llm_test_response_preview(payload: dict[str, Any]) -> str:
+        choices = payload.get("choices") or []
+        if choices and isinstance(choices[0], dict):
+            message = choices[0].get("message") or {}
+            content = message.get("content")
+            if isinstance(content, str):
+                return content[:240]
+        content = payload.get("content")
+        if isinstance(content, list):
+            text = "".join(
+                str(part.get("text") or "")
+                for part in content
+                if isinstance(part, dict)
+            )
+            return text[:240]
+        return ""
+
+    def _run_llm_provider_test(
+        *,
+        settings: LLMSettings,
+        provider_id: str,
+        model_id: str,
+    ) -> dict[str, Any]:
+        provider = _provider_by_id(settings, provider_id)
+        model = _model_by_id(settings, model_id) if model_id else None
+        if model is not None and model.provider_id != provider.provider_id:
+            raise HTTPException(
+                status_code=400, detail="model does not belong to provider"
+            )
+        if not llm_provider_api_key(config, provider) and (
+            (urlparse(provider.base_url).hostname or "").rstrip(".").lower()
+            != "synthetic.int.exe.xyz"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="provider has no API key configured; paste a provider secret or configure an env var",
+            )
+        started = time.monotonic()
+        try:
+            if model is None:
+                req = urllib.request.Request(
+                    provider.base_url.rstrip("/") + "/models",
+                    method="GET",
+                    headers=_provider_auth_headers(provider),
+                )
+            elif provider.api_format == "anthropic_messages":
+                req = urllib.request.Request(
+                    provider.base_url.rstrip("/") + "/messages",
+                    data=json.dumps(
+                        {
+                            "model": model.model_id,
+                            "max_tokens": 12,
+                            "temperature": 0,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": "Reply with exactly: ok",
+                                }
+                            ],
+                        }
+                    ).encode("utf-8"),
+                    method="POST",
+                    headers=_provider_auth_headers(provider),
+                )
+            else:
+                req = urllib.request.Request(
+                    provider.base_url.rstrip("/") + "/chat/completions",
+                    data=json.dumps(
+                        {
+                            "model": model.model_id,
+                            "max_tokens": 12,
+                            "temperature": 0,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": "Reply with exactly: ok",
+                                }
+                            ],
+                        }
+                    ).encode("utf-8"),
+                    method="POST",
+                    headers=_provider_auth_headers(provider),
+                )
+            with urllib.request.urlopen(req, timeout=20) as response:  # noqa: S310 - operator-configured provider URL
+                body = response.read(32768).decode("utf-8", errors="replace")
+                try:
+                    data = json.loads(body) if body else {}
+                except json.JSONDecodeError:
+                    data = {"raw_preview": body[:240]}
+                return {
+                    "ok": 200 <= int(response.status) < 300,
+                    "provider_id": provider.provider_id,
+                    "model_id": model.model_id if model is not None else "",
+                    "status_code": int(response.status),
+                    "latency_ms": int((time.monotonic() - started) * 1000),
+                    "response_preview": _llm_test_response_preview(data)
+                    or str(data.get("raw_preview") or "")[:240],
+                }
+        except urllib.error.HTTPError as exc:
+            detail = exc.read(2048).decode("utf-8", errors="replace")
+            return {
+                "ok": False,
+                "provider_id": provider.provider_id,
+                "model_id": model.model_id if model is not None else "",
+                "status_code": int(exc.code),
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "error": detail[:500] or str(exc),
+            }
+        except Exception as exc:  # noqa: BLE001 - operator diagnostic endpoint
+            return {
+                "ok": False,
+                "provider_id": provider.provider_id,
+                "model_id": model.model_id if model is not None else "",
+                "status_code": 0,
+                "latency_ms": int((time.monotonic() - started) * 1000),
+                "error": f"{type(exc).__name__}: {exc}"[:500],
+            }
+
     @router.get("/api/settings/llm")
     def dashboard_llm_settings(
         authorization: Annotated[str | None, Header()] = None,
@@ -6936,12 +7085,15 @@ def _register_control_plane_llm_settings_routes(
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
         settings_payload = body.get("settings", body)
         try:
-            settings = LLMSettings.model_validate(settings_payload)
             provider_secrets = body.get("provider_secrets") or {}
             if provider_secrets and not isinstance(provider_secrets, dict):
                 raise ValueError(
                     "provider_secrets must be an object keyed by provider_id"
                 )
+            settings_payload, provider_secrets, recovered_provider_secrets = (
+                settings_update_payload(settings_payload, provider_secrets)
+            )
+            settings = LLMSettings.model_validate(settings_payload)
             written_provider_secrets = write_llm_provider_secrets(
                 config, provider_secrets, settings=settings
             )
@@ -6966,6 +7118,7 @@ def _register_control_plane_llm_settings_routes(
                         workflow.workflow_id for workflow in settings.workflows
                     ],
                     "provider_secret_updates": written_provider_secrets,
+                    "recovered_provider_secret_updates": recovered_provider_secrets,
                 },
             )
         except Exception as exc:  # pragma: no cover - visibility only
@@ -6979,6 +7132,29 @@ def _register_control_plane_llm_settings_routes(
         if event_error:
             response["event_error"] = event_error
         return response
+
+    @router.post("/api/settings/llm/test")
+    def dashboard_test_llm_settings(
+        payload: Annotated[dict[str, Any], Body()],
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        require_bearer(authorization)
+        _declare_non_store_mutating_post("LLM provider/model test")
+        body = payload or {}
+        provider_id = str(body.get("provider_id") or "").strip()
+        model_id = str(body.get("model_id") or "").strip()
+        if not provider_id:
+            raise HTTPException(status_code=400, detail="provider_id is required")
+        settings = read_llm_settings(config)
+        result = _run_llm_provider_test(
+            settings=settings, provider_id=provider_id, model_id=model_id
+        )
+        return {
+            "source": "control_api_llm_settings_test",
+            "authority": "bounded live provider/model smoke test; no settings mutation",
+            "generated_at": utc_now(),
+            **result,
+        }
 
 
 class _ControlPlaneHttpRegistrationNamespace(dict):
