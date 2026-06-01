@@ -19,13 +19,41 @@ export function saveToken(token: string): void {
   browserStorage()?.setItem(TOKEN_STORAGE_KEY, fallbackToken)
 }
 
+function stringifyApiDetail(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+async function errorMessageForResponse(path: string, response: Response): Promise<string> {
+  let detail = ''
+  try {
+    const text = await response.text()
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as { detail?: unknown; message?: unknown }
+        detail = stringifyApiDetail(parsed.detail ?? parsed.message ?? parsed)
+      } catch {
+        detail = text
+      }
+    }
+  } catch {
+    detail = ''
+  }
+  return detail ? `${path} -> ${response.status}: ${detail}` : `${path} -> ${response.status}`
+}
+
 export async function apiGet<T>(path: string, token = getSavedToken()): Promise<T> {
   const response = await fetch(path, {
     cache: 'no-store',
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!response.ok) {
-    throw new Error(`${path} -> ${response.status}`)
+    throw new Error(await errorMessageForResponse(path, response))
   }
   return response.json() as Promise<T>
 }
@@ -38,7 +66,7 @@ export async function apiPost<T>(path: string, payload: unknown, token = getSave
     body: JSON.stringify(payload),
   })
   if (!response.ok) {
-    throw new Error(`${path} -> ${response.status}`)
+    throw new Error(await errorMessageForResponse(path, response))
   }
   return response.json() as Promise<T>
 }

@@ -137,3 +137,17 @@ it('edits provider endpoints, model catalog, and workflow pools through the sett
     model_pool: ['hf:moonshotai/Kimi-K2.6', 'openrouter/anthropic/claude-sonnet-4.5'],
   })
 })
+
+it('blocks saves when a workflow references a model outside the catalog', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+
+  renderWithClient(<SettingsPage />)
+
+  await screen.findByDisplayValue('https://openrouter.ai/api/v1')
+  fireEvent.change(screen.getByLabelText('Research agents model pool'), {
+    target: { value: 'openrouter/missing-model' },
+  })
+
+  expect(await screen.findByText(/Research agents references models not in the catalog: openrouter\/missing-model/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
+})

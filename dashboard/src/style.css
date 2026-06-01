@@ -1088,6 +1088,17 @@ button:disabled { cursor: not-allowed; }
   font-weight: 850;
   white-space: nowrap;
 }
+.settings-validation-list {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.55rem 0 0;
+  padding-left: 1.1rem;
+}
+.settings-validation-list li {
+  color: #fecaca;
+  font-size: 0.84rem;
+  line-height: 1.38;
+}
 .workflow-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

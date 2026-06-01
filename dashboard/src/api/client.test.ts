@@ -1,9 +1,19 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { apiGet, saveToken } from './client'
+import { apiGet, apiPost, saveToken } from './client'
 
 afterEach(() => {
   vi.restoreAllMocks()
   saveToken('')
+})
+
+it('includes API error detail from failed writes', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+    detail: "workflow 'research_generation' references unknown models: openrouter/auto",
+  }), { status: 400 }))
+
+  await expect(apiPost('/control/api/settings/llm', { settings: {} })).rejects.toThrow(
+    "/control/api/settings/llm -> 400: workflow 'research_generation' references unknown models: openrouter/auto",
+  )
 })
 
 it('sends the saved bearer token on API reads', async () => {

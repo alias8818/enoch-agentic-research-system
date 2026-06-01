@@ -80,6 +80,57 @@ function providerStatus(provider: LlmProvider): string {
   return provider.api_key_configured ? 'key present' : 'key missing'
 }
 
+function duplicateValues(values: string[]): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  for (const value of values) {
+    if (seen.has(value)) duplicates.add(value)
+    seen.add(value)
+  }
+  return Array.from(duplicates)
+}
+
+function validateDraftSettings(settings: LlmSettings): string[] {
+  const errors: string[] = []
+  const providerIds = settings.providers.map((provider) => provider.provider_id.trim()).filter(Boolean)
+  const modelIds = settings.models.map((model) => model.model_id.trim()).filter(Boolean)
+  const providerSet = new Set(providerIds)
+  const modelSet = new Set(modelIds)
+  for (const providerId of duplicateValues(providerIds)) errors.push(`Duplicate provider id: ${providerId}`)
+  for (const modelId of duplicateValues(modelIds)) errors.push(`Duplicate model id: ${modelId}`)
+  for (const model of settings.models) {
+    if (model.provider_id && !providerSet.has(model.provider_id)) {
+      errors.push(`${model.label || model.model_id} references unknown provider: ${model.provider_id}`)
+    }
+  }
+  for (const workflow of settings.workflows) {
+    const label = workflow.label || workflow.workflow_id
+    const missingProviders = workflow.provider_ids.filter((providerId) => !providerSet.has(providerId))
+    if (missingProviders.length) errors.push(`${label} references providers not in the catalog: ${missingProviders.join(', ')}`)
+    const missingModels = workflow.model_pool.filter((modelId) => !modelSet.has(modelId))
+    if (missingModels.length) errors.push(`${label} references models not in the catalog: ${missingModels.join(', ')}`)
+    if (workflow.default_model && !workflow.model_pool.includes(workflow.default_model)) {
+      errors.push(`${label} default model is not in the model pool: ${workflow.default_model}`)
+    }
+    if (workflow.enabled && workflow.model_pool.length === 0) {
+      errors.push(`${label} requires at least one model in its pool`)
+    }
+  }
+  return errors
+}
+
+function SettingsValidationCard({ errors }: Readonly<{ errors: string[] }>) {
+  if (!errors.length) return null
+  return (
+    <section className="state-card state-card--error state-card--compact" aria-label="Settings validation">
+      <strong>Settings cannot be saved yet.</strong>
+      <ul className="settings-validation-list">
+        {errors.map((error) => <li key={error}>{error}</li>)}
+      </ul>
+    </section>
+  )
+}
+
 function ProviderRows({ settings, onChange }: Readonly<{ settings: LlmSettings; onChange: (settings: LlmSettings) => void }>) {
   return (
     <section className="settings-panel" aria-label="LLM providers">
@@ -284,6 +335,7 @@ export function SettingsPage() {
   if (query.isLoading) return <LoadingStateCard label="LLM settings" />
   if (query.error) return <InlineErrorStateCard prefix="Settings load failed" message={String(query.error)} />
   if (!draft) return <InlineErrorStateCard prefix="Settings unavailable" message="No settings payload returned." />
+  const validationErrors = validateDraftSettings(draft)
 
   return (
     <PageShell
@@ -291,13 +343,14 @@ export function SettingsPage() {
       subtitle="Providers, model catalog, and workflow model pools"
       dataSource={`${displayText(query.data?.path, 'default settings')} ${query.data?.persisted ? 'persisted' : 'defaults'}`}
       action={(
-        <button className="primary-button" type="button" disabled={mutation.isPending} onClick={() => mutation.mutate(draft)}>
+        <button className="primary-button" type="button" disabled={mutation.isPending || validationErrors.length > 0} onClick={() => mutation.mutate(draft)}>
           {mutation.isPending ? 'Saving settings' : 'Save settings'}
         </button>
       )}
     >
       {mutation.error ? <InlineErrorStateCard prefix="Settings save failed" message={String(mutation.error)} /> : null}
       {mutation.data ? <section className="state-card state-card--compact">Settings saved.</section> : null}
+      <SettingsValidationCard errors={validationErrors} />
       <ProviderRows settings={draft} onChange={setDraft} />
       <ModelRows settings={draft} onChange={setDraft} />
       <WorkflowRows settings={draft} onChange={setDraft} />
