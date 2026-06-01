@@ -26,7 +26,9 @@ function stringifyApiDetail(value: unknown): string {
     return JSON.stringify(value)
   } catch {
     if (typeof value === 'object') return '[unserializable object]'
-    return String(value)
+    if (typeof value === 'function') return '[function]'
+    if (typeof value === 'symbol') return value.description ? `Symbol(${value.description})` : 'Symbol()'
+    return `${value}`
   }
 }
 

@@ -1080,10 +1080,10 @@ button:disabled { cursor: not-allowed; }
 }
 .settings-status {
   justify-self: start;
-  border: 1px solid rgba(244,241,234,0.12);
+  border: 1px solid #5d4a36;
   border-radius: 999px;
-  background: rgba(255,255,255,0.035);
-  color: #f4f1ea;
+  background: #14100c;
+  color: #fff;
   padding: 0.32rem 0.52rem;
   font-size: 0.72rem;
   font-weight: 850;
