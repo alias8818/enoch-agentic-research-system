@@ -31,6 +31,7 @@ it('parses V2-owned command-center routes', () => {
   expect(parseDashboardRoute('#automation:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', search: '', reviewStatus: '', hash: '#automation:paper%2F1' })
   expect(parseDashboardRoute('#reviews')).toEqual({ page: 'automation', paperId: '', search: '', reviewStatus: '', hash: '#reviews' })
   expect(parseDashboardRoute('#review:paper%2F1')).toEqual({ page: 'automation', paperId: 'paper/1', search: '', reviewStatus: '', hash: '#review:paper%2F1' })
+  expect(parseDashboardRoute('#settings')).toEqual({ page: 'settings', hash: '#settings' })
 })
 
 it('keeps dashboard hashes inside the V2 route surface', () => {
@@ -53,6 +54,7 @@ it('keeps dashboard hashes inside the V2 route surface', () => {
   expect(dashboardV2Href('#automation')).toBe('/control/dashboard-v2#automation')
   expect(dashboardV2Href('#automation:paper-1')).toBe('/control/dashboard-v2#automation:paper-1')
   expect(dashboardV2Href('#review:paper-1')).toBe('/control/dashboard-v2#automation:paper-1')
+  expect(dashboardV2Href('#settings')).toBe('/control/dashboard-v2#settings')
   expect(dashboardV2Href('#observability')).toBe('/control/dashboard-v2#observability')
   expect(dashboardV2Href('#corpus')).toBe('/control/dashboard-v2#corpus')
   expect(parseDashboardRoute('#unknown-workflow')).toEqual({ page: 'unsupported', hash: '#unknown-workflow' })
@@ -72,6 +74,7 @@ it('maps canonical operator hashes to implemented pages', () => {
     '#research',
     '#intake',
     '#automation',
+    '#settings',
     '#project:project-1',
     '#run:run-1',
     '#paper:paper-1',
@@ -87,4 +90,5 @@ it('maps routes to compact shell titles', () => {
   expect(dashboardRouteTitle(parseDashboardRoute('#overview'))).toBe('Command center')
   expect(dashboardRouteTitle(parseDashboardRoute('#projects'))).toBe('Projects')
   expect(dashboardRouteTitle(parseDashboardRoute('#project:project-1'))).toBe('Project detail')
+  expect(dashboardRouteTitle(parseDashboardRoute('#settings'))).toBe('Settings')
 })

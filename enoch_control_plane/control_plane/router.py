@@ -30,6 +30,14 @@ from ..enoch_core.logic import (
 )
 from ..enoch_core.store import IdempotencyConflict
 from ..models import GateCallback, utc_now
+from ..llm_settings import (
+    LLMSettings,
+    llm_settings_path,
+    read_llm_settings,
+    resolve_workflow_model,
+    settings_response,
+    write_llm_settings,
+)
 from ..observability import (
     capture_exception,
     current_rss_mib,
@@ -339,11 +347,29 @@ def _require_writable_store_http(action: str, *, backend: str) -> None:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
+def _require_writable_store(action: str) -> None:
+    if _ROUTER_GATE_CONFIG is None:
+        raise HTTPException(status_code=501, detail="control-plane config is not bound")
+    _require_writable_store_http(
+        action, backend=_ROUTER_GATE_CONFIG.control_plane_store_backend
+    )
+
+
 RequireBearer = Callable[[str | None], None]
 
 _RUN_NOTES_MD = "run_notes.md"
 _EVIDENCE_SYNC_METHOD_WORKER_HTTP_SSH = "worker_http+ssh"
 _DEFAULT_RESEARCH_MODEL = "gpt-5.5"
+_ROUTER_GATE_CONFIG: GateConfig | None = None
+
+
+@dataclass(frozen=True)
+class _ResearchProviderSelection:
+    provider_model: str
+    allowed_models: list[str]
+    provider_base_url: str
+    provider_openai_base_url: str
+    provider_id: str = ""
 
 
 def _normal_status(value: Any) -> str:
@@ -407,6 +433,38 @@ def _resolve_research_provider_model(
     Extracted from dashboard_research_run_cycle to reduce cyclomatic complexity.
     Returns (provider_model, allowed_models) on success or an error response dict.
     """
+    if _ROUTER_GATE_CONFIG is not None and not os.environ.get(
+        "ENOCH_RESEARCH_ALLOWED_MODELS"
+    ):
+        requested_model = str(
+            body.get("model") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL") or ""
+        ).strip()
+        try:
+            settings = read_llm_settings(_ROUTER_GATE_CONFIG)
+            workflow, model, _provider = resolve_workflow_model(
+                settings,
+                "research_generation",
+                requested_model=requested_model,
+                require_openai_compatible=True,
+            )
+            return model.model_id, workflow.model_pool
+        except Exception as exc:
+            reason = f"research provider settings invalid: {exc}"
+            if requested_model:
+                reason = (
+                    f"provider model {requested_model!r} is not in the allowed model list; "
+                    f"research provider settings invalid: {exc}"
+                )
+            return {
+                "ok": False,
+                "action": "research_cycle_blocked",
+                "dry_run": bool(body.get("dry_run", True)),
+                "reason": reason,
+                "allowed_models": [],
+                "queue_admitted": False,
+                "dispatch_started": False,
+            }
+
     allowed_models = [
         item.strip()
         for item in os.environ.get(
@@ -438,6 +496,95 @@ def _resolve_research_provider_model(
     return provider_model, allowed_models
 
 
+def _synthetic_budget_base_url(openai_base_url: str) -> str:
+    value = str(openai_base_url or "").rstrip("/")
+    if value.endswith("/openai/v1"):
+        return value[: -len("/openai/v1")]
+    return value
+
+
+def _resolve_research_provider_selection(
+    config: GateConfig,
+    body: dict[str, Any],
+) -> _ResearchProviderSelection | dict[str, Any]:
+    """Resolve provider/model routing from settings unless env allow-list overrides it."""
+
+    if os.environ.get("ENOCH_RESEARCH_ALLOWED_MODELS"):
+        model_resolution = _resolve_research_provider_model(body)
+        if isinstance(model_resolution, dict):
+            return model_resolution
+        provider_model, allowed_models = model_resolution
+        openai_base_url = os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
+            default_research_provider_openai_base_url(
+                os.environ.get(
+                    "ENOCH_RESEARCH_PROVIDER_BASE_URL",
+                    DEFAULT_RESEARCH_PROVIDER_BASE_URL,
+                )
+            ),
+        ).rstrip("/")
+        provider_base_url = os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_BASE_URL",
+            _synthetic_budget_base_url(openai_base_url),
+        ).rstrip("/")
+        return _ResearchProviderSelection(
+            provider_model=provider_model,
+            allowed_models=allowed_models,
+            provider_base_url=provider_base_url,
+            provider_openai_base_url=openai_base_url,
+            provider_id="env",
+        )
+
+    requested_model = str(
+        body.get("model") or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL") or ""
+    ).strip()
+    try:
+        settings = read_llm_settings(config)
+        workflow, model, provider = resolve_workflow_model(
+            settings,
+            "research_generation",
+            requested_model=requested_model,
+            require_openai_compatible=True,
+        )
+    except Exception as exc:
+        reason = f"research provider settings invalid: {exc}"
+        if requested_model:
+            reason = (
+                f"provider model {requested_model!r} is not in the allowed model list; "
+                f"research provider settings invalid: {exc}"
+            )
+        return {
+            "ok": False,
+            "action": "research_cycle_blocked",
+            "dry_run": bool(body.get("dry_run", True)),
+            "reason": reason,
+            "allowed_models": [],
+            "queue_admitted": False,
+            "dispatch_started": False,
+        }
+    openai_base_url = str(
+        body.get("provider_openai_base_url")
+        or os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL")
+        or provider.base_url
+    ).rstrip("/")
+    provider_base_url = str(
+        body.get("provider_base_url")
+        or os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL")
+        or (
+            _synthetic_budget_base_url(openai_base_url)
+            if provider.provider_id == "synthetic"
+            else openai_base_url
+        )
+    ).rstrip("/")
+    return _ResearchProviderSelection(
+        provider_model=model.model_id,
+        allowed_models=workflow.model_pool,
+        provider_base_url=provider_base_url,
+        provider_openai_base_url=openai_base_url,
+        provider_id=provider.provider_id,
+    )
+
+
 def _resolve_research_cycle_params(
     body: dict[str, Any],
     *,
@@ -462,6 +609,29 @@ def _resolve_research_cycle_params(
         promotion_batch_limit = _bounded_int_env(
             "ENOCH_RESEARCH_MAX_PROMOTIONS_PER_RUN_CAP", 25, 1, 100
         )
+
+    provider_openai_base_url = os.environ.get(
+        "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
+        default_research_provider_openai_base_url(
+            os.environ.get(
+                "ENOCH_RESEARCH_PROVIDER_BASE_URL",
+                DEFAULT_RESEARCH_PROVIDER_BASE_URL,
+            )
+        ),
+    ).rstrip("/")
+    provider_base_url = os.environ.get(
+        "ENOCH_RESEARCH_PROVIDER_BASE_URL",
+        _synthetic_budget_base_url(provider_openai_base_url),
+    ).rstrip("/")
+    if (
+        _ROUTER_GATE_CONFIG is not None
+        and not os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL")
+        and not os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL")
+    ):
+        selection = _resolve_research_provider_selection(_ROUTER_GATE_CONFIG, body)
+        if isinstance(selection, _ResearchProviderSelection):
+            provider_base_url = selection.provider_base_url
+            provider_openai_base_url = selection.provider_openai_base_url
 
     return Namespace(
         max_provider_requests=bounded_int("max_provider_requests_per_run", 1, 0, 3),
@@ -503,18 +673,8 @@ def _resolve_research_cycle_params(
         topic=str(body.get("topic") or "").strip(),
         temperature=bounded_float("temperature", 0.6, 0.0, 1.5),
         seed=str(body.get("seed") or utc_now()).strip(),
-        provider_base_url=os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", DEFAULT_RESEARCH_PROVIDER_BASE_URL
-        ).rstrip("/"),
-        provider_openai_base_url=os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
-            default_research_provider_openai_base_url(
-                os.environ.get(
-                    "ENOCH_RESEARCH_PROVIDER_BASE_URL",
-                    DEFAULT_RESEARCH_PROVIDER_BASE_URL,
-                )
-            ),
-        ).rstrip("/"),
+        provider_base_url=provider_base_url,
+        provider_openai_base_url=provider_openai_base_url,
         generation_timeout=bounded_int("generation_timeout", 240, 10, 300),
         generation_max_tokens=bounded_int(
             "generation_max_tokens",
@@ -6713,6 +6873,79 @@ def _register_control_plane_sentry_smoke_route(
         }
 
 
+def _register_control_plane_llm_settings_routes(
+    router: APIRouter,
+    config: GateConfig,
+    store: Any,
+    require_bearer: RequireBearer,
+) -> None:
+    @router.get("/api/settings/llm")
+    def dashboard_llm_settings(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        require_bearer(authorization)
+        settings = read_llm_settings(config)
+        path = llm_settings_path(config)
+        return {
+            "ok": True,
+            "source": "control_api_llm_settings",
+            "authority": "validated file-backed provider/model settings",
+            "path": str(path),
+            "persisted": path.exists(),
+            "settings": settings_response(settings),
+            "generated_at": utc_now(),
+        }
+
+    @router.post("/api/settings/llm")
+    def dashboard_update_llm_settings(
+        payload: Annotated[dict[str, Any], Body()],
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        require_bearer(authorization)
+        _require_writable_store("LLM provider settings update")
+        body = payload or {}
+        requested_by = str(body.get("requested_by") or "dashboard")[:80]
+        settings_payload = body.get("settings", body)
+        try:
+            settings = write_llm_settings(
+                config,
+                LLMSettings.model_validate(settings_payload),
+                updated_by=requested_by,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        event_id = None
+        event_error = ""
+        try:
+            event_id = store.append_event(
+                idempotency_key=f"llm-settings:{settings.updated_at}:{requested_by}",
+                event_type="settings.llm.updated",
+                entity_type="settings",
+                entity_id="llm",
+                payload={
+                    "requested_by": requested_by,
+                    "settings_path": str(llm_settings_path(config)),
+                    "providers": [
+                        provider.provider_id for provider in settings.providers
+                    ],
+                    "workflows": [
+                        workflow.workflow_id for workflow in settings.workflows
+                    ],
+                },
+            )
+        except Exception as exc:  # pragma: no cover - visibility only
+            event_error = f"{type(exc).__name__}: {exc}"
+        response = {
+            "ok": True,
+            "action": "llm_settings_updated",
+            "event_id": event_id,
+            "settings": settings_response(settings),
+        }
+        if event_error:
+            response["event_error"] = event_error
+        return response
+
+
 class _ControlPlaneHttpRegistrationNamespace(dict):
     """Route-registration namespace: local bindings shadow module globals for exec."""
 
@@ -6816,6 +7049,8 @@ def _register_control_plane_http_route_handlers(
     store: Any,
     require_bearer: RequireBearer,
 ) -> None:
+    global _ROUTER_GATE_CONFIG
+    _ROUTER_GATE_CONFIG = config
     ns = _control_plane_http_registration_namespace(
         router, config, store, require_bearer
     )
@@ -6827,6 +7062,7 @@ def _register_control_plane_http_route_handlers(
     _register_control_plane_papers_events_routes(ns)
     _register_control_plane_research_routes(ns)
     _register_control_plane_operator_legacy_routes(ns)
+    _register_control_plane_llm_settings_routes(router, config, store, require_bearer)
 
 
 def _register_control_plane_dashboard_shell_routes(

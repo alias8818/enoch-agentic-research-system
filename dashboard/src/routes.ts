@@ -11,6 +11,7 @@ export type DashboardRoute =
   | { page: 'research'; candidateId: string; hash: string }
   | { page: 'intake'; ideaId: string; hash: string }
   | { page: 'automation'; paperId: string; search: string; reviewStatus: string; hash: string }
+  | { page: 'settings'; hash: string }
   | { page: 'unsupported'; hash: string }
 
 export const DASHBOARD_V2_PATH = '/control/dashboard-v2'
@@ -102,6 +103,7 @@ const ROUTE_PARSERS: RouteParser[] = [
   (hash) => (hash.startsWith('#automation:') ? parseAutomationRoute(hash, '#automation:') : null),
   (hash) => (hash.startsWith('#review:') ? parseAutomationRoute(hash, '#review:') : null),
   (hash) => (hash.startsWith('#automation') || hash.startsWith('#reviews') ? parseAutomationRoute(hash, '') : null),
+  (hash) => (hash.startsWith('#settings') ? { page: 'settings', hash } : null),
 ]
 
 export function canonicalDashboardHash(hashOrPath: string | undefined, fallback = '#overview'): string {
@@ -157,6 +159,8 @@ export function dashboardRouteTitle(route: DashboardRoute): string {
       return 'Ideas intake'
     case 'automation':
       return 'Publication automation'
+    case 'settings':
+      return 'Settings'
     case 'detail':
       return `${route.kind[0].toUpperCase()}${route.kind.slice(1)} detail`
     case 'unsupported':

@@ -48,7 +48,7 @@ function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
   return 'nav-link'
 }
 
-const MORE_NAV_PAGES = new Set<DashboardRoute['page']>(['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'unsupported'])
+const MORE_NAV_PAGES = new Set<DashboardRoute['page']>(['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'settings', 'unsupported'])
 
 function moreNavClass(route: DashboardRoute): string {
   if (MORE_NAV_PAGES.has(route.page)) return 'nav-more nav-more--active'
@@ -117,6 +117,7 @@ function DashboardNav({ route, onClearToken }: Readonly<{ route: DashboardRoute;
           <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
           <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')}>Intake</a>
           <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
+          <a className={navClass(route, 'settings')} href={dashboardV2Href('#settings')}>Settings</a>
           <button className="nav-link" type="button" onClick={onClearToken}>Clear token</button>
         </div>
       </details>

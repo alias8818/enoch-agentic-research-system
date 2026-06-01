@@ -3,6 +3,7 @@ import { AutomationPage } from './components/AutomationPage'
 import { DetailPage } from './components/DetailPanel'
 import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './components/ResourcePages'
 import { ResearchPage } from './components/ResearchPage'
+import { SettingsPage } from './components/SettingsPage'
 import { OverviewPage } from './overviewPage'
 import { dashboardV2Href } from './routes'
 import type { DashboardRoute } from './routes'
@@ -46,6 +47,7 @@ const ROUTED_PAGE_RENDERERS: Record<DashboardRoute['page'], RoutedPageRenderer> 
     const automationRoute = route as Extract<DashboardRoute, { page: 'automation' }>
     return <AutomationPage paperId={automationRoute.paperId} search={automationRoute.search} reviewStatus={automationRoute.reviewStatus} />
   },
+  settings: () => <SettingsPage />,
   unsupported: (route) => {
     const unsupportedRoute = route as Extract<DashboardRoute, { page: 'unsupported' }>
     return <UnsupportedRoutePage hash={unsupportedRoute.hash} />

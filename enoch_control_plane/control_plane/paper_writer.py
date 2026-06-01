@@ -12,6 +12,7 @@ from urllib import request
 from fastapi import HTTPException
 
 from ..config import GateConfig
+from ..llm_settings import llm_settings_path, read_llm_settings, resolve_workflow_model
 from ..url_safety import validate_http_url
 from .models import PaperRecord
 
@@ -1026,9 +1027,28 @@ def _extract_chat_content(response: dict[str, Any]) -> str:
 def synthetic_glm_markdown(
     config: GateConfig, candidate: dict[str, Any], paper: PaperRecord
 ) -> tuple[str, dict[str, Any]]:
-    api_key = config.paper_writer_api_key or os.environ.get("SYNTHETIC_API_KEY", "")
+    provider_id = config.paper_writer_provider.strip().lower()
+    provider_label = config.paper_writer_provider.strip() or "synthetic.new"
+    provider_base_url = config.paper_writer_base_url
+    provider_model = config.paper_writer_model
+    provider_api_key_env = "SYNTHETIC_API_KEY"
+    if llm_settings_path(config).exists():
+        settings = read_llm_settings(config)
+        _workflow, model, provider = resolve_workflow_model(
+            settings,
+            "paper_writing",
+            require_openai_compatible=True,
+        )
+        provider_id = provider.provider_id
+        provider_label = provider.label
+        provider_base_url = provider.base_url
+        provider_model = model.model_id
+        provider_api_key_env = provider.api_key_env
+    api_key = (
+        os.environ.get(provider_api_key_env, "") if provider_api_key_env else ""
+    ) or config.paper_writer_api_key or os.environ.get("SYNTHETIC_API_KEY", "")
     if not api_key:
-        raise RuntimeError("Synthetic.new API key is not configured")
+        raise RuntimeError(f"{provider_label} API key is not configured")
     prompt = f"""Write a publication-quality technical paper draft in Markdown for this research result.
 
 Requirements:
@@ -1051,7 +1071,7 @@ Local evidence context:
 {_candidate_context(config, candidate, paper)}
 """
     payload = {
-        "model": config.paper_writer_model,
+        "model": provider_model,
         "messages": [
             {
                 "role": "system",
@@ -1063,7 +1083,7 @@ Local evidence context:
         "max_tokens": config.paper_writer_max_tokens,
     }
     url = validate_http_url(
-        config.paper_writer_base_url.rstrip("/") + "/chat/completions",
+        provider_base_url.rstrip("/") + "/chat/completions",
         field_name="paper writer provider url",
     )
     req = request.Request(
@@ -1080,9 +1100,9 @@ Local evidence context:
     data = json.loads(raw)
     markdown = _extract_chat_content(data)
     return markdown, {
-        "provider": "synthetic.new",
-        "base_url": config.paper_writer_base_url,
-        "model": config.paper_writer_model,
+        "provider": provider_id,
+        "base_url": provider_base_url.rstrip("/"),
+        "model": provider_model,
         "response_id": data.get("id", ""),
     }
 
