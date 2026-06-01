@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { type RefObject, type SyntheticEvent, useEffect, useRef, useState } from 'react'
+import { type KeyboardEvent, type RefObject, type SyntheticEvent, useEffect, useRef, useState } from 'react'
 import { RoutedPage } from './appRouting'
 import { getSavedToken, saveToken } from './api/client'
 import { KeyboardShortcutHelp } from './components/KeyboardShortcutHelp'
@@ -105,6 +105,9 @@ function DashboardNav({ route, onClearToken }: Readonly<{ route: DashboardRoute;
     const details = event.currentTarget.closest('details')
     if (details) details.open = false
   }
+  const closeMoreOnEscape = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') closeMore(event)
+  }
   return (
     <nav className="app-nav" aria-label="Dashboard V2 navigation">
       <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>
@@ -112,13 +115,8 @@ function DashboardNav({ route, onClearToken }: Readonly<{ route: DashboardRoute;
       <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
       <a className={navClass(route, 'runs')} href={dashboardV2Href('#runs')}>Runs</a>
       <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>
-      <details
-        className={moreNavClass(route)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') event.currentTarget.open = false
-        }}
-      >
-        <summary>More</summary>
+      <details className={moreNavClass(route)}>
+        <summary onKeyDown={closeMoreOnEscape}>More</summary>
         <div className="nav-menu">
           <a className={navClass(route, 'events')} href={dashboardV2Href('#events')} onClick={closeMore}>Events</a>
           <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')} onClick={closeMore}>Observability</a>

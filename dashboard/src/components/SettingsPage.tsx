@@ -186,12 +186,26 @@ function firstAvailable(preferred: string[], fallback: string[]): string {
   return preferred.find((modelId) => fallback.includes(modelId)) || fallback[0] || ''
 }
 
+function preferredWorkflowModels(workflowId: LlmWorkflow['workflow_id']): string[] {
+  const preferred: Record<LlmWorkflow['workflow_id'], string[]> = {
+    research_generation: ['moonshotai/kimi-k2.6', 'hf:zai-org/GLM-5.1', 'deepseek/deepseek-v4-pro'],
+    paper_writing: ['deepseek/deepseek-v4-pro', 'moonshotai/kimi-k2.6', 'hf:zai-org/GLM-5.1'],
+    research_review: ['hf:zai-org/GLM-5.1', 'deepseek/deepseek-v4-pro', 'moonshotai/kimi-k2.6'],
+    general_agent: ['openrouter/owl-alpha', 'xiaomi/mimo-v2.5-pro', 'minimax/minimax-m2.7'],
+  }
+  return preferred[workflowId]
+}
+
+function recommendedTemperature(workflowId: LlmWorkflow['workflow_id']): number {
+  if (workflowId === 'research_generation') return 0.7
+  if (workflowId === 'general_agent') return 0.3
+  return 0.2
+}
+
 function applyRecommendedRouting(settings: LlmSettings): LlmSettings {
-  const idMap = new Map<string, string>()
   const mergedModels = new Map<string, LlmModel>()
   for (const model of settings.models) {
     const modelId = canonicalModelId(model)
-    idMap.set(model.model_id, modelId)
     const normalized = {
       ...model,
       model_id: modelId,
@@ -205,20 +219,14 @@ function applyRecommendedRouting(settings: LlmSettings): LlmSettings {
   const models = Array.from(mergedModels.values())
   const allPool = sortedEnabledModelIds(models)
   const withDefault = (workflow: LlmWorkflow): LlmWorkflow => {
-    const preferred = {
-      research_generation: ['moonshotai/kimi-k2.6', 'hf:zai-org/GLM-5.1', 'deepseek/deepseek-v4-pro'],
-      paper_writing: ['deepseek/deepseek-v4-pro', 'moonshotai/kimi-k2.6', 'hf:zai-org/GLM-5.1'],
-      research_review: ['hf:zai-org/GLM-5.1', 'deepseek/deepseek-v4-pro', 'moonshotai/kimi-k2.6'],
-      general_agent: ['openrouter/owl-alpha', 'xiaomi/mimo-v2.5-pro', 'minimax/minimax-m2.7'],
-    }[workflow.workflow_id]
     const modelPool = workflow.workflow_id === 'general_agent' ? allPool.slice(0, 4) : allPool
-    const defaultModel = firstAvailable(preferred, modelPool)
+    const defaultModel = firstAvailable(preferredWorkflowModels(workflow.workflow_id), modelPool)
     return {
       ...workflow,
       provider_ids: providerIdsForModels(models, modelPool),
       model_pool: modelPool,
       default_model: defaultModel,
-      temperature: workflow.workflow_id === 'research_generation' ? 0.7 : workflow.workflow_id === 'general_agent' ? 0.3 : 0.2,
+      temperature: recommendedTemperature(workflow.workflow_id),
       max_tokens: workflow.workflow_id === 'paper_writing' ? 12000 : 8000,
     }
   }
@@ -390,6 +398,109 @@ function HealthResult({ health }: Readonly<{ health?: LlmModelHealthRow }>) {
   )
 }
 
+function ProviderRow({
+  settings,
+  provider,
+  index,
+  providerSecrets,
+  testResults,
+  onChange,
+  onSecretChange,
+  onTestProvider,
+}: Readonly<{
+  settings: LlmSettings
+  provider: LlmProvider
+  index: number
+  providerSecrets: Record<string, string>
+  testResults: Record<string, LlmTestResponse | 'pending'>
+  onChange: (settings: LlmSettings) => void
+  onSecretChange: (providerId: string, value: string) => void
+  onTestProvider: (providerId: string) => void
+}>) {
+  const providerName = provider.label || provider.provider_id || `Provider ${index + 1}`
+  const testKey = `provider:${provider.provider_id}`
+  const updateProvider = (update: Partial<LlmProvider>) => {
+    onChange({
+      ...settings,
+      providers: updateAt(settings.providers, index, (item) => ({ ...item, ...update })),
+    })
+  }
+  return (
+    <article className="settings-row" key={`${provider.provider_id}-${index}`}>
+      <label>
+        Provider id
+        <input
+          aria-label={`${providerName} provider id`}
+          value={provider.provider_id}
+          onChange={(event) => updateProvider({ provider_id: event.target.value })}
+        />
+      </label>
+      <label>
+        Label
+        <input
+          aria-label={`${providerName} label`}
+          value={provider.label}
+          onChange={(event) => updateProvider({ label: event.target.value })}
+        />
+      </label>
+      <label>
+        API format
+        <select
+          aria-label={`${providerName} API format`}
+          value={provider.api_format}
+          onChange={(event) => updateProvider({ api_format: event.target.value as ProviderApiFormat })}
+        >
+          <option value="openai_compatible">OpenAI compatible</option>
+          <option value="anthropic_messages">Anthropic messages</option>
+        </select>
+      </label>
+      <label className="settings-field-wide">
+        Base URL
+        <input
+          aria-label={`${providerName} base URL`}
+          value={provider.base_url}
+          onChange={(event) => updateProvider({ base_url: event.target.value })}
+        />
+      </label>
+      <label>
+        Environment variable name
+        <input
+          aria-label={`${providerName} API key environment variable`}
+          placeholder={provider.api_key_env || 'OPENROUTER_API_KEY'}
+          value={provider.api_key_env}
+          onChange={(event) => updateProvider({ api_key_env: event.target.value })}
+        />
+      </label>
+      <label>
+        API key secret
+        <input
+          aria-label={`${providerName} API key secret`}
+          type="password"
+          autoComplete="off"
+          placeholder={provider.api_key_configured ? 'Configured; paste to replace' : 'Paste key to store server-side'}
+          value={providerSecrets[provider.provider_id] || ''}
+          onChange={(event) => onSecretChange(provider.provider_id, event.target.value)}
+        />
+      </label>
+      <label className="settings-checkbox">
+        <input
+          aria-label={`${providerName} enabled`}
+          type="checkbox"
+          checked={provider.enabled}
+          onChange={(event) => updateProvider({ enabled: event.target.checked })}
+        />
+        Enabled
+      </label>
+      <div className="settings-actions">
+        <span className="settings-status">{providerStatus(provider)}</span>
+        <button className="secondary-button settings-small-button" type="button" onClick={() => onTestProvider(provider.provider_id)}>Test</button>
+        <button className="danger-button settings-small-button" type="button" onClick={() => onChange(pruneDeletedProvider(settings, provider.provider_id))}>Delete</button>
+        <TestResult result={testResults[testKey]} />
+      </div>
+    </article>
+  )
+}
+
 function ProviderRows({
   settings,
   providerSecrets,
@@ -434,53 +545,110 @@ function ProviderRows({
         </button>
       </div>
       <div className="settings-table settings-table--providers">
-        {settings.providers.map((provider, index) => {
-          const providerName = provider.label || provider.provider_id || `Provider ${index + 1}`
-          const testKey = `provider:${provider.provider_id}`
-          return (
-          <article className="settings-row" key={`${provider.provider_id}-${index}`}>
-            <label>
-              Provider id
-              <input aria-label={`${providerName} provider id`} value={provider.provider_id} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, provider_id: event.target.value })) })} />
-            </label>
-            <label>
-              Label
-              <input aria-label={`${providerName} label`} value={provider.label} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, label: event.target.value })) })} />
-            </label>
-            <label>
-              API format
-              <select aria-label={`${providerName} API format`} value={provider.api_format} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, api_format: event.target.value as ProviderApiFormat })) })}>
-                <option value="openai_compatible">OpenAI compatible</option>
-                <option value="anthropic_messages">Anthropic messages</option>
-              </select>
-            </label>
-            <label className="settings-field-wide">
-              Base URL
-              <input aria-label={`${providerName} base URL`} value={provider.base_url} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, base_url: event.target.value })) })} />
-            </label>
-            <label>
-              Environment variable name
-              <input aria-label={`${providerName} API key environment variable`} placeholder={provider.api_key_env || 'OPENROUTER_API_KEY'} value={provider.api_key_env} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, api_key_env: event.target.value })) })} />
-            </label>
-            <label>
-              API key secret
-              <input aria-label={`${providerName} API key secret`} type="password" autoComplete="off" placeholder={provider.api_key_configured ? 'Configured; paste to replace' : 'Paste key to store server-side'} value={providerSecrets[provider.provider_id] || ''} onChange={(event) => onSecretChange(provider.provider_id, event.target.value)} />
-            </label>
-            <label className="settings-checkbox">
-              <input aria-label={`${providerName} enabled`} type="checkbox" checked={provider.enabled} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, enabled: event.target.checked })) })} />
-              Enabled
-            </label>
-            <div className="settings-actions">
-              <span className="settings-status">{providerStatus(provider)}</span>
-              <button className="secondary-button settings-small-button" type="button" onClick={() => onTestProvider(provider.provider_id)}>Test</button>
-              <button className="danger-button settings-small-button" type="button" onClick={() => onChange(pruneDeletedProvider(settings, provider.provider_id))}>Delete</button>
-              <TestResult result={testResults[testKey]} />
-            </div>
-          </article>
-          )
-        })}
+        {settings.providers.map((provider, index) => (
+          <ProviderRow
+            key={`${provider.provider_id}-${index}`}
+            settings={settings}
+            provider={provider}
+            index={index}
+            providerSecrets={providerSecrets}
+            testResults={testResults}
+            onChange={onChange}
+            onSecretChange={onSecretChange}
+            onTestProvider={onTestProvider}
+          />
+        ))}
       </div>
     </section>
+  )
+}
+
+function ModelRow({
+  settings,
+  model,
+  index,
+  health,
+  testResults,
+  onChange,
+  onTestModel,
+}: Readonly<{
+  settings: LlmSettings
+  model: LlmModel
+  index: number
+  health?: LlmModelHealthRow
+  testResults: Record<string, LlmTestResponse | 'pending'>
+  onChange: (settings: LlmSettings) => void
+  onTestModel: (model: LlmModel) => void
+}>) {
+  const modelName = model.label || model.model_id
+  const testKey = `model:${model.provider_id}:${model.model_id}`
+  const updateModel = (update: Partial<LlmModel>) => {
+    onChange({
+      ...settings,
+      models: updateAt(settings.models, index, (item) => ({ ...item, ...update })),
+    })
+  }
+  return (
+    <article className="settings-row settings-row--model" key={`${model.model_id}-${index}`}>
+      <label className="settings-field-wide">
+        Model id
+        <input
+          aria-label={`${modelName} model id`}
+          value={model.model_id}
+          onChange={(event) => updateModel({ model_id: event.target.value })}
+        />
+      </label>
+      <label>
+        Provider
+        <select
+          aria-label={`${modelName} provider`}
+          value={model.provider_id}
+          onChange={(event) => updateModel({ provider_id: event.target.value })}
+        >
+          {settings.providers.map((provider) => (
+            <option key={provider.provider_id} value={provider.provider_id}>
+              {provider.label || provider.provider_id}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Label
+        <input
+          aria-label={`${modelName} label`}
+          value={model.label}
+          onChange={(event) => updateModel({ label: event.target.value })}
+        />
+      </label>
+      <label>
+        Weight
+        <input
+          aria-label={`${modelName} weight`}
+          type="range"
+          min={0}
+          max={100}
+          value={model.weight}
+          onChange={(event) => updateModel({ weight: Number(event.target.value) })}
+        />
+        <span className="settings-range-value">{model.weight}</span>
+      </label>
+      <label className="settings-checkbox">
+        <input
+          aria-label={`${modelName} enabled`}
+          type="checkbox"
+          checked={model.enabled}
+          onChange={(event) => updateModel({ enabled: event.target.checked })}
+        />
+        Enabled
+      </label>
+      <div className="settings-actions">
+        <HealthResult health={health} />
+        <button className="secondary-button settings-small-button" type="button" onClick={() => onTestModel(model)}>Test</button>
+        <button className="danger-button settings-small-button" type="button" onClick={() => onChange(pruneDeletedModel(settings, model.model_id))}>Delete</button>
+        <TestResult result={testResults[testKey]} />
+      </div>
+      {model.notes ? <p className="settings-note">{model.notes}</p> : null}
+    </article>
   )
 }
 
@@ -528,47 +696,147 @@ function ModelRows({
         </button>
       </div>
       <div className="settings-table">
-        {settings.models.map((model, index) => {
-          const modelName = model.label || model.model_id
-          const testKey = `model:${model.provider_id}:${model.model_id}`
-          const health = healthByModel.get(`${model.provider_id}:${model.model_id}`)
-          return (
-          <article className="settings-row settings-row--model" key={`${model.model_id}-${index}`}>
-            <label className="settings-field-wide">
-              Model id
-              <input aria-label={`${modelName} model id`} value={model.model_id} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, model_id: event.target.value })) })} />
-            </label>
-            <label>
-              Provider
-              <select aria-label={`${modelName} provider`} value={model.provider_id} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, provider_id: event.target.value })) })}>
-                {settings.providers.map((provider) => <option key={provider.provider_id} value={provider.provider_id}>{provider.label || provider.provider_id}</option>)}
-              </select>
-            </label>
-            <label>
-              Label
-              <input aria-label={`${modelName} label`} value={model.label} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, label: event.target.value })) })} />
-            </label>
-            <label>
-              Weight
-              <input aria-label={`${modelName} weight`} type="range" min={0} max={100} value={model.weight} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, weight: Number(event.target.value) })) })} />
-              <span className="settings-range-value">{model.weight}</span>
-            </label>
-            <label className="settings-checkbox">
-              <input aria-label={`${modelName} enabled`} type="checkbox" checked={model.enabled} onChange={(event) => onChange({ ...settings, models: updateAt(settings.models, index, (item) => ({ ...item, enabled: event.target.checked })) })} />
-              Enabled
-            </label>
-            <div className="settings-actions">
-              <HealthResult health={health} />
-              <button className="secondary-button settings-small-button" type="button" onClick={() => onTestModel(model)}>Test</button>
-              <button className="danger-button settings-small-button" type="button" onClick={() => onChange(pruneDeletedModel(settings, model.model_id))}>Delete</button>
-              <TestResult result={testResults[testKey]} />
-            </div>
-            {model.notes ? <p className="settings-note">{model.notes}</p> : null}
-          </article>
-          )
-        })}
+        {settings.models.map((model, index) => (
+          <ModelRow
+            key={`${model.model_id}-${index}`}
+            settings={settings}
+            model={model}
+            index={index}
+            health={healthByModel.get(`${model.provider_id}:${model.model_id}`)}
+            testResults={testResults}
+            onChange={onChange}
+            onTestModel={onTestModel}
+          />
+        ))}
       </div>
     </section>
+  )
+}
+
+function WorkflowCard({
+  settings,
+  workflow,
+  index,
+  options,
+  onChange,
+}: Readonly<{
+  settings: LlmSettings
+  workflow: LlmWorkflow
+  index: number
+  options: { value: string; label: string }[]
+  onChange: (settings: LlmSettings) => void
+}>) {
+  const selectedModels = new Set(workflow.model_pool)
+  const selectedProviders = new Set(workflow.provider_ids)
+  const availableDefaults = options.filter((option) => selectedModels.has(option.value))
+  const updateWorkflow = (update: (workflow: LlmWorkflow) => LlmWorkflow) => {
+    onChange({
+      ...settings,
+      workflows: updateAt(settings.workflows, index, update),
+    })
+  }
+  const updateModelPool = (modelId: string, enabled: boolean) => {
+    updateWorkflow((item) => {
+      const modelPool = toggleItem(item.model_pool, modelId, enabled)
+      return {
+        ...item,
+        model_pool: modelPool,
+        provider_ids: providerIdsForModels(settings.models, modelPool),
+        default_model: modelPool.includes(item.default_model) ? item.default_model : modelPool[0] || '',
+      }
+    })
+  }
+  return (
+    <article className="workflow-card" key={workflow.workflow_id}>
+      <div className="workflow-card-head">
+        <div>
+          <p className="eyebrow">{workflow.workflow_id.replaceAll('_', ' ')}</p>
+          <input
+            className="workflow-title-input"
+            value={workflow.label}
+            onChange={(event) => updateWorkflow((item) => ({ ...item, label: event.target.value }))}
+          />
+        </div>
+        <label className="settings-checkbox">
+          <input
+            aria-label={`${workflow.label} enabled`}
+            type="checkbox"
+            checked={workflow.enabled}
+            onChange={(event) => updateWorkflow((item) => ({ ...item, enabled: event.target.checked }))}
+          />
+          Enabled
+        </label>
+      </div>
+      <fieldset className="settings-choice-group">
+        <legend>Providers</legend>
+        {settings.providers.map((provider) => (
+          <label className="settings-checkbox" key={provider.provider_id}>
+            <input
+              aria-label={`${workflow.label} provider ${provider.provider_id}`}
+              type="checkbox"
+              checked={selectedProviders.has(provider.provider_id)}
+              onChange={(event) => updateWorkflow((item) => ({
+                ...item,
+                provider_ids: toggleItem(item.provider_ids, provider.provider_id, event.target.checked),
+              }))}
+            />
+            {provider.label || provider.provider_id}
+          </label>
+        ))}
+      </fieldset>
+      <label>
+        Default model
+        <select
+          aria-label={`${workflow.label} default model`}
+          value={workflow.default_model}
+          onChange={(event) => updateWorkflow((item) => ({ ...item, default_model: event.target.value }))}
+        >
+          {availableDefaults.map((model) => (
+            <option key={model.value} value={model.value}>
+              {model.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <fieldset className="settings-choice-group">
+        <legend>Model pool</legend>
+        {settings.models.map((model) => (
+          <label className="settings-checkbox" key={model.model_id}>
+            <input
+              aria-label={`${workflow.label} model ${model.model_id}`}
+              type="checkbox"
+              checked={selectedModels.has(model.model_id)}
+              onChange={(event) => updateModelPool(model.model_id, event.target.checked)}
+            />
+            {model.label || model.model_id}
+          </label>
+        ))}
+      </fieldset>
+      <div className="settings-row settings-row--compact">
+        <label>
+          Temperature
+          <input
+            aria-label={`${workflow.label} temperature`}
+            type="number"
+            min={0}
+            max={2}
+            step={0.1}
+            value={workflow.temperature}
+            onChange={(event) => updateWorkflow((item) => ({ ...item, temperature: Number(event.target.value) }))}
+          />
+        </label>
+        <label>
+          Max tokens
+          <input
+            aria-label={`${workflow.label} max tokens`}
+            type="number"
+            min={512}
+            value={workflow.max_tokens}
+            onChange={(event) => updateWorkflow((item) => ({ ...item, max_tokens: Number(event.target.value) }))}
+          />
+        </label>
+      </div>
+    </article>
   )
 }
 
@@ -586,84 +854,16 @@ function WorkflowRows({ settings, onChange }: Readonly<{ settings: LlmSettings; 
         </button>
       </div>
       <div className="workflow-grid">
-        {settings.workflows.map((workflow, index) => {
-          const selectedModels = new Set(workflow.model_pool)
-          const selectedProviders = new Set(workflow.provider_ids)
-          const availableDefaults = options.filter((option) => selectedModels.has(option.value))
-          return (
-          <article className="workflow-card" key={workflow.workflow_id}>
-            <div className="workflow-card-head">
-              <div>
-                <p className="eyebrow">{workflow.workflow_id.replaceAll('_', ' ')}</p>
-                <input
-                  className="workflow-title-input"
-                  value={workflow.label}
-                  onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, label: event.target.value })) })}
-                />
-              </div>
-              <label className="settings-checkbox">
-                <input aria-label={`${workflow.label} enabled`} type="checkbox" checked={workflow.enabled} onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, enabled: event.target.checked })) })} />
-                Enabled
-              </label>
-            </div>
-            <fieldset className="settings-choice-group">
-              <legend>Providers</legend>
-              {settings.providers.map((provider) => (
-                <label className="settings-checkbox" key={provider.provider_id}>
-                  <input
-                    aria-label={`${workflow.label} provider ${provider.provider_id}`}
-                    type="checkbox"
-                    checked={selectedProviders.has(provider.provider_id)}
-                    onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, provider_ids: toggleItem(item.provider_ids, provider.provider_id, event.target.checked) })) })}
-                  />
-                  {provider.label || provider.provider_id}
-                </label>
-              ))}
-            </fieldset>
-            <label>
-              Default model
-              <select aria-label={`${workflow.label} default model`} value={workflow.default_model} onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, default_model: event.target.value })) })}>
-                {availableDefaults.map((model) => <option key={model.value} value={model.value}>{model.label}</option>)}
-              </select>
-            </label>
-            <fieldset className="settings-choice-group">
-              <legend>Model pool</legend>
-              {settings.models.map((model) => (
-                <label className="settings-checkbox" key={model.model_id}>
-                  <input
-                    aria-label={`${workflow.label} model ${model.model_id}`}
-                    type="checkbox"
-                    checked={selectedModels.has(model.model_id)}
-                    onChange={(event) => onChange({
-                      ...settings,
-                      workflows: updateAt(settings.workflows, index, (item) => {
-                        const modelPool = toggleItem(item.model_pool, model.model_id, event.target.checked)
-                        return {
-                          ...item,
-                          model_pool: modelPool,
-                          provider_ids: providerIdsForModels(settings.models, modelPool),
-                          default_model: modelPool.includes(item.default_model) ? item.default_model : modelPool[0] || '',
-                        }
-                      }),
-                    })}
-                  />
-                  {model.label || model.model_id}
-                </label>
-              ))}
-            </fieldset>
-            <div className="settings-row settings-row--compact">
-              <label>
-                Temperature
-                <input aria-label={`${workflow.label} temperature`} type="number" min={0} max={2} step={0.1} value={workflow.temperature} onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, temperature: Number(event.target.value) })) })} />
-              </label>
-              <label>
-                Max tokens
-                <input aria-label={`${workflow.label} max tokens`} type="number" min={512} value={workflow.max_tokens} onChange={(event) => onChange({ ...settings, workflows: updateAt(settings.workflows, index, (item) => ({ ...item, max_tokens: Number(event.target.value) })) })} />
-              </label>
-            </div>
-          </article>
-          )
-        })}
+        {settings.workflows.map((workflow, index) => (
+          <WorkflowCard
+            key={workflow.workflow_id}
+            settings={settings}
+            workflow={workflow}
+            index={index}
+            options={options}
+            onChange={onChange}
+          />
+        ))}
       </div>
     </section>
   )
