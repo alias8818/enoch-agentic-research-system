@@ -996,7 +996,7 @@ button:disabled { cursor: not-allowed; }
 }
 .settings-row {
   display: grid;
-  grid-template-columns: minmax(7rem, 0.7fr) minmax(8rem, 0.8fr) minmax(8rem, 0.8fr) minmax(12rem, 1.4fr) minmax(8rem, 0.8fr) auto minmax(6.5rem, auto);
+  grid-template-columns: minmax(7rem, 0.65fr) minmax(8rem, 0.75fr) minmax(8rem, 0.75fr) minmax(12rem, 1.35fr) minmax(10rem, 0.9fr) minmax(12rem, 1fr) auto minmax(6.5rem, auto);
   gap: 0.55rem;
   align-items: end;
   border: 1px solid rgba(244,241,234,0.09);

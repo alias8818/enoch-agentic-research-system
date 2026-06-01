@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -21,6 +21,7 @@ from .url_safety import validate_http_url
 
 SETTINGS_SCHEMA_VERSION = 1
 LLM_SETTINGS_FILENAME = "llm-provider-settings.json"
+LLM_PROVIDER_SECRET_DIRNAME = "llm-provider-secrets"
 
 ProviderApiFormat = Literal["openai_compatible", "anthropic_messages"]
 WorkflowId = Literal[
@@ -197,6 +198,19 @@ def llm_settings_path(config: GateConfig) -> Path:
     return config.expanded_state_dir / LLM_SETTINGS_FILENAME
 
 
+def _secret_file_name(provider_id: str) -> str:
+    normalized = _normalize_id(provider_id, field_name="provider_id")
+    return re.sub(r"[^a-z0-9_.-]", "_", normalized)
+
+
+def llm_provider_secret_path(config: GateConfig, provider_id: str) -> Path:
+    configured = os.environ.get("ENOCH_LLM_PROVIDER_SECRETS_DIR", "").strip()
+    base_dir = Path(configured).expanduser() if configured else (
+        config.expanded_state_dir / LLM_PROVIDER_SECRET_DIRNAME
+    )
+    return base_dir / f"{_secret_file_name(provider_id)}.token"
+
+
 def default_llm_settings(config: GateConfig | None = None) -> LLMSettings:
     synthetic_base = default_research_provider_openai_base_url()
     paper_model = (
@@ -335,11 +349,77 @@ def write_llm_settings(
     return validated
 
 
-def settings_response(settings: LLMSettings) -> dict[str, Any]:
+def _read_secret_file(path: Path) -> str:
+    try:
+        if path.is_symlink():
+            return ""
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def llm_provider_api_key(config: GateConfig, provider: LLMProviderSettings) -> str:
+    env_name = str(provider.api_key_env or "")
+    if env_name:
+        env_value = os.environ.get(env_name, "").strip()
+        if env_value:
+            return env_value
+    return _read_secret_file(llm_provider_secret_path(config, provider.provider_id))
+
+
+def write_llm_provider_secrets(
+    config: GateConfig,
+    secrets: Mapping[str, Any],
+    *,
+    settings: LLMSettings,
+) -> list[str]:
+    provider_ids = {provider.provider_id for provider in settings.providers}
+    written: list[str] = []
+    for raw_provider_id, raw_value in secrets.items():
+        provider_id = _normalize_id(str(raw_provider_id or ""), field_name="provider_id")
+        if provider_id not in provider_ids:
+            raise ValueError(f"provider secret references unknown provider: {provider_id}")
+        secret = str(raw_value or "")
+        if not secret.strip():
+            continue
+        path = llm_provider_secret_path(config, provider_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.parent.is_symlink():
+            raise ValueError("LLM provider secret directory must not be a symlink")
+        tmp: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=path.parent, delete=False
+            ) as handle:
+                handle.write(secret.strip())
+                handle.write("\n")
+                tmp = Path(handle.name)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, path)
+            os.chmod(path, 0o600)
+        finally:
+            if tmp is not None:
+                try:
+                    if tmp.exists():
+                        tmp.unlink()
+                except OSError:
+                    pass
+        written.append(provider_id)
+    return written
+
+
+def settings_response(
+    settings: LLMSettings, config: GateConfig | None = None
+) -> dict[str, Any]:
     payload = settings.model_dump(mode="json")
+    providers_by_id = {provider.provider_id: provider for provider in settings.providers}
     for provider in payload.get("providers", []):
+        provider_id = str(provider.get("provider_id") or "")
         env_name = str(provider.get("api_key_env") or "")
-        provider["api_key_configured"] = bool(env_name and os.environ.get(env_name))
+        configured = bool(env_name and os.environ.get(env_name))
+        if not configured and config is not None and provider_id in providers_by_id:
+            configured = bool(llm_provider_api_key(config, providers_by_id[provider_id]))
+        provider["api_key_configured"] = configured
     return payload
 
 

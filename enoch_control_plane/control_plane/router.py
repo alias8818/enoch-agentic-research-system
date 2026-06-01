@@ -33,9 +33,11 @@ from ..models import GateCallback, utc_now
 from ..llm_settings import (
     LLMSettings,
     llm_settings_path,
+    llm_provider_api_key,
     read_llm_settings,
     resolve_workflow_model,
     settings_response,
+    write_llm_provider_secrets,
     write_llm_settings,
 )
 from ..observability import (
@@ -369,6 +371,7 @@ class _ResearchProviderSelection:
     allowed_models: list[str]
     provider_base_url: str
     provider_openai_base_url: str
+    provider_api_key: str = ""
     provider_id: str = ""
 
 
@@ -532,6 +535,7 @@ def _resolve_research_provider_selection(
             allowed_models=allowed_models,
             provider_base_url=provider_base_url,
             provider_openai_base_url=openai_base_url,
+            provider_api_key=os.environ.get("ENOCH_RESEARCH_PROVIDER_API_KEY", ""),
             provider_id="env",
         )
 
@@ -581,6 +585,7 @@ def _resolve_research_provider_selection(
         allowed_models=workflow.model_pool,
         provider_base_url=provider_base_url,
         provider_openai_base_url=openai_base_url,
+        provider_api_key=llm_provider_api_key(config, provider),
         provider_id=provider.provider_id,
     )
 
@@ -632,6 +637,11 @@ def _resolve_research_cycle_params(
         if isinstance(selection, _ResearchProviderSelection):
             provider_base_url = selection.provider_base_url
             provider_openai_base_url = selection.provider_openai_base_url
+            provider_api_key = selection.provider_api_key
+        else:
+            provider_api_key = os.environ.get("ENOCH_RESEARCH_PROVIDER_API_KEY", "")
+    else:
+        provider_api_key = os.environ.get("ENOCH_RESEARCH_PROVIDER_API_KEY", "")
 
     return Namespace(
         max_provider_requests=bounded_int("max_provider_requests_per_run", 1, 0, 3),
@@ -675,6 +685,7 @@ def _resolve_research_cycle_params(
         seed=str(body.get("seed") or utc_now()).strip(),
         provider_base_url=provider_base_url,
         provider_openai_base_url=provider_openai_base_url,
+        provider_api_key=provider_api_key,
         generation_timeout=bounded_int("generation_timeout", 240, 10, 300),
         generation_max_tokens=bounded_int(
             "generation_max_tokens",
@@ -3586,6 +3597,20 @@ def _provider_generation_failure_kind(exc: Exception) -> str:
     return "exception"
 
 
+def _provider_api_key_for_base_url(base_url: str) -> str:
+    if _ROUTER_GATE_CONFIG is None:
+        return ""
+    try:
+        settings = read_llm_settings(_ROUTER_GATE_CONFIG)
+    except Exception:
+        return ""
+    normalized_base = str(base_url or "").rstrip("/")
+    for provider in settings.providers:
+        if provider.base_url.rstrip("/") == normalized_base:
+            return llm_provider_api_key(_ROUTER_GATE_CONFIG, provider)
+    return ""
+
+
 @dataclass(frozen=True)
 class _ProviderGenerationParams:
     max_provider_requests: int
@@ -3606,6 +3631,7 @@ class _ProviderGenerationParams:
     research_facility: Any
     store: Any
     requested_by: str
+    provider_api_key: str = ""
     operator_trace: OperatorTrace | None = None
     trace_id: str = ""
     run_cycle_id: str = ""
@@ -3774,6 +3800,9 @@ def _execute_provider_generation_attempt(
         params.generation_target_lane
     )
     try:
+        api_key = params.provider_api_key or _provider_api_key_for_base_url(
+            params.provider_openai_base_url
+        )
         generation_topic = _provider_generation_topic(
             topic=params.topic,
             generation_target_lane=params.generation_target_lane,
@@ -3782,7 +3811,7 @@ def _execute_provider_generation_attempt(
         generated = params.research_provider_generate.generate_provider_candidates(
             base_url=params.provider_openai_base_url,
             model=params.provider_model,
-            api_key="",
+            api_key=api_key,
             max_candidates=params.max_candidates,
             topic=generation_topic,
             temperature=params.temperature,
@@ -5074,6 +5103,7 @@ class _LiveResearchCycleParams:
     live_dispatch: Callable[..., Any]
     jsonable_encoder: Callable[..., Any]
     research_row_lane_key: Callable[[dict[str, Any]], str]
+    provider_api_key: str = ""
     operator_trace: OperatorTrace | None = None
     trace_id: str = ""
     run_cycle_id: str = ""
@@ -5179,6 +5209,7 @@ def _execute_live_research_cycle(
             max_provider_requests=params.max_provider_requests,
             generation_target_lane=params.generation_target_lane,
             provider_openai_base_url=params.provider_openai_base_url,
+            provider_api_key=params.provider_api_key,
             provider_model=params.provider_model,
             max_candidates=params.max_candidates,
             topic=params.topic,
@@ -6890,7 +6921,7 @@ def _register_control_plane_llm_settings_routes(
             "authority": "validated file-backed provider/model settings",
             "path": str(path),
             "persisted": path.exists(),
-            "settings": settings_response(settings),
+            "settings": settings_response(settings, config),
             "generated_at": utc_now(),
         }
 
@@ -6905,11 +6936,14 @@ def _register_control_plane_llm_settings_routes(
         requested_by = str(body.get("requested_by") or "dashboard")[:80]
         settings_payload = body.get("settings", body)
         try:
-            settings = write_llm_settings(
-                config,
-                LLMSettings.model_validate(settings_payload),
-                updated_by=requested_by,
+            settings = LLMSettings.model_validate(settings_payload)
+            provider_secrets = body.get("provider_secrets") or {}
+            if provider_secrets and not isinstance(provider_secrets, dict):
+                raise ValueError("provider_secrets must be an object keyed by provider_id")
+            written_provider_secrets = write_llm_provider_secrets(
+                config, provider_secrets, settings=settings
             )
+            settings = write_llm_settings(config, settings, updated_by=requested_by)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         event_id = None
@@ -6929,6 +6963,7 @@ def _register_control_plane_llm_settings_routes(
                     "workflows": [
                         workflow.workflow_id for workflow in settings.workflows
                     ],
+                    "provider_secret_updates": written_provider_secrets,
                 },
             )
         except Exception as exc:  # pragma: no cover - visibility only
@@ -6937,7 +6972,7 @@ def _register_control_plane_llm_settings_routes(
             "ok": True,
             "action": "llm_settings_updated",
             "event_id": event_id,
-            "settings": settings_response(settings),
+            "settings": settings_response(settings, config),
         }
         if event_error:
             response["event_error"] = event_error

@@ -55,6 +55,8 @@ type LlmSettingsResponse = {
   generated_at: string
 }
 
+const API_KEY_ENV_RE = /^[A-Z][A-Z0-9_]{0,127}$/
+
 function updateAt<T>(items: T[], index: number, update: (item: T) => T): T[] {
   return items.map((item, itemIndex) => (itemIndex === index ? update(item) : item))
 }
@@ -76,7 +78,6 @@ function modelOptions(models: LlmModel[]): { value: string; label: string }[] {
 
 function providerStatus(provider: LlmProvider): string {
   if (!provider.enabled) return 'disabled'
-  if (!provider.api_key_env) return 'no env key'
   return provider.api_key_configured ? 'key present' : 'key missing'
 }
 
@@ -97,6 +98,12 @@ function validateDraftSettings(settings: LlmSettings): string[] {
   const providerSet = new Set(providerIds)
   const modelSet = new Set(modelIds)
   for (const providerId of duplicateValues(providerIds)) errors.push(`Duplicate provider id: ${providerId}`)
+  for (const provider of settings.providers) {
+    const envName = provider.api_key_env.trim()
+    if (envName && !API_KEY_ENV_RE.test(envName)) {
+      errors.push(`${provider.label || provider.provider_id} API key environment variable must be an uppercase env var name such as OPENROUTER_API_KEY. Paste actual keys into the one-time secret field instead.`)
+    }
+  }
   for (const modelId of duplicateValues(modelIds)) errors.push(`Duplicate model id: ${modelId}`)
   for (const model of settings.models) {
     if (model.provider_id && !providerSet.has(model.provider_id)) {
@@ -131,7 +138,17 @@ function SettingsValidationCard({ errors }: Readonly<{ errors: string[] }>) {
   )
 }
 
-function ProviderRows({ settings, onChange }: Readonly<{ settings: LlmSettings; onChange: (settings: LlmSettings) => void }>) {
+function ProviderRows({
+  settings,
+  providerSecrets,
+  onChange,
+  onSecretChange,
+}: Readonly<{
+  settings: LlmSettings
+  providerSecrets: Record<string, string>
+  onChange: (settings: LlmSettings) => void
+  onSecretChange: (providerId: string, value: string) => void
+}>) {
   return (
     <section className="settings-panel" aria-label="LLM providers">
       <div className="settings-panel-head">
@@ -185,8 +202,12 @@ function ProviderRows({ settings, onChange }: Readonly<{ settings: LlmSettings; 
               <input aria-label={`${providerName} base URL`} value={provider.base_url} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, base_url: event.target.value })) })} />
             </label>
             <label>
-              API key env
-              <input aria-label={`${providerName} API key env`} value={provider.api_key_env} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, api_key_env: event.target.value })) })} />
+              API key environment variable
+              <input aria-label={`${providerName} API key environment variable`} placeholder={provider.api_key_env || 'OPENROUTER_API_KEY'} value={provider.api_key_env} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, api_key_env: event.target.value })) })} />
+            </label>
+            <label>
+              API key secret
+              <input aria-label={`${providerName} API key secret`} type="password" autoComplete="off" placeholder={provider.api_key_configured ? 'Configured; paste to replace' : 'Paste key to store server-side'} value={providerSecrets[provider.provider_id] || ''} onChange={(event) => onSecretChange(provider.provider_id, event.target.value)} />
             </label>
             <label className="settings-checkbox">
               <input aria-label={`${providerName} enabled`} type="checkbox" checked={provider.enabled} onChange={(event) => onChange({ ...settings, providers: updateAt(settings.providers, index, (item) => ({ ...item, enabled: event.target.checked })) })} />
@@ -325,12 +346,19 @@ export function SettingsPage() {
     queryFn: () => apiGet<LlmSettingsResponse>('/control/api/settings/llm'),
   })
   const [draft, setDraft] = useState<LlmSettings | null>(null)
+  const [providerSecrets, setProviderSecrets] = useState<Record<string, string>>({})
   useEffect(() => {
     if (query.data?.settings) setDraft(query.data.settings)
   }, [query.data])
   const mutation = useMutation({
-    mutationFn: (settings: LlmSettings) => apiPost<Record<string, unknown>>('/control/api/settings/llm', { requested_by: 'dashboard-v2', settings }),
-    onSuccess: () => query.refetch(),
+    mutationFn: (settings: LlmSettings) => {
+      const secrets = Object.fromEntries(Object.entries(providerSecrets).filter(([, value]) => value.trim()))
+      return apiPost<Record<string, unknown>>('/control/api/settings/llm', { requested_by: 'dashboard-v2', settings, provider_secrets: secrets })
+    },
+    onSuccess: () => {
+      setProviderSecrets({})
+      query.refetch()
+    },
   })
   if (query.isLoading) return <LoadingStateCard label="LLM settings" />
   if (query.error) return <InlineErrorStateCard prefix="Settings load failed" message={String(query.error)} />
@@ -351,7 +379,12 @@ export function SettingsPage() {
       {mutation.error ? <InlineErrorStateCard prefix="Settings save failed" message={String(mutation.error)} /> : null}
       {mutation.data ? <section className="state-card state-card--compact">Settings saved.</section> : null}
       <SettingsValidationCard errors={validationErrors} />
-      <ProviderRows settings={draft} onChange={setDraft} />
+      <ProviderRows
+        settings={draft}
+        providerSecrets={providerSecrets}
+        onChange={setDraft}
+        onSecretChange={(providerId, value) => setProviderSecrets((current) => ({ ...current, [providerId]: value }))}
+      />
       <ModelRows settings={draft} onChange={setDraft} />
       <WorkflowRows settings={draft} onChange={setDraft} />
     </PageShell>

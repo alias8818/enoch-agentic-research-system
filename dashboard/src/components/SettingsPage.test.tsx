@@ -138,6 +138,43 @@ it('edits provider endpoints, model catalog, and workflow pools through the sett
   })
 })
 
+it('sends one-time provider secrets separately from persisted settings', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+
+  renderWithClient(<SettingsPage />)
+
+  await screen.findByDisplayValue('https://openrouter.ai/api/v1')
+  fireEvent.change(screen.getByLabelText('OpenRouter API key secret'), {
+    target: { value: 'or-secret-value' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+  const body = JSON.parse(fetchMockRequestBody(fetchMock, 1))
+  expect(body.provider_secrets).toEqual({ openrouter: 'or-secret-value' })
+  expect(JSON.stringify(body.settings)).not.toContain('or-secret-value')
+})
+
+it('blocks saves when an API key is entered into the environment variable field', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValue(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+
+  renderWithClient(<SettingsPage />)
+
+  await screen.findByDisplayValue('https://openrouter.ai/api/v1')
+  fireEvent.change(screen.getByLabelText('OpenRouter API key environment variable'), {
+    target: { value: 'or-secret-value' },
+  })
+
+  expect(await screen.findByText(/OpenRouter API key environment variable must be an uppercase env var name/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Save settings' })).toBeDisabled()
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+})
+
 it('blocks saves when a workflow references a model outside the catalog', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(settingsPayload), { status: 200 }))
 

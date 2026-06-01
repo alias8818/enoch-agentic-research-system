@@ -12,7 +12,12 @@ from urllib import request
 from fastapi import HTTPException
 
 from ..config import GateConfig
-from ..llm_settings import llm_settings_path, read_llm_settings, resolve_workflow_model
+from ..llm_settings import (
+    llm_provider_api_key,
+    llm_settings_path,
+    read_llm_settings,
+    resolve_workflow_model,
+)
 from ..url_safety import validate_http_url
 from .models import PaperRecord
 
@@ -1032,6 +1037,7 @@ def synthetic_glm_markdown(
     provider_base_url = config.paper_writer_base_url
     provider_model = config.paper_writer_model
     provider_api_key_env = "SYNTHETIC_API_KEY"
+    settings_api_key = ""
     if llm_settings_path(config).exists():
         settings = read_llm_settings(config)
         _workflow, model, provider = resolve_workflow_model(
@@ -1044,8 +1050,10 @@ def synthetic_glm_markdown(
         provider_base_url = provider.base_url
         provider_model = model.model_id
         provider_api_key_env = provider.api_key_env
+        settings_api_key = llm_provider_api_key(config, provider)
     api_key = (
-        (os.environ.get(provider_api_key_env, "") if provider_api_key_env else "")
+        settings_api_key
+        or (os.environ.get(provider_api_key_env, "") if provider_api_key_env else "")
         or config.paper_writer_api_key
         or os.environ.get("SYNTHETIC_API_KEY", "")
     )

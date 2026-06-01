@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import (
+    _provider_api_key_for_base_url,
     _resolve_research_cycle_params,
     _resolve_research_provider_model,
     create_control_plane_router,
@@ -17,7 +18,11 @@ from enoch_control_plane.llm_settings import (
     LLMModelSettings,
     LLMSettings,
     default_llm_settings,
+    llm_provider_api_key,
+    llm_provider_secret_path,
     read_llm_settings,
+    settings_response,
+    write_llm_provider_secrets,
     write_llm_settings,
 )
 
@@ -87,6 +92,87 @@ def test_llm_settings_api_does_not_expose_secret_values(
         )
         assert synthetic["api_key_configured"] is True
         assert "secret-value-that-must-not-return" not in response.text
+
+
+def test_llm_settings_api_persists_one_time_provider_secret() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        client = _client(config)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+
+        response = client.post(
+            "/control/api/settings/llm",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={
+                "requested_by": "test",
+                "settings": settings.model_dump(mode="json"),
+                "provider_secrets": {"openrouter": "or-secret-value"},
+            },
+        )
+
+        assert response.status_code == 200
+        assert "or-secret-value" not in response.text
+        providers = response.json()["settings"]["providers"]
+        openrouter_response = next(
+            provider
+            for provider in providers
+            if provider["provider_id"] == "openrouter"
+        )
+        assert openrouter_response["api_key_configured"] is True
+        secret_path = llm_provider_secret_path(config, "openrouter")
+        assert secret_path.read_text(encoding="utf-8") == "or-secret-value\n"
+        assert secret_path.stat().st_mode & 0o777 == 0o600
+        assert llm_provider_api_key(config, openrouter) == "or-secret-value"
+
+
+def test_llm_settings_secret_status_uses_secret_file_when_env_missing() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        settings = default_llm_settings(config)
+        synthetic = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "synthetic"
+        )
+        write_llm_provider_secrets(
+            config, {"synthetic": "synthetic-secret"}, settings=settings
+        )
+
+        payload = settings_response(settings, config)
+
+        provider = next(
+            item for item in payload["providers"] if item["provider_id"] == "synthetic"
+        )
+        assert provider["api_key_configured"] is True
+        assert "synthetic-secret" not in str(payload)
+
+
+def test_research_provider_api_key_resolves_dashboard_secret_file() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+        create_control_plane_router(config, lambda token: None)
+
+        assert (
+            _provider_api_key_for_base_url("https://openrouter.ai/api/v1")
+            == "or-secret-value"
+        )
 
 
 def test_llm_settings_api_persists_valid_updates() -> None:
