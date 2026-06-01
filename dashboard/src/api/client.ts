@@ -25,6 +25,7 @@ function stringifyApiDetail(value: unknown): string {
   try {
     return JSON.stringify(value)
   } catch {
+    if (typeof value === 'object') return '[unserializable object]'
     return String(value)
   }
 }

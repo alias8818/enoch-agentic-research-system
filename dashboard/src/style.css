@@ -1083,7 +1083,7 @@ button:disabled { cursor: not-allowed; }
   border: 1px solid rgba(244,241,234,0.12);
   border-radius: 999px;
   background: rgba(255,255,255,0.035);
-  color: #b8afa2;
+  color: #f4f1ea;
   padding: 0.32rem 0.52rem;
   font-size: 0.72rem;
   font-weight: 850;

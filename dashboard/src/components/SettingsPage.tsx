@@ -278,26 +278,34 @@ function pruneDeletedModel(settings: LlmSettings, modelId: string): LlmSettings 
   }
 }
 
-function validateDraftSettings(settings: LlmSettings): string[] {
-  const errors: string[] = []
-  const providerIds = settings.providers.map((provider) => provider.provider_id.trim()).filter(Boolean)
-  const modelIds = settings.models.map((model) => model.model_id.trim()).filter(Boolean)
-  const providerSet = new Set(providerIds)
-  const modelSet = new Set(modelIds)
-  for (const providerId of duplicateValues(providerIds)) errors.push(`Duplicate provider id: ${providerId}`)
-  for (const provider of settings.providers) {
+function appendDuplicateErrors(errors: string[], label: string, values: string[]): void {
+  for (const value of duplicateValues(values)) errors.push(`Duplicate ${label}: ${value}`)
+}
+
+function appendProviderValidationErrors(errors: string[], providers: LlmProvider[]): void {
+  for (const provider of providers) {
     const envName = provider.api_key_env.trim()
     if (envName && !API_KEY_ENV_RE.test(envName)) {
       errors.push(`${provider.label || provider.provider_id} environment variable name is invalid. Save will store this value as a one-time provider secret and clear the env field.`)
     }
   }
-  for (const modelId of duplicateValues(modelIds)) errors.push(`Duplicate model id: ${modelId}`)
-  for (const model of settings.models) {
+}
+
+function appendModelValidationErrors(errors: string[], models: LlmModel[], providerSet: Set<string>): void {
+  for (const model of models) {
     if (model.provider_id && !providerSet.has(model.provider_id)) {
       errors.push(`${model.label || model.model_id} references unknown provider: ${model.provider_id}`)
     }
   }
-  for (const workflow of settings.workflows) {
+}
+
+function appendWorkflowValidationErrors(
+  errors: string[],
+  workflows: LlmWorkflow[],
+  providerSet: Set<string>,
+  modelSet: Set<string>,
+): void {
+  for (const workflow of workflows) {
     const label = workflow.label || workflow.workflow_id
     const missingProviders = workflow.provider_ids.filter((providerId) => !providerSet.has(providerId))
     if (missingProviders.length) errors.push(`${label} references providers not in the catalog: ${missingProviders.join(', ')}`)
@@ -310,6 +318,19 @@ function validateDraftSettings(settings: LlmSettings): string[] {
       errors.push(`${label} requires at least one model in its pool`)
     }
   }
+}
+
+function validateDraftSettings(settings: LlmSettings): string[] {
+  const errors: string[] = []
+  const providerIds = settings.providers.map((provider) => provider.provider_id.trim()).filter(Boolean)
+  const modelIds = settings.models.map((model) => model.model_id.trim()).filter(Boolean)
+  const providerSet = new Set(providerIds)
+  const modelSet = new Set(modelIds)
+  appendDuplicateErrors(errors, 'provider id', providerIds)
+  appendProviderValidationErrors(errors, settings.providers)
+  appendDuplicateErrors(errors, 'model id', modelIds)
+  appendModelValidationErrors(errors, settings.models, providerSet)
+  appendWorkflowValidationErrors(errors, settings.workflows, providerSet, modelSet)
   return errors
 }
 
@@ -428,7 +449,7 @@ function ProviderRow({
   return (
     <article className="settings-row" key={`${provider.provider_id}-${index}`}>
       <label>
-        Provider id
+        <span>Provider id</span>
         <input
           aria-label={`${providerName} provider id`}
           value={provider.provider_id}
@@ -436,7 +457,7 @@ function ProviderRow({
         />
       </label>
       <label>
-        Label
+        <span>Label</span>
         <input
           aria-label={`${providerName} label`}
           value={provider.label}
@@ -444,7 +465,7 @@ function ProviderRow({
         />
       </label>
       <label>
-        API format
+        <span>API format</span>
         <select
           aria-label={`${providerName} API format`}
           value={provider.api_format}
@@ -455,7 +476,7 @@ function ProviderRow({
         </select>
       </label>
       <label className="settings-field-wide">
-        Base URL
+        <span>Base URL</span>
         <input
           aria-label={`${providerName} base URL`}
           value={provider.base_url}
@@ -463,7 +484,7 @@ function ProviderRow({
         />
       </label>
       <label>
-        Environment variable name
+        <span>Environment variable name</span>
         <input
           aria-label={`${providerName} API key environment variable`}
           placeholder={provider.api_key_env || 'OPENROUTER_API_KEY'}
@@ -472,7 +493,7 @@ function ProviderRow({
         />
       </label>
       <label>
-        API key secret
+        <span>API key secret</span>
         <input
           aria-label={`${providerName} API key secret`}
           type="password"
@@ -489,7 +510,7 @@ function ProviderRow({
           checked={provider.enabled}
           onChange={(event) => updateProvider({ enabled: event.target.checked })}
         />
-        Enabled
+        <span>Enabled</span>
       </label>
       <div className="settings-actions">
         <span className="settings-status">{providerStatus(provider)}</span>
@@ -591,7 +612,7 @@ function ModelRow({
   return (
     <article className="settings-row settings-row--model" key={`${model.model_id}-${index}`}>
       <label className="settings-field-wide">
-        Model id
+        <span>Model id</span>
         <input
           aria-label={`${modelName} model id`}
           value={model.model_id}
@@ -599,7 +620,7 @@ function ModelRow({
         />
       </label>
       <label>
-        Provider
+        <span>Provider</span>
         <select
           aria-label={`${modelName} provider`}
           value={model.provider_id}
@@ -613,7 +634,7 @@ function ModelRow({
         </select>
       </label>
       <label>
-        Label
+        <span>Label</span>
         <input
           aria-label={`${modelName} label`}
           value={model.label}
@@ -621,7 +642,7 @@ function ModelRow({
         />
       </label>
       <label>
-        Weight
+        <span>Weight</span>
         <input
           aria-label={`${modelName} weight`}
           type="range"
@@ -639,7 +660,7 @@ function ModelRow({
           checked={model.enabled}
           onChange={(event) => updateModel({ enabled: event.target.checked })}
         />
-        Enabled
+        <span>Enabled</span>
       </label>
       <div className="settings-actions">
         <HealthResult health={health} />
@@ -764,7 +785,7 @@ function WorkflowCard({
             checked={workflow.enabled}
             onChange={(event) => updateWorkflow((item) => ({ ...item, enabled: event.target.checked }))}
           />
-          Enabled
+          <span>Enabled</span>
         </label>
       </div>
       <fieldset className="settings-choice-group">
@@ -780,12 +801,12 @@ function WorkflowCard({
                 provider_ids: toggleItem(item.provider_ids, provider.provider_id, event.target.checked),
               }))}
             />
-            {provider.label || provider.provider_id}
+            <span>{provider.label || provider.provider_id}</span>
           </label>
         ))}
       </fieldset>
       <label>
-        Default model
+        <span>Default model</span>
         <select
           aria-label={`${workflow.label} default model`}
           value={workflow.default_model}
@@ -808,13 +829,13 @@ function WorkflowCard({
               checked={selectedModels.has(model.model_id)}
               onChange={(event) => updateModelPool(model.model_id, event.target.checked)}
             />
-            {model.label || model.model_id}
+            <span>{model.label || model.model_id}</span>
           </label>
         ))}
       </fieldset>
       <div className="settings-row settings-row--compact">
         <label>
-          Temperature
+          <span>Temperature</span>
           <input
             aria-label={`${workflow.label} temperature`}
             type="number"
@@ -826,7 +847,7 @@ function WorkflowCard({
           />
         </label>
         <label>
-          Max tokens
+          <span>Max tokens</span>
           <input
             aria-label={`${workflow.label} max tokens`}
             type="number"

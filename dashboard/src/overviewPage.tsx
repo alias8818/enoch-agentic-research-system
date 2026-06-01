@@ -539,7 +539,7 @@ function activeSignalReason(quality: ResearchSignalQuality): NonNullable<Researc
 }
 
 function qualitySummaryLabel(rawLabel: string): string {
-  const label = rawLabel.replace(/[_-]+/g, ' ').trim()
+  const label = rawLabel.split(/[_-]+/).filter(Boolean).join(' ').trim()
   return label ? `${label.charAt(0).toUpperCase()}${label.slice(1)}` : 'Summary'
 }
 
