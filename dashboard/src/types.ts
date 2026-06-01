@@ -42,6 +42,8 @@ export interface WorkerLane {
     operator_summary?: string
     desired_queue_depth?: number
     queue_deficit?: number
+    queue_depth_status?: string
+    above_desired_depth?: boolean
   } | null
 }
 

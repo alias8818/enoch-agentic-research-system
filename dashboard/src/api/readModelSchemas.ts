@@ -593,6 +593,8 @@ const workerLaneSchema = z.object({
     operator_summary: z.string().optional(),
     desired_queue_depth: z.number().optional(),
     queue_deficit: z.number().optional(),
+    queue_depth_status: z.string().optional(),
+    above_desired_depth: z.boolean().optional(),
   }).nullable().optional(),
 }).passthrough()
 

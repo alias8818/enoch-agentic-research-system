@@ -792,6 +792,28 @@ it('shows queued versus desired depth on CPU and GB10 lane cards', () => {
   expect(screen.getAllByText('3 / 25')).toHaveLength(1)
 })
 
+it('labels lanes above desired depth as over target instead of merely satisfied', () => {
+  render(<WorkerLanes lanes={[{
+    lane_key: 'gb10',
+    machine_target: 'gb10',
+    status: 'idle',
+    queued_count: 26,
+    dispatch_available: false,
+    feed_pressure: {
+      desired_queue_depth: 25,
+      queue_deficit: 0,
+      queue_depth_status: 'above_desired',
+      above_desired_depth: true,
+      next_autopilot_action: 'queue_depth_satisfied',
+      operator_summary: 'GB10 lane is above desired queued depth 26/25; dispatch queued work before feeding more.',
+    },
+  }]} onRefresh={() => undefined} />)
+
+  expect(screen.getByText('above desired depth')).toBeInTheDocument()
+  expect(screen.queryByText('queue depth satisfied')).not.toBeInTheDocument()
+  expect(screen.getByText('GB10 lane is above desired queued depth 26/25; dispatch queued work before feeding more.')).toBeInTheDocument()
+})
+
 it('shows one feed reason per lane when below desired queue depth', () => {
   render(<WorkerLanes lanes={[{ lane_key: 'gb10', machine_target: 'gb10', status: 'idle', queued_count: 3, dispatch_available: false, feed_pressure: { desired_queue_depth: 25, queue_deficit: 22, next_autopilot_action: 'generate_candidate', operator_summary: 'GB10 lane idle with no queued candidate; autopilot should generate GB10-targeted work.' } }]} onRefresh={() => undefined} />)
 

@@ -51,6 +51,17 @@ function laneBelowDesiredDepth(lane: WorkerLane): boolean {
   return (lane.queued_count ?? 0) < laneDesiredQueueDepth(lane)
 }
 
+function laneAboveDesiredDepth(lane: WorkerLane): boolean {
+  return Boolean(lane.feed_pressure?.above_desired_depth)
+    || lane.feed_pressure?.queue_depth_status === 'above_desired'
+    || (lane.queued_count ?? 0) > laneDesiredQueueDepth(lane)
+}
+
+function laneFeedActionLabel(lane: WorkerLane): string {
+  if (laneAboveDesiredDepth(lane)) return 'above desired depth'
+  return sentence(lane.feed_pressure?.next_autopilot_action)
+}
+
 function laneDepthFeedMessage(lane: WorkerLane): string {
   const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
   const label = laneLabel(lane)
@@ -70,6 +81,10 @@ function laneActiveQueueReason(lane: WorkerLane): string | null {
 function laneFeedReason(lane: WorkerLane): string | null {
   const activeReason = laneActiveQueueReason(lane)
   if (activeReason) return activeReason
+  if (laneAboveDesiredDepth(lane)) {
+    return lane.feed_pressure?.operator_summary
+      ?? `${laneLabel(lane)} is above desired queue depth; dispatch queued work before feeding more.`
+  }
   if (!laneBelowDesiredDepth(lane)) return null
   return lane.feed_pressure?.operator_summary ?? laneDepthFeedMessage(lane)
 }
@@ -386,7 +401,7 @@ function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchL
         </div>
         <div>
           <dt>Feed action</dt>
-          <dd>{sentence(feedAction)}</dd>
+          <dd>{laneFeedActionLabel(lane)}</dd>
         </div>
       </dl>
       {feedReason ? <p className="lane-feed-reason">{feedReason}</p> : null}
