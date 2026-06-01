@@ -7730,6 +7730,145 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "stale active worker lane: cpu_worker", status["dispatch_blockers"]
             )
 
+    def test_dashboard_status_refreshes_named_worker_lane_preflight(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-proxmox-1:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            preflight_at = datetime.now(timezone.utc) - timedelta(seconds=30)
+            dispatch_at = preflight_at + timedelta(seconds=10)
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "refresh-named-worker-lane-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "active-cpu-refresh",
+                            "project_name": "Active CPU Refresh",
+                            "project_dir": "active-cpu-refresh",
+                            "status": "running",
+                            "machine_target": "cpu-proxmox-1",
+                            "current_run_id": "run-active-cpu-refresh",
+                            "last_dispatch_at": dispatch_at.isoformat(),
+                            "updated_at": dispatch_at.isoformat(),
+                        }
+                    ],
+                },
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                scope="lane:http://cpu-proxmox-1:8787",
+                status="ok",
+                observed_at=preflight_at.isoformat(),
+                ttl_seconds=900,
+                payload={
+                    "ok": True,
+                    "target": "http://cpu-proxmox-1:8787",
+                    "checks": [
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {"body": {"runs": [], "totals": {}}},
+                        },
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": True,
+                            "detail": "active_or_waiting=0, live=0",
+                            "data": {"active_or_waiting": 0, "live": 0},
+                        },
+                    ],
+                },
+            )
+
+            def fake_preflight(payload, flags):
+                target = payload.wake_gate_url.rstrip("/")
+                runs = (
+                    [
+                        {
+                            "run_id": "run-active-cpu-refresh",
+                            "project_id": "active-cpu-refresh",
+                            "active_process_count": 2,
+                            "is_live": True,
+                        }
+                    ]
+                    if target == "http://cpu-proxmox-1:8787"
+                    else []
+                )
+                return WorkerPreflightResponse(
+                    ok=True,
+                    target=payload.wake_gate_url,
+                    summary="worker preflight passed",
+                    checks=[
+                        WorkerPreflightCheck(
+                            name="wake_gate_healthz",
+                            ok=True,
+                            detail="ok",
+                            data={},
+                        ),
+                        WorkerPreflightCheck(
+                            name="wake_gate_dashboard_api",
+                            ok=True,
+                            detail="dashboard API reachable",
+                            data={
+                                "body": {
+                                    "timestamp": datetime.now(
+                                        timezone.utc
+                                    ).isoformat(),
+                                    "runs": runs,
+                                    "totals": {"live": len(runs)},
+                                }
+                            },
+                        ),
+                        WorkerPreflightCheck(
+                            name="worker_no_live_runs",
+                            ok=not runs,
+                            detail=f"active_or_waiting={len(runs)}, live={len(runs)}",
+                            data={"active_or_waiting": len(runs), "live": len(runs)},
+                        ),
+                    ],
+                )
+
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight",
+                side_effect=fake_preflight,
+            ) as mocked_preflight:
+                status = client.get(
+                    "/control/api/status?refresh_worker=true", headers=headers
+                ).json()
+
+            requested_targets = {
+                call.args[0].wake_gate_url.rstrip("/")
+                for call in mocked_preflight.call_args_list
+            }
+            self.assertIn("http://gb10-worker:8787", requested_targets)
+            self.assertIn("http://cpu-proxmox-1:8787", requested_targets)
+            lanes = {lane["machine_target"]: lane for lane in status["worker_lanes"]}
+            confirmation = lanes["cpu-proxmox-1"]["active_confirmation"]
+            self.assertEqual(confirmation["state"], "active_confirmed")
+            self.assertEqual(confirmation["matched_run_id"], "run-active-cpu-refresh")
+
     def test_dashboard_status_marks_active_lane_stale_when_worker_has_no_matching_run(
         self,
     ) -> None:

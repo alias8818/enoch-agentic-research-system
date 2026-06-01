@@ -6494,6 +6494,88 @@ def _cp_mount_worker_lane_capacity(
     return capacity
 
 
+def _cp_mount_worker_preflight_refresh_requests(
+    config: GateConfig, *, expected_callback_token_fingerprint: str
+) -> list[WorkerPreflightRequest]:
+    if not config.live_dispatch_enabled:
+        return []
+
+    requests: list[WorkerPreflightRequest] = []
+    seen: set[str] = set()
+
+    def add_target(
+        *,
+        wake_gate_url: str,
+        bearer_token: str,
+        min_memory_available_mib: int | None = None,
+    ) -> None:
+        url = (wake_gate_url or "").strip()
+        token = (bearer_token or "").strip()
+        if not url or not token:
+            return
+        key = url.rstrip("/")
+        if key in seen:
+            return
+        seen.add(key)
+        requests.append(
+            WorkerPreflightRequest(
+                wake_gate_url=url,
+                bearer_token=token,
+                expected_callback_token_fingerprint=expected_callback_token_fingerprint,
+                require_paused=False,
+                strict=False,
+                min_memory_available_mib=min_memory_available_mib or 16_384,
+            )
+        )
+
+    default_target = config.resolved_worker_target("")
+    add_target(
+        wake_gate_url=default_target.wake_gate_url,
+        bearer_token=default_target.bearer_token,
+        min_memory_available_mib=default_target.min_memory_available_mib,
+    )
+    for machine_target in sorted(config.worker_targets):
+        target = config.resolved_worker_target(machine_target)
+        add_target(
+            wake_gate_url=target.wake_gate_url,
+            bearer_token=target.bearer_token,
+            min_memory_available_mib=target.min_memory_available_mib,
+        )
+    return requests
+
+
+def _cp_mount_lane_aware_worker_observation_refresher(
+    ns: Mapping[str, Any],
+) -> Callable[
+    [dict[str, DashboardObservationRecord | None], list[dict[str, Any]]],
+    dict[str, DashboardObservationRecord],
+]:
+    config: GateConfig = ns["config"]
+    store: Any = ns["store"]
+    callback_fingerprint = ns["_callback_acceptance_token_fingerprint"]
+    record_preflight_observations = ns["_record_preflight_observations"]
+
+    def refresh_worker_observations(
+        observations: dict[str, DashboardObservationRecord | None],
+        active: list[dict[str, Any]],
+    ) -> dict[str, DashboardObservationRecord]:
+        requests = _cp_mount_worker_preflight_refresh_requests(
+            config,
+            expected_callback_token_fingerprint=callback_fingerprint(),
+        )
+        if not requests:
+            return {
+                key: value for key, value in observations.items() if value is not None
+            }
+        for request in requests:
+            record_preflight_observations(
+                run_worker_preflight(request, store.flags())
+            )
+        return store.latest_dashboard_observations()
+
+    return refresh_worker_observations
+
+
 def _cp_mount_candidate_machine_target_conflict_set(
     config: GateConfig, candidate: dict[str, Any]
 ) -> set[str]:
@@ -6658,6 +6740,9 @@ def _prepare_control_plane_http_bindings_dashboard(
     ns: _ControlPlaneHttpRegistrationNamespace,
 ) -> None:
     _exec_prepare_bindings(ns, "_prepare_control_plane_http_bindings_dashboard")
+    ns["_refresh_worker_observations_if_needed"] = (
+        _cp_mount_lane_aware_worker_observation_refresher(ns)
+    )
 
 
 def _prepare_control_plane_http_bindings_dispatch(
