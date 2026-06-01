@@ -479,6 +479,51 @@ def _research_quality_provider_recovery_grace_is_nonpaging(
     return latest_yield_count > 0
 
 
+def _provider_latest_tick_is_clean_and_yielding(signal: dict[str, Any]) -> bool:
+    health = _safe_dict(signal.get("provider_generation_health"))
+    latest_tick = _safe_dict(health.get("latest_tick"))
+    if str(latest_tick.get("status") or "").strip().lower() != "clean":
+        return False
+    if _safe_int(latest_tick.get("malformed_provider_response_count")) > 0:
+        return False
+    latest_yield_count = sum(
+        _safe_int(latest_tick.get(key))
+        for key in ("generated_count", "promoted_count", "dispatched_count")
+    )
+    return latest_yield_count > 0
+
+
+def _research_quality_no_paper_ready_is_nonpaging(
+    status: str,
+    counts: dict[str, Any],
+    signal: dict[str, Any],
+    readiness: dict[str, Any],
+) -> bool:
+    if status != "clean":
+        return False
+    if counts["blocked_problem_count"] > 0 or counts["warning_problem_count"] > 0:
+        return False
+    if counts["useful_adjacent_followup_delta"] < 0:
+        return False
+    failed_codes = {
+        str(item.get("code") or "")
+        for item in readiness.get("failed_invariants") or []
+        if isinstance(item, dict)
+    }
+    if failed_codes != {"no_paper_ready_outputs"}:
+        return False
+    active_reason_codes = {
+        str(reason.get("code") or "")
+        for reason in signal.get("signal_reasons") or []
+        if isinstance(reason, dict) and bool(reason.get("active", True))
+    }
+    if active_reason_codes - {"malformed_provider_responses"}:
+        return False
+    if counts["malformed_provider_response_count"] <= 0:
+        return True
+    return _provider_latest_tick_is_clean_and_yielding(signal)
+
+
 def _research_quality_alert_heading(
     quality: dict[str, Any],
     status: str,
@@ -623,6 +668,8 @@ def _research_quality_alert_finding(
     if _research_quality_ready_with_recovered_context(
         quality_status, counts, signal, readiness
     ) or _research_quality_provider_recovery_grace_is_nonpaging(
+        quality_status, counts, signal, readiness
+    ) or _research_quality_no_paper_ready_is_nonpaging(
         quality_status, counts, signal, readiness
     ):
         return None

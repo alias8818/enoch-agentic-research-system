@@ -1264,6 +1264,73 @@ def test_queue_alert_findings_ignores_provider_recovery_grace_when_latest_tick_y
     assert findings == []
 
 
+def test_queue_alert_findings_ignores_no_paper_ready_only_research_quality(
+    monkeypatch, tmp_path
+) -> None:
+    report_path = tmp_path / "research-quality.json"
+    report_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        alerts,
+        "load_latest_quality_status",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "status": "clean",
+            "label": "Research quality: clean",
+            "severity_counts": {},
+            "problem_counts": {},
+            "report_mtime": "2026-06-01T00:01:50Z",
+            "report_path": str(report_path),
+            "post_prompt_monitor": {
+                "malformed_provider_response_count": 20,
+                "malformed_provider_response_ticks": 10,
+                "useful_adjacent_followup_delta": 8.0,
+                "provider_generation_health": {
+                    "available": True,
+                    "malformed_provider_response_count": 20,
+                    "malformed_provider_response_ticks": 10,
+                    "consecutive_clean_ticks": 36,
+                    "latest_tick": {
+                        "status": "clean",
+                        "malformed_provider_response_count": 0,
+                        "generated_count": 5,
+                        "promoted_count": 2,
+                        "dispatched_count": 2,
+                    },
+                    "operator_action": (
+                        "provider generation has 36 clean ticks since the last "
+                        "malformed response; review the last malformed model "
+                        "before widening automation"
+                    ),
+                },
+            },
+            "quality_floor": {
+                "available": True,
+                "posture": "satisfied",
+                "candidate_below_floor_count": 0,
+                "decision_below_floor_count": 0,
+            },
+            "decision_posture": {
+                "available": True,
+                "useful_signal_count": 100,
+                "bounded_paper_ready_count": 0,
+                "followup_recommended_count": 92,
+            },
+        },
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
+    assert findings == []
+
+
 def test_queue_alert_notify_alerts_on_conflict_during_intentional_hold(
     tmp_path,
 ) -> None:
