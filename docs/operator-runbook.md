@@ -65,11 +65,25 @@ Build, rsync excludes, and full smoke details: [`dashboard-v2-deploy.md`](dashbo
 
 ### Post-deploy smoke sequence
 
-After syncing code to `/opt/enoch-control-plane` on `enoch-core.exe.xyz`:
+For routine source rollouts, prefer the deploy wrapper from the source checkout.
+It uses `uv pip install --python .venv/bin/python -e .`, which works even when a
+restored runtime `.venv` does not include `pip`, then restarts the service,
+waits for health, and validates the copied tree:
 
 ```bash
-sudo systemctl restart enoch-control-plane.service
+scripts/deploy-enoch-runtime.sh --profile control
+```
 
+Set `ENOCH_CONTROL_SMOKE=1` when the dashboard smoke should run as part of the
+control-plane deployment:
+
+```bash
+ENOCH_CONTROL_SMOKE=1 scripts/deploy-enoch-runtime.sh --profile control
+```
+
+Manual smoke steps after a wrapper deploy:
+
+```bash
 cd /opt/enoch-release/enoch-agentic-research-system
 python3 scripts/validate_runtime_deploy.py \
   --source /opt/enoch-release/enoch-agentic-research-system \

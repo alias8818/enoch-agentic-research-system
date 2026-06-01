@@ -295,6 +295,13 @@ def test_deploy_script_waits_for_control_health_before_smoke() -> None:
     )
 
 
+def test_deploy_script_installs_with_uv_pip_for_restored_venvs() -> None:
+    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
+
+    assert "'$uv_bin' pip install --python .venv/bin/python -e ." in script
+    assert "python -m pip install" not in script
+
+
 def test_operator_scripts_expose_help_without_network_calls() -> None:
     for script_name in (
         "deploy-enoch-runtime.sh",

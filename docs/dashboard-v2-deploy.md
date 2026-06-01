@@ -45,15 +45,21 @@ rsync -a --delete \
 
 ## Post-deploy checklist
 
-Run on **`enoch-core.exe.xyz`** after rsync (order matters):
-
-1. **Restart** the control plane so Python serves the new tree and assets:
+For routine deployments, prefer the rollout wrapper from the source checkout:
 
 ```bash
-ssh enoch-core.exe.xyz 'sudo systemctl restart enoch-control-plane.service'
+ENOCH_CONTROL_SMOKE=1 scripts/deploy-enoch-runtime.sh --profile control
 ```
 
-2. **Validate** runtime files match the source checkout you intended to deploy:
+The wrapper performs rsync, installs with
+`uv pip install --python .venv/bin/python -e .`, restarts the service, waits for
+health, validates the copied runtime, and runs the dashboard smoke when
+`ENOCH_CONTROL_SMOKE=1` is set. This avoids assuming the restored runtime
+`.venv` has `pip` installed.
+
+Manual verification on **`enoch-core.exe.xyz`** after a wrapper deploy:
+
+1. **Validate** runtime files match the source checkout you intended to deploy:
 
 ```bash
 ssh enoch-core.exe.xyz 'cd /opt/enoch-release/enoch-agentic-research-system && \
@@ -66,7 +72,7 @@ ssh enoch-core.exe.xyz 'cd /opt/enoch-release/enoch-agentic-research-system && \
 
 Expect `"ok": true`. Hash drift or commit mismatch means the service is not proven to match `main`.
 
-3. **Smoke** Dashboard V2 shell, assets, and bounded v1 APIs:
+2. **Smoke** Dashboard V2 shell, assets, and bounded v1 APIs:
 
 ```bash
 ssh enoch-core.exe.xyz 'ENOCH_CONTROL_TOKEN="$(jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)" \
@@ -75,7 +81,7 @@ ssh enoch-core.exe.xyz 'ENOCH_CONTROL_TOKEN="$(jq -r .control_api_bearer_token /
     --check-legacy-dashboard-redirect'
 ```
 
-4. **Browser spot-check** (optional): open `/control/dashboard-v2#overview` with your control-plane token; confirm overview loads without a first-screen raw JSON block.
+3. **Browser spot-check** (optional): open `/control/dashboard-v2#overview` with your control-plane token; confirm overview loads without a first-screen raw JSON block.
 
 ## Post-deploy verification (detail)
 

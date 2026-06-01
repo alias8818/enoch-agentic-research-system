@@ -693,7 +693,7 @@ def test_control_plane_service_has_bounded_shutdown_for_deploy_restarts() -> Non
     service = (ROOT / "deploy" / "enoch-worker-gate.service").read_text(
         encoding="utf-8"
     )
-    assert "TimeoutStopSec=10" in service
+    assert "TimeoutStopSec=30" in service
     assert "KillMode=mixed" in service
     assert "FinalKillSignal=SIGKILL" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/sentry.env" in service
