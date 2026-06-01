@@ -4582,18 +4582,72 @@ def _llm_model_health_payload(row: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _llm_model_health_events_by_model(
+    events: list[dict[str, Any]],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    events_by_model: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for event in events:
+        key = (_text(event.get("provider_id")), _text(event.get("model_id")))
+        if key[0] and key[1]:
+            events_by_model.setdefault(key, []).append(event)
+    return events_by_model
+
+
+def _consecutive_llm_health_failures(attempts: list[dict[str, Any]]) -> int:
+    count = 0
+    for attempt in attempts:
+        if attempt.get("ok"):
+            break
+        count += 1
+    return count
+
+
+def _llm_model_health_status(latest: dict[str, Any] | None) -> str:
+    if latest is None:
+        return "stale"
+    if latest.get("ok"):
+        return "healthy"
+    return "unhealthy"
+
+
+def _llm_model_health_row(
+    model: Any,
+    *,
+    provider_labels: Mapping[str, str],
+    events_by_model: Mapping[tuple[str, str], list[dict[str, Any]]],
+) -> dict[str, Any]:
+    provider_id = _text(getattr(model, "provider_id", ""))
+    model_id = _text(getattr(model, "model_id", ""))
+    attempts = events_by_model.get((provider_id, model_id), [])
+    latest = attempts[0] if attempts else None
+    success_count = sum(1 for attempt in attempts if attempt.get("ok"))
+    failure_count = len(attempts) - success_count
+    return {
+        "provider_id": provider_id,
+        "provider_label": provider_labels.get(provider_id, provider_id),
+        "model_id": model_id,
+        "label": _text(getattr(model, "label", "")) or model_id,
+        "enabled": True,
+        "status": _llm_model_health_status(latest),
+        "attempt_count": len(attempts),
+        "success_count": success_count,
+        "failure_count": failure_count,
+        "consecutive_failures": _consecutive_llm_health_failures(attempts),
+        "success_rate": round(success_count / len(attempts), 3) if attempts else 0.0,
+        "latest": latest,
+        "latest_checked_at": _text((latest or {}).get("checked_at")),
+        "latest_failure_kind": _text((latest or {}).get("failure_kind")),
+        "latest_latency_ms": int((latest or {}).get("latency_ms") or 0),
+        "latest_status_code": int((latest or {}).get("status_code") or 0),
+    }
+
+
 def llm_model_health_summary(
     store: ControlPlaneStore, settings: Any, *, limit: int = 250
 ) -> dict[str, Any]:
     rows = _event_rows_for_type(store, event_type=LLM_MODEL_TEST_EVENT, limit=limit)
     events = [_llm_model_health_payload(row) for row in rows]
-    events_by_model: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for event in events:
-        key = (_text(event.get("provider_id")), _text(event.get("model_id")))
-        if not key[0] or not key[1]:
-            continue
-        events_by_model.setdefault(key, []).append(event)
-
+    events_by_model = _llm_model_health_events_by_model(events)
     provider_labels = {
         provider.provider_id: provider.label
         for provider in getattr(settings, "providers", [])
@@ -4602,44 +4656,12 @@ def llm_model_health_summary(
     for model in getattr(settings, "models", []):
         if not bool(getattr(model, "enabled", True)):
             continue
-        provider_id = _text(getattr(model, "provider_id", ""))
-        model_id = _text(getattr(model, "model_id", ""))
-        attempts = events_by_model.get((provider_id, model_id), [])
-        latest = attempts[0] if attempts else None
-        success_count = sum(1 for attempt in attempts if attempt.get("ok"))
-        failure_count = len(attempts) - success_count
-        consecutive_failures = 0
-        for attempt in attempts:
-            if attempt.get("ok"):
-                break
-            consecutive_failures += 1
-        if latest is None:
-            status = "stale"
-        elif latest.get("ok"):
-            status = "healthy"
-        else:
-            status = "unhealthy"
         models.append(
-            {
-                "provider_id": provider_id,
-                "provider_label": provider_labels.get(provider_id, provider_id),
-                "model_id": model_id,
-                "label": _text(getattr(model, "label", "")) or model_id,
-                "enabled": True,
-                "status": status,
-                "attempt_count": len(attempts),
-                "success_count": success_count,
-                "failure_count": failure_count,
-                "consecutive_failures": consecutive_failures,
-                "success_rate": round(success_count / len(attempts), 3)
-                if attempts
-                else 0.0,
-                "latest": latest,
-                "latest_checked_at": _text((latest or {}).get("checked_at")),
-                "latest_failure_kind": _text((latest or {}).get("failure_kind")),
-                "latest_latency_ms": int((latest or {}).get("latency_ms") or 0),
-                "latest_status_code": int((latest or {}).get("status_code") or 0),
-            }
+            _llm_model_health_row(
+                model,
+                provider_labels=provider_labels,
+                events_by_model=events_by_model,
+            )
         )
     unhealthy_count = sum(1 for row in models if row["status"] != "healthy")
     return {

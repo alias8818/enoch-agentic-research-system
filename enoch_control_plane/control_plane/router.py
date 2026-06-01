@@ -6916,219 +6916,259 @@ def _register_control_plane_sentry_smoke_route(
         }
 
 
+def _llm_provider_by_id(settings: LLMSettings, provider_id: str) -> Any:
+    for provider in settings.providers:
+        if provider.provider_id == provider_id:
+            return provider
+    raise HTTPException(status_code=404, detail="unknown LLM provider")
+
+
+def _llm_model_by_id(settings: LLMSettings, model_id: str) -> Any:
+    for model in settings.models:
+        if model.model_id == model_id:
+            return model
+    raise HTTPException(status_code=404, detail="unknown LLM model")
+
+
+def _llm_provider_host(provider: Any) -> str:
+    return (urlparse(provider.base_url).hostname or "").rstrip(".").lower()
+
+
+def _llm_provider_allows_empty_key(provider: Any) -> bool:
+    return _llm_provider_host(provider) == "synthetic.int.exe.xyz"
+
+
+def _llm_provider_auth_headers(config: GateConfig, provider: Any) -> dict[str, str]:
+    headers: dict[str, str] = {
+        "Content-Type": "application/json",
+        "User-Agent": "EnochControlPlane/llm-settings-test",
+    }
+    api_key = llm_provider_api_key(config, provider)
+    if not api_key or _llm_provider_allows_empty_key(provider):
+        return headers
+    if provider.api_format == "anthropic_messages":
+        headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+    else:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _llm_test_response_preview(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices") or []
+    if choices and isinstance(choices[0], dict):
+        message = choices[0].get("message") or {}
+        content = message.get("content")
+        if isinstance(content, str):
+            return content[:240]
+    content = payload.get("content")
+    if isinstance(content, list):
+        text = "".join(
+            str(part.get("text") or "") for part in content if isinstance(part, dict)
+        )
+        return text[:240]
+    return ""
+
+
+def _llm_test_failure_kind(result: Mapping[str, Any]) -> str:
+    status_code = int(result.get("status_code") or 0)
+    error_text = str(result.get("error") or "").lower()
+    if status_code in {401, 403}:
+        return "auth_error"
+    if status_code == 404:
+        return "model_not_found"
+    if status_code == 429:
+        return "rate_limited"
+    if status_code >= 500:
+        return "server_error"
+    if "timeout" in error_text or "timed out" in error_text:
+        return "timeout"
+    if not bool(result.get("ok")):
+        return "unavailable"
+    return ""
+
+
+def _scrub_llm_test_error(
+    config: GateConfig, result: Mapping[str, Any], provider: Any
+) -> str:
+    error = str(result.get("error") or "")[:500]
+    if not error:
+        return ""
+    secret = llm_provider_api_key(config, provider)
+    if secret:
+        error = error.replace(secret, "[redacted]")
+    return error
+
+
+def _record_llm_model_test_event(
+    store: Any,
+    config: GateConfig,
+    *,
+    provider: Any,
+    model: Any | None,
+    result: Mapping[str, Any],
+    source: str,
+) -> str:
+    append_event = getattr(store, "append_event", None)
+    if not callable(append_event):
+        return ""
+    checked_at = utc_now()
+    model_id = str(getattr(model, "model_id", "") or "")
+    payload = {
+        "provider_id": str(getattr(provider, "provider_id", "") or ""),
+        "model_id": model_id,
+        "ok": bool(result.get("ok")),
+        "status_code": int(result.get("status_code") or 0),
+        "latency_ms": int(result.get("latency_ms") or 0),
+        "failure_kind": _llm_test_failure_kind(result),
+        "error": _scrub_llm_test_error(config, result, provider),
+        "source": source,
+        "checked_at": checked_at,
+    }
+    entity_id = f"{payload['provider_id']}:{model_id or 'provider'}"
+    try:
+        event_id = append_event(
+            idempotency_key=f"llm-model-test:{entity_id}:{source}:{checked_at}",
+            event_type=read_models.LLM_MODEL_TEST_EVENT,
+            entity_type="llm_model",
+            entity_id=entity_id,
+            payload=jsonable_encoder(payload),
+        )
+    except Exception as exc:  # noqa: BLE001 - health telemetry must not break test
+        return f"{type(exc).__name__}: {exc}"
+    return str(event_id or "")
+
+
+def _llm_model_payload(model_id: str) -> dict[str, Any]:
+    return {
+        "model": model_id,
+        "max_tokens": 12,
+        "temperature": 0,
+        "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+    }
+
+
+def _llm_provider_test_request(
+    config: GateConfig, provider: Any, model: Any | None
+) -> urllib.request.Request:
+    headers = _llm_provider_auth_headers(config, provider)
+    base_url = provider.base_url.rstrip("/")
+    if model is None:
+        return urllib.request.Request(
+            f"{base_url}/models",
+            method="GET",
+            headers=headers,
+        )
+    path = "/messages" if provider.api_format == "anthropic_messages" else "/chat/completions"
+    return urllib.request.Request(
+        f"{base_url}{path}",
+        data=json.dumps(_llm_model_payload(model.model_id)).encode("utf-8"),
+        method="POST",
+        headers=headers,
+    )
+
+
+def _llm_provider_success_result(
+    provider: Any,
+    model: Any | None,
+    *,
+    status_code: int,
+    started: float,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "ok": 200 <= status_code < 300,
+        "provider_id": provider.provider_id,
+        "model_id": model.model_id if model is not None else "",
+        "status_code": status_code,
+        "latency_ms": int((time.monotonic() - started) * 1000),
+        "response_preview": _llm_test_response_preview(data)
+        or str(data.get("raw_preview") or "")[:240],
+    }
+
+
+def _llm_provider_error_result(
+    provider: Any,
+    model: Any | None,
+    *,
+    status_code: int,
+    started: float,
+    error: str,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "provider_id": provider.provider_id,
+        "model_id": model.model_id if model is not None else "",
+        "status_code": status_code,
+        "latency_ms": int((time.monotonic() - started) * 1000),
+        "error": error[:500],
+    }
+
+
+def _validate_llm_provider_test_target(
+    config: GateConfig, provider: Any, model: Any | None
+) -> None:
+    if model is not None and model.provider_id != provider.provider_id:
+        raise HTTPException(status_code=400, detail="model does not belong to provider")
+    if llm_provider_api_key(config, provider) or _llm_provider_allows_empty_key(provider):
+        return
+    raise HTTPException(
+        status_code=400,
+        detail="provider has no API key configured; paste a provider secret or configure an env var",
+    )
+
+
+def _run_llm_provider_test(
+    config: GateConfig,
+    *,
+    settings: LLMSettings,
+    provider_id: str,
+    model_id: str,
+) -> dict[str, Any]:
+    provider = _llm_provider_by_id(settings, provider_id)
+    model = _llm_model_by_id(settings, model_id) if model_id else None
+    _validate_llm_provider_test_target(config, provider, model)
+    started = time.monotonic()
+    try:
+        req = _llm_provider_test_request(config, provider, model)
+        with urllib.request.urlopen(req, timeout=20) as response:  # noqa: S310 - operator-configured provider URL
+            body = response.read(32768).decode("utf-8", errors="replace")
+            try:
+                data = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                data = {"raw_preview": body[:240]}
+            return _llm_provider_success_result(
+                provider,
+                model,
+                status_code=int(response.status),
+                started=started,
+                data=data,
+            )
+    except urllib.error.HTTPError as exc:
+        detail = exc.read(2048).decode("utf-8", errors="replace")
+        return _llm_provider_error_result(
+            provider,
+            model,
+            status_code=int(exc.code),
+            started=started,
+            error=detail or str(exc),
+        )
+    except Exception as exc:  # noqa: BLE001 - operator diagnostic endpoint
+        return _llm_provider_error_result(
+            provider,
+            model,
+            status_code=0,
+            started=started,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
 def _register_control_plane_llm_settings_routes(
     router: APIRouter,
     config: GateConfig,
     store: Any,
     require_bearer: RequireBearer,
 ) -> None:
-    def _provider_by_id(settings: LLMSettings, provider_id: str):
-        for provider in settings.providers:
-            if provider.provider_id == provider_id:
-                return provider
-        raise HTTPException(status_code=404, detail="unknown LLM provider")
-
-    def _model_by_id(settings: LLMSettings, model_id: str):
-        for model in settings.models:
-            if model.model_id == model_id:
-                return model
-        raise HTTPException(status_code=404, detail="unknown LLM model")
-
-    def _provider_auth_headers(provider: Any) -> dict[str, str]:
-        headers: dict[str, str] = {
-            "Content-Type": "application/json",
-            "User-Agent": "EnochControlPlane/llm-settings-test",
-        }
-        api_key = llm_provider_api_key(config, provider)
-        host = (urlparse(provider.base_url).hostname or "").rstrip(".").lower()
-        if api_key and host != "synthetic.int.exe.xyz":
-            if provider.api_format == "anthropic_messages":
-                headers["x-api-key"] = api_key
-                headers["anthropic-version"] = "2023-06-01"
-            else:
-                headers["Authorization"] = f"Bearer {api_key}"
-        return headers
-
-    def _llm_test_response_preview(payload: dict[str, Any]) -> str:
-        choices = payload.get("choices") or []
-        if choices and isinstance(choices[0], dict):
-            message = choices[0].get("message") or {}
-            content = message.get("content")
-            if isinstance(content, str):
-                return content[:240]
-        content = payload.get("content")
-        if isinstance(content, list):
-            text = "".join(
-                str(part.get("text") or "")
-                for part in content
-                if isinstance(part, dict)
-            )
-            return text[:240]
-        return ""
-
-    def _llm_test_failure_kind(result: Mapping[str, Any]) -> str:
-        status_code = int(result.get("status_code") or 0)
-        error_text = str(result.get("error") or "").lower()
-        if status_code in {401, 403}:
-            return "auth_error"
-        if status_code == 404:
-            return "model_not_found"
-        if status_code == 429:
-            return "rate_limited"
-        if status_code >= 500:
-            return "server_error"
-        if "timeout" in error_text or "timed out" in error_text:
-            return "timeout"
-        if not bool(result.get("ok")):
-            return "unavailable"
-        return ""
-
-    def _scrub_llm_test_error(result: Mapping[str, Any], provider: Any) -> str:
-        error = str(result.get("error") or "")[:500]
-        if not error:
-            return ""
-        secret = llm_provider_api_key(config, provider)
-        if secret:
-            error = error.replace(secret, "[redacted]")
-        return error
-
-    def _record_llm_model_test_event(
-        *,
-        provider: Any,
-        model: Any | None,
-        result: Mapping[str, Any],
-        source: str,
-    ) -> str:
-        append_event = getattr(store, "append_event", None)
-        if not callable(append_event):
-            return ""
-        checked_at = utc_now()
-        model_id = str(getattr(model, "model_id", "") or "")
-        payload = {
-            "provider_id": str(getattr(provider, "provider_id", "") or ""),
-            "model_id": model_id,
-            "ok": bool(result.get("ok")),
-            "status_code": int(result.get("status_code") or 0),
-            "latency_ms": int(result.get("latency_ms") or 0),
-            "failure_kind": _llm_test_failure_kind(result),
-            "error": _scrub_llm_test_error(result, provider),
-            "source": source,
-            "checked_at": checked_at,
-        }
-        entity_id = f"{payload['provider_id']}:{model_id or 'provider'}"
-        try:
-            event_id = append_event(
-                idempotency_key=(f"llm-model-test:{entity_id}:{source}:{checked_at}"),
-                event_type=read_models.LLM_MODEL_TEST_EVENT,
-                entity_type="llm_model",
-                entity_id=entity_id,
-                payload=jsonable_encoder(payload),
-            )
-        except Exception as exc:  # noqa: BLE001 - health telemetry must not break test
-            return f"{type(exc).__name__}: {exc}"
-        return str(event_id or "")
-
-    def _run_llm_provider_test(
-        *,
-        settings: LLMSettings,
-        provider_id: str,
-        model_id: str,
-    ) -> dict[str, Any]:
-        provider = _provider_by_id(settings, provider_id)
-        model = _model_by_id(settings, model_id) if model_id else None
-        if model is not None and model.provider_id != provider.provider_id:
-            raise HTTPException(
-                status_code=400, detail="model does not belong to provider"
-            )
-        if not llm_provider_api_key(config, provider) and (
-            (urlparse(provider.base_url).hostname or "").rstrip(".").lower()
-            != "synthetic.int.exe.xyz"
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="provider has no API key configured; paste a provider secret or configure an env var",
-            )
-        started = time.monotonic()
-        try:
-            if model is None:
-                req = urllib.request.Request(
-                    provider.base_url.rstrip("/") + "/models",
-                    method="GET",
-                    headers=_provider_auth_headers(provider),
-                )
-            elif provider.api_format == "anthropic_messages":
-                req = urllib.request.Request(
-                    provider.base_url.rstrip("/") + "/messages",
-                    data=json.dumps(
-                        {
-                            "model": model.model_id,
-                            "max_tokens": 12,
-                            "temperature": 0,
-                            "messages": [
-                                {
-                                    "role": "user",
-                                    "content": "Reply with exactly: ok",
-                                }
-                            ],
-                        }
-                    ).encode("utf-8"),
-                    method="POST",
-                    headers=_provider_auth_headers(provider),
-                )
-            else:
-                req = urllib.request.Request(
-                    provider.base_url.rstrip("/") + "/chat/completions",
-                    data=json.dumps(
-                        {
-                            "model": model.model_id,
-                            "max_tokens": 12,
-                            "temperature": 0,
-                            "messages": [
-                                {
-                                    "role": "user",
-                                    "content": "Reply with exactly: ok",
-                                }
-                            ],
-                        }
-                    ).encode("utf-8"),
-                    method="POST",
-                    headers=_provider_auth_headers(provider),
-                )
-            with urllib.request.urlopen(req, timeout=20) as response:  # noqa: S310 - operator-configured provider URL
-                body = response.read(32768).decode("utf-8", errors="replace")
-                try:
-                    data = json.loads(body) if body else {}
-                except json.JSONDecodeError:
-                    data = {"raw_preview": body[:240]}
-                return {
-                    "ok": 200 <= int(response.status) < 300,
-                    "provider_id": provider.provider_id,
-                    "model_id": model.model_id if model is not None else "",
-                    "status_code": int(response.status),
-                    "latency_ms": int((time.monotonic() - started) * 1000),
-                    "response_preview": _llm_test_response_preview(data)
-                    or str(data.get("raw_preview") or "")[:240],
-                }
-        except urllib.error.HTTPError as exc:
-            detail = exc.read(2048).decode("utf-8", errors="replace")
-            return {
-                "ok": False,
-                "provider_id": provider.provider_id,
-                "model_id": model.model_id if model is not None else "",
-                "status_code": int(exc.code),
-                "latency_ms": int((time.monotonic() - started) * 1000),
-                "error": detail[:500] or str(exc),
-            }
-        except Exception as exc:  # noqa: BLE001 - operator diagnostic endpoint
-            return {
-                "ok": False,
-                "provider_id": provider.provider_id,
-                "model_id": model.model_id if model is not None else "",
-                "status_code": 0,
-                "latency_ms": int((time.monotonic() - started) * 1000),
-                "error": f"{type(exc).__name__}: {exc}"[:500],
-            }
-
     @router.get("/api/settings/llm")
     def dashboard_llm_settings(
         authorization: Annotated[str | None, Header()] = None,
@@ -7229,13 +7269,16 @@ def _register_control_plane_llm_settings_routes(
             raise HTTPException(status_code=400, detail="provider_id is required")
         settings = read_llm_settings(config)
         result = _run_llm_provider_test(
+            config,
             settings=settings, provider_id=provider_id, model_id=model_id
         )
-        provider = _provider_by_id(settings, provider_id)
-        model = _model_by_id(settings, model_id) if model_id else None
+        provider = _llm_provider_by_id(settings, provider_id)
+        model = _llm_model_by_id(settings, model_id) if model_id else None
         if result.get("error"):
-            result["error"] = _scrub_llm_test_error(result, provider)
+            result["error"] = _scrub_llm_test_error(config, result, provider)
         event_id = _record_llm_model_test_event(
+            store,
+            config,
             provider=provider,
             model=model,
             result=result,
