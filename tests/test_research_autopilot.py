@@ -296,6 +296,41 @@ def test_research_autopilot_includes_quality_refresh_result(
     assert result["research_autopilot_history"]["ok"] is True
 
 
+def test_research_autopilot_retries_stale_rotation_model_without_model() -> None:
+    rejected = {
+        "ok": False,
+        "action": "research_cycle_blocked",
+        "reason": (
+            "provider model 'hf:moonshotai/Kimi-K2.6' is not in the allowed model "
+            "list; research provider settings invalid: model "
+            "'hf:moonshotai/Kimi-K2.6' is not in workflow 'research_generation' model_pool"
+        ),
+    }
+    accepted = {"ok": True, "action": "research_cycle", "provider_model": "moonshotai/kimi-k2.6"}
+    post = Mock(side_effect=[rejected, accepted])
+    payload = {"enabled": True, "dry_run": False, "model": "hf:moonshotai/Kimi-K2.6"}
+
+    with patch.object(autopilot, "_post_json", post):
+        exit_code, result = autopilot._post_research_run_cycle(
+            "http://control.example", "token", payload, 0
+        )
+
+    assert exit_code is None
+    assert result == {
+        **accepted,
+        "autopilot_model_retry": {
+            "retried_without_model": True,
+            "rejected_model": "hf:moonshotai/Kimi-K2.6",
+            "rejection_reason": rejected["reason"],
+        },
+    }
+    assert post.call_count == 2
+    first_payload = post.call_args_list[0].args[3]
+    retry_payload = post.call_args_list[1].args[3]
+    assert first_payload["model"] == "hf:moonshotai/Kimi-K2.6"
+    assert "model" not in retry_payload
+
+
 def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeypatch):
     history = tmp_path / "history.jsonl"
     monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(history))

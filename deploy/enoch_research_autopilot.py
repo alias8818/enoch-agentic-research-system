@@ -821,6 +821,19 @@ def _research_autopilot_request_failure_exit(exc: BaseException) -> tuple[int, N
     return 1, None
 
 
+def _stale_rotation_model_rejection(result: object, payload: dict) -> bool:
+    if not isinstance(result, dict) or result.get("ok"):
+        return False
+    if not str(payload.get("model") or "").strip():
+        return False
+    reason = str(result.get("reason") or "")
+    return (
+        result.get("action") == "research_cycle_blocked"
+        and "not in the allowed model list" in reason
+        and "research provider settings invalid" in reason
+    )
+
+
 def _post_research_run_cycle(
     base_url: str, token: str, payload: dict, max_wait_seconds: int
 ) -> tuple[int | None, dict | None]:
@@ -832,6 +845,24 @@ def _post_research_run_cycle(
             payload,
             timeout=max(60, max_wait_seconds + 120),
         )
+        if _stale_rotation_model_rejection(result, payload):
+            rejected_model = str(payload.get("model") or "").strip()
+            rejection_reason = str(result.get("reason") or "")
+            retry_payload = dict(payload)
+            retry_payload.pop("model", None)
+            result = _post_json(
+                base_url,
+                "/control/api/research/run-cycle",
+                token,
+                retry_payload,
+                timeout=max(60, max_wait_seconds + 120),
+            )
+            if isinstance(result, dict):
+                result["autopilot_model_retry"] = {
+                    "retried_without_model": True,
+                    "rejected_model": rejected_model,
+                    "rejection_reason": rejection_reason,
+                }
     except RemoteDisconnected as exc:
         exit_code = _transient_disconnect_exit(exc, base_url, phase="disconnected")
         if exit_code is not None:

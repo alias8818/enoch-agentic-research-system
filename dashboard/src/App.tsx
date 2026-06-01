@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { type RefObject, useEffect, useRef, useState } from 'react'
+import { type RefObject, type SyntheticEvent, useEffect, useRef, useState } from 'react'
 import { RoutedPage } from './appRouting'
 import { getSavedToken, saveToken } from './api/client'
 import { KeyboardShortcutHelp } from './components/KeyboardShortcutHelp'
@@ -101,6 +101,10 @@ function GlobalSearchForm({ inputRef }: Readonly<{ inputRef: RefObject<HTMLInput
 }
 
 function DashboardNav({ route, onClearToken }: Readonly<{ route: DashboardRoute; onClearToken: () => void }>) {
+  const closeMore = (event: SyntheticEvent<HTMLElement>) => {
+    const details = event.currentTarget.closest('details')
+    if (details) details.open = false
+  }
   return (
     <nav className="app-nav" aria-label="Dashboard V2 navigation">
       <a className={navClass(route, 'overview')} href={dashboardV2Href('#overview')}>Overview</a>
@@ -108,17 +112,25 @@ function DashboardNav({ route, onClearToken }: Readonly<{ route: DashboardRoute;
       <a className={navClass(route, 'queue')} href={dashboardV2Href('#queue:queued')}>Queue</a>
       <a className={navClass(route, 'runs')} href={dashboardV2Href('#runs')}>Runs</a>
       <a className={navClass(route, 'papers')} href={dashboardV2Href('#papers')}>Papers</a>
-      <details className={moreNavClass(route)}>
+      <details
+        className={moreNavClass(route)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') event.currentTarget.open = false
+        }}
+      >
         <summary>More</summary>
         <div className="nav-menu">
-          <a className={navClass(route, 'events')} href={dashboardV2Href('#events')}>Events</a>
-          <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')}>Observability</a>
-          <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')}>Corpus</a>
-          <a className={navClass(route, 'research')} href={dashboardV2Href('#research')}>Research</a>
-          <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')}>Intake</a>
-          <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')}>Automation</a>
-          <a className={navClass(route, 'settings')} href={dashboardV2Href('#settings')}>Settings</a>
-          <button className="nav-link" type="button" onClick={onClearToken}>Clear token</button>
+          <a className={navClass(route, 'events')} href={dashboardV2Href('#events')} onClick={closeMore}>Events</a>
+          <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')} onClick={closeMore}>Observability</a>
+          <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')} onClick={closeMore}>Corpus</a>
+          <a className={navClass(route, 'research')} href={dashboardV2Href('#research')} onClick={closeMore}>Research</a>
+          <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')} onClick={closeMore}>Intake</a>
+          <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')} onClick={closeMore}>Automation</a>
+          <a className={navClass(route, 'settings')} href={dashboardV2Href('#settings')} onClick={closeMore}>Settings</a>
+          <button className="nav-link" type="button" onClick={(event) => {
+            closeMore(event)
+            onClearToken()
+          }}>Clear token</button>
         </div>
       </details>
     </nav>

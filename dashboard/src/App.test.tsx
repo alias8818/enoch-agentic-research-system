@@ -35,6 +35,39 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(5))
 })
 
+it('closes the More menu after navigating to settings', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, generated_at: '2026-05-20T12:00:00Z', counts: { active: 0, queued: 0 }, paper_counts: {}, movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] }, flags: {} }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValue(new Response(JSON.stringify({
+      ok: true,
+      path: '/var/lib/enoch-control-plane/llm-provider-settings.json',
+      persisted: true,
+      generated_at: '2026-06-01T16:55:00Z',
+      settings: {
+        schema_version: 1,
+        updated_at: '2026-06-01T16:55:00Z',
+        updated_by: 'test',
+        providers: [],
+        models: [],
+        workflows: [],
+      },
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  await screen.findByText('Can I leave this running?')
+  const moreMenu = screen.getByText('More').closest('details')
+  expect(moreMenu).not.toBeNull()
+  fireEvent.click(screen.getByText('More'))
+  expect(moreMenu).toHaveAttribute('open')
+  const settingsLink = screen.getByRole('link', { name: 'Settings' })
+  settingsLink.addEventListener('click', (event) => event.preventDefault())
+  fireEvent.click(settingsLink)
+
+  await waitFor(() => expect(moreMenu).not.toHaveAttribute('open'))
+})
 
 it('requests live worker refresh for overview lane status', async () => {
   vi.spyOn(globalThis, 'fetch')

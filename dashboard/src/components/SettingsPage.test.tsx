@@ -93,6 +93,9 @@ const settingsPayload = {
         latest_latency_ms: 42,
         latest_status_code: 200,
         success_rate: 1,
+        attempt_count: 1,
+        success_count: 1,
+        failure_count: 0,
         consecutive_failures: 0,
         latest: { ok: true },
       },
@@ -104,7 +107,10 @@ const settingsPayload = {
         latest_failure_kind: 'model_not_found',
         latest_latency_ms: 120,
         latest_status_code: 404,
-        success_rate: 0,
+        success_rate: 1 / 3,
+        attempt_count: 3,
+        success_count: 1,
+        failure_count: 2,
         consecutive_failures: 2,
         latest: { ok: false },
       },
@@ -253,8 +259,15 @@ it('renders persisted model health beside catalog rows', async () => {
 
   expect(screen.getByText('healthy')).toBeInTheDocument()
   expect(screen.getByText('42ms')).toBeInTheDocument()
+  expect(screen.getByText('status 200')).toBeInTheDocument()
+  expect(screen.getByText('checked 2026-06-01 19:00 UTC')).toBeInTheDocument()
+  expect(screen.getByText('1 check')).toBeInTheDocument()
+  expect(screen.getByText('success 100%')).toBeInTheDocument()
   expect(screen.getByText('unhealthy')).toBeInTheDocument()
   expect(screen.getByText('model_not_found')).toBeInTheDocument()
+  expect(screen.getByText('status 404')).toBeInTheDocument()
+  expect(screen.getByText('3 checks')).toBeInTheDocument()
+  expect(screen.getByText('success 33%')).toBeInTheDocument()
   expect(screen.getByText('2 consecutive failures')).toBeInTheDocument()
 })
 

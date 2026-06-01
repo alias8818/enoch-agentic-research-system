@@ -56,6 +56,9 @@ type LlmModelHealthRow = {
   latest_latency_ms?: number
   latest_status_code?: number
   success_rate?: number
+  attempt_count?: number
+  success_count?: number
+  failure_count?: number
   consecutive_failures?: number
   latest?: Record<string, unknown> | null
 }
@@ -331,13 +334,53 @@ function healthClass(status?: string): string {
   return 'settings-health settings-health--stale'
 }
 
+function formatHealthTimestamp(value?: string): string {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const yyyy = String(date.getUTCFullYear()).padStart(4, '0')
+  const mm = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(date.getUTCDate()).padStart(2, '0')
+  const hh = String(date.getUTCHours()).padStart(2, '0')
+  const min = String(date.getUTCMinutes()).padStart(2, '0')
+  return `checked ${yyyy}-${mm}-${dd} ${hh}:${min} UTC`
+}
+
+function formatCheckCount(value?: number): string {
+  const count = Number(value || 0)
+  if (!Number.isFinite(count) || count <= 0) return ''
+  return `${count} ${count === 1 ? 'check' : 'checks'}`
+}
+
+function formatSuccessRate(value?: number): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return ''
+  return `success ${Math.round(value * 100)}%`
+}
+
+function formatConsecutiveFailures(value?: number): string {
+  const count = Number(value || 0)
+  if (!Number.isFinite(count) || count <= 0) return ''
+  return `${count} consecutive ${count === 1 ? 'failure' : 'failures'}`
+}
+
 function HealthResult({ health }: Readonly<{ health?: LlmModelHealthRow }>) {
-  if (!health) return <span className={healthClass('stale')}>stale</span>
+  if (!health) {
+    return (
+      <span className={healthClass('stale')}>
+        <span>stale</span>
+        <span>no health checks</span>
+      </span>
+    )
+  }
   const status = health.status || 'unknown'
   const details = [
     health.latest_latency_ms ? `${health.latest_latency_ms}ms` : '',
+    health.latest_status_code ? `status ${health.latest_status_code}` : '',
+    formatHealthTimestamp(health.latest_checked_at),
+    formatCheckCount(health.attempt_count),
+    formatSuccessRate(health.success_rate),
     health.latest_failure_kind || '',
-    Number(health.consecutive_failures || 0) > 0 ? `${health.consecutive_failures} consecutive failures` : '',
+    formatConsecutiveFailures(health.consecutive_failures),
   ].filter(Boolean)
   return (
     <span className={healthClass(status)}>
