@@ -47,11 +47,33 @@ type LlmSettings = {
   updated_by: string
 }
 
+type LlmModelHealthRow = {
+  provider_id: string
+  model_id: string
+  status: string
+  latest_checked_at?: string
+  latest_failure_kind?: string
+  latest_latency_ms?: number
+  latest_status_code?: number
+  success_rate?: number
+  consecutive_failures?: number
+  latest?: Record<string, unknown> | null
+}
+
+type LlmModelHealth = {
+  ok: boolean
+  status: string
+  model_count: number
+  unhealthy_count: number
+  models: LlmModelHealthRow[]
+}
+
 type LlmSettingsResponse = {
   ok: boolean
   path: string
   persisted: boolean
   settings: LlmSettings
+  model_health?: LlmModelHealth
   generated_at: string
 }
 
@@ -303,6 +325,28 @@ function TestResult({ result }: Readonly<{ result?: LlmTestResponse | 'pending' 
   )
 }
 
+function healthClass(status?: string): string {
+  if (status === 'healthy') return 'settings-health settings-health--ok'
+  if (status === 'unhealthy') return 'settings-health settings-health--fail'
+  return 'settings-health settings-health--stale'
+}
+
+function HealthResult({ health }: Readonly<{ health?: LlmModelHealthRow }>) {
+  if (!health) return <span className={healthClass('stale')}>stale</span>
+  const status = health.status || 'unknown'
+  const details = [
+    health.latest_latency_ms ? `${health.latest_latency_ms}ms` : '',
+    health.latest_failure_kind || '',
+    Number(health.consecutive_failures || 0) > 0 ? `${health.consecutive_failures} consecutive failures` : '',
+  ].filter(Boolean)
+  return (
+    <span className={healthClass(status)}>
+      <span>{status}</span>
+      {details.map((detail) => <span key={detail}>{detail}</span>)}
+    </span>
+  )
+}
+
 function ProviderRows({
   settings,
   providerSecrets,
@@ -399,15 +443,20 @@ function ProviderRows({
 
 function ModelRows({
   settings,
+  modelHealth,
   testResults,
   onChange,
   onTestModel,
 }: Readonly<{
   settings: LlmSettings
+  modelHealth?: LlmModelHealth
   testResults: Record<string, LlmTestResponse | 'pending'>
   onChange: (settings: LlmSettings) => void
   onTestModel: (model: LlmModel) => void
 }>) {
+  const healthByModel = useMemo(() => new Map(
+    (modelHealth?.models || []).map((row) => [`${row.provider_id}:${row.model_id}`, row]),
+  ), [modelHealth])
   return (
     <section className="settings-panel" aria-label="LLM models">
       <div className="settings-panel-head">
@@ -439,6 +488,7 @@ function ModelRows({
         {settings.models.map((model, index) => {
           const modelName = model.label || model.model_id
           const testKey = `model:${model.provider_id}:${model.model_id}`
+          const health = healthByModel.get(`${model.provider_id}:${model.model_id}`)
           return (
           <article className="settings-row settings-row--model" key={`${model.model_id}-${index}`}>
             <label className="settings-field-wide">
@@ -465,6 +515,7 @@ function ModelRows({
               Enabled
             </label>
             <div className="settings-actions">
+              <HealthResult health={health} />
               <button className="secondary-button settings-small-button" type="button" onClick={() => onTestModel(model)}>Test</button>
               <button className="danger-button settings-small-button" type="button" onClick={() => onChange(pruneDeletedModel(settings, model.model_id))}>Delete</button>
               <TestResult result={testResults[testKey]} />
@@ -649,7 +700,7 @@ export function SettingsPage() {
         onSecretChange={(providerId, value) => setProviderSecrets((current) => ({ ...current, [providerId]: value }))}
         onTestProvider={runProviderTest}
       />
-      <ModelRows settings={draft} testResults={testResults} onChange={setDraft} onTestModel={runModelTest} />
+      <ModelRows settings={draft} modelHealth={query.data?.model_health} testResults={testResults} onChange={setDraft} onTestModel={runModelTest} />
       <WorkflowRows settings={draft} onChange={setDraft} />
     </PageShell>
   )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -43,8 +44,17 @@ def _config(tmp: str) -> GateConfig:
     )
 
 
-def _client(config: GateConfig) -> TestClient:
+def _client(
+    config: GateConfig,
+    monkeypatch: pytest.MonkeyPatch | None = None,
+    store=None,
+) -> TestClient:
     app = FastAPI()
+    if monkeypatch is not None and store is not None:
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router._control_plane_store_for_config",
+            lambda _config: store,
+        )
     app.include_router(create_control_plane_router(config, lambda token: None))
     return TestClient(app)
 
@@ -318,6 +328,170 @@ def test_llm_settings_model_test_calls_exact_openai_model(
         assert seen["timeout"] == 20
         assert "Bearer or-secret-value" in str(seen["headers"])
         assert '"model": "moonshotai/kimi-k2.6"' in str(seen["body"])
+
+
+def test_llm_settings_model_test_records_scrubbed_health_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 429
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, *_args: object) -> bytes:
+            return b'{"error":"rate limited for key or-secret-value"}'
+
+        def close(self) -> None:
+            return None
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> int:
+            self.events.append(kwargs)
+            return len(self.events)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        store = FakeStore()
+        client = _client(config, monkeypatch=monkeypatch, store=store)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        settings.models.append(
+            LLMModelSettings(
+                model_id="moonshotai/kimi-k2.6",
+                provider_id="openrouter",
+                label="Kimi K2.6",
+                enabled=True,
+                weight=90,
+            )
+        )
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+
+        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+            raise urllib.error.HTTPError(
+                req.full_url,
+                429,
+                "Too Many Requests",
+                hdrs=None,
+                fp=FakeResponse(),
+            )
+
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            fake_urlopen,
+        )
+
+        response = client.post(
+            "/control/api/settings/llm/test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={"provider_id": "openrouter", "model_id": "moonshotai/kimi-k2.6"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["ok"] is False
+        assert "or-secret-value" not in response.text
+        assert store.events
+        event = store.events[0]
+        assert event["event_type"] == "settings.llm.model_test"
+        assert event["entity_type"] == "llm_model"
+        assert event["entity_id"] == "openrouter:moonshotai/kimi-k2.6"
+        payload = event["payload"]
+        assert payload["provider_id"] == "openrouter"
+        assert payload["model_id"] == "moonshotai/kimi-k2.6"
+        assert payload["status_code"] == 429
+        assert payload["failure_kind"] == "rate_limited"
+        assert "or-secret-value" not in str(payload)
+
+
+def test_llm_model_health_summary_marks_recent_failures_and_stale_models() -> None:
+    from enoch_control_plane.control_plane.read_models import llm_model_health_summary
+
+    settings = default_llm_settings()
+    synthetic = next(
+        provider
+        for provider in settings.providers
+        if provider.provider_id == "synthetic"
+    )
+    synthetic.enabled = True
+    settings.models = [
+        LLMModelSettings(
+            model_id="hf:healthy",
+            provider_id="synthetic",
+            label="Healthy",
+            enabled=True,
+        ),
+        LLMModelSettings(
+            model_id="hf:gone",
+            provider_id="synthetic",
+            label="Gone",
+            enabled=True,
+        ),
+        LLMModelSettings(
+            model_id="hf:stale",
+            provider_id="synthetic",
+            label="Stale",
+            enabled=True,
+        ),
+    ]
+
+    class FakeStore:
+        def event_page(self, **_kwargs):
+            return (
+                [
+                    {
+                        "event_id": 3,
+                        "created_at": "2026-06-01T19:00:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:gone",
+                            "ok": False,
+                            "status_code": 404,
+                            "failure_kind": "model_not_found",
+                            "latency_ms": 120,
+                            "checked_at": "2026-06-01T19:00:00Z",
+                        },
+                    },
+                    {
+                        "event_id": 2,
+                        "created_at": "2026-06-01T18:59:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:healthy",
+                            "ok": True,
+                            "status_code": 200,
+                            "latency_ms": 80,
+                            "checked_at": "2026-06-01T18:59:00Z",
+                        },
+                    },
+                ],
+                None,
+                False,
+            )
+
+    summary = llm_model_health_summary(FakeStore(), settings)
+
+    rows = {row["model_id"]: row for row in summary["models"]}
+    assert summary["unhealthy_count"] == 2
+    assert rows["hf:healthy"]["status"] == "healthy"
+    assert rows["hf:healthy"]["success_rate"] == 1.0
+    assert rows["hf:gone"]["status"] == "unhealthy"
+    assert rows["hf:gone"]["latest_failure_kind"] == "model_not_found"
+    assert rows["hf:stale"]["status"] == "stale"
+    assert rows["hf:stale"]["latest"] is None
 
 
 def test_research_provider_selection_uses_persisted_settings() -> None:

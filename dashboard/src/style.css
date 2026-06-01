@@ -1110,6 +1110,34 @@ button:disabled { cursor: not-allowed; }
 }
 .settings-test-result--ok { color: #86efac; }
 .settings-test-result--fail { color: #fecaca; }
+.settings-health {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+  flex-basis: 100%;
+  color: #b8afa2;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+.settings-health > span:first-child {
+  border: 1px solid rgba(244,241,234,0.12);
+  border-radius: 999px;
+  padding: 0.18rem 0.42rem;
+  font-weight: 850;
+}
+.settings-health--ok > span:first-child {
+  color: #86efac;
+  border-color: rgba(134,239,172,0.35);
+}
+.settings-health--fail > span:first-child {
+  color: #fecaca;
+  border-color: rgba(254,202,202,0.35);
+}
+.settings-health--stale > span:first-child {
+  color: #fcd34d;
+  border-color: rgba(252,211,77,0.35);
+}
 .settings-range-value {
   color: #d9d1c3;
   font-size: 0.78rem;

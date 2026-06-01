@@ -6956,6 +6956,68 @@ def _register_control_plane_llm_settings_routes(
             return text[:240]
         return ""
 
+    def _llm_test_failure_kind(result: Mapping[str, Any]) -> str:
+        status_code = int(result.get("status_code") or 0)
+        error_text = str(result.get("error") or "").lower()
+        if status_code in {401, 403}:
+            return "auth_error"
+        if status_code == 404:
+            return "model_not_found"
+        if status_code == 429:
+            return "rate_limited"
+        if status_code >= 500:
+            return "server_error"
+        if "timeout" in error_text or "timed out" in error_text:
+            return "timeout"
+        if not bool(result.get("ok")):
+            return "unavailable"
+        return ""
+
+    def _scrub_llm_test_error(result: Mapping[str, Any], provider: Any) -> str:
+        error = str(result.get("error") or "")[:500]
+        if not error:
+            return ""
+        secret = llm_provider_api_key(config, provider)
+        if secret:
+            error = error.replace(secret, "[redacted]")
+        return error
+
+    def _record_llm_model_test_event(
+        *,
+        provider: Any,
+        model: Any | None,
+        result: Mapping[str, Any],
+        source: str,
+    ) -> str:
+        append_event = getattr(store, "append_event", None)
+        if not callable(append_event):
+            return ""
+        checked_at = utc_now()
+        model_id = str(getattr(model, "model_id", "") or "")
+        payload = {
+            "provider_id": str(getattr(provider, "provider_id", "") or ""),
+            "model_id": model_id,
+            "ok": bool(result.get("ok")),
+            "status_code": int(result.get("status_code") or 0),
+            "latency_ms": int(result.get("latency_ms") or 0),
+            "failure_kind": _llm_test_failure_kind(result),
+            "error": _scrub_llm_test_error(result, provider),
+            "source": source,
+            "checked_at": checked_at,
+        }
+        entity_id = f"{payload['provider_id']}:{model_id or 'provider'}"
+        try:
+            event_id = append_event(
+                idempotency_key=(f"llm-model-test:{entity_id}:{source}:{checked_at}"),
+                event_type=read_models.LLM_MODEL_TEST_EVENT,
+                entity_type="llm_model",
+                entity_id=entity_id,
+                payload=jsonable_encoder(payload),
+            )
+        except Exception as exc:  # noqa: BLE001 - health telemetry must not break test
+            return f"{type(exc).__name__}: {exc}"
+        return str(event_id or "")
+
     def _run_llm_provider_test(
         *,
         settings: LLMSettings,
@@ -7071,6 +7133,7 @@ def _register_control_plane_llm_settings_routes(
             "path": str(path),
             "persisted": path.exists(),
             "settings": settings_response(settings, config),
+            "model_health": read_models.llm_model_health_summary(store, settings),
             "generated_at": utc_now(),
         }
 
@@ -7149,11 +7212,36 @@ def _register_control_plane_llm_settings_routes(
         result = _run_llm_provider_test(
             settings=settings, provider_id=provider_id, model_id=model_id
         )
+        provider = _provider_by_id(settings, provider_id)
+        model = _model_by_id(settings, model_id) if model_id else None
+        if result.get("error"):
+            result["error"] = _scrub_llm_test_error(result, provider)
+        event_id = _record_llm_model_test_event(
+            provider=provider,
+            model=model,
+            result=result,
+            source="manual",
+        )
+        if event_id:
+            result["event_id"] = event_id
         return {
             "source": "control_api_llm_settings_test",
-            "authority": "bounded live provider/model smoke test; no settings mutation",
+            "authority": "bounded live provider/model smoke test; best-effort health event",
             "generated_at": utc_now(),
             **result,
+        }
+
+    @router.get("/api/settings/llm/health")
+    def dashboard_llm_model_health(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        require_bearer(authorization)
+        settings = read_llm_settings(config)
+        return {
+            "source": "control_api_llm_model_health",
+            "authority": "recent persisted LLM model test events joined to configured model catalog",
+            "generated_at": utc_now(),
+            **read_models.llm_model_health_summary(store, settings),
         }
 
 

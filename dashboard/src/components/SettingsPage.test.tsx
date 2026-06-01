@@ -78,6 +78,38 @@ const settingsPayload = {
       },
     ],
   },
+  model_health: {
+    ok: false,
+    status: 'needs_attention',
+    model_count: 2,
+    unhealthy_count: 1,
+    models: [
+      {
+        provider_id: 'synthetic',
+        model_id: 'hf:moonshotai/Kimi-K2.6',
+        status: 'healthy',
+        latest_checked_at: '2026-06-01T19:00:00Z',
+        latest_failure_kind: '',
+        latest_latency_ms: 42,
+        latest_status_code: 200,
+        success_rate: 1,
+        consecutive_failures: 0,
+        latest: { ok: true },
+      },
+      {
+        provider_id: 'openrouter',
+        model_id: 'openrouter/anthropic/claude-sonnet-4.5',
+        status: 'unhealthy',
+        latest_checked_at: '2026-06-01T19:01:00Z',
+        latest_failure_kind: 'model_not_found',
+        latest_latency_ms: 120,
+        latest_status_code: 404,
+        success_rate: 0,
+        consecutive_failures: 2,
+        latest: { ok: false },
+      },
+    ],
+  },
 }
 
 afterEach(() => {
@@ -210,6 +242,20 @@ it('tests an exact model id through the settings API', async () => {
   const body = JSON.parse(fetchMockRequestBody(fetchMock, 1))
   expect(body).toEqual({ provider_id: 'synthetic', model_id: 'hf:moonshotai/Kimi-K2.6' })
   expect(await screen.findByText('ok 42ms')).toBeInTheDocument()
+})
+
+it('renders persisted model health beside catalog rows', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+
+  renderWithClient(<SettingsPage />)
+
+  await screen.findByDisplayValue('https://openrouter.ai/api/v1')
+
+  expect(screen.getByText('healthy')).toBeInTheDocument()
+  expect(screen.getByText('42ms')).toBeInTheDocument()
+  expect(screen.getByText('unhealthy')).toBeInTheDocument()
+  expect(screen.getByText('model_not_found')).toBeInTheDocument()
+  expect(screen.getByText('2 consecutive failures')).toBeInTheDocument()
 })
 
 it('applies recommended routing with checkboxes instead of typed workflow pools', async () => {
