@@ -8,6 +8,7 @@ dispatch, one positive-gated paper draft, and one automated finalization.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from http.client import RemoteDisconnected
 import os
@@ -880,7 +881,180 @@ def _post_research_run_cycle(
     return None, result
 
 
-def _attach_autopilot_sidecars(result: dict) -> None:
+def _parse_health_checked_at(value: object) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _enabled_provider_ids(settings: dict) -> set[str]:
+    providers = (settings.get("settings") or {}).get("providers") or []
+    return {
+        str(provider.get("provider_id") or "").strip()
+        for provider in providers
+        if isinstance(provider, dict)
+        and str(provider.get("provider_id") or "").strip()
+        and bool(provider.get("enabled", True))
+    }
+
+
+def _health_rows_by_model(settings: dict) -> dict[tuple[str, str], dict]:
+    rows: dict[tuple[str, str], dict] = {}
+    for row in (settings.get("model_health") or {}).get("models") or []:
+        if not isinstance(row, dict):
+            continue
+        provider_id = str(row.get("provider_id") or "").strip()
+        model_id = str(row.get("model_id") or "").strip()
+        if provider_id and model_id:
+            rows[(provider_id, model_id)] = row
+    return rows
+
+
+def _llm_model_health_check_reason(
+    health: dict | None, *, now: float, min_interval_seconds: int
+) -> str:
+    if not health:
+        return "stale_health_check"
+    status = str(health.get("status") or "").strip().lower()
+    failure = str(health.get("latest_failure_kind") or "").strip()
+    if status == "stale":
+        return "stale_health_check"
+    if status and status != "healthy":
+        return f"unhealthy:{failure}" if failure else f"unhealthy:{status}"
+    latest = _parse_health_checked_at(health.get("latest_checked_at"))
+    if latest <= 0 or now - latest >= min_interval_seconds:
+        return "stale_health_check"
+    return ""
+
+
+def _llm_model_health_check_priority(item: dict) -> tuple[int, float, str]:
+    reason = str(item.get("reason") or "")
+    latest = float(item.get("latest_checked_ts") or 0.0)
+    if reason == "stale_health_check":
+        group = 0
+    elif reason.startswith("unhealthy:"):
+        group = 1
+    else:
+        group = 2
+    return group, latest, str(item.get("model_id") or "")
+
+
+def run_llm_model_health_checks(base_url: str, token: str) -> dict:
+    if not base_url or not token:
+        return {
+            "ok": True,
+            "action": "llm_model_health_checks_skipped",
+            "reason": "missing control URL or token",
+        }
+    if not _truthy("ENOCH_LLM_MODEL_HEALTH_CHECKS_ENABLED", "1"):
+        return {
+            "ok": True,
+            "action": "llm_model_health_checks_skipped",
+            "reason": "disabled",
+        }
+    limit = _bounded_int("ENOCH_LLM_MODEL_HEALTH_CHECK_LIMIT", 2, 0, 20)
+    if limit <= 0:
+        return {
+            "ok": True,
+            "action": "llm_model_health_checks_skipped",
+            "reason": "limit=0",
+        }
+    min_interval = _bounded_int(
+        "ENOCH_LLM_MODEL_HEALTH_MIN_INTERVAL_SECONDS", 21600, 300, 604800
+    )
+    timeout = _bounded_int("ENOCH_LLM_MODEL_HEALTH_TIMEOUT_SECONDS", 30, 5, 120)
+    try:
+        settings = _get_json(base_url, "/control/api/settings/llm", token, timeout=10)
+    except Exception as exc:  # noqa: BLE001 - sidecar visibility should not abort tick
+        return {
+            "ok": False,
+            "action": "llm_model_health_checks_failed",
+            "reason": f"settings lookup failed: {type(exc).__name__}: {exc}",
+        }
+
+    provider_ids = _enabled_provider_ids(settings)
+    health_by_model = _health_rows_by_model(settings)
+    now = time.time()
+    candidates: list[dict] = []
+    enabled_model_count = 0
+    enabled_models = (settings.get("settings") or {}).get("models") or []
+    for model in enabled_models:
+        if not isinstance(model, dict) or not bool(model.get("enabled", True)):
+            continue
+        provider_id = str(model.get("provider_id") or "").strip()
+        model_id = str(model.get("model_id") or "").strip()
+        if not provider_id or not model_id or provider_id not in provider_ids:
+            continue
+        enabled_model_count += 1
+        health = health_by_model.get((provider_id, model_id))
+        reason = _llm_model_health_check_reason(
+            health, now=now, min_interval_seconds=min_interval
+        )
+        if not reason:
+            continue
+        candidates.append(
+            {
+                "provider_id": provider_id,
+                "model_id": model_id,
+                "reason": reason,
+                "latest_checked_ts": _parse_health_checked_at(
+                    (health or {}).get("latest_checked_at")
+                ),
+            }
+        )
+
+    selected = sorted(candidates, key=_llm_model_health_check_priority)[:limit]
+    checked: list[dict] = []
+    failures: list[dict] = []
+    selected_reasons = {str(item["model_id"]): str(item["reason"]) for item in selected}
+    for item in selected:
+        payload = {
+            "provider_id": item["provider_id"],
+            "model_id": item["model_id"],
+            "source": "autopilot",
+        }
+        try:
+            checked.append(
+                _post_json(
+                    base_url,
+                    "/control/api/settings/llm/test",
+                    token,
+                    payload,
+                    timeout=timeout,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - continue bounded health sampling
+            failures.append(
+                {
+                    "provider_id": item["provider_id"],
+                    "model_id": item["model_id"],
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    return {
+        "ok": not failures,
+        "action": "llm_model_health_checks",
+        "checked_count": len(checked),
+        "failure_count": len(failures),
+        "skipped_count": max(0, enabled_model_count - len(selected)),
+        "candidate_count": len(candidates),
+        "enabled_model_count": enabled_model_count,
+        "limit": limit,
+        "selected_reasons": selected_reasons,
+        "checked": checked,
+        "failures": failures,
+    }
+
+
+def _attach_autopilot_sidecars(result: dict, base_url: str, token: str) -> None:
     history_result = append_research_autopilot_history(result)
     result["research_autopilot_history"] = history_result
     result["research_quality_refresh"] = refresh_research_quality_report()
@@ -888,13 +1062,16 @@ def _attach_autopilot_sidecars(result: dict) -> None:
         refresh_research_quality_window_comparison()
     )
     result["research_janitor_llm_review"] = run_quota_gated_janitor_llm_review()
+    result["llm_model_health_checks"] = run_llm_model_health_checks(base_url, token)
 
 
-def _finalize_autopilot_tick(result: object) -> int:
+def _finalize_autopilot_tick(
+    result: object, base_url: str = "", token: str = ""
+) -> int:
     if not isinstance(result, dict):
         print(json.dumps(result, sort_keys=True))
         return 1
-    _attach_autopilot_sidecars(result)
+    _attach_autopilot_sidecars(result, base_url, token)
     print(json.dumps(result, sort_keys=True))
     tick_ok = result.get("ok") or _is_benign_skip_result(result)
     return 0 if tick_ok else 1
@@ -922,7 +1099,7 @@ def main() -> int:
     )
     if exit_code is not None:
         return exit_code
-    return _finalize_autopilot_tick(result)
+    return _finalize_autopilot_tick(result, base_url, token)
 
 
 if __name__ == "__main__":

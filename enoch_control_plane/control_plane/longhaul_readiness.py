@@ -459,6 +459,50 @@ def _add_provider_generation_attempt_check(
     return attempts, attempt_status
 
 
+def _llm_model_health_issue_summary(health: dict[str, Any]) -> str:
+    issues: list[str] = []
+    for model in health.get("models") or []:
+        if not isinstance(model, dict):
+            continue
+        status = str(model.get("status") or "").strip()
+        if status == "healthy":
+            continue
+        model_id = str(model.get("model_id") or "unknown-model")
+        failure = str(model.get("latest_failure_kind") or "").strip()
+        issues.append(f"{model_id}={status}{':' + failure if failure else ''}")
+        if len(issues) >= 3:
+            break
+    return "; ".join(issues)
+
+
+def _add_llm_model_health_check(
+    acc: _ReadinessAccumulator, llm_model_health: dict[str, Any] | None
+) -> tuple[dict[str, Any], str, int]:
+    health = llm_model_health or {
+        "ok": True,
+        "status": "not_reported",
+        "unhealthy_count": 0,
+        "models": [],
+    }
+    health_status = str(health.get("status") or "unknown")
+    unhealthy_count = int(health.get("unhealthy_count") or 0)
+    health_ok = bool(health.get("ok")) and unhealthy_count == 0
+    detail = f"LLM model health status={health_status}; unhealthy={unhealthy_count}"
+    issue_summary = _llm_model_health_issue_summary(health)
+    if issue_summary:
+        detail = f"{detail}; {issue_summary}"
+    acc.add(
+        check(
+            "llm_model_health_ok",
+            health_ok,
+            detail,
+            data=health,
+        ),
+        "configured LLM model health needs attention",
+    )
+    return health, health_status, unhealthy_count
+
+
 def _add_research_quality_check(
     acc: _ReadinessAccumulator, research_quality: dict[str, Any] | None
 ) -> tuple[dict[str, Any], str]:
@@ -597,6 +641,9 @@ class _ReadinessSummaryInput:
     lineage_status: str
     provider_generation: dict[str, Any]
     provider_generation_status: str
+    llm_model_health: dict[str, Any]
+    llm_model_health_status: str
+    llm_model_unhealthy_count: int
     resource: dict[str, Any]
     resource_ok: bool
     resource_count: int
@@ -638,6 +685,8 @@ def _build_readiness_summary(inp: _ReadinessSummaryInput) -> dict[str, Any]:
             "latest_failure_kind"
         )
         or "",
+        "llm_model_health_status": inp.llm_model_health_status,
+        "llm_model_unhealthy_count": inp.llm_model_unhealthy_count,
         **_readiness_resource_utilization_summary(
             inp.resource, inp.resource_ok, inp.resource_count
         ),
@@ -654,6 +703,7 @@ def evaluate_longhaul_readiness(
     research_quality: dict[str, Any] | None = None,
     source_lineage: dict[str, Any] | None = None,
     resource_utilization: dict[str, Any] | None = None,
+    llm_model_health: dict[str, Any] | None = None,
     now: datetime | None = None,
     research_max_age_seconds: int = 2700,
     corpus_max_age_seconds: int = 4500,
@@ -705,6 +755,9 @@ def evaluate_longhaul_readiness(
     provider_generation, provider_generation_status = (
         _add_provider_generation_attempt_check(acc, overview)
     )
+    llm_health, llm_health_status, llm_unhealthy_count = _add_llm_model_health_check(
+        acc, llm_model_health
+    )
     quality, quality_status = _add_research_quality_check(acc, research_quality)
     lineage, lineage_status = _add_source_lineage_check(acc, source_lineage)
     resource, resource_ok, resource_count = _add_resource_utilization_check(
@@ -746,6 +799,9 @@ def evaluate_longhaul_readiness(
                 lineage_status=lineage_status,
                 provider_generation=provider_generation,
                 provider_generation_status=provider_generation_status,
+                llm_model_health=llm_health,
+                llm_model_health_status=llm_health_status,
+                llm_model_unhealthy_count=llm_unhealthy_count,
                 resource=resource,
                 resource_ok=resource_ok,
                 resource_count=resource_count,

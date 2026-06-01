@@ -16986,6 +16986,7 @@ def test_provider_generation_records_success_attempt_event():
         research_facility=SimpleNamespace(plan_candidates=lambda *_args: [_Plan()]),
         store=store,
         requested_by="pytest",
+        provider_id="openrouter",
         trace_id="trace-success",
         run_cycle_id="run-cycle-success",
     )
@@ -16997,6 +16998,8 @@ def test_provider_generation_records_success_attempt_event():
     assert response["provider_generation_attempt"]["planned_count"] == 1
     payload = store.events[0]["payload"]
     assert payload["status"] == "success"
+    assert payload["provider_id"] == "openrouter"
+    assert payload["provider"] == "openrouter"
     assert payload["provider_response_id"] == "resp-1"
     assert payload["planned_count"] == 1
 

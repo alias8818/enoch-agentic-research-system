@@ -306,7 +306,11 @@ def test_research_autopilot_retries_stale_rotation_model_without_model() -> None
             "'hf:moonshotai/Kimi-K2.6' is not in workflow 'research_generation' model_pool"
         ),
     }
-    accepted = {"ok": True, "action": "research_cycle", "provider_model": "moonshotai/kimi-k2.6"}
+    accepted = {
+        "ok": True,
+        "action": "research_cycle",
+        "provider_model": "moonshotai/kimi-k2.6",
+    }
     post = Mock(side_effect=[rejected, accepted])
     payload = {"enabled": True, "dry_run": False, "model": "hf:moonshotai/Kimi-K2.6"}
 
@@ -329,6 +333,103 @@ def test_research_autopilot_retries_stale_rotation_model_without_model() -> None
     retry_payload = post.call_args_list[1].args[3]
     assert first_payload["model"] == "hf:moonshotai/Kimi-K2.6"
     assert "model" not in retry_payload
+
+
+def test_llm_model_health_checks_select_stale_and_unhealthy_models(monkeypatch):
+    monkeypatch.setenv("ENOCH_LLM_MODEL_HEALTH_CHECKS_ENABLED", "1")
+    monkeypatch.setenv("ENOCH_LLM_MODEL_HEALTH_CHECK_LIMIT", "2")
+    monkeypatch.setenv("ENOCH_LLM_MODEL_HEALTH_MIN_INTERVAL_SECONDS", "3600")
+
+    settings_payload = {
+        "ok": True,
+        "settings": {
+            "providers": [
+                {"provider_id": "synthetic", "enabled": True},
+                {"provider_id": "openrouter", "enabled": True},
+            ],
+            "models": [
+                {
+                    "provider_id": "synthetic",
+                    "model_id": "hf:zai-org/GLM-5.1",
+                    "enabled": True,
+                },
+                {
+                    "provider_id": "openrouter",
+                    "model_id": "moonshotai/kimi-k2.6",
+                    "enabled": True,
+                },
+                {
+                    "provider_id": "openrouter",
+                    "model_id": "openrouter/owl-alpha",
+                    "enabled": True,
+                },
+            ],
+        },
+        "model_health": {
+            "models": [
+                {
+                    "provider_id": "synthetic",
+                    "model_id": "hf:zai-org/GLM-5.1",
+                    "status": "healthy",
+                    "latest_checked_at": "2026-06-01T20:30:00Z",
+                },
+                {
+                    "provider_id": "openrouter",
+                    "model_id": "moonshotai/kimi-k2.6",
+                    "status": "unhealthy",
+                    "latest_checked_at": "2026-06-01T21:00:00Z",
+                    "latest_failure_kind": "rate_limited",
+                },
+                {
+                    "provider_id": "openrouter",
+                    "model_id": "openrouter/owl-alpha",
+                    "status": "stale",
+                    "latest_checked_at": "",
+                },
+            ]
+        },
+    }
+    posts: list[dict] = []
+
+    def fake_post(
+        _base_url: str, _path: str, _token: str, payload: dict, *, timeout: int
+    ) -> dict:
+        posts.append(payload)
+        return {
+            "ok": True,
+            "provider_id": payload["provider_id"],
+            "model_id": payload["model_id"],
+            "source": payload["source"],
+            "status_code": 200,
+        }
+
+    with (
+        patch.object(autopilot, "_get_json", return_value=settings_payload),
+        patch.object(autopilot, "_post_json", side_effect=fake_post),
+        patch.object(autopilot, "time") as fake_time,
+    ):
+        fake_time.time.return_value = 1_759_339_200.0
+        result = autopilot.run_llm_model_health_checks("http://control", "token")
+
+    assert result["ok"] is True
+    assert result["checked_count"] == 2
+    assert result["skipped_count"] == 1
+    assert result["selected_reasons"] == {
+        "moonshotai/kimi-k2.6": "unhealthy:rate_limited",
+        "openrouter/owl-alpha": "stale_health_check",
+    }
+    assert posts == [
+        {
+            "provider_id": "openrouter",
+            "model_id": "openrouter/owl-alpha",
+            "source": "autopilot",
+        },
+        {
+            "provider_id": "openrouter",
+            "model_id": "moonshotai/kimi-k2.6",
+            "source": "autopilot",
+        },
+    ]
 
 
 def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeypatch):

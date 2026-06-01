@@ -272,6 +272,41 @@ def test_latest_provider_generation_success_clears_previous_failures() -> None:
     assert result["summary"]["provider_generation_latest_status"] == "success"
 
 
+def test_unhealthy_llm_model_health_blocks_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["llm_model_health"] = {
+        "ok": False,
+        "status": "needs_attention",
+        "unhealthy_count": 2,
+        "models": [
+            {
+                "provider_id": "openrouter",
+                "model_id": "moonshotai/kimi-k2.6",
+                "status": "unhealthy",
+                "latest_failure_kind": "rate_limited",
+            },
+            {
+                "provider_id": "openrouter",
+                "model_id": "openrouter/owl-alpha",
+                "status": "stale",
+                "latest_failure_kind": "",
+            },
+        ],
+    }
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "configured LLM model health needs attention" in result["blockers"]
+    check = next(
+        item for item in result["checks"] if item["name"] == "llm_model_health_ok"
+    )
+    assert check["ok"] is False
+    assert check["data"]["unhealthy_count"] == 2
+    assert result["summary"]["llm_model_health_status"] == "needs_attention"
+    assert result["summary"]["llm_model_unhealthy_count"] == 2
+
+
 def test_tick_freshness_uses_latest_timer_trigger_not_stale_inactive_timestamp() -> (
     None
 ):

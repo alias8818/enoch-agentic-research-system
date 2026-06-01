@@ -4480,6 +4480,7 @@ def _provider_generation_attempt_record(row: Mapping[str, Any]) -> dict[str, Any
         "failure_kind": _text(payload.get("failure_kind")),
         "reason": _text(payload.get("reason")),
         "provider": _text(payload.get("provider")),
+        "provider_id": _text(payload.get("provider_id")),
         "provider_model": _text(payload.get("provider_model")),
         "machine_target": _text(payload.get("machine_target")),
         "lane_key": _text(payload.get("lane_key")),

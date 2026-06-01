@@ -340,7 +340,11 @@ def test_llm_settings_model_test_calls_exact_openai_model(
         response = client.post(
             "/control/api/settings/llm/test",
             headers={"Authorization": f"Bearer {TOKEN}"},
-            json={"provider_id": "openrouter", "model_id": "moonshotai/kimi-k2.6"},
+            json={
+                "provider_id": "openrouter",
+                "model_id": "moonshotai/kimi-k2.6",
+                "source": "autopilot",
+            },
         )
 
         assert response.status_code == 200
@@ -419,7 +423,11 @@ def test_llm_settings_model_test_records_scrubbed_health_event(
         response = client.post(
             "/control/api/settings/llm/test",
             headers={"Authorization": f"Bearer {TOKEN}"},
-            json={"provider_id": "openrouter", "model_id": "moonshotai/kimi-k2.6"},
+            json={
+                "provider_id": "openrouter",
+                "model_id": "moonshotai/kimi-k2.6",
+                "source": "autopilot",
+            },
         )
 
         assert response.status_code == 200
@@ -435,6 +443,7 @@ def test_llm_settings_model_test_records_scrubbed_health_event(
         assert payload["model_id"] == "moonshotai/kimi-k2.6"
         assert payload["status_code"] == 429
         assert payload["failure_kind"] == "rate_limited"
+        assert payload["source"] == "autopilot"
         assert "or-secret-value" not in str(payload)
 
 
