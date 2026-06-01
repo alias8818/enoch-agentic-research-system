@@ -205,8 +205,10 @@ def _secret_file_name(provider_id: str) -> str:
 
 def llm_provider_secret_path(config: GateConfig, provider_id: str) -> Path:
     configured = os.environ.get("ENOCH_LLM_PROVIDER_SECRETS_DIR", "").strip()
-    base_dir = Path(configured).expanduser() if configured else (
-        config.expanded_state_dir / LLM_PROVIDER_SECRET_DIRNAME
+    base_dir = (
+        Path(configured).expanduser()
+        if configured
+        else (config.expanded_state_dir / LLM_PROVIDER_SECRET_DIRNAME)
     )
     return base_dir / f"{_secret_file_name(provider_id)}.token"
 
@@ -376,9 +378,13 @@ def write_llm_provider_secrets(
     provider_ids = {provider.provider_id for provider in settings.providers}
     written: list[str] = []
     for raw_provider_id, raw_value in secrets.items():
-        provider_id = _normalize_id(str(raw_provider_id or ""), field_name="provider_id")
+        provider_id = _normalize_id(
+            str(raw_provider_id or ""), field_name="provider_id"
+        )
         if provider_id not in provider_ids:
-            raise ValueError(f"provider secret references unknown provider: {provider_id}")
+            raise ValueError(
+                f"provider secret references unknown provider: {provider_id}"
+            )
         secret = str(raw_value or "")
         if not secret.strip():
             continue
@@ -412,13 +418,17 @@ def settings_response(
     settings: LLMSettings, config: GateConfig | None = None
 ) -> dict[str, Any]:
     payload = settings.model_dump(mode="json")
-    providers_by_id = {provider.provider_id: provider for provider in settings.providers}
+    providers_by_id = {
+        provider.provider_id: provider for provider in settings.providers
+    }
     for provider in payload.get("providers", []):
         provider_id = str(provider.get("provider_id") or "")
         env_name = str(provider.get("api_key_env") or "")
         configured = bool(env_name and os.environ.get(env_name))
         if not configured and config is not None and provider_id in providers_by_id:
-            configured = bool(llm_provider_api_key(config, providers_by_id[provider_id]))
+            configured = bool(
+                llm_provider_api_key(config, providers_by_id[provider_id])
+            )
         provider["api_key_configured"] = configured
     return payload
 

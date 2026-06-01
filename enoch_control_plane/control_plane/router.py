@@ -6939,7 +6939,9 @@ def _register_control_plane_llm_settings_routes(
             settings = LLMSettings.model_validate(settings_payload)
             provider_secrets = body.get("provider_secrets") or {}
             if provider_secrets and not isinstance(provider_secrets, dict):
-                raise ValueError("provider_secrets must be an object keyed by provider_id")
+                raise ValueError(
+                    "provider_secrets must be an object keyed by provider_id"
+                )
             written_provider_secrets = write_llm_provider_secrets(
                 config, provider_secrets, settings=settings
             )
