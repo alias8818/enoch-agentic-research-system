@@ -926,9 +926,11 @@ def _llm_model_health_check_reason(
     failure = str(health.get("latest_failure_kind") or "").strip()
     if status == "stale":
         return "stale_health_check"
+    latest = _parse_health_checked_at(health.get("latest_checked_at"))
+    if latest > 0 and now - latest < min_interval_seconds:
+        return ""
     if status and status != "healthy":
         return f"unhealthy:{failure}" if failure else f"unhealthy:{status}"
-    latest = _parse_health_checked_at(health.get("latest_checked_at"))
     if latest <= 0 or now - latest >= min_interval_seconds:
         return "stale_health_check"
     return ""

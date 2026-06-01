@@ -335,7 +335,7 @@ def test_research_autopilot_retries_stale_rotation_model_without_model() -> None
     assert "model" not in retry_payload
 
 
-def test_llm_model_health_checks_select_stale_and_unhealthy_models(monkeypatch):
+def test_llm_model_health_checks_respect_cooldown_for_unhealthy_models(monkeypatch):
     monkeypatch.setenv("ENOCH_LLM_MODEL_HEALTH_CHECKS_ENABLED", "1")
     monkeypatch.setenv("ENOCH_LLM_MODEL_HEALTH_CHECK_LIMIT", "2")
     monkeypatch.setenv("ENOCH_LLM_MODEL_HEALTH_MIN_INTERVAL_SECONDS", "3600")
@@ -410,13 +410,17 @@ def test_llm_model_health_checks_select_stale_and_unhealthy_models(monkeypatch):
     ):
         fake_time.time.return_value = 1_759_339_200.0
         result = autopilot.run_llm_model_health_checks("http://control", "token")
+        second_result = autopilot.run_llm_model_health_checks("http://control", "token")
 
     assert result["ok"] is True
-    assert result["checked_count"] == 2
-    assert result["skipped_count"] == 1
-    assert result["selected_reasons"] == {
-        "moonshotai/kimi-k2.6": "unhealthy:rate_limited",
-        "openrouter/owl-alpha": "stale_health_check",
+    assert result["checked_count"] == 1
+    assert result["skipped_count"] == 2
+    assert result["selected_reasons"] == {"openrouter/owl-alpha": "stale_health_check"}
+    assert second_result["ok"] is True
+    assert second_result["checked_count"] == 1
+    assert second_result["skipped_count"] == 2
+    assert second_result["selected_reasons"] == {
+        "openrouter/owl-alpha": "stale_health_check"
     }
     assert posts == [
         {
@@ -426,10 +430,56 @@ def test_llm_model_health_checks_select_stale_and_unhealthy_models(monkeypatch):
         },
         {
             "provider_id": "openrouter",
-            "model_id": "moonshotai/kimi-k2.6",
+            "model_id": "openrouter/owl-alpha",
             "source": "autopilot",
         },
     ]
+
+
+def test_llm_model_health_check_reason_retries_unhealthy_after_cooldown() -> None:
+    latest = "2026-06-01T21:00:00Z"
+    latest_ts = autopilot._parse_health_checked_at(latest)  # noqa: SLF001
+
+    assert (
+        autopilot._llm_model_health_check_reason(  # noqa: SLF001
+            {
+                "status": "unhealthy",
+                "latest_checked_at": latest,
+                "latest_failure_kind": "timeout",
+            },
+            now=latest_ts + 3599,
+            min_interval_seconds=3600,
+        )
+        == ""
+    )
+    assert (
+        autopilot._llm_model_health_check_reason(  # noqa: SLF001
+            {
+                "status": "unhealthy",
+                "latest_checked_at": latest,
+                "latest_failure_kind": "timeout",
+            },
+            now=latest_ts + 3600,
+            min_interval_seconds=3600,
+        )
+        == "unhealthy:timeout"
+    )
+    assert (
+        autopilot._llm_model_health_check_reason(  # noqa: SLF001
+            {"status": "stale", "latest_checked_at": latest},
+            now=latest_ts,
+            min_interval_seconds=3600,
+        )
+        == "stale_health_check"
+    )
+    assert (
+        autopilot._llm_model_health_check_reason(  # noqa: SLF001
+            None,
+            now=latest_ts,
+            min_interval_seconds=3600,
+        )
+        == "stale_health_check"
+    )
 
 
 def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeypatch):
