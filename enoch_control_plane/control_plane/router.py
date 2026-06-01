@@ -281,6 +281,16 @@ _HTTP_MARK_QUEUE_ITEM_PAUSED_RESPONSES: dict[int, dict[str, str]] = {
     **_HTTP_404_QUEUE_ITEM,
 }
 
+_HTTP_LLM_SETTINGS_UPDATE_RESPONSES: dict[int, dict[str, str]] = {
+    **_HTTP_501_WRITABLE_STORE,
+    400: {"description": "Invalid LLM provider, model, workflow, or secret payload"},
+}
+
+_HTTP_LLM_SETTINGS_TEST_RESPONSES: dict[int, dict[str, str]] = {
+    400: {"description": "Invalid LLM provider/model test request"},
+    404: {"description": "Unknown LLM provider or model"},
+}
+
 
 class UnresolvableArtifactRootsError(RuntimeError):
     """Configured project and state artifact roots could not be resolved."""
@@ -7137,7 +7147,10 @@ def _register_control_plane_llm_settings_routes(
             "generated_at": utc_now(),
         }
 
-    @router.post("/api/settings/llm")
+    @router.post(
+        "/api/settings/llm",
+        responses=_HTTP_LLM_SETTINGS_UPDATE_RESPONSES,
+    )
     def dashboard_update_llm_settings(
         payload: Annotated[dict[str, Any], Body()],
         authorization: Annotated[str | None, Header()] = None,
@@ -7196,7 +7209,10 @@ def _register_control_plane_llm_settings_routes(
             response["event_error"] = event_error
         return response
 
-    @router.post("/api/settings/llm/test")
+    @router.post(
+        "/api/settings/llm/test",
+        responses=_HTTP_LLM_SETTINGS_TEST_RESPONSES,
+    )
     def dashboard_test_llm_settings(
         payload: Annotated[dict[str, Any], Body()],
         authorization: Annotated[str | None, Header()] = None,
