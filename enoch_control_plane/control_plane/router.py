@@ -7059,7 +7059,11 @@ def _llm_provider_test_request(
             method="GET",
             headers=headers,
         )
-    path = "/messages" if provider.api_format == "anthropic_messages" else "/chat/completions"
+    path = (
+        "/messages"
+        if provider.api_format == "anthropic_messages"
+        else "/chat/completions"
+    )
     return urllib.request.Request(
         f"{base_url}{path}",
         data=json.dumps(_llm_model_payload(model.model_id)).encode("utf-8"),
@@ -7110,7 +7114,9 @@ def _validate_llm_provider_test_target(
 ) -> None:
     if model is not None and model.provider_id != provider.provider_id:
         raise HTTPException(status_code=400, detail="model does not belong to provider")
-    if llm_provider_api_key(config, provider) or _llm_provider_allows_empty_key(provider):
+    if llm_provider_api_key(config, provider) or _llm_provider_allows_empty_key(
+        provider
+    ):
         return
     raise HTTPException(
         status_code=400,
@@ -7269,8 +7275,7 @@ def _register_control_plane_llm_settings_routes(
             raise HTTPException(status_code=400, detail="provider_id is required")
         settings = read_llm_settings(config)
         result = _run_llm_provider_test(
-            config,
-            settings=settings, provider_id=provider_id, model_id=model_id
+            config, settings=settings, provider_id=provider_id, model_id=model_id
         )
         provider = _llm_provider_by_id(settings, provider_id)
         model = _llm_model_by_id(settings, model_id) if model_id else None
