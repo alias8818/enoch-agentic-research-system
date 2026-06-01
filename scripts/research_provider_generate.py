@@ -168,22 +168,34 @@ Research Quality feedback from recent Enoch traces:
 """.strip()
 
 
-def _extract_chat_content(payload: dict[str, Any]) -> str:
+def _content_part_text(part: Any) -> str:
+    if isinstance(part, dict):
+        return str(part.get("text") or part.get("content") or "")
+    return str(part)
+
+
+def _message_content_text(message: Any) -> str:
+    if not isinstance(message, dict):
+        return ""
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(_content_part_text(part) for part in content)
+    return ""
+
+
+def _first_choice_message(payload: dict[str, Any]) -> Any:
     choices = payload.get("choices") or []
-    if choices:
-        choice = choices[0]
-        if isinstance(choice, dict):
-            message = choice.get("message") or {}
-            content = message.get("content") if isinstance(message, dict) else None
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                return "".join(
-                    str(part.get("text") or part.get("content") or "")
-                    if isinstance(part, dict)
-                    else str(part)
-                    for part in content
-                )
+    if not choices or not isinstance(choices[0], dict):
+        return None
+    return choices[0].get("message")
+
+
+def _extract_chat_content(payload: dict[str, Any]) -> str:
+    content = _message_content_text(_first_choice_message(payload))
+    if content:
+        return content
     if isinstance(payload.get("output_text"), str):
         return payload["output_text"]
     return json.dumps(payload)

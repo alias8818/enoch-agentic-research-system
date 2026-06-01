@@ -188,6 +188,53 @@ class LLMWorkflowSettings(BaseModel):
         return self
 
 
+def _require_unique(values: list[str], *, field_name: str) -> None:
+    if len(values) != len(set(values)):
+        raise ValueError(f"{field_name} values must be unique")
+
+
+def _validate_model_provider_refs(
+    models: list[LLMModelSettings], provider_ids: set[str]
+) -> set[str]:
+    model_ids = [model.model_id for model in models]
+    _require_unique(model_ids, field_name="model_id")
+    for model in models:
+        if model.provider_id not in provider_ids:
+            raise ValueError(
+                f"model {model.model_id!r} references unknown provider {model.provider_id!r}"
+            )
+    return set(model_ids)
+
+
+def _validate_workflow_refs(
+    workflows: list[LLMWorkflowSettings],
+    *,
+    provider_ids: set[str],
+    model_ids: set[str],
+) -> None:
+    workflow_ids = [workflow.workflow_id for workflow in workflows]
+    _require_unique(workflow_ids, field_name="workflow_id")
+    for workflow in workflows:
+        unknown_providers = sorted(set(workflow.provider_ids) - provider_ids)
+        if unknown_providers:
+            raise ValueError(
+                f"workflow {workflow.workflow_id!r} references unknown providers: "
+                f"{', '.join(unknown_providers)}"
+            )
+        unknown_models = sorted(set(workflow.model_pool) - model_ids)
+        if unknown_models:
+            raise ValueError(
+                f"workflow {workflow.workflow_id!r} references unknown models: "
+                f"{', '.join(unknown_models)}"
+            )
+        if workflow.default_model and workflow.default_model not in workflow.model_pool:
+            raise ValueError(
+                f"workflow {workflow.workflow_id!r} default_model must be in model_pool"
+            )
+        if workflow.enabled and not workflow.model_pool:
+            raise ValueError(f"workflow {workflow.workflow_id!r} requires a model_pool")
+
+
 class LLMSettings(BaseModel):
     schema_version: int = SETTINGS_SCHEMA_VERSION
     providers: list[LLMProviderSettings]
@@ -203,47 +250,12 @@ class LLMSettings(BaseModel):
                 f"unsupported llm settings schema_version: {self.schema_version}"
             )
         provider_ids = [provider.provider_id for provider in self.providers]
-        if len(provider_ids) != len(set(provider_ids)):
-            raise ValueError("provider_id values must be unique")
+        _require_unique(provider_ids, field_name="provider_id")
         provider_id_set = set(provider_ids)
-
-        model_ids = [model.model_id for model in self.models]
-        if len(model_ids) != len(set(model_ids)):
-            raise ValueError("model_id values must be unique")
-        model_id_set = set(model_ids)
-        for model in self.models:
-            if model.provider_id not in provider_id_set:
-                raise ValueError(
-                    f"model {model.model_id!r} references unknown provider {model.provider_id!r}"
-                )
-
-        workflow_ids = [workflow.workflow_id for workflow in self.workflows]
-        if len(workflow_ids) != len(set(workflow_ids)):
-            raise ValueError("workflow_id values must be unique")
-        for workflow in self.workflows:
-            unknown_providers = sorted(set(workflow.provider_ids) - provider_id_set)
-            if unknown_providers:
-                raise ValueError(
-                    f"workflow {workflow.workflow_id!r} references unknown providers: "
-                    f"{', '.join(unknown_providers)}"
-                )
-            unknown_models = sorted(set(workflow.model_pool) - model_id_set)
-            if unknown_models:
-                raise ValueError(
-                    f"workflow {workflow.workflow_id!r} references unknown models: "
-                    f"{', '.join(unknown_models)}"
-                )
-            if (
-                workflow.default_model
-                and workflow.default_model not in workflow.model_pool
-            ):
-                raise ValueError(
-                    f"workflow {workflow.workflow_id!r} default_model must be in model_pool"
-                )
-            if workflow.enabled and not workflow.model_pool:
-                raise ValueError(
-                    f"workflow {workflow.workflow_id!r} requires a model_pool"
-                )
+        model_id_set = _validate_model_provider_refs(self.models, provider_id_set)
+        _validate_workflow_refs(
+            self.workflows, provider_ids=provider_id_set, model_ids=model_id_set
+        )
         self.updated_at = _bounded_text(self.updated_at)
         self.updated_by = _bounded_text(self.updated_by, limit=120)
         return self
@@ -427,6 +439,35 @@ def llm_provider_api_key(config: GateConfig, provider: LLMProviderSettings) -> s
     return _read_secret_file(llm_provider_secret_path(config, provider.provider_id))
 
 
+def _cleanup_temp_path(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        pass
+
+
+def _write_llm_provider_secret_file(path: Path, secret: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.is_symlink():
+        raise ValueError("LLM provider secret directory must not be a symlink")
+    tmp: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=path.parent, delete=False
+        ) as handle:
+            handle.write(secret.strip())
+            handle.write("\n")
+            tmp = Path(handle.name)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+        os.chmod(path, 0o600)
+    finally:
+        _cleanup_temp_path(tmp)
+
+
 def write_llm_provider_secrets(
     config: GateConfig,
     secrets: Mapping[str, Any],
@@ -447,27 +488,7 @@ def write_llm_provider_secrets(
         if not secret.strip():
             continue
         path = llm_provider_secret_path(config, provider_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.parent.is_symlink():
-            raise ValueError("LLM provider secret directory must not be a symlink")
-        tmp: Path | None = None
-        try:
-            with tempfile.NamedTemporaryFile(
-                "w", encoding="utf-8", dir=path.parent, delete=False
-            ) as handle:
-                handle.write(secret.strip())
-                handle.write("\n")
-                tmp = Path(handle.name)
-            os.chmod(tmp, 0o600)
-            os.replace(tmp, path)
-            os.chmod(path, 0o600)
-        finally:
-            if tmp is not None:
-                try:
-                    if tmp.exists():
-                        tmp.unlink()
-                except OSError:
-                    pass
+        _write_llm_provider_secret_file(path, secret)
         written.append(provider_id)
     return written
 

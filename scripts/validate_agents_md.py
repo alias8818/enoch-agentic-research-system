@@ -61,6 +61,20 @@ def _strip_code_blocks(content: str) -> str:
     return re.sub(r"```[\s\S]*?```", "", content)
 
 
+def _is_repo_file_reference(ref: str) -> bool:
+    if ref.startswith(("http", "https")):
+        return False
+    if "*" in ref or "?" in ref:
+        return False
+    if "/" not in ref and not re.search(r"\.\w{1,4}$", ref):
+        return False
+    if ref.startswith(("ENOCH_", "--")):
+        return False
+    # AGENTS.md may document operator-local files outside this checkout; this
+    # validator only owns repo-relative references that CI can prove exist.
+    return not Path(ref).is_absolute()
+
+
 def check_file_references(agents_content: str) -> None:
     """Verify key files/directories referenced in AGENTS.md exist."""
     # Work on content outside code blocks to avoid matching code examples
@@ -69,22 +83,7 @@ def check_file_references(agents_content: str) -> None:
     # Match backtick-quoted paths that look like project-relative references
     for match in re.finditer(BACKTICK_CONTENT_PATTERN, stripped):
         ref = match.group(1).strip()
-        # Skip URLs
-        if ref.startswith("http") or ref.startswith("https"):
-            continue
-        # Skip wildcards
-        if "*" in ref or "?" in ref:
-            continue
-        # Skip short labels that aren't paths (no slash or extension)
-        if "/" not in ref and not re.search(r"\.\w{1,4}$", ref):
-            continue
-        # Skip env variable names and flag patterns
-        if ref.startswith("ENOCH_") or ref.startswith("--"):
-            continue
-        # Skip host-local absolute paths. AGENTS.md may document operator-local
-        # files outside this checkout; this validator only owns repo-relative
-        # references that CI can prove exist on every runner.
-        if Path(ref).is_absolute():
+        if not _is_repo_file_reference(ref):
             continue
         resolved = REPO_ROOT / ref
         if not resolved.exists():

@@ -948,6 +948,72 @@ def _llm_model_health_check_priority(item: dict) -> tuple[int, float, str]:
     return group, latest, str(item.get("model_id") or "")
 
 
+def _llm_model_health_check_candidates(
+    settings: dict, *, now: float, min_interval_seconds: int
+) -> tuple[list[dict], int]:
+    provider_ids = _enabled_provider_ids(settings)
+    health_by_model = _health_rows_by_model(settings)
+    candidates: list[dict] = []
+    enabled_model_count = 0
+    enabled_models = (settings.get("settings") or {}).get("models") or []
+    for model in enabled_models:
+        if not isinstance(model, dict) or not bool(model.get("enabled", True)):
+            continue
+        provider_id = str(model.get("provider_id") or "").strip()
+        model_id = str(model.get("model_id") or "").strip()
+        if not provider_id or not model_id or provider_id not in provider_ids:
+            continue
+        enabled_model_count += 1
+        health = health_by_model.get((provider_id, model_id))
+        reason = _llm_model_health_check_reason(
+            health, now=now, min_interval_seconds=min_interval_seconds
+        )
+        if reason:
+            candidates.append(
+                {
+                    "provider_id": provider_id,
+                    "model_id": model_id,
+                    "reason": reason,
+                    "latest_checked_ts": _parse_health_checked_at(
+                        (health or {}).get("latest_checked_at")
+                    ),
+                }
+            )
+    return candidates, enabled_model_count
+
+
+def _run_selected_llm_model_health_checks(
+    selected: list[dict], *, base_url: str, token: str, timeout: int
+) -> tuple[list[dict], list[dict]]:
+    checked: list[dict] = []
+    failures: list[dict] = []
+    for item in selected:
+        payload = {
+            "provider_id": item["provider_id"],
+            "model_id": item["model_id"],
+            "source": "autopilot",
+        }
+        try:
+            checked.append(
+                _post_json(
+                    base_url,
+                    "/control/api/settings/llm/test",
+                    token,
+                    payload,
+                    timeout=timeout,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - continue bounded health sampling
+            failures.append(
+                {
+                    "provider_id": item["provider_id"],
+                    "model_id": item["model_id"],
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
+    return checked, failures
+
+
 def run_llm_model_health_checks(base_url: str, token: str) -> dict:
     if not base_url or not token:
         return {
@@ -981,65 +1047,14 @@ def run_llm_model_health_checks(base_url: str, token: str) -> dict:
             "reason": f"settings lookup failed: {type(exc).__name__}: {exc}",
         }
 
-    provider_ids = _enabled_provider_ids(settings)
-    health_by_model = _health_rows_by_model(settings)
-    now = time.time()
-    candidates: list[dict] = []
-    enabled_model_count = 0
-    enabled_models = (settings.get("settings") or {}).get("models") or []
-    for model in enabled_models:
-        if not isinstance(model, dict) or not bool(model.get("enabled", True)):
-            continue
-        provider_id = str(model.get("provider_id") or "").strip()
-        model_id = str(model.get("model_id") or "").strip()
-        if not provider_id or not model_id or provider_id not in provider_ids:
-            continue
-        enabled_model_count += 1
-        health = health_by_model.get((provider_id, model_id))
-        reason = _llm_model_health_check_reason(
-            health, now=now, min_interval_seconds=min_interval
-        )
-        if not reason:
-            continue
-        candidates.append(
-            {
-                "provider_id": provider_id,
-                "model_id": model_id,
-                "reason": reason,
-                "latest_checked_ts": _parse_health_checked_at(
-                    (health or {}).get("latest_checked_at")
-                ),
-            }
-        )
-
+    candidates, enabled_model_count = _llm_model_health_check_candidates(
+        settings, now=time.time(), min_interval_seconds=min_interval
+    )
     selected = sorted(candidates, key=_llm_model_health_check_priority)[:limit]
-    checked: list[dict] = []
-    failures: list[dict] = []
     selected_reasons = {str(item["model_id"]): str(item["reason"]) for item in selected}
-    for item in selected:
-        payload = {
-            "provider_id": item["provider_id"],
-            "model_id": item["model_id"],
-            "source": "autopilot",
-        }
-        try:
-            checked.append(
-                _post_json(
-                    base_url,
-                    "/control/api/settings/llm/test",
-                    token,
-                    payload,
-                    timeout=timeout,
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 - continue bounded health sampling
-            failures.append(
-                {
-                    "provider_id": item["provider_id"],
-                    "model_id": item["model_id"],
-                    "reason": f"{type(exc).__name__}: {exc}",
-                }
-            )
+    checked, failures = _run_selected_llm_model_health_checks(
+        selected, base_url=base_url, token=token, timeout=timeout
+    )
 
     return {
         "ok": not failures,
