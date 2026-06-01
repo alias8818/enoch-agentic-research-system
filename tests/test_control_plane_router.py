@@ -16654,6 +16654,89 @@ def test_provider_generation_records_timeout_attempt_event():
     assert payload["error_type"] == "TimeoutError"
 
 
+def test_provider_generation_records_bounded_failure_diagnostics():
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+    from scripts.research_provider_generate import ProviderCandidateGenerationError
+
+    class _Store:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> None:
+            self.events.append(kwargs)
+
+        def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
+            return {}
+
+    store = _Store()
+    provider_exc = ProviderCandidateGenerationError(
+        "provider returned no usable candidate JSON after 2 attempt(s)",
+        attempts=[
+            {
+                "attempt": 1,
+                "error_type": "JSONDecodeError",
+                "reason": "Expecting value",
+                "provider_response_id": "cmpl-bad-1",
+                "content_length": 909,
+                "content_sha256": "a" * 64,
+                "content_preview": "not-json " + ("x" * 50),
+                "content_truncated": True,
+                "ignored_extra": "must not be persisted",
+            }
+        ],
+    )
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={
+            "machine_target": "gb10",
+            "lane_key": "http://gb10-worker:8787",
+            "worker_role": "gpu",
+        },
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="hf:moonshotai/Kimi-K2.6",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=2,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=lambda **_kwargs: (_ for _ in ()).throw(
+                provider_exc
+            )
+        ),
+        research_facility=SimpleNamespace(plan_candidates=lambda *_args: []),
+        store=store,
+        requested_by="pytest",
+        trace_id="trace-bad-json",
+        run_cycle_id="run-cycle-bad-json",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    diagnostics = response["provider_generation_attempt"]["failure_diagnostics"]
+    assert diagnostics == [
+        {
+            "attempt": 1,
+            "error_type": "JSONDecodeError",
+            "reason": "Expecting value",
+            "provider_response_id": "cmpl-bad-1",
+            "content_length": 909,
+            "content_sha256": "a" * 64,
+            "content_preview": "not-json " + ("x" * 50),
+            "content_truncated": True,
+        }
+    ]
+    assert store.events[0]["payload"]["failure_diagnostics"] == diagnostics
+
+
 def test_provider_generation_contains_plan_candidate_exception() -> None:
     from enoch_control_plane.control_plane.router import (
         _ProviderGenerationParams,

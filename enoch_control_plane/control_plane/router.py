@@ -3463,13 +3463,14 @@ def _provider_generation_event_payload(
     failure_kind: str = "",
     error_type: str = "",
     reason: str = "",
+    failure_diagnostics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     lane = (
         params.generation_target_lane
         if isinstance(params.generation_target_lane, dict)
         else {}
     )
-    return {
+    payload = {
         "status": status,
         "provider": "synthetic.new",
         "provider_model": params.provider_model,
@@ -3492,6 +3493,31 @@ def _provider_generation_event_payload(
         "reason": reason,
         "recorded_at": utc_now(),
     }
+    if failure_diagnostics:
+        payload["failure_diagnostics"] = failure_diagnostics
+    return payload
+
+
+def _provider_generation_failure_diagnostics(exc: Exception) -> list[dict[str, Any]]:
+    attempts = getattr(exc, "attempts", None)
+    if not isinstance(attempts, list):
+        return []
+    diagnostics: list[dict[str, Any]] = []
+    allowed = {
+        "attempt",
+        "error_type",
+        "reason",
+        "provider_response_id",
+        "content_length",
+        "content_sha256",
+        "content_preview",
+        "content_truncated",
+    }
+    for item in attempts[:3]:
+        if not isinstance(item, dict):
+            continue
+        diagnostics.append({key: item.get(key) for key in allowed if key in item})
+    return diagnostics
 
 
 def _record_provider_generation_attempt(
@@ -3554,6 +3580,7 @@ def _apply_provider_generation_failure(
         failure_kind=_provider_generation_failure_kind(exc),
         error_type=type(exc).__name__,
         reason=warning,
+        failure_diagnostics=_provider_generation_failure_diagnostics(exc),
     )
     record_error = _record_provider_generation_attempt(
         params=params, payload=attempt_payload

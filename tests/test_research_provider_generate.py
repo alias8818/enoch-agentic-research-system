@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 from scripts import research_provider_generate
 
 
@@ -346,6 +348,55 @@ def test_provider_generate_retries_malformed_json_before_succeeding() -> None:
     assert result["candidate_count"] == 1
     assert result["attempts_requested"] == 2
     assert result["attempts_used"] == 2
+
+
+def test_provider_generate_failure_contains_bounded_attempt_diagnostics() -> None:
+    class FakeResponse:
+        calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            FakeResponse.calls += 1
+            content = "not-json " + ("x" * 900)
+            payload = {
+                "id": f"cmpl-bad-{FakeResponse.calls}",
+                "choices": [{"message": {"content": content}}],
+            }
+            return json.dumps(payload).encode("utf-8")
+
+    with patch(
+        "scripts.research_provider_generate.urllib.request.urlopen",
+        return_value=FakeResponse(),
+    ):
+        with pytest.raises(
+            research_provider_generate.ProviderCandidateGenerationError
+        ) as exc_info:
+            research_provider_generate.generate_provider_candidates(
+                base_url="https://synthetic.int.exe.xyz/openai/v1",
+                model="hf:moonshotai/Kimi-K2.6",
+                api_key="",
+                max_candidates=1,
+                topic="quantization",
+                temperature=0.3,
+                seed="seed-bad",
+                attempts=2,
+            )
+
+    attempts = exc_info.value.attempts
+    assert len(attempts) == 2
+    assert attempts[0]["attempt"] == 1
+    assert attempts[0]["provider_response_id"] == "cmpl-bad-1"
+    assert attempts[0]["content_length"] == 909
+    assert len(attempts[0]["content_preview"]) == 600
+    assert attempts[0]["content_truncated"] is True
+    assert len(attempts[0]["content_sha256"]) == 64
+    assert attempts[0]["error_type"] == "JSONDecodeError"
+    assert "not-json" in attempts[0]["content_preview"]
 
 
 def test_generation_prompt_includes_research_quality_policy() -> None:

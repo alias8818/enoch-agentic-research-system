@@ -9,6 +9,7 @@ runtime queue tables and does not dispatch work.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -32,6 +33,7 @@ DEFAULT_MODEL = DEFAULT_RESEARCH_PROVIDER_MODEL
 DEFAULT_MAX_TOKENS = 8000
 PROMPT_VERSION = "research_provider_generate_v2"
 _PROXY_HOSTS_WITH_INJECTED_AUTH = {"synthetic.int.exe.xyz"}
+_DIAGNOSTIC_PREVIEW_CHARS = 600
 
 TOPIC_SPREAD = [
     "long-context SSM/Mamba memory for tiny local systems",
@@ -68,6 +70,14 @@ def _proxy_injects_auth(base_url: str) -> bool:
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+class ProviderCandidateGenerationError(ValueError):
+    """Provider generation failed with bounded per-attempt diagnostics."""
+
+    def __init__(self, message: str, *, attempts: list[dict[str, Any]]) -> None:
+        super().__init__(message)
+        self.attempts = attempts
 
 
 def build_generation_prompt(
@@ -174,6 +184,28 @@ def _extract_chat_content(payload: dict[str, Any]) -> str:
     if isinstance(payload.get("output_text"), str):
         return payload["output_text"]
     return json.dumps(payload)
+
+
+def _provider_attempt_diagnostic(
+    *,
+    attempt: int,
+    response_payload: dict[str, Any],
+    exc: Exception,
+) -> dict[str, Any]:
+    content = _extract_chat_content(response_payload) if response_payload else ""
+    preview = content[:_DIAGNOSTIC_PREVIEW_CHARS]
+    return {
+        "attempt": attempt,
+        "error_type": type(exc).__name__,
+        "reason": str(exc)[:300],
+        "provider_response_id": str(response_payload.get("id") or ""),
+        "content_length": len(content),
+        "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest()
+        if content
+        else "",
+        "content_preview": preview,
+        "content_truncated": len(content) > len(preview),
+    }
 
 
 def extract_json_object(text: str) -> dict[str, Any]:
@@ -349,6 +381,7 @@ def generate_provider_candidates(
     attempts = max(1, min(int(attempts), 3))
     provider_payload: dict[str, Any] = {}
     candidates: list[dict[str, Any]] = []
+    attempt_diagnostics: list[dict[str, Any]] = []
     attempt_used = 0
     prompt = ""
     for attempt in range(1, attempts + 1):
@@ -364,8 +397,9 @@ def generate_provider_candidates(
             default_model=default_model,
             default_sandbox=default_sandbox,
         )
+        attempt_payload: dict[str, Any] = {}
         try:
-            provider_payload = call_openai_compatible_chat(
+            attempt_payload = call_openai_compatible_chat(
                 base_url=base_url,
                 model=model,
                 prompt=prompt,
@@ -374,8 +408,9 @@ def generate_provider_candidates(
                 timeout=timeout,
                 max_tokens=max_tokens,
             )
+            provider_payload = attempt_payload
             candidates = candidates_from_provider_response(
-                provider_payload,
+                attempt_payload,
                 provider="synthetic.new",
                 provider_model=model,
                 topic=topic,
@@ -388,9 +423,20 @@ def generate_provider_candidates(
             candidates = candidates[:max_candidates]
             break
         except Exception as exc:
+            attempt_diagnostics.append(
+                _provider_attempt_diagnostic(
+                    attempt=attempt,
+                    response_payload=attempt_payload,
+                    exc=exc,
+                )
+            )
             if attempt == attempts:
-                raise ValueError(
-                    f"provider returned no usable candidate JSON after {attempts} attempt(s): {exc}"
+                raise ProviderCandidateGenerationError(
+                    (
+                        "provider returned no usable candidate JSON after "
+                        f"{attempts} attempt(s): {exc}"
+                    ),
+                    attempts=attempt_diagnostics,
                 ) from exc
 
     return {
