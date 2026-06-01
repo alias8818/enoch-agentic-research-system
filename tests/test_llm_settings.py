@@ -82,6 +82,27 @@ def test_llm_settings_reject_unknown_workflow_model() -> None:
         LLMSettings.model_validate(settings)
 
 
+def test_llm_settings_rejects_untrusted_provider_base_url() -> None:
+    settings = default_llm_settings().model_dump(mode="json")
+    settings["providers"][0]["base_url"] = "https://attacker.example/openai/v1"
+
+    with pytest.raises(ValueError, match="trusted LLM provider"):
+        LLMSettings.model_validate(settings)
+
+
+def test_llm_settings_rejects_cross_provider_api_key_env() -> None:
+    settings = default_llm_settings().model_dump(mode="json")
+    openrouter = next(
+        provider
+        for provider in settings["providers"]
+        if provider["provider_id"] == "openrouter"
+    )
+    openrouter["api_key_env"] = "SYNTHETIC_API_KEY"
+
+    with pytest.raises(ValueError, match="api_key_env for openrouter"):
+        LLMSettings.model_validate(settings)
+
+
 def test_llm_settings_api_does_not_expose_secret_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -526,7 +547,16 @@ def test_research_provider_selection_uses_persisted_settings() -> None:
 
         model, allowed_models = _resolve_research_provider_model({})
         params = _resolve_research_cycle_params({})
+        overridden = _resolve_research_cycle_params(
+            {
+                "provider_openai_base_url": "https://attacker.example/openai/v1",
+                "provider_base_url": "https://attacker.example",
+            }
+        )
 
         assert model == "openrouter/auto"
         assert allowed_models == ["openrouter/auto"]
         assert params.provider_openai_base_url == "https://openrouter.ai/api/v1"
+        assert params.provider_base_url == "https://openrouter.ai/api/v1"
+        assert overridden.provider_openai_base_url == "https://openrouter.ai/api/v1"
+        assert overridden.provider_base_url == "https://openrouter.ai/api/v1"

@@ -24,6 +24,7 @@ from enoch_control_plane.research_provider_defaults import (
     DEFAULT_RESEARCH_PROVIDER_MODEL,
     default_research_provider_openai_base_url,
 )
+from enoch_control_plane.llm_settings import validate_llm_provider_base_url
 from enoch_control_plane.url_safety import validate_http_url
 
 from scripts import research_facility_scan
@@ -170,17 +171,19 @@ Research Quality feedback from recent Enoch traces:
 def _extract_chat_content(payload: dict[str, Any]) -> str:
     choices = payload.get("choices") or []
     if choices:
-        message = choices[0].get("message") or {}
-        content = message.get("content")
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            return "".join(
-                str(part.get("text") or part.get("content") or "")
-                if isinstance(part, dict)
-                else str(part)
-                for part in content
-            )
+        choice = choices[0]
+        if isinstance(choice, dict):
+            message = choice.get("message") or {}
+            content = message.get("content") if isinstance(message, dict) else None
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                return "".join(
+                    str(part.get("text") or part.get("content") or "")
+                    if isinstance(part, dict)
+                    else str(part)
+                    for part in content
+                )
     if isinstance(payload.get("output_text"), str):
         return payload["output_text"]
     return json.dumps(payload)
@@ -259,8 +262,15 @@ def call_openai_compatible_chat(
     }
     if api_key and not _proxy_injects_auth(base_url):
         headers["Authorization"] = f"Bearer {api_key}"
+    base = (
+        validate_llm_provider_base_url(
+            base_url, field_name="authenticated provider base_url"
+        )
+        if api_key and not _proxy_injects_auth(base_url)
+        else validate_http_url(base_url, field_name="provider base_url").rstrip("/")
+    )
     safe_url = validate_http_url(
-        base_url.rstrip("/") + "/chat/completions", field_name="provider url"
+        base.rstrip("/") + "/chat/completions", field_name="provider url"
     )
     req = urllib.request.Request(
         safe_url,

@@ -7,6 +7,7 @@ import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal, Mapping
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -34,6 +35,21 @@ WorkflowId = Literal[
 
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,79}$")
 _ENV_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
+DEFAULT_TRUSTED_LLM_PROVIDER_HOSTS = frozenset(
+    {
+        "synthetic.int.exe.xyz",
+        "api.synthetic.new",
+        "openrouter.ai",
+        "api.openai.com",
+        "api.anthropic.com",
+    }
+)
+_PROVIDER_API_KEY_ENV_BY_ID = {
+    "synthetic": "SYNTHETIC_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
 
 
 def _normalize_id(value: str, *, field_name: str) -> str:
@@ -50,6 +66,45 @@ def _normalize_secret_env(value: str) -> str:
     normalized = str(value or "").strip()
     if normalized and not _ENV_RE.fullmatch(normalized):
         raise ValueError("api_key_env must be an uppercase environment variable name")
+    return normalized
+
+
+def trusted_llm_provider_hosts() -> set[str]:
+    extra_hosts = {
+        item.strip().lower().rstrip(".")
+        for item in os.environ.get("ENOCH_TRUSTED_LLM_PROVIDER_HOSTS", "").split(",")
+        if item.strip()
+    }
+    return {host.lower() for host in DEFAULT_TRUSTED_LLM_PROVIDER_HOSTS} | extra_hosts
+
+
+def validate_llm_provider_base_url(
+    url: str, *, field_name: str = "provider base_url"
+) -> str:
+    value = validate_http_url(url, field_name=field_name).rstrip("/")
+    parsed = urlparse(value)
+    if parsed.username or parsed.password:
+        raise ValueError(f"{field_name} must not include credentials")
+    if parsed.query or parsed.fragment:
+        raise ValueError(f"{field_name} must not include query or fragment")
+    host = (parsed.hostname or "").strip().lower().rstrip(".")
+    if host not in trusted_llm_provider_hosts():
+        raise ValueError(f"{field_name} must use a trusted LLM provider host")
+    return value
+
+
+def _normalize_provider_secret_env(provider_id: str, value: str) -> str:
+    normalized = _normalize_secret_env(value)
+    if not normalized:
+        return ""
+    expected = _PROVIDER_API_KEY_ENV_BY_ID.get(provider_id)
+    if not expected:
+        raise ValueError(
+            f"api_key_env is not allowed for custom provider {provider_id}; "
+            "store a provider secret instead"
+        )
+    if normalized != expected:
+        raise ValueError(f"api_key_env for {provider_id} must be {expected}")
     return normalized
 
 
@@ -70,10 +125,12 @@ class LLMProviderSettings(BaseModel):
     def _validate_provider(self) -> "LLMProviderSettings":
         self.provider_id = _normalize_id(self.provider_id, field_name="provider_id")
         self.label = _bounded_text(self.label or self.provider_id, limit=80)
-        self.base_url = validate_http_url(
+        self.base_url = validate_llm_provider_base_url(
             self.base_url, field_name="provider base_url"
-        ).rstrip("/")
-        self.api_key_env = _normalize_secret_env(self.api_key_env)
+        )
+        self.api_key_env = _normalize_provider_secret_env(
+            self.provider_id, self.api_key_env
+        )
         self.notes = _bounded_text(self.notes)
         return self
 

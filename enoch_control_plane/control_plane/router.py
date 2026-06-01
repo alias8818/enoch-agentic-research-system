@@ -570,20 +570,12 @@ def _resolve_research_provider_selection(
             "queue_admitted": False,
             "dispatch_started": False,
         }
-    openai_base_url = str(
-        body.get("provider_openai_base_url")
-        or os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL")
-        or provider.base_url
-    ).rstrip("/")
-    provider_base_url = str(
-        body.get("provider_base_url")
-        or os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL")
-        or (
-            _synthetic_budget_base_url(openai_base_url)
-            if provider.provider_id == "synthetic"
-            else openai_base_url
-        )
-    ).rstrip("/")
+    openai_base_url = str(provider.base_url).rstrip("/")
+    provider_base_url = (
+        _synthetic_budget_base_url(openai_base_url)
+        if provider.provider_id == "synthetic"
+        else openai_base_url
+    )
     return _ResearchProviderSelection(
         provider_model=model.model_id,
         allowed_models=workflow.model_pool,

@@ -277,6 +277,28 @@ def test_provider_generate_keeps_authorization_for_non_proxy_provider() -> None:
     assert request.headers["Authorization"] == "Bearer secret-expected-to-send"
 
 
+def test_provider_generate_rejects_authenticated_untrusted_provider_url(
+    monkeypatch,
+) -> None:
+    def fake_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen should not run for untrusted authenticated URL")
+
+    monkeypatch.setattr(
+        research_provider_generate.urllib.request, "urlopen", fake_urlopen
+    )
+
+    with pytest.raises(ValueError, match="trusted LLM provider"):
+        research_provider_generate.generate_provider_candidates(
+            base_url="https://attacker.example/openai/v1",
+            model="hf:zai-org/GLM-5.1",
+            api_key="secret-should-not-send",
+            max_candidates=1,
+            topic="quantization",
+            temperature=0.7,
+            seed="seed-authenticated-untrusted",
+        )
+
+
 def test_provider_generate_retries_provider_call_error_before_succeeding(
     monkeypatch,
 ) -> None:
@@ -347,6 +369,43 @@ def test_provider_generate_retries_malformed_json_before_succeeding() -> None:
 
     assert result["candidate_count"] == 1
     assert result["attempts_requested"] == 2
+    assert result["attempts_used"] == 2
+
+
+def test_provider_generate_retries_null_choice_diagnostics_before_succeeding() -> None:
+    class FakeResponse:
+        calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            FakeResponse.calls += 1
+            if FakeResponse.calls == 1:
+                payload = {"id": "cmpl-null-choice", "choices": [None]}
+            else:
+                payload = _provider_payload()
+            return json.dumps(payload).encode("utf-8")
+
+    with patch(
+        "scripts.research_provider_generate.urllib.request.urlopen",
+        return_value=FakeResponse(),
+    ):
+        result = research_provider_generate.generate_provider_candidates(
+            base_url="https://synthetic.int.exe.xyz/openai/v1",
+            model="hf:moonshotai/Kimi-K2.6",
+            api_key="",
+            max_candidates=1,
+            topic="quantization",
+            temperature=0.3,
+            seed="seed-null-choice-retry",
+            attempts=2,
+        )
+
+    assert result["candidate_count"] == 1
     assert result["attempts_used"] == 2
 
 
@@ -456,7 +515,7 @@ def test_provider_generate_rejects_non_http_base_url_before_urlopen(
             seed="seed",
         )
     except ValueError as exc:
-        assert "provider url must use http or https" in str(exc)
+        assert "provider base_url must use http or https" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected unsafe provider URL rejection")
 
