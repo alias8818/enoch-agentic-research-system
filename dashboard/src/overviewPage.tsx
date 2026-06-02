@@ -172,6 +172,10 @@ function OverviewPageBody({
         </div>
       </div>
       <OverviewSecondaryFold
+        topActions={data.top_actions}
+        primaryAction={primaryAction}
+        researchSignalQuality={data.research_signal_quality}
+        researchYield={data.research_yield}
         recentEvents={recentEvents}
         operatorCounts={operatorCounts}
         operatorDetailCounts={operatorDetailCounts}
@@ -180,12 +184,6 @@ function OverviewPageBody({
         readinessLoading={readinessLoading}
         readinessError={readinessError}
         onSecondaryOpenChange={onSecondaryOpenChange}
-      />
-      <OverviewSecondaryAnalytics
-        topActions={data.top_actions}
-        primaryAction={primaryAction}
-        researchSignalQuality={data.research_signal_quality}
-        researchYield={data.research_yield}
       />
     </div>
   )
@@ -1149,6 +1147,10 @@ function RecentActivityStream({ events }: Readonly<{ events: OverviewResponse['r
 }
 
 function OverviewSecondaryFold({
+  topActions,
+  primaryAction,
+  researchSignalQuality,
+  researchYield,
   recentEvents,
   operatorCounts,
   operatorDetailCounts,
@@ -1158,6 +1160,10 @@ function OverviewSecondaryFold({
   readinessError,
   onSecondaryOpenChange,
 }: Readonly<{
+  topActions: OverviewResponse['top_actions']
+  primaryAction: TopAction | undefined
+  researchSignalQuality: OverviewResponse['research_signal_quality']
+  researchYield: OverviewResponse['research_yield']
   recentEvents: OverviewResponse['recent_events']
   operatorCounts: Record<string, unknown>
   operatorDetailCounts: Record<string, unknown>
@@ -1175,6 +1181,12 @@ function OverviewSecondaryFold({
         <a href={dashboardV2Href('#papers')}>Papers</a>
         <a href={dashboardV2Href('#events')}>Recent activity</a>
       </div>
+      <OverviewSecondaryAnalytics
+        topActions={topActions}
+        primaryAction={primaryAction}
+        researchSignalQuality={researchSignalQuality}
+        researchYield={researchYield}
+      />
       <section className="activity-snapshot" aria-label="Recent activity stream">
         <h3>Recent activity stream</h3>
         <RecentActivityStream events={recentEvents} />
