@@ -4889,7 +4889,9 @@ def _llm_workflow_recommendation(
         status = "blocked"
         operator_action = f"{label} has no configured model pool"
     elif usable_models:
-        status = "healthy" if len(usable_models) == len(model_pool) else "needs_attention"
+        status = (
+            "healthy" if len(usable_models) == len(model_pool) else "needs_attention"
+        )
         operator_action = (
             f"prefer {usable_models[0]} for {label}; remove or tune degraded pool entries"
             if status == "needs_attention"
@@ -4902,7 +4904,9 @@ def _llm_workflow_recommendation(
             "tune max_tokens, remove degraded models, or run missing probes"
         )
     recommended_default = (
-        default_model if default_model in usable_models else (usable_models[0] if usable_models else "")
+        default_model
+        if default_model in usable_models
+        else (usable_models[0] if usable_models else "")
     )
     return {
         "workflow_id": workflow_id,
