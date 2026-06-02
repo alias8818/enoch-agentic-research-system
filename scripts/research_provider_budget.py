@@ -39,7 +39,9 @@ def fetch_json(url: str, *, api_key: str = "", timeout: int) -> dict[str, Any]:
     safe_url = validate_http_url(url, field_name="provider url")
     hostname = (urlparse(safe_url).hostname or "").rstrip(".").lower()
     if hostname not in _SYNTHETIC_QUOTA_HOSTS:
-        raise ValueError(f"Synthetic quota host is not allowed: {hostname or 'unknown'}")
+        raise ValueError(
+            f"Synthetic quota host is not allowed: {hostname or 'unknown'}"
+        )
     headers = {"User-Agent": "EnochResearchFacility/0.1"}
     if api_key and hostname == _SYNTHETIC_DIRECT_QUOTA_HOST:
         headers["Authorization"] = f"Bearer {api_key}"

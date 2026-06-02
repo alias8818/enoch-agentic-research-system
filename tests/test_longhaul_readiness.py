@@ -391,9 +391,9 @@ def test_llm_workflow_unusable_default_blocks_longhaul_readiness() -> None:
         item for item in result["checks"] if item["name"] == "llm_model_health_ok"
     )
     assert check["ok"] is False
-    assert "default_mismatches=research_generation:hf:bad-json->hf:ok" in check[
-        "detail"
-    ]
+    assert (
+        "default_mismatches=research_generation:hf:bad-json->hf:ok" in check["detail"]
+    )
 
 
 def test_blocked_llm_workflow_blocks_longhaul_readiness() -> None:
