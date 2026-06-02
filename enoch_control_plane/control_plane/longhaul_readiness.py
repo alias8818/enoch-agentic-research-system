@@ -504,6 +504,20 @@ def _blocked_llm_workflow_summaries(health: dict[str, Any]) -> list[str]:
     return blocked
 
 
+def _llm_workflow_default_mismatch_summaries(health: dict[str, Any]) -> list[str]:
+    mismatches: list[str] = []
+    for workflow in health.get("workflow_recommendations") or []:
+        if not isinstance(workflow, dict) or not bool(workflow.get("enabled", True)):
+            continue
+        current = str(workflow.get("current_default_model") or "").strip()
+        recommended = str(workflow.get("recommended_default_model") or "").strip()
+        if not current or not recommended or current == recommended:
+            continue
+        workflow_id = str(workflow.get("workflow_id") or "unknown_workflow")
+        mismatches.append(f"{workflow_id}:{current}->{recommended}")
+    return mismatches
+
+
 def _add_llm_model_health_check(
     acc: _ReadinessAccumulator, llm_model_health: dict[str, Any] | None
 ) -> tuple[dict[str, Any], str, int]:
@@ -517,11 +531,13 @@ def _add_llm_model_health_check(
     unhealthy_count = int(health.get("unhealthy_count") or 0)
     structurally_unhealthy_count = int(health.get("structurally_unhealthy_count") or 0)
     blocked_workflows = _blocked_llm_workflow_summaries(health)
+    default_mismatches = _llm_workflow_default_mismatch_summaries(health)
     has_workflow_gate = bool(health.get("workflow_recommendations"))
     health_ok = (
         health_status not in {"blocked", "unavailable"}
         and unhealthy_count == 0
         and not blocked_workflows
+        and not default_mismatches
         and (structurally_unhealthy_count == 0 or has_workflow_gate)
     )
     detail = (
@@ -530,6 +546,8 @@ def _add_llm_model_health_check(
     )
     if blocked_workflows:
         detail = f"{detail}; blocked_workflows={', '.join(blocked_workflows[:3])}"
+    if default_mismatches:
+        detail = f"{detail}; default_mismatches={', '.join(default_mismatches[:3])}"
     issue_summary = _llm_model_health_issue_summary(health)
     if issue_summary:
         detail = f"{detail}; {issue_summary}"

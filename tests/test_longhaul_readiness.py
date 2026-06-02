@@ -310,6 +310,7 @@ def test_structural_llm_attention_does_not_block_when_workflows_have_usable_mode
                 "enabled": True,
                 "status": "needs_attention",
                 "required_contracts": ["candidate_json"],
+                "current_default_model": "hf:zai-org/GLM-5.1",
                 "recommended_model_pool": ["hf:zai-org/GLM-5.1"],
                 "recommended_default_model": "hf:zai-org/GLM-5.1",
             },
@@ -318,6 +319,7 @@ def test_structural_llm_attention_does_not_block_when_workflows_have_usable_mode
                 "enabled": True,
                 "status": "healthy",
                 "required_contracts": ["markdown_fenced_json"],
+                "current_default_model": "openrouter/owl-alpha",
                 "recommended_model_pool": ["openrouter/owl-alpha"],
                 "recommended_default_model": "openrouter/owl-alpha",
             },
@@ -337,6 +339,61 @@ def test_structural_llm_attention_does_not_block_when_workflows_have_usable_mode
     assert result["summary"]["llm_model_health_status"] == "needs_attention"
     assert result["summary"]["llm_model_unhealthy_count"] == 0
     assert result["summary"]["llm_model_structurally_unhealthy_count"] == 1
+
+
+def test_llm_workflow_unusable_default_blocks_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["llm_model_health"] = {
+        "ok": False,
+        "status": "needs_attention",
+        "unhealthy_count": 0,
+        "structurally_unhealthy_count": 1,
+        "models": [
+            {
+                "provider_id": "synthetic",
+                "model_id": "hf:bad-json",
+                "endpoint_health": "healthy",
+                "status": "healthy",
+                "format_health": "degraded",
+                "visible_output_health": "healthy",
+                "reasoning_budget_health": "ok",
+                "latest_failure_kind": "",
+            },
+            {
+                "provider_id": "synthetic",
+                "model_id": "hf:ok",
+                "endpoint_health": "healthy",
+                "status": "healthy",
+                "format_health": "healthy",
+                "visible_output_health": "healthy",
+                "reasoning_budget_health": "ok",
+                "latest_failure_kind": "",
+            },
+        ],
+        "workflow_recommendations": [
+            {
+                "workflow_id": "research_generation",
+                "enabled": True,
+                "status": "needs_attention",
+                "required_contracts": ["candidate_json"],
+                "current_default_model": "hf:bad-json",
+                "recommended_model_pool": ["hf:ok"],
+                "recommended_default_model": "hf:ok",
+            }
+        ],
+    }
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "configured LLM model health needs attention" in result["blockers"]
+    check = next(
+        item for item in result["checks"] if item["name"] == "llm_model_health_ok"
+    )
+    assert check["ok"] is False
+    assert "default_mismatches=research_generation:hf:bad-json->hf:ok" in check[
+        "detail"
+    ]
 
 
 def test_blocked_llm_workflow_blocks_longhaul_readiness() -> None:

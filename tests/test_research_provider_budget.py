@@ -200,3 +200,59 @@ def test_fetch_json_rejects_non_http_url_before_urlopen(monkeypatch) -> None:
         assert "provider url must use http or https" in str(exc)
     else:  # pragma: no cover
         raise AssertionError("expected unsafe provider URL rejection")
+
+
+def test_fetch_json_sends_bearer_only_to_direct_synthetic_host(monkeypatch) -> None:
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def read(self) -> bytes:
+            return b"{}"
+
+    def fake_urlopen(request, *, timeout):
+        requests.append(request)
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        research_provider_budget.urllib.request, "urlopen", fake_urlopen
+    )
+
+    research_provider_budget.fetch_json(
+        "https://api.synthetic.new/v2/quotas",
+        api_key="synthetic-secret",
+        timeout=1,
+    )
+    research_provider_budget.fetch_json(
+        "https://synthetic.int.exe.xyz/v2/quotas",
+        api_key="synthetic-secret",
+        timeout=1,
+    )
+
+    assert requests[0].get_header("Authorization") == "Bearer synthetic-secret"
+    assert requests[1].get_header("Authorization") is None
+
+
+def test_fetch_json_rejects_untrusted_synthetic_quota_host(monkeypatch) -> None:
+    def fake_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen should not run for untrusted quota host")
+
+    monkeypatch.setattr(
+        research_provider_budget.urllib.request, "urlopen", fake_urlopen
+    )
+
+    try:
+        research_provider_budget.fetch_json(
+            "https://attacker.example/v2/quotas",
+            api_key="synthetic-secret",
+            timeout=1,
+        )
+    except ValueError as exc:
+        assert "Synthetic quota host is not allowed" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("expected untrusted quota host rejection")

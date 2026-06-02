@@ -16,10 +16,14 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from enoch_control_plane.url_safety import validate_http_url
 
 SYNTHETIC_BASE_URL = "https://api.synthetic.new"
+_SYNTHETIC_DIRECT_QUOTA_HOST = "api.synthetic.new"
+_SYNTHETIC_PROXY_QUOTA_HOSTS = {"synthetic.int.exe.xyz"}
+_SYNTHETIC_QUOTA_HOSTS = {_SYNTHETIC_DIRECT_QUOTA_HOST, *_SYNTHETIC_PROXY_QUOTA_HOSTS}
 
 
 def utc_now() -> str:
@@ -32,10 +36,13 @@ def utc_now() -> str:
 
 
 def fetch_json(url: str, *, api_key: str = "", timeout: int) -> dict[str, Any]:
-    headers = {"User-Agent": "EnochResearchFacility/0.1"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
     safe_url = validate_http_url(url, field_name="provider url")
+    hostname = (urlparse(safe_url).hostname or "").rstrip(".").lower()
+    if hostname not in _SYNTHETIC_QUOTA_HOSTS:
+        raise ValueError(f"Synthetic quota host is not allowed: {hostname or 'unknown'}")
+    headers = {"User-Agent": "EnochResearchFacility/0.1"}
+    if api_key and hostname == _SYNTHETIC_DIRECT_QUOTA_HOST:
+        headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(safe_url, headers=headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))

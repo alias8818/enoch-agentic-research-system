@@ -78,7 +78,12 @@ def _live_config(tmp: str) -> GateConfig:
     )
 
 
-def _write_synthetic_llm_settings(config: GateConfig, api_key: str) -> None:
+def _write_synthetic_llm_settings(
+    config: GateConfig,
+    api_key: str,
+    *,
+    base_url: str = "https://api.synthetic.new/openai/v1",
+) -> None:
     state_dir = Path(config.state_dir)
     secret_dir = state_dir / "llm-provider-secrets"
     secret_dir.mkdir(parents=True, exist_ok=True)
@@ -92,7 +97,7 @@ def _write_synthetic_llm_settings(config: GateConfig, api_key: str) -> None:
                         "provider_id": "synthetic",
                         "label": "Synthetic",
                         "api_format": "openai_compatible",
-                        "base_url": "https://api.synthetic.new/openai/v1",
+                        "base_url": base_url,
                         "api_key_env": "",
                         "enabled": True,
                     },
@@ -1889,6 +1894,53 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(args[0], "https://api.synthetic.new/v2/quotas")
             self.assertEqual(kwargs["api_key"], "synthetic-budget-key")
 
+    def test_research_facility_provider_budget_suppresses_proxy_secret(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            _write_synthetic_llm_settings(
+                config,
+                "synthetic-budget-key",
+                base_url="https://synthetic.int.exe.xyz/openai/v1",
+            )
+            client = _client_with_config(config)
+            quota = {
+                "subscription": {"limit": 2500, "requests": 1},
+                "weeklyTokenLimit": {"remainingCredits": "$100.00"},
+                "rollingFiveHourLimit": {
+                    "remaining": 2500,
+                    "max": 2500,
+                    "limited": False,
+                },
+            }
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "ENOCH_RESEARCH_PROVIDER_BASE_URL": "",
+                        "ENOCH_RESEARCH_PROVIDER_API_KEY": "",
+                    },
+                    clear=False,
+                ),
+                patch(
+                    "scripts.research_provider_budget.fetch_json", return_value=quota
+                ) as fetch,
+            ):
+                response = client.get(
+                    "/control/api/research/provider-budget",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["auth_mode"], "exe_http_proxy")
+            self.assertEqual(body["budget_endpoint_host"], "synthetic.int.exe.xyz")
+            self.assertNotIn("synthetic-budget-key", response.text)
+            args, kwargs = fetch.call_args
+            self.assertEqual(args[0], "https://synthetic.int.exe.xyz/v2/quotas")
+            self.assertEqual(kwargs["api_key"], "")
+
     def test_automation_readiness_provider_budget_uses_synthetic_settings(
         self,
     ) -> None:
@@ -1940,7 +1992,63 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(args[0], "https://api.synthetic.new/v2/quotas")
             self.assertEqual(kwargs["api_key"], "synthetic-readiness-key")
 
-    def test_synthetic_budget_check_skips_non_synthetic_provider(self) -> None:
+    def test_automation_readiness_provider_budget_suppresses_proxy_secret(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            _write_synthetic_llm_settings(
+                config,
+                "synthetic-readiness-key",
+                base_url="https://synthetic.int.exe.xyz/openai/v1",
+            )
+            client = _client_with_config(config)
+            quota = {
+                "subscription": {"limit": 2500, "requests": 1},
+                "weeklyTokenLimit": {"remainingCredits": "$100.00"},
+                "rollingFiveHourLimit": {
+                    "remaining": 2500,
+                    "max": 2500,
+                    "limited": False,
+                },
+            }
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "ENOCH_RESEARCH_PROVIDER_BASE_URL": "",
+                        "ENOCH_RESEARCH_PROVIDER_API_KEY": "",
+                    },
+                    clear=False,
+                ),
+                patch(
+                    "scripts.research_provider_budget.fetch_json", return_value=quota
+                ) as fetch,
+            ):
+                response = client.get(
+                    "/control/api/v1/automation-readiness",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            provider_check = next(
+                item for item in body["checks"] if item["name"] == "provider_budget_ok"
+            )
+            self.assertTrue(provider_check["ok"])
+            self.assertEqual(
+                provider_check["data"]["budget_endpoint_host"],
+                "synthetic.int.exe.xyz",
+            )
+            self.assertNotIn("synthetic-readiness-key", response.text)
+            args, kwargs = fetch.call_args
+            self.assertEqual(args[0], "https://synthetic.int.exe.xyz/v2/quotas")
+            self.assertEqual(kwargs["api_key"], "")
+
+    def test_synthetic_budget_check_fails_closed_for_non_synthetic_provider(
+        self,
+    ) -> None:
         calls: list[str] = []
 
         class ProviderBudget:
@@ -1964,9 +2072,10 @@ class ControlPlaneRouterTests(unittest.TestCase):
         )
 
         self.assertEqual(calls, [])
-        self.assertTrue(budget["ok"])
-        self.assertTrue(budget["budget_check_skipped"])
+        self.assertFalse(budget["ok"])
+        self.assertFalse(budget["budget_check_skipped"])
         self.assertEqual(budget["provider_id"], "openrouter")
+        self.assertIn("provider budget check unavailable", budget["failures"][0])
         self.assertEqual(budget["budget_endpoint_host"], "openrouter.ai")
         self.assertEqual(budget["budget_endpoint_path"], "/api/v1/v2/quotas")
 
