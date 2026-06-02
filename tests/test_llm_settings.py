@@ -918,6 +918,122 @@ def test_llm_model_health_summary_distinguishes_endpoint_and_format_health() -> 
     assert rows["hf:ok"]["workflow_health"] == "unmeasured"
 
 
+def test_llm_model_health_summary_recommends_workflow_pool_tuning() -> None:
+    from enoch_control_plane.control_plane.read_models import llm_model_health_summary
+
+    settings = default_llm_settings()
+    synthetic = next(
+        provider
+        for provider in settings.providers
+        if provider.provider_id == "synthetic"
+    )
+    synthetic.enabled = True
+    settings.models = [
+        LLMModelSettings(
+            model_id="hf:empty",
+            provider_id="synthetic",
+            label="Empty Output",
+            enabled=True,
+        ),
+        LLMModelSettings(
+            model_id="hf:bad-json",
+            provider_id="synthetic",
+            label="Bad JSON",
+            enabled=True,
+        ),
+        LLMModelSettings(
+            model_id="hf:ok",
+            provider_id="synthetic",
+            label="OK",
+            enabled=True,
+        ),
+    ]
+    generation = next(
+        workflow
+        for workflow in settings.workflows
+        if workflow.workflow_id == "research_generation"
+    )
+    generation.model_pool = ["hf:empty", "hf:bad-json", "hf:ok"]
+    generation.default_model = "hf:empty"
+
+    class FakeStore:
+        def event_page(self, **_kwargs):
+            return (
+                [
+                    {
+                        "event_id": 3,
+                        "created_at": "2026-06-02T10:02:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:ok",
+                            "ok": True,
+                            "checked_at": "2026-06-02T10:02:00Z",
+                            "source": "format_probe",
+                            "prompt_contract": "candidate_json",
+                            "valid_json": True,
+                            "schema_ok": True,
+                            "finish_reason": "stop",
+                            "visible_chars": 120,
+                        },
+                    },
+                    {
+                        "event_id": 2,
+                        "created_at": "2026-06-02T10:01:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:bad-json",
+                            "ok": True,
+                            "checked_at": "2026-06-02T10:01:00Z",
+                            "source": "format_probe",
+                            "prompt_contract": "candidate_json",
+                            "valid_json": False,
+                            "schema_ok": False,
+                            "malformed_kind": "invalid_json",
+                            "finish_reason": "stop",
+                            "visible_chars": 80,
+                        },
+                    },
+                    {
+                        "event_id": 1,
+                        "created_at": "2026-06-02T10:00:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:empty",
+                            "ok": True,
+                            "checked_at": "2026-06-02T10:00:00Z",
+                            "source": "format_probe",
+                            "prompt_contract": "candidate_json",
+                            "valid_json": False,
+                            "schema_ok": False,
+                            "malformed_kind": "empty_visible_output",
+                            "finish_reason": "length",
+                            "visible_chars": 0,
+                        },
+                    },
+                ],
+                None,
+                False,
+            )
+
+    summary = llm_model_health_summary(FakeStore(), settings)
+
+    generation_rec = next(
+        item
+        for item in summary["workflow_recommendations"]
+        if item["workflow_id"] == "research_generation"
+    )
+    by_model = {item["model_id"]: item for item in generation_rec["models"]}
+    assert generation_rec["required_contracts"] == ["candidate_json"]
+    assert generation_rec["status"] == "needs_attention"
+    assert generation_rec["recommended_model_pool"] == ["hf:ok"]
+    assert generation_rec["recommended_default_model"] == "hf:ok"
+    assert by_model["hf:empty"]["recommendation"] == "increase_max_tokens_or_remove"
+    assert by_model["hf:bad-json"]["recommendation"] == "remove_for_contract"
+    assert by_model["hf:ok"]["recommendation"] == "usable"
+    assert "increase max_tokens" in by_model["hf:empty"]["operator_action"]
+    assert "structurally unreliable" in by_model["hf:bad-json"]["operator_action"]
+
+
 def test_research_provider_selection_uses_persisted_settings() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         config = _config(tmp)

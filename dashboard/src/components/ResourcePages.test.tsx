@@ -565,7 +565,27 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:00Z', route_observability_enabled: true, route_observability_log_configured: false, sentry_enabled: true, sentry_configured: true, sentry_environment: 'production', sentry_release: 'abc1234', latest_route_observation: '{"route":"/control/api/status","status":200}' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:01Z', rss_mib: 128.25, peak_rss_mib: 256.5, warn_threshold_mib: 1024, memory_warn: false, route_observability_enabled: true }), { status: 200 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:02Z', status: 'needs_attention', model_count: 2, unhealthy_count: 0, structurally_unhealthy_count: 1, models: [{ provider_id: 'synthetic', provider_label: 'Synthetic', model_id: 'owl', label: 'Owl', endpoint_health: 'healthy', format_health: 'healthy', visible_output_health: 'empty', reasoning_budget_health: 'length_limited', latest_finish_reason: 'length', latest_visible_chars: 0, success_rate: 1, format_success_rate: 1, operator_action: 'increase output budget before structured automation', latest_preview: '' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      generated_at: '2026-05-20T12:00:02Z',
+      status: 'needs_attention',
+      model_count: 2,
+      unhealthy_count: 0,
+      structurally_unhealthy_count: 1,
+      models: [{ provider_id: 'synthetic', provider_label: 'Synthetic', model_id: 'owl', label: 'Owl', endpoint_health: 'healthy', format_health: 'healthy', visible_output_health: 'empty', reasoning_budget_health: 'length_limited', latest_finish_reason: 'length', latest_visible_chars: 0, success_rate: 1, format_success_rate: 1, operator_action: 'increase output budget before structured automation', latest_preview: '' }],
+      workflow_recommendations: [{
+        workflow_id: 'research_generation',
+        label: 'Research agents',
+        status: 'needs_attention',
+        required_contracts: ['candidate_json'],
+        recommended_model_pool: ['owl'],
+        recommended_default_model: 'owl',
+        operator_action: 'prefer owl for Research agents; remove or tune degraded pool entries',
+        models: [
+          { model_id: 'glm', label: 'GLM', recommendation: 'increase_max_tokens_or_remove', operator_action: 'increase max_tokens or remove GLM for candidate_json until visible structured output passes' },
+          { model_id: 'owl', label: 'Owl', recommendation: 'usable', operator_action: 'Owl passed required contract evidence for this workflow' },
+        ],
+      }],
+    }), { status: 200 }))
 
   renderWithClient(<ObservabilityPage />)
 
@@ -573,6 +593,11 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   expect(screen.getByText('increase output budget before structured automation')).toBeInTheDocument()
   expect(screen.getByText('length limited')).toBeInTheDocument()
   expect(screen.getByText('empty')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Workflow model pools need tuning' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Research agents' })).toBeInTheDocument()
+  expect(screen.getByText('Recommendations use measured prompt-contract probes, not endpoint health alone.')).toBeInTheDocument()
+  expect(screen.getByText('prefer owl for Research agents; remove or tune degraded pool entries')).toBeInTheDocument()
+  expect(screen.getByText('increase max_tokens or remove GLM for candidate_json until visible structured output passes')).toBeInTheDocument()
   expect(await screen.findByRole('heading', { name: 'Memory is inside configured threshold' })).toBeInTheDocument()
   expect(screen.getByText('128.3 MiB')).toBeInTheDocument()
   expect(screen.getByText('Route logging enabled')).toBeInTheDocument()

@@ -79,6 +79,23 @@ type ObservabilityLlmModel = {
   operator_action?: string
   latest_preview?: string
 }
+type ObservabilityWorkflowModelRecommendation = {
+  model_id?: string
+  label?: string
+  recommendation?: string
+  operator_action?: string
+}
+type ObservabilityWorkflowRecommendation = {
+  workflow_id?: string
+  label?: string
+  status?: string
+  required_contracts?: string[]
+  current_model_pool?: string[]
+  recommended_model_pool?: string[]
+  recommended_default_model?: string
+  operator_action?: string
+  models?: ObservabilityWorkflowModelRecommendation[]
+}
 
 function numericCount(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -88,7 +105,7 @@ function numericCount(value: unknown): number {
   }
   return 0
 }
-type ObservabilityLlmModels = { generated_at?: string; status?: string; model_count?: number; unhealthy_count?: number; structurally_unhealthy_count?: number; models?: ObservabilityLlmModel[] }
+type ObservabilityLlmModels = { generated_at?: string; status?: string; model_count?: number; unhealthy_count?: number; structurally_unhealthy_count?: number; models?: ObservabilityLlmModel[]; workflow_recommendations?: ObservabilityWorkflowRecommendation[] }
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 type CommandResult = { payload: Record<string, unknown>; context?: CommandPresentationContext }
@@ -143,6 +160,13 @@ function modelObservabilityHeadline(data: ObservabilityLlmModels): string {
   if ((data.unhealthy_count || 0) > 0) return 'Model endpoint health needs attention'
   if ((data.model_count || 0) > 0) return 'Models are measured'
   return 'No enabled models configured'
+}
+
+function workflowRecommendationHeadline(items: ObservabilityWorkflowRecommendation[]): string {
+  if (items.some((item) => item.status === 'blocked')) return 'Workflow model pools blocked'
+  if (items.some((item) => item.status === 'needs_attention')) return 'Workflow model pools need tuning'
+  if (items.length > 0) return 'Workflow model pools measured'
+  return 'No workflow model recommendations'
 }
 
 function healthLabel(value: string | undefined): string {
@@ -716,6 +740,7 @@ export function ObservabilityPage() {
     || model.reasoning_budget_health === 'length_limited'
   ))
   const visibleModels = (attentionModels.length > 0 ? attentionModels : (llmData.models || [])).slice(0, 6)
+  const workflowRecommendations = (llmData.workflow_recommendations || []).slice(0, 4)
   return (
     <PageShell title="Observability" subtitle="Check controller health, memory pressure, model usefulness, and route observability status." dataSource="/control/api/v1/observability bounded read models" action={<PageRefreshAction generatedAt={generatedAt} isFetching={health.isFetching || memory.isFetching || llmModels.isFetching} onRefresh={() => { refetchAllInBackground(() => health.refetch(), () => memory.refetch(), () => llmModels.refetch()) }} refreshLabel="Refresh observability" />}>
       <section className="detail-summary">
@@ -749,6 +774,45 @@ export function ObservabilityPage() {
               </article>
             )
           }) : <article className="detail-operator-question"><h4>No enabled model rows</h4><p>Configure at least one model before relying on automated model health.</p></article>}
+        </section>
+        <section className="detail-operator-questions" aria-label="Workflow model pool recommendations">
+          <article className="detail-operator-question">
+            <h4>{workflowRecommendationHeadline(workflowRecommendations)}</h4>
+            <p>Recommendations use measured prompt-contract probes, not endpoint health alone.</p>
+          </article>
+          {workflowRecommendations.map((workflow) => {
+            const label = workflow.label || workflow.workflow_id || 'unknown workflow'
+            const recommended = workflow.recommended_model_pool?.length
+              ? workflow.recommended_model_pool.join(', ')
+              : 'none measured'
+            const contracts = workflow.required_contracts?.length
+              ? workflow.required_contracts.join(', ')
+              : 'strict_json'
+            const visibleActions = (workflow.models || [])
+              .filter((item) => item.recommendation && item.recommendation !== 'usable')
+              .slice(0, 3)
+            return (
+              <article key={workflow.workflow_id || label} className="detail-operator-question">
+                <h4>{label}</h4>
+                <p>{workflow.operator_action || 'No workflow recommendation recorded.'}</p>
+                <dl className="detail-field-grid">
+                  <div className="detail-field"><dt>status</dt><dd>{healthLabel(workflow.status)}</dd></div>
+                  <div className="detail-field"><dt>requires</dt><dd>{contracts}</dd></div>
+                  <div className="detail-field"><dt>recommended pool</dt><dd>{recommended}</dd></div>
+                  <div className="detail-field"><dt>recommended default</dt><dd>{workflow.recommended_default_model || 'none measured'}</dd></div>
+                </dl>
+                {visibleActions.length > 0 ? (
+                  <ul className="detail-list">
+                    {visibleActions.map((item) => (
+                      <li key={`${workflow.workflow_id || label}:${item.model_id || item.label}`}>
+                        <strong>{item.label || item.model_id || 'unknown model'}:</strong> {item.operator_action || healthLabel(item.recommendation)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </article>
+            )
+          })}
         </section>
       </section>
       <section className="detail-summary">
