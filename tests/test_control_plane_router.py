@@ -1696,7 +1696,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 patch.dict(
                     os.environ,
                     {
-                        "ENOCH_RESEARCH_PROVIDER_BASE_URL": "https://api.synthetic.new",
+                        "ENOCH_RESEARCH_PROVIDER_BASE_URL": "https://api.synthetic.new/openai/v1",
                         "ENOCH_RESEARCH_PROVIDER_API_KEY": "synthetic-budget-key",
                     },
                 ),
@@ -1720,7 +1720,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertNotIn("synthetic-budget-key", response.text)
             self.assertNotIn("Authorization", response.text)
             fetch.assert_called_once()
-            _, kwargs = fetch.call_args
+            args, kwargs = fetch.call_args
+            self.assertEqual(args[0], "https://api.synthetic.new/v2/quotas")
             self.assertEqual(kwargs["api_key"], "synthetic-budget-key")
 
     def test_research_facility_provider_budget_fails_safely_without_secret(
