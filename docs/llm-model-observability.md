@@ -48,6 +48,11 @@ recent `settings.llm.model_test` events and returns:
 - bounded latest preview evidence;
 - a model-level `operator_action`.
 
+Long-haul readiness consumes this same read model. A configured model with an
+unhealthy endpoint, degraded format health, empty visible output, or
+length-limited output is an unattended-mode blocker until the model recovers,
+is disabled, or is removed from the workflows that require structured output.
+
 The existing `/control/api/settings/llm/health` remains available for settings
 workflows. Dashboard V2 uses the v1 Observability endpoint so model health lives
 with route, memory, and support signals instead of creating another page.

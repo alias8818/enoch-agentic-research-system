@@ -2160,6 +2160,55 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 body["summary"]["provider_generation_latest_status"], "failed"
             )
 
+    def test_automation_readiness_blocks_degraded_llm_format_health(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            _write_synthetic_llm_settings(config, "synthetic-readiness-key")
+            client = _client_with_config(config)
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.append_event(
+                idempotency_key="llm-format-health-readiness",
+                event_type="settings.llm.model_test",
+                entity_type="llm_model",
+                entity_id="synthetic:hf:zai-org/GLM-5.1",
+                payload={
+                    "provider_id": "synthetic",
+                    "model_id": "hf:zai-org/GLM-5.1",
+                    "ok": True,
+                    "status_code": 200,
+                    "source": "format_probe",
+                    "prompt_contract": "strict_json",
+                    "checked_at": "2026-06-02T10:00:00Z",
+                    "valid_json": False,
+                    "schema_ok": False,
+                    "malformed_kind": "invalid_json",
+                    "visible_chars": 19,
+                    "response_preview_redacted": "{not valid json",
+                },
+            )
+
+            with patch("scripts.research_provider_budget.fetch_json", return_value={}):
+                response = client.get(
+                    "/control/api/v1/automation-readiness",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertFalse(body["ok"])
+            self.assertIn(
+                "configured LLM model health needs attention", body["blockers"]
+            )
+            check = next(
+                item for item in body["checks"] if item["name"] == "llm_model_health_ok"
+            )
+            self.assertFalse(check["ok"])
+            self.assertIn("structural=1", check["detail"])
+            self.assertIn("hf:zai-org/GLM-5.1=format_degraded", check["detail"])
+            self.assertEqual(
+                body["summary"]["llm_model_structurally_unhealthy_count"], 1
+            )
+
     def test_automation_readiness_writes_operator_trace(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             trace_path = Path(tmp) / "automation_operator_trace.jsonl"

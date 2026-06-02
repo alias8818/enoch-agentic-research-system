@@ -28,7 +28,7 @@ uv run python scripts/check_longhaul_readiness.py \
   --control-url "$ENOCH_CONTROL_URL"
 ```
 
-`READY` means the control plane sees the required automation posture: queue unpaused, maintenance off, timers active, recent successful research tick, corpus import freshness when needed, no blocked/attention work, consistent queue counts, positive-gated paper counters, and provider budget OK.
+`READY` means the control plane sees the required automation posture: queue unpaused, maintenance off, timers active, recent successful research tick, corpus import freshness when needed, no blocked/attention work, consistent queue counts, positive-gated paper counters, provider budget OK, and configured LLM models free of endpoint or structural format/visible-output health blockers.
 
 `BLOCKED` means at least one precondition failed. Do not unpause or widen automation until the blocker is understood. The first blocker in the readiness payload is the operator starting point, not the whole diagnosis.
 

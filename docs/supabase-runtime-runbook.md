@@ -211,4 +211,4 @@ systemctl show enoch-research-autopilot.timer enoch-corpus-import-autopilot.time
   -p ActiveState -p LastTriggerUSec -p NextElapseUSecRealtime --no-pager
 ```
 
-The readiness endpoint checks queue pause, maintenance mode, research/corpus autopilot timers, latest timer ticks, provider budget, blocked/attention counts, queue consistency, and the positive-gated paper-writing counters. If the Research Facility cycle runs while the broad queue is paused, the control plane emits the guardrail event `research.guardrail.queue_paused` with the message `research autopilot is active but broad queue is paused`.
+The readiness endpoint checks queue pause, maintenance mode, research/corpus autopilot timers, latest timer ticks, provider budget, LLM endpoint and structural format/visible-output health, blocked/attention counts, queue consistency, and the positive-gated paper-writing counters. If the Research Facility cycle runs while the broad queue is paused, the control plane emits the guardrail event `research.guardrail.queue_paused` with the message `research autopilot is active but broad queue is paused`.

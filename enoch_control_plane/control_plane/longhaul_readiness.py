@@ -464,10 +464,22 @@ def _llm_model_health_issue_summary(health: dict[str, Any]) -> str:
     for model in health.get("models") or []:
         if not isinstance(model, dict):
             continue
+        model_id = str(model.get("model_id") or "unknown-model")
+        structural_issues: list[str] = []
+        if str(model.get("format_health") or "").strip() == "degraded":
+            structural_issues.append("format_degraded")
+        if str(model.get("visible_output_health") or "").strip() == "empty":
+            structural_issues.append("visible_output_empty")
+        if str(model.get("reasoning_budget_health") or "").strip() == "length_limited":
+            structural_issues.append("length_limited")
+        if structural_issues:
+            issues.append(f"{model_id}={'+'.join(structural_issues)}")
+            if len(issues) >= 3:
+                break
+            continue
         status = str(model.get("status") or "").strip()
         if status == "healthy":
             continue
-        model_id = str(model.get("model_id") or "unknown-model")
         failure = str(model.get("latest_failure_kind") or "").strip()
         issues.append(f"{model_id}={status}{':' + failure if failure else ''}")
         if len(issues) >= 3:
@@ -486,8 +498,16 @@ def _add_llm_model_health_check(
     }
     health_status = str(health.get("status") or "unknown")
     unhealthy_count = int(health.get("unhealthy_count") or 0)
-    health_ok = bool(health.get("ok")) and unhealthy_count == 0
-    detail = f"LLM model health status={health_status}; unhealthy={unhealthy_count}"
+    structurally_unhealthy_count = int(health.get("structurally_unhealthy_count") or 0)
+    health_ok = (
+        bool(health.get("ok"))
+        and unhealthy_count == 0
+        and structurally_unhealthy_count == 0
+    )
+    detail = (
+        f"LLM model health status={health_status}; unhealthy={unhealthy_count}; "
+        f"structural={structurally_unhealthy_count}"
+    )
     issue_summary = _llm_model_health_issue_summary(health)
     if issue_summary:
         detail = f"{detail}; {issue_summary}"
@@ -644,6 +664,7 @@ class _ReadinessSummaryInput:
     llm_model_health: dict[str, Any]
     llm_model_health_status: str
     llm_model_unhealthy_count: int
+    llm_model_structurally_unhealthy_count: int
     resource: dict[str, Any]
     resource_ok: bool
     resource_count: int
@@ -687,6 +708,7 @@ def _build_readiness_summary(inp: _ReadinessSummaryInput) -> dict[str, Any]:
         or "",
         "llm_model_health_status": inp.llm_model_health_status,
         "llm_model_unhealthy_count": inp.llm_model_unhealthy_count,
+        "llm_model_structurally_unhealthy_count": inp.llm_model_structurally_unhealthy_count,
         **_readiness_resource_utilization_summary(
             inp.resource, inp.resource_ok, inp.resource_count
         ),
@@ -802,6 +824,9 @@ def evaluate_longhaul_readiness(
                 llm_model_health=llm_health,
                 llm_model_health_status=llm_health_status,
                 llm_model_unhealthy_count=llm_unhealthy_count,
+                llm_model_structurally_unhealthy_count=int(
+                    llm_health.get("structurally_unhealthy_count") or 0
+                ),
                 resource=resource,
                 resource_ok=resource_ok,
                 resource_count=resource_count,

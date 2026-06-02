@@ -226,6 +226,53 @@ def test_provider_budget_must_be_checked_and_ok() -> None:
     assert "provider budget below threshold or unavailable" in result["blockers"]
 
 
+def test_structurally_unhealthy_llm_model_blocks_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["llm_model_health"] = {
+        "ok": False,
+        "status": "needs_attention",
+        "unhealthy_count": 0,
+        "structurally_unhealthy_count": 2,
+        "models": [
+            {
+                "provider_id": "synthetic",
+                "model_id": "owl",
+                "endpoint_health": "healthy",
+                "status": "healthy",
+                "format_health": "degraded",
+                "visible_output_health": "healthy",
+                "reasoning_budget_health": "ok",
+                "latest_failure_kind": "",
+            },
+            {
+                "provider_id": "synthetic",
+                "model_id": "kimi",
+                "endpoint_health": "healthy",
+                "status": "healthy",
+                "format_health": "healthy",
+                "visible_output_health": "empty",
+                "reasoning_budget_health": "length_limited",
+                "latest_failure_kind": "",
+            },
+        ],
+    }
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "configured LLM model health needs attention" in result["blockers"]
+    check = next(
+        item for item in result["checks"] if item["name"] == "llm_model_health_ok"
+    )
+    assert check["ok"] is False
+    assert "structural=2" in check["detail"]
+    assert "owl=format_degraded" in check["detail"]
+    assert "kimi=visible_output_empty" in check["detail"]
+    assert result["summary"]["llm_model_health_status"] == "needs_attention"
+    assert result["summary"]["llm_model_unhealthy_count"] == 0
+    assert result["summary"]["llm_model_structurally_unhealthy_count"] == 2
+
+
 def test_latest_provider_generation_failure_blocks_longhaul_readiness() -> None:
     payload = _ready_payload()
     payload["overview"]["provider_generation_attempts"] = {
