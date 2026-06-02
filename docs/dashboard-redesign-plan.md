@@ -4,6 +4,8 @@ Status: **P0–P7, Phase 2, and Phase 3 complete on `main`** (2026-05-21). V2 at
 
 Active checklist (ongoing discipline only): [`dashboard-v2-todo-2026-05-21.md`](dashboard-v2-todo-2026-05-21.md).
 
+Route and lifecycle ownership contract: [`dashboard-lifecycle-protocol.md`](dashboard-lifecycle-protocol.md).
+
 ## Goal
 
 Make `/control/dashboard-v2` feel like a professional shadcn-style operator console while preserving Enoch's new state model:

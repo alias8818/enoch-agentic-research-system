@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { canonicalDashboardHash, parseDashboardRoute } from './routes'
 import {
+  DASHBOARD_LIFECYCLE_CHAIN,
+  ROUTE_CONSOLIDATION_MAP,
   ROUTE_AUDIT,
   classifyDashboardRoute,
   detailBreadcrumb,
@@ -10,6 +12,52 @@ import {
 } from './routePolicy'
 
 describe('routePolicy', () => {
+  it('preserves the operator lifecycle chain for route consolidation work', () => {
+    expect(DASHBOARD_LIFECYCLE_CHAIN.map((item) => item.label).join(' -> ')).toBe(
+      'candidate -> queue row -> dispatch/run -> worker lane -> evidence/artifact -> paper/package/import -> event/alert',
+    )
+  })
+
+  it('assigns each implemented top-level route to one operator job', () => {
+    const mappedHashes = new Set(ROUTE_CONSOLIDATION_MAP.map((entry) => entry.hash))
+    const implementedTopLevelHashes = ROUTE_AUDIT
+      .filter((entry) => !entry.hash.includes(':'))
+      .map((entry) => entry.hash)
+
+    expect(new Set(implementedTopLevelHashes)).toEqual(mappedHashes)
+
+    for (const entry of ROUTE_CONSOLIDATION_MAP) {
+      expect(entry.owner, entry.hash).not.toBe('')
+      expect(entry.operatorQuestion.length, entry.hash).toBeGreaterThan(20)
+      expect(entry.lifecycleStages.length, entry.hash).toBeGreaterThan(0)
+    }
+  })
+
+  it('defines consolidation ownership for overlapping workbench routes', () => {
+    const byHash = new Map(ROUTE_CONSOLIDATION_MAP.map((entry) => [entry.hash, entry]))
+
+    expect(byHash.get('#research')).toMatchObject({
+      owner: 'Work Queue',
+      parentHash: '#queue',
+      decision: 'owned-subworkflow',
+    })
+    expect(byHash.get('#intake')).toMatchObject({
+      owner: 'Work Queue',
+      parentHash: '#queue',
+      decision: 'owned-subworkflow',
+    })
+    expect(byHash.get('#corpus')).toMatchObject({
+      owner: 'Papers',
+      parentHash: '#papers',
+      decision: 'compatibility-subworkflow',
+    })
+    expect(byHash.get('#automation')).toMatchObject({
+      owner: 'Papers',
+      parentHash: '#papers',
+      decision: 'compatibility-subworkflow',
+    })
+  })
+
   it('canonicalizes alias and legacy dead hashes to supported routes', () => {
     expect(canonicalDashboardHash('#reviews')).toBe('#automation')
     expect(canonicalDashboardHash('#reviews?search=oracle&review_status=queued')).toBe('#automation?search=oracle&review_status=queued')
