@@ -117,6 +117,21 @@ it('syncs route-derived status changes into resource page backend filters', asyn
   expectParam(second, 'status', 'active')
 })
 
+it('explains active queue empty state when overview counts active work', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    counts: { active: 2, queued: 47 },
+    rows: [],
+    page: { returned: 0, has_more: false },
+  }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'active', search: '', hash: '#queue:active' }} />)
+
+  expect(await screen.findByText('Active lane work is not shown in this queue slice')).toBeInTheDocument()
+  expect(screen.getByText(/2 active/)).toBeInTheDocument()
+  expect(screen.queryByText('Queue is empty')).not.toBeInTheDocument()
+})
+
 it('checks selected queued rows with dispatch-one dry-run only', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')

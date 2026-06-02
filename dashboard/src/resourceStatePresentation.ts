@@ -32,6 +32,7 @@ export type ListFilterContext = {
   search?: string
   status?: string
   defaultStatus?: string
+  activeCount?: number
 }
 
 import { displayText } from './displayText'
@@ -166,6 +167,14 @@ export function deriveQueueEmpty(context: ListFilterContext): ComposedEmptyState
       'No queue rows match these filters',
       'Try clearing search or widening the status filter to see queued, active, or blocked work.',
       'Dispatch is unaffected — this page simply has no rows for the current filter.',
+    )
+  }
+  if (context.status === 'active' && Number(context.activeCount || 0) > 0) {
+    const count = Number(context.activeCount || 0)
+    return blockedEmpty(
+      'Active lane work is not shown in this queue slice',
+      `The command center reports ${count} active ${count === 1 ? 'lane item' : 'lane items'}, but this active queue filter returned no rows.`,
+      'Open Runs or the command center lane cards to inspect the active worker run while the queue read model is reconciled.',
     )
   }
   if (context.status === 'blocked') {

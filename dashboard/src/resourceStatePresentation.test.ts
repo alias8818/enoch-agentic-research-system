@@ -22,6 +22,15 @@ describe('resourceStatePresentation', () => {
     expect(deriveQueueEmpty({ search: 'oracle', status: 'queued' }).kind).toBe('filtered')
   })
 
+  it('does not call the active queue slice idle when active work exists elsewhere', () => {
+    const copy = deriveQueueEmpty({ status: 'active', activeCount: 2 })
+
+    expect(copy.kind).toBe('blocked')
+    expect(copy.title).toBe('Active lane work is not shown in this queue slice')
+    expect(copy.body).toContain('2 active')
+    expect(copy.hint).toContain('Runs')
+  })
+
   it('marks active run slices as idle when empty', () => {
     expect(deriveRunsEmpty({ status: 'running' }).title).toBe('No active runs')
     expect(deriveRunsEmpty({ status: 'running' }).kind).toBe('idle')
