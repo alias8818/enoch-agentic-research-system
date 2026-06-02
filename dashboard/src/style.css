@@ -1082,8 +1082,8 @@ button:disabled { cursor: not-allowed; }
   justify-self: start;
   border: 1px solid #5d4a36;
   border-radius: 999px;
-  background: #14100c;
-  color: #fff;
+  background-color: #000000;
+  color: #ffffff;
   padding: 0.32rem 0.52rem;
   font-size: 0.72rem;
   font-weight: 850;

@@ -7169,6 +7169,159 @@ def _run_llm_provider_test(
         )
 
 
+def _append_llm_settings_updated_event(
+    store: Any,
+    config: GateConfig,
+    *,
+    settings: LLMSettings,
+    requested_by: str,
+    written_provider_secrets: list[str],
+    recovered_provider_secrets: list[str],
+) -> tuple[Any, str]:
+    try:
+        event_id = store.append_event(
+            idempotency_key=f"llm-settings:{settings.updated_at}:{requested_by}",
+            event_type="settings.llm.updated",
+            entity_type="settings",
+            entity_id="llm",
+            payload={
+                "requested_by": requested_by,
+                "settings_path": str(llm_settings_path(config)),
+                "providers": [provider.provider_id for provider in settings.providers],
+                "workflows": [workflow.workflow_id for workflow in settings.workflows],
+                "provider_secret_updates": written_provider_secrets,
+                "recovered_provider_secret_updates": recovered_provider_secrets,
+            },
+        )
+    except Exception as exc:  # pragma: no cover - visibility only
+        return None, f"{type(exc).__name__}: {exc}"
+    return event_id, ""
+
+
+def _dashboard_llm_settings_response(
+    config: GateConfig,
+    store: Any,
+) -> dict[str, Any]:
+    settings = read_llm_settings(config)
+    path = llm_settings_path(config)
+    return {
+        "ok": True,
+        "source": "control_api_llm_settings",
+        "authority": "validated file-backed provider/model settings",
+        "path": str(path),
+        "persisted": path.exists(),
+        "settings": settings_response(settings, config),
+        "model_health": read_models.llm_model_health_summary(store, settings),
+        "generated_at": utc_now(),
+    }
+
+
+def _updated_llm_settings(
+    config: GateConfig, body: Mapping[str, Any], requested_by: str
+) -> tuple[LLMSettings, list[str], list[str]]:
+    settings_payload = body.get("settings", body)
+    provider_secrets = body.get("provider_secrets") or {}
+    if provider_secrets and not isinstance(provider_secrets, dict):
+        raise ValueError("provider_secrets must be an object keyed by provider_id")
+    settings_payload, provider_secrets, recovered_provider_secrets = (
+        settings_update_payload(settings_payload, provider_secrets)
+    )
+    settings = LLMSettings.model_validate(settings_payload)
+    written_provider_secrets = write_llm_provider_secrets(
+        config, provider_secrets, settings=settings
+    )
+    settings = write_llm_settings(config, settings, updated_by=requested_by)
+    return settings, written_provider_secrets, recovered_provider_secrets
+
+
+def _dashboard_update_llm_settings_response(
+    config: GateConfig,
+    store: Any,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    body = payload or {}
+    requested_by = str(body.get("requested_by") or "dashboard")[:80]
+    try:
+        settings, written_provider_secrets, recovered_provider_secrets = (
+            _updated_llm_settings(config, body, requested_by)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    event_id, event_error = _append_llm_settings_updated_event(
+        store,
+        config,
+        settings=settings,
+        requested_by=requested_by,
+        written_provider_secrets=written_provider_secrets,
+        recovered_provider_secrets=recovered_provider_secrets,
+    )
+    response = {
+        "ok": True,
+        "action": "llm_settings_updated",
+        "event_id": event_id,
+        "settings": settings_response(settings, config),
+    }
+    if event_error:
+        response["event_error"] = event_error
+    return response
+
+
+def _llm_test_request_fields(payload: Mapping[str, Any]) -> tuple[str, str, str]:
+    provider_id = str(payload.get("provider_id") or "").strip()
+    model_id = str(payload.get("model_id") or "").strip()
+    source = str(payload.get("source") or "manual").strip().lower()
+    if source not in {"manual", "autopilot", "scheduled"}:
+        raise HTTPException(status_code=400, detail="invalid LLM test source")
+    if not provider_id:
+        raise HTTPException(status_code=400, detail="provider_id is required")
+    return provider_id, model_id, source
+
+
+def _dashboard_test_llm_settings_response(
+    config: GateConfig,
+    store: Any,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    provider_id, model_id, source = _llm_test_request_fields(payload or {})
+    settings = read_llm_settings(config)
+    result = _run_llm_provider_test(
+        config, settings=settings, provider_id=provider_id, model_id=model_id
+    )
+    provider = _llm_provider_by_id(settings, provider_id)
+    model = _llm_model_by_id(settings, model_id) if model_id else None
+    if result.get("error"):
+        result["error"] = _scrub_llm_test_error(config, result, provider)
+    event_id = _record_llm_model_test_event(
+        store,
+        config,
+        provider=provider,
+        model=model,
+        result=result,
+        source=source,
+    )
+    if event_id:
+        result["event_id"] = event_id
+    return {
+        "source": "control_api_llm_settings_test",
+        "authority": "bounded live provider/model smoke test; best-effort health event",
+        "generated_at": utc_now(),
+        **result,
+    }
+
+
+def _dashboard_llm_model_health_response(
+    config: GateConfig,
+    store: Any,
+) -> dict[str, Any]:
+    settings = read_llm_settings(config)
+    return {
+        "source": "control_api_llm_model_health",
+        "authority": "recent persisted LLM model test events joined to configured model catalog",
+        "generated_at": utc_now(),
+        **read_models.llm_model_health_summary(store, settings),
+    }
+
+
 def _register_control_plane_llm_settings_routes(
     router: APIRouter,
     config: GateConfig,
@@ -7180,18 +7333,7 @@ def _register_control_plane_llm_settings_routes(
         authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         require_bearer(authorization)
-        settings = read_llm_settings(config)
-        path = llm_settings_path(config)
-        return {
-            "ok": True,
-            "source": "control_api_llm_settings",
-            "authority": "validated file-backed provider/model settings",
-            "path": str(path),
-            "persisted": path.exists(),
-            "settings": settings_response(settings, config),
-            "model_health": read_models.llm_model_health_summary(store, settings),
-            "generated_at": utc_now(),
-        }
+        return _dashboard_llm_settings_response(config, store)
 
     @router.post(
         "/api/settings/llm",
@@ -7203,57 +7345,7 @@ def _register_control_plane_llm_settings_routes(
     ) -> dict[str, Any]:
         require_bearer(authorization)
         _require_writable_store("LLM provider settings update")
-        body = payload or {}
-        requested_by = str(body.get("requested_by") or "dashboard")[:80]
-        settings_payload = body.get("settings", body)
-        try:
-            provider_secrets = body.get("provider_secrets") or {}
-            if provider_secrets and not isinstance(provider_secrets, dict):
-                raise ValueError(
-                    "provider_secrets must be an object keyed by provider_id"
-                )
-            settings_payload, provider_secrets, recovered_provider_secrets = (
-                settings_update_payload(settings_payload, provider_secrets)
-            )
-            settings = LLMSettings.model_validate(settings_payload)
-            written_provider_secrets = write_llm_provider_secrets(
-                config, provider_secrets, settings=settings
-            )
-            settings = write_llm_settings(config, settings, updated_by=requested_by)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        event_id = None
-        event_error = ""
-        try:
-            event_id = store.append_event(
-                idempotency_key=f"llm-settings:{settings.updated_at}:{requested_by}",
-                event_type="settings.llm.updated",
-                entity_type="settings",
-                entity_id="llm",
-                payload={
-                    "requested_by": requested_by,
-                    "settings_path": str(llm_settings_path(config)),
-                    "providers": [
-                        provider.provider_id for provider in settings.providers
-                    ],
-                    "workflows": [
-                        workflow.workflow_id for workflow in settings.workflows
-                    ],
-                    "provider_secret_updates": written_provider_secrets,
-                    "recovered_provider_secret_updates": recovered_provider_secrets,
-                },
-            )
-        except Exception as exc:  # pragma: no cover - visibility only
-            event_error = f"{type(exc).__name__}: {exc}"
-        response = {
-            "ok": True,
-            "action": "llm_settings_updated",
-            "event_id": event_id,
-            "settings": settings_response(settings, config),
-        }
-        if event_error:
-            response["event_error"] = event_error
-        return response
+        return _dashboard_update_llm_settings_response(config, store, payload)
 
     @router.post(
         "/api/settings/llm/test",
@@ -7265,51 +7357,14 @@ def _register_control_plane_llm_settings_routes(
     ) -> dict[str, Any]:
         require_bearer(authorization)
         _declare_non_store_mutating_post("LLM provider/model test")
-        body = payload or {}
-        provider_id = str(body.get("provider_id") or "").strip()
-        model_id = str(body.get("model_id") or "").strip()
-        source = str(body.get("source") or "manual").strip().lower()
-        if source not in {"manual", "autopilot", "scheduled"}:
-            raise HTTPException(status_code=400, detail="invalid LLM test source")
-        if not provider_id:
-            raise HTTPException(status_code=400, detail="provider_id is required")
-        settings = read_llm_settings(config)
-        result = _run_llm_provider_test(
-            config, settings=settings, provider_id=provider_id, model_id=model_id
-        )
-        provider = _llm_provider_by_id(settings, provider_id)
-        model = _llm_model_by_id(settings, model_id) if model_id else None
-        if result.get("error"):
-            result["error"] = _scrub_llm_test_error(config, result, provider)
-        event_id = _record_llm_model_test_event(
-            store,
-            config,
-            provider=provider,
-            model=model,
-            result=result,
-            source=source,
-        )
-        if event_id:
-            result["event_id"] = event_id
-        return {
-            "source": "control_api_llm_settings_test",
-            "authority": "bounded live provider/model smoke test; best-effort health event",
-            "generated_at": utc_now(),
-            **result,
-        }
+        return _dashboard_test_llm_settings_response(config, store, payload)
 
     @router.get("/api/settings/llm/health")
     def dashboard_llm_model_health(
         authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         require_bearer(authorization)
-        settings = read_llm_settings(config)
-        return {
-            "source": "control_api_llm_model_health",
-            "authority": "recent persisted LLM model test events joined to configured model catalog",
-            "generated_at": utc_now(),
-            **read_models.llm_model_health_summary(store, settings),
-        }
+        return _dashboard_llm_model_health_response(config, store)
 
 
 class _ControlPlaneHttpRegistrationNamespace(dict):

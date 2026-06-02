@@ -28,7 +28,10 @@ function stringifyApiDetail(value: unknown): string {
     if (typeof value === 'object') return '[unserializable object]'
     if (typeof value === 'function') return '[function]'
     if (typeof value === 'symbol') return value.description ? `Symbol(${value.description})` : 'Symbol()'
-    return `${value}`
+    if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+      return value.toString()
+    }
+    return '[unserializable value]'
   }
 }
 
