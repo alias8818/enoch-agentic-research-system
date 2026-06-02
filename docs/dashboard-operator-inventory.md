@@ -56,7 +56,7 @@ lane idleness, queue depth, one safest action, and paper-pipeline posture.
 | --- | --- | --- | --- | --- | --- |
 | Can I leave this running? | `CommandHero` in `overviewPage.tsx` | readiness, blockers, lane state | Can I leave this running? | Keep above fold | `App.test.tsx` command-center assertions |
 | Readiness check | `ReadinessCheckCard`, `/control/api/v1/automation-readiness` | readiness gate, provider budget, LLM health, stale lanes | Can I leave this running? What is blocked? | Keep above fold | `test_longhaul_readiness.py`, `test_control_plane_router.py` |
-| CPU / GB10 command surface | `WorkerLanes`, `/control/api/status?refresh_worker=true` | worker lane, queue count, active row, preflight | Are CPU and GB10 doing useful work? If idle, why? | Keep above fold | `CommandCenter.test.tsx` |
+| CPU / [GB10 runtime](current-runtime-snapshot.md) command surface | `WorkerLanes`, `/control/api/status?refresh_worker=true` | worker lane, queue count, active row, preflight | Are CPU and GB10 doing useful work? If idle, why? | Keep above fold | `CommandCenter.test.tsx` |
 | Primary action | `PrimaryAction`, `primary_operator_action` | dispatch, feed, paper action, readiness action | What should I do next? | Keep one primary CTA above fold | `CommandCenter.test.tsx` |
 | Write -> Finalize -> Publish | paper mini strip in `overviewPage.tsx` | paper pipeline | Is the paper pipeline ready or blocked? | Keep tiny above fold | `App.test.tsx` |
 | Top actions | `TopActionsCard` in `overviewPage.tsx` | ranked operator actions | What should I consider after the primary action? | Keep secondary below fold | `App.test.tsx` |

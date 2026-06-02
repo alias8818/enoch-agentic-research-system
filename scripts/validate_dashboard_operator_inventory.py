@@ -36,7 +36,7 @@ REQUIRED_ROUTE_SURFACES = [
 REQUIRED_COMMAND_CENTER_SURFACES = [
     "Can I leave this running?",
     "Readiness check",
-    "CPU / GB10 command surface",
+    "CPU / [GB10 runtime](current-runtime-snapshot.md) command surface",
     "Primary action",
     "Write -> Finalize -> Publish",
     "Top actions",
