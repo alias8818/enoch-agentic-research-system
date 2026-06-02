@@ -7002,20 +7002,61 @@ def _llm_provider_auth_headers(config: GateConfig, provider: Any) -> dict[str, s
     return headers
 
 
-def _llm_test_response_preview(payload: dict[str, Any]) -> str:
+def _llm_test_visible_text(payload: dict[str, Any]) -> str:
     choices = payload.get("choices") or []
     if choices and isinstance(choices[0], dict):
         message = choices[0].get("message") or {}
         content = message.get("content")
         if isinstance(content, str):
-            return content[:240]
+            return content
+        if isinstance(content, list):
+            return "".join(
+                str(part.get("text") or "")
+                for part in content
+                if isinstance(part, dict)
+            )
     content = payload.get("content")
     if isinstance(content, list):
-        text = "".join(
+        return "".join(
             str(part.get("text") or "") for part in content if isinstance(part, dict)
         )
-        return text[:240]
+    if isinstance(content, str):
+        return content
     return ""
+
+
+def _llm_test_response_preview(payload: dict[str, Any]) -> str:
+    return _llm_test_visible_text(payload)[:240]
+
+
+def _llm_test_finish_reason(payload: dict[str, Any]) -> str:
+    choices = payload.get("choices") or []
+    if choices and isinstance(choices[0], dict):
+        return str(choices[0].get("finish_reason") or "").strip()
+    return str(payload.get("stop_reason") or "").strip()
+
+
+def _llm_test_usage(payload: dict[str, Any]) -> dict[str, int]:
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return {}
+    out: dict[str, int] = {}
+    for source_key, target_key in (
+        ("prompt_tokens", "input_tokens"),
+        ("input_tokens", "input_tokens"),
+        ("completion_tokens", "output_tokens"),
+        ("output_tokens", "output_tokens"),
+        ("reasoning_tokens", "reasoning_tokens"),
+    ):
+        value = usage.get(source_key)
+        if isinstance(value, int):
+            out[target_key] = value
+    completion_details = usage.get("completion_tokens_details")
+    if isinstance(completion_details, dict):
+        reasoning_tokens = completion_details.get("reasoning_tokens")
+        if isinstance(reasoning_tokens, int):
+            out["reasoning_tokens"] = reasoning_tokens
+    return out
 
 
 def _llm_test_failure_kind(result: Mapping[str, Any]) -> str:
@@ -7048,6 +7089,16 @@ def _scrub_llm_test_error(
     return error
 
 
+def _scrub_llm_test_preview(config: GateConfig, text: Any, provider: Any) -> str:
+    preview = str(text or "")[:500]
+    if not preview:
+        return ""
+    secret = llm_provider_api_key(config, provider)
+    if secret:
+        preview = preview.replace(secret, "[redacted]")
+    return preview[:240]
+
+
 def _record_llm_model_test_event(
     store: Any,
     config: GateConfig,
@@ -7072,7 +7123,25 @@ def _record_llm_model_test_event(
         "error": _scrub_llm_test_error(config, result, provider),
         "source": source,
         "checked_at": checked_at,
+        "finish_reason": str(result.get("finish_reason") or ""),
+        "visible_chars": int(result.get("visible_chars") or 0),
+        "response_preview_redacted": _scrub_llm_test_preview(
+            config, result.get("response_preview") or "", provider
+        ),
     }
+    for key in (
+        "input_tokens",
+        "output_tokens",
+        "reasoning_tokens",
+        "workflow_id",
+        "prompt_contract",
+        "valid_json",
+        "schema_ok",
+        "malformed_kind",
+        "sanitized_or_refusal_detected",
+    ):
+        if key in result:
+            payload[key] = result.get(key)
     entity_id = f"{payload['provider_id']}:{model_id or 'provider'}"
     try:
         event_id = append_event(
@@ -7128,14 +7197,18 @@ def _llm_provider_success_result(
     started: float,
     data: dict[str, Any],
 ) -> dict[str, Any]:
+    visible_text = _llm_test_visible_text(data)
+    usage = _llm_test_usage(data)
     return {
         "ok": 200 <= status_code < 300,
         "provider_id": provider.provider_id,
         "model_id": model.model_id if model is not None else "",
         "status_code": status_code,
         "latency_ms": int((time.monotonic() - started) * 1000),
-        "response_preview": _llm_test_response_preview(data)
-        or str(data.get("raw_preview") or "")[:240],
+        "finish_reason": _llm_test_finish_reason(data),
+        "visible_chars": len(visible_text),
+        "response_preview": visible_text[:240] or str(data.get("raw_preview") or "")[:240],
+        **usage,
     }
 
 
@@ -7377,6 +7450,10 @@ def _dashboard_test_llm_settings_response(
     model = _llm_model_by_id(settings, model_id) if model_id else None
     if result.get("error"):
         result["error"] = _scrub_llm_test_error(config, result, provider)
+    if result.get("response_preview"):
+        result["response_preview"] = _scrub_llm_test_preview(
+            config, result.get("response_preview"), provider
+        )
     event_id = _record_llm_model_test_event(
         store,
         config,
@@ -7403,6 +7480,19 @@ def _dashboard_llm_model_health_response(
     return {
         "source": "control_api_llm_model_health",
         "authority": "recent persisted LLM model test events joined to configured model catalog",
+        "generated_at": utc_now(),
+        **read_models.llm_model_health_summary(store, settings),
+    }
+
+
+def _dashboard_v1_llm_model_observability_response(
+    config: GateConfig,
+    store: Any,
+) -> dict[str, Any]:
+    settings = read_llm_settings(config)
+    return {
+        "source": "control_api_v1_observability_llm_models",
+        "authority": "bounded LLM endpoint, format, and visible-output observability read model",
         "generated_at": utc_now(),
         **read_models.llm_model_health_summary(store, settings),
     }
@@ -7451,6 +7541,13 @@ def _register_control_plane_llm_settings_routes(
     ) -> dict[str, Any]:
         require_bearer(authorization)
         return _dashboard_llm_model_health_response(config, store)
+
+    @router.get("/api/v1/observability/llm-models")
+    def dashboard_v1_observability_llm_models(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        require_bearer(authorization)
+        return _dashboard_v1_llm_model_observability_response(config, store)
 
 
 class _ControlPlaneHttpRegistrationNamespace(dict):

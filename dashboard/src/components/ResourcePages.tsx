@@ -59,6 +59,27 @@ import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummar
 
 type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null; sentry_enabled?: boolean; sentry_configured?: boolean; sentry_environment?: string; sentry_release?: string }
 type ObservabilityMemory = { generated_at?: string; rss_mib?: number | null; peak_rss_mib?: number | null; warn_threshold_mib?: number | null; memory_warn?: boolean; route_observability_enabled?: boolean }
+type ObservabilityLlmModel = {
+  provider_id?: string
+  provider_label?: string
+  model_id?: string
+  label?: string
+  endpoint_health?: string
+  format_health?: string
+  visible_output_health?: string
+  reasoning_budget_health?: string
+  workflow_health?: string
+  latest_failure_kind?: string
+  latest_latency_ms?: number
+  latest_status_code?: number
+  latest_finish_reason?: string
+  latest_visible_chars?: number
+  success_rate?: number
+  format_success_rate?: number
+  operator_action?: string
+  latest_preview?: string
+}
+type ObservabilityLlmModels = { generated_at?: string; status?: string; model_count?: number; unhealthy_count?: number; structurally_unhealthy_count?: number; models?: ObservabilityLlmModel[] }
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 type CommandResult = { payload: Record<string, unknown>; context?: CommandPresentationContext }
@@ -106,6 +127,22 @@ function sentryHeadline(enabled: boolean | undefined, configured: boolean | unde
   if (enabled) return 'Sentry exception capture enabled'
   if (configured) return 'Sentry configured but SDK is not active'
   return 'Sentry exception capture disabled'
+}
+
+function modelObservabilityHeadline(data: ObservabilityLlmModels): string {
+  if ((data.structurally_unhealthy_count || 0) > 0) return 'Model usefulness degraded'
+  if ((data.unhealthy_count || 0) > 0) return 'Model endpoint health needs attention'
+  if ((data.model_count || 0) > 0) return 'Models are measured'
+  return 'No enabled models configured'
+}
+
+function healthLabel(value: string | undefined): string {
+  if (!value) return 'unknown'
+  return value.replace(/_/g, ' ')
+}
+
+function percentText(value: number | undefined): string {
+  return typeof value === 'number' ? `${Math.round(value * 100)}%` : '—'
 }
 
 function ResourceErrorCard({ endpoint, error, onRetry, retryLabel }: Readonly<{ endpoint: Parameters<typeof deriveResourceErrorCopy>[0]; error: unknown; onRetry: () => void; retryLabel?: string }>) {
@@ -654,14 +691,57 @@ function mibText(value: unknown): string {
 export function ObservabilityPage() {
   const health = useQuery({ queryKey: ['observability', 'health'], queryFn: () => apiGet<ObservabilityHealth>('/control/api/v1/observability/health') })
   const memory = useQuery({ queryKey: ['observability', 'memory'], queryFn: () => apiGet<ObservabilityMemory>('/control/api/v1/observability/memory') })
-  if (health.isLoading || memory.isLoading) return <LoadingStateCard label="observability" />
+  const llmModels = useQuery({ queryKey: ['observability', 'llm-models'], queryFn: () => apiGet<ObservabilityLlmModels>('/control/api/v1/observability/llm-models') })
+  if (health.isLoading || memory.isLoading || llmModels.isLoading) return <LoadingStateCard label="observability" />
   if (health.isError) return <ResourceErrorCard endpoint="observability-health" error={health.error} onRetry={() => { refetchInBackground(() => health.refetch()) }} retryLabel="Retry health sample" />
   if (memory.isError) return <ResourceErrorCard endpoint="observability-memory" error={memory.error} onRetry={() => { refetchInBackground(() => memory.refetch()) }} retryLabel="Retry memory sample" />
+  if (llmModels.isError) return <ResourceErrorCard endpoint="observability-llm" error={llmModels.error} onRetry={() => { refetchInBackground(() => llmModels.refetch()) }} retryLabel="Retry model observability" />
   const healthData = health.data || {}
   const memoryData = memory.data || {}
-  const generatedAt = `health ${healthData.generated_at || 'unknown'} · memory ${memoryData.generated_at || 'unknown'}`
+  const llmData = llmModels.data || {}
+  const generatedAt = `health ${healthData.generated_at || 'unknown'} · memory ${memoryData.generated_at || 'unknown'} · models ${llmData.generated_at || 'unknown'}`
+  const attentionModels = (llmData.models || []).filter((model) => (
+    model.endpoint_health !== 'healthy'
+    || model.format_health === 'degraded'
+    || model.visible_output_health === 'empty'
+    || model.reasoning_budget_health === 'length_limited'
+  ))
+  const visibleModels = (attentionModels.length > 0 ? attentionModels : (llmData.models || [])).slice(0, 6)
   return (
-    <PageShell title="Observability" subtitle="Check controller health, memory pressure, and route observability status." dataSource="/control/api/v1/observability health and memory read models" action={<PageRefreshAction generatedAt={generatedAt} isFetching={health.isFetching || memory.isFetching} onRefresh={() => { refetchAllInBackground(() => health.refetch(), () => memory.refetch()) }} refreshLabel="Refresh observability" />}>
+    <PageShell title="Observability" subtitle="Check controller health, memory pressure, model usefulness, and route observability status." dataSource="/control/api/v1/observability bounded read models" action={<PageRefreshAction generatedAt={generatedAt} isFetching={health.isFetching || memory.isFetching || llmModels.isFetching} onRefresh={() => { refetchAllInBackground(() => health.refetch(), () => memory.refetch(), () => llmModels.refetch()) }} refreshLabel="Refresh observability" />}>
+      <section className="detail-summary">
+        <p className="eyebrow">Model observability</p>
+        <h2>{modelObservabilityHeadline(llmData)}</h2>
+        <dl className="detail-field-grid">
+          <div className="detail-field"><dt>enabled models</dt><dd>{llmData.model_count ?? 0}</dd></div>
+          <div className="detail-field"><dt>endpoint issues</dt><dd>{llmData.unhealthy_count ?? 0}</dd></div>
+          <div className="detail-field"><dt>usefulness issues</dt><dd>{llmData.structurally_unhealthy_count ?? 0}</dd></div>
+          <div className="detail-field"><dt>sampled</dt><dd>{llmData.generated_at || '—'}</dd></div>
+        </dl>
+        <section className="detail-operator-questions" aria-label="Model operator questions">
+          {visibleModels.length > 0 ? visibleModels.map((model) => {
+            const title = model.label || model.model_id || 'unknown model'
+            return (
+              <article key={`${model.provider_id || 'provider'}:${model.model_id || title}`} className="detail-operator-question">
+                <h4>{title}</h4>
+                <p>{model.operator_action || 'No action recorded for this model.'}</p>
+                <dl className="detail-field-grid">
+                  <div className="detail-field"><dt>provider</dt><dd>{model.provider_label || model.provider_id || '—'}</dd></div>
+                  <div className="detail-field"><dt>endpoint</dt><dd>{healthLabel(model.endpoint_health)}</dd></div>
+                  <div className="detail-field"><dt>format</dt><dd>{healthLabel(model.format_health)}</dd></div>
+                  <div className="detail-field"><dt>visible output</dt><dd>{healthLabel(model.visible_output_health)}</dd></div>
+                  <div className="detail-field"><dt>budget</dt><dd>{healthLabel(model.reasoning_budget_health)}</dd></div>
+                  <div className="detail-field"><dt>finish</dt><dd>{healthLabel(model.latest_finish_reason)}</dd></div>
+                  <div className="detail-field"><dt>visible chars</dt><dd>{model.latest_visible_chars ?? '—'}</dd></div>
+                  <div className="detail-field"><dt>endpoint success</dt><dd>{percentText(model.success_rate)}</dd></div>
+                  <div className="detail-field"><dt>format success</dt><dd>{percentText(model.format_success_rate)}</dd></div>
+                </dl>
+                <RawJsonDetails summary="Latest redacted model preview" payload={model.latest_preview || ''} />
+              </article>
+            )
+          }) : <article className="detail-operator-question"><h4>No enabled model rows</h4><p>Configure at least one model before relying on automated model health.</p></article>}
+        </section>
+      </section>
       <section className="detail-summary">
         <p className="eyebrow">Controller memory</p>
         <h2>{memoryHeadline(memoryData.memory_warn)}</h2>

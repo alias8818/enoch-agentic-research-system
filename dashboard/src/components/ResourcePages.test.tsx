@@ -550,9 +550,14 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:00Z', route_observability_enabled: true, route_observability_log_configured: false, sentry_enabled: true, sentry_configured: true, sentry_environment: 'production', sentry_release: 'abc1234', latest_route_observation: '{"route":"/control/api/status","status":200}' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:01Z', rss_mib: 128.25, peak_rss_mib: 256.5, warn_threshold_mib: 1024, memory_warn: false, route_observability_enabled: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:02Z', status: 'needs_attention', model_count: 2, unhealthy_count: 0, structurally_unhealthy_count: 1, models: [{ provider_id: 'synthetic', provider_label: 'Synthetic', model_id: 'owl', label: 'Owl', endpoint_health: 'healthy', format_health: 'healthy', visible_output_health: 'empty', reasoning_budget_health: 'length_limited', latest_finish_reason: 'length', latest_visible_chars: 0, success_rate: 1, format_success_rate: 1, operator_action: 'increase output budget before structured automation', latest_preview: '' }] }), { status: 200 }))
 
   renderWithClient(<ObservabilityPage />)
 
+  expect(await screen.findByRole('heading', { name: 'Model usefulness degraded' })).toBeInTheDocument()
+  expect(screen.getByText('increase output budget before structured automation')).toBeInTheDocument()
+  expect(screen.getByText('length limited')).toBeInTheDocument()
+  expect(screen.getByText('empty')).toBeInTheDocument()
   expect(await screen.findByRole('heading', { name: 'Memory is inside configured threshold' })).toBeInTheDocument()
   expect(screen.getByText('128.3 MiB')).toBeInTheDocument()
   expect(screen.getByText('Route logging enabled')).toBeInTheDocument()
@@ -562,14 +567,17 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   expect(screen.getByText((content) => content.includes('/control/api/status'))).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/observability/health', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/observability/memory', expect.any(Object))
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/v1/observability/llm-models', expect.any(Object))
 })
 
 it('refreshes observability samples explicitly from the V2 page', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:00Z', route_observability_enabled: true, route_observability_log_configured: false, latest_route_observation: '{"route":"/old","status":200}' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:01Z', rss_mib: 100, peak_rss_mib: 140, warn_threshold_mib: 512, memory_warn: false }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:02Z', status: 'healthy', model_count: 1, unhealthy_count: 0, structurally_unhealthy_count: 0, models: [{ provider_id: 'synthetic', model_id: 'owl', label: 'Owl', endpoint_health: 'healthy', format_health: 'healthy', visible_output_health: 'healthy', reasoning_budget_health: 'ok', latest_finish_reason: 'stop', latest_visible_chars: 12, success_rate: 1, format_success_rate: 1, operator_action: 'model is currently usable for measured structured automation', latest_preview: 'ok' }] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:00Z', route_observability_enabled: false, route_observability_log_configured: true, latest_route_observation: '{"route":"/fresh","status":503}' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:01Z', rss_mib: 333.3, peak_rss_mib: 444.4, warn_threshold_mib: 512, memory_warn: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:02Z', status: 'needs_attention', model_count: 1, unhealthy_count: 1, structurally_unhealthy_count: 0, models: [{ provider_id: 'synthetic', model_id: 'owl', label: 'Owl', endpoint_health: 'unhealthy', format_health: 'unmeasured', visible_output_health: 'unknown', reasoning_budget_health: 'unknown', latest_failure_kind: 'rate_limited', latest_status_code: 429, success_rate: 0, format_success_rate: 0, operator_action: 'fix provider endpoint health (rate_limited) before using this model', latest_preview: '' }] }), { status: 200 }))
 
   renderWithClient(<ObservabilityPage />)
   await screen.findByRole('heading', { name: 'Memory is inside configured threshold' })
@@ -578,9 +586,10 @@ it('refreshes observability samples explicitly from the V2 page', async () => {
 
   expect(await screen.findByRole('heading', { name: 'Memory warning active' })).toBeInTheDocument()
   expect(screen.getByText('333.3 MiB')).toBeInTheDocument()
-  expect(screen.getByText('Last loaded health 2026-05-21T09:04:00Z · memory 2026-05-21T09:04:01Z')).toBeInTheDocument()
+  expect(screen.getByText('Last loaded health 2026-05-21T09:04:00Z · memory 2026-05-21T09:04:01Z · models 2026-05-21T09:04:02Z')).toBeInTheDocument()
   expect(screen.getByText((content) => content.includes('/fresh'))).toBeInTheDocument()
-  expect(fetchMock).toHaveBeenCalledTimes(4)
+  expect(screen.getByText('fix provider endpoint health (rate_limited) before using this model')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(6)
 })
 
 it('refreshes intake workbench rows explicitly from the V2 page', async () => {

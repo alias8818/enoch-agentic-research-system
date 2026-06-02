@@ -4568,7 +4568,7 @@ def _llm_model_health_payload(row: Mapping[str, Any]) -> dict[str, Any]:
     payload = row.get("payload")
     if not isinstance(payload, Mapping):
         return {}
-    return {
+    out = {
         "event_id": row.get("event_id") or row.get("id"),
         "created_at": row.get("created_at") or row.get("updated_at") or "",
         "checked_at": _text(payload.get("checked_at") or row.get("created_at")),
@@ -4579,7 +4579,22 @@ def _llm_model_health_payload(row: Mapping[str, Any]) -> dict[str, Any]:
         "failure_kind": _text(payload.get("failure_kind")),
         "latency_ms": int(payload.get("latency_ms") or 0),
         "source": _text(payload.get("source")) or "unknown",
+        "finish_reason": _text(payload.get("finish_reason")),
+        "visible_chars": int(payload.get("visible_chars") or 0),
+        "response_preview_redacted": _text(payload.get("response_preview_redacted"))[
+            :240
+        ],
+        "workflow_id": _text(payload.get("workflow_id")),
+        "prompt_contract": _text(payload.get("prompt_contract")),
+        "malformed_kind": _text(payload.get("malformed_kind")),
+        "input_tokens": int(payload.get("input_tokens") or 0),
+        "output_tokens": int(payload.get("output_tokens") or 0),
+        "reasoning_tokens": int(payload.get("reasoning_tokens") or 0),
     }
+    for key in ("valid_json", "schema_ok", "sanitized_or_refusal_detected"):
+        if key in payload:
+            out[key] = bool(payload.get(key))
+    return out
 
 
 def _llm_model_health_events_by_model(
@@ -4610,6 +4625,91 @@ def _llm_model_health_status(latest: dict[str, Any] | None) -> str:
     return "unhealthy"
 
 
+def _llm_model_format_events(attempts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        attempt
+        for attempt in attempts
+        if (
+            "valid_json" in attempt
+            or "schema_ok" in attempt
+            or attempt.get("malformed_kind")
+            or attempt.get("prompt_contract")
+            or str(attempt.get("source") or "").startswith("format")
+        )
+    ]
+
+
+def _llm_model_format_health(format_events: list[dict[str, Any]]) -> str:
+    if not format_events:
+        return "unmeasured"
+    latest = format_events[0]
+    if latest.get("malformed_kind"):
+        return "degraded"
+    if latest.get("valid_json") is False or latest.get("schema_ok") is False:
+        return "degraded"
+    return "healthy"
+
+
+def _llm_model_visible_output_health(latest: dict[str, Any] | None) -> str:
+    if latest is None:
+        return "unknown"
+    if latest.get("ok") and int(latest.get("visible_chars") or 0) <= 0:
+        return "empty"
+    if int(latest.get("visible_chars") or 0) > 0:
+        return "healthy"
+    return "unknown"
+
+
+def _llm_model_reasoning_budget_health(latest: dict[str, Any] | None) -> str:
+    if latest is None:
+        return "unknown"
+    finish_reason = _text(latest.get("finish_reason")).lower()
+    if finish_reason == "length":
+        return "length_limited"
+    if finish_reason:
+        return "ok"
+    return "unknown"
+
+
+def _llm_model_workflow_health(format_events: list[dict[str, Any]]) -> str:
+    workflow_events = [
+        event for event in format_events if _text(event.get("workflow_id"))
+    ]
+    if not workflow_events:
+        return "unmeasured"
+    latest = workflow_events[0]
+    if (
+        latest.get("valid_json") is False
+        or latest.get("schema_ok") is False
+        or latest.get("malformed_kind")
+    ):
+        return "degraded"
+    return "healthy"
+
+
+def _llm_model_operator_action(
+    *,
+    endpoint_health: str,
+    format_health: str,
+    visible_output_health: str,
+    reasoning_budget_health: str,
+    latest_failure_kind: str,
+) -> str:
+    if endpoint_health == "stale":
+        return "run a bounded model health check before trusting this model for automation"
+    if endpoint_health == "unhealthy":
+        return f"fix provider endpoint health ({latest_failure_kind or 'unavailable'}) before using this model"
+    if visible_output_health == "empty":
+        return "increase output budget or disable this model for workflows that require visible structured output"
+    if reasoning_budget_health == "length_limited":
+        return "increase max_tokens or move strict-output workflows away from this length-limited model"
+    if format_health == "degraded":
+        return "keep endpoint health separate from automation usefulness; review format failures before widening automation"
+    if format_health == "unmeasured":
+        return "run format-adherence probes before trusting this endpoint-healthy model for structured automation"
+    return "model is currently usable for measured structured automation"
+
+
 def _llm_model_health_row(
     model: Any,
     *,
@@ -4622,23 +4722,79 @@ def _llm_model_health_row(
     latest = attempts[0] if attempts else None
     success_count = sum(1 for attempt in attempts if attempt.get("ok"))
     failure_count = len(attempts) - success_count
+    format_events = _llm_model_format_events(attempts)
+    format_success_count = sum(
+        1
+        for attempt in format_events
+        if (
+            attempt.get("valid_json") is not False
+            and attempt.get("schema_ok") is not False
+            and not attempt.get("malformed_kind")
+        )
+    )
+    endpoint_health = _llm_model_health_status(latest)
+    format_health = _llm_model_format_health(format_events)
+    visible_output_health = _llm_model_visible_output_health(latest)
+    reasoning_budget_health = _llm_model_reasoning_budget_health(latest)
+    workflow_health = _llm_model_workflow_health(format_events)
+    latest_failure_kind = _text((latest or {}).get("failure_kind"))
+    latest_preview = _text((latest or {}).get("response_preview_redacted"))[:240]
     return {
         "provider_id": provider_id,
         "provider_label": provider_labels.get(provider_id, provider_id),
         "model_id": model_id,
         "label": _text(getattr(model, "label", "")) or model_id,
         "enabled": True,
-        "status": _llm_model_health_status(latest),
+        "status": endpoint_health,
+        "endpoint_health": endpoint_health,
+        "format_health": format_health,
+        "visible_output_health": visible_output_health,
+        "reasoning_budget_health": reasoning_budget_health,
+        "workflow_health": workflow_health,
         "attempt_count": len(attempts),
         "success_count": success_count,
         "failure_count": failure_count,
+        "format_attempt_count": len(format_events),
+        "format_success_count": format_success_count,
         "consecutive_failures": _consecutive_llm_health_failures(attempts),
         "success_rate": round(success_count / len(attempts), 3) if attempts else 0.0,
+        "format_success_rate": round(format_success_count / len(format_events), 3)
+        if format_events
+        else 0.0,
+        "empty_visible_output_count": sum(
+            1
+            for attempt in attempts
+            if attempt.get("ok") and int(attempt.get("visible_chars") or 0) <= 0
+        ),
+        "length_finish_count": sum(
+            1
+            for attempt in attempts
+            if _text(attempt.get("finish_reason")).lower() == "length"
+        ),
+        "rate_limited_count": sum(
+            1 for attempt in attempts if attempt.get("failure_kind") == "rate_limited"
+        ),
+        "timeout_count": sum(
+            1 for attempt in attempts if attempt.get("failure_kind") == "timeout"
+        ),
         "latest": latest,
         "latest_checked_at": _text((latest or {}).get("checked_at")),
-        "latest_failure_kind": _text((latest or {}).get("failure_kind")),
+        "latest_failure_kind": latest_failure_kind,
         "latest_latency_ms": int((latest or {}).get("latency_ms") or 0),
         "latest_status_code": int((latest or {}).get("status_code") or 0),
+        "latest_finish_reason": _text((latest or {}).get("finish_reason")),
+        "latest_visible_chars": int((latest or {}).get("visible_chars") or 0),
+        "latest_preview": latest_preview,
+        "latest_prompt_contract": _text((latest or {}).get("prompt_contract")),
+        "latest_workflow_id": _text((latest or {}).get("workflow_id")),
+        "latest_malformed_kind": _text((latest or {}).get("malformed_kind")),
+        "operator_action": _llm_model_operator_action(
+            endpoint_health=endpoint_health,
+            format_health=format_health,
+            visible_output_health=visible_output_health,
+            reasoning_budget_health=reasoning_budget_health,
+            latest_failure_kind=latest_failure_kind,
+        ),
     }
 
 
@@ -4663,12 +4819,29 @@ def llm_model_health_summary(
                 events_by_model=events_by_model,
             )
         )
-    unhealthy_count = sum(1 for row in models if row["status"] != "healthy")
+    unhealthy_count = sum(1 for row in models if row["endpoint_health"] != "healthy")
+    structurally_unhealthy_count = sum(
+        1
+        for row in models
+        if row["format_health"] == "degraded"
+        or row["visible_output_health"] == "empty"
+        or row["reasoning_budget_health"] == "length_limited"
+    )
     return {
-        "ok": unhealthy_count == 0,
-        "status": "healthy" if unhealthy_count == 0 else "needs_attention",
+        "ok": unhealthy_count == 0 and structurally_unhealthy_count == 0,
+        "status": "healthy"
+        if unhealthy_count == 0 and structurally_unhealthy_count == 0
+        else "needs_attention",
         "model_count": len(models),
         "unhealthy_count": unhealthy_count,
+        "structurally_unhealthy_count": structurally_unhealthy_count,
+        "taxonomy": {
+            "endpoint_health": "provider/model can return a response",
+            "format_health": "model output satisfies measured structured-output contracts",
+            "workflow_health": "model satisfies measured workflow-specific prompt contracts",
+            "visible_output_health": "model returns non-empty visible content",
+            "reasoning_budget_health": "model does not exhaust output budget before visible content",
+        },
         "models": models,
     }
 

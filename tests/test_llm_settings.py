@@ -447,6 +447,108 @@ def test_llm_settings_model_test_records_scrubbed_health_event(
         assert "or-secret-value" not in str(payload)
 
 
+def test_llm_settings_model_test_records_visible_output_health(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, *_args: object) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":""},"finish_reason":"length"}],'
+                b'"usage":{"prompt_tokens":5,"completion_tokens":12,'
+                b'"completion_tokens_details":{"reasoning_tokens":12}}}'
+            )
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> int:
+            self.events.append(
+                {
+                    "event_id": len(self.events) + 1,
+                    "created_at": "2026-06-02T10:00:00Z",
+                    **kwargs,
+                }
+            )
+            return len(self.events)
+
+        def event_page(self, **_kwargs: object):
+            return self.events, None, False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        store = FakeStore()
+        client = _client(config, monkeypatch=monkeypatch, store=store)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        settings.models.append(
+            LLMModelSettings(
+                model_id="owl/strict-json",
+                provider_id="openrouter",
+                label="Owl Strict JSON",
+                enabled=True,
+                weight=90,
+            )
+        )
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            lambda _req, timeout: FakeResponse(),
+        )
+
+        response = client.post(
+            "/control/api/settings/llm/test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={
+                "provider_id": "openrouter",
+                "model_id": "owl/strict-json",
+                "source": "manual",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["visible_chars"] == 0
+        assert body["finish_reason"] == "length"
+        assert body["reasoning_tokens"] == 12
+        assert store.events
+        payload = store.events[0]["payload"]
+        assert payload["visible_chars"] == 0
+        assert payload["finish_reason"] == "length"
+        assert payload["input_tokens"] == 5
+        assert payload["output_tokens"] == 12
+        assert payload["reasoning_tokens"] == 12
+        health = client.get(
+            "/control/api/v1/observability/llm-models",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+        assert health.status_code == 200
+        rows = {row["model_id"]: row for row in health.json()["models"]}
+        owl = rows["owl/strict-json"]
+        assert owl["endpoint_health"] == "healthy"
+        assert owl["visible_output_health"] == "empty"
+        assert owl["reasoning_budget_health"] == "length_limited"
+        assert health.json()["structurally_unhealthy_count"] == 1
+
+
 def test_llm_model_health_summary_marks_recent_failures_and_stale_models() -> None:
     from enoch_control_plane.control_plane.read_models import llm_model_health_summary
 
@@ -522,6 +624,116 @@ def test_llm_model_health_summary_marks_recent_failures_and_stale_models() -> No
     assert rows["hf:gone"]["latest_failure_kind"] == "model_not_found"
     assert rows["hf:stale"]["status"] == "stale"
     assert rows["hf:stale"]["latest"] is None
+
+
+def test_llm_model_health_summary_distinguishes_endpoint_and_format_health() -> None:
+    from enoch_control_plane.control_plane.read_models import llm_model_health_summary
+
+    settings = default_llm_settings()
+    synthetic = next(
+        provider
+        for provider in settings.providers
+        if provider.provider_id == "synthetic"
+    )
+    synthetic.enabled = True
+    settings.models = [
+        LLMModelSettings(
+            model_id="hf:empty",
+            provider_id="synthetic",
+            label="Empty Output",
+            enabled=True,
+        ),
+        LLMModelSettings(
+            model_id="hf:bad-json",
+            provider_id="synthetic",
+            label="Bad JSON",
+            enabled=True,
+        ),
+        LLMModelSettings(
+            model_id="hf:ok",
+            provider_id="synthetic",
+            label="OK",
+            enabled=True,
+        ),
+    ]
+
+    class FakeStore:
+        def event_page(self, **_kwargs):
+            return (
+                [
+                    {
+                        "event_id": 4,
+                        "created_at": "2026-06-02T10:02:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:ok",
+                            "ok": True,
+                            "status_code": 200,
+                            "latency_ms": 65,
+                            "checked_at": "2026-06-02T10:02:00Z",
+                            "source": "format_probe",
+                            "prompt_contract": "strict_json",
+                            "valid_json": True,
+                            "schema_ok": True,
+                            "finish_reason": "stop",
+                            "visible_chars": 42,
+                        },
+                    },
+                    {
+                        "event_id": 3,
+                        "created_at": "2026-06-02T10:01:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:bad-json",
+                            "ok": True,
+                            "status_code": 200,
+                            "latency_ms": 70,
+                            "checked_at": "2026-06-02T10:01:00Z",
+                            "source": "format_probe",
+                            "prompt_contract": "strict_json",
+                            "valid_json": False,
+                            "schema_ok": False,
+                            "malformed_kind": "invalid_json",
+                            "visible_chars": 12,
+                            "response_preview_redacted": "{not json",
+                        },
+                    },
+                    {
+                        "event_id": 2,
+                        "created_at": "2026-06-02T10:00:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:empty",
+                            "ok": True,
+                            "status_code": 200,
+                            "latency_ms": 80,
+                            "checked_at": "2026-06-02T10:00:00Z",
+                            "finish_reason": "length",
+                            "visible_chars": 0,
+                            "reasoning_tokens": 12,
+                        },
+                    },
+                ],
+                None,
+                False,
+            )
+
+    summary = llm_model_health_summary(FakeStore(), settings)
+
+    rows = {row["model_id"]: row for row in summary["models"]}
+    assert summary["ok"] is False
+    assert summary["unhealthy_count"] == 0
+    assert summary["structurally_unhealthy_count"] == 2
+    assert rows["hf:empty"]["endpoint_health"] == "healthy"
+    assert rows["hf:empty"]["visible_output_health"] == "empty"
+    assert rows["hf:empty"]["reasoning_budget_health"] == "length_limited"
+    assert "increase output budget" in rows["hf:empty"]["operator_action"]
+    assert rows["hf:bad-json"]["endpoint_health"] == "healthy"
+    assert rows["hf:bad-json"]["format_health"] == "degraded"
+    assert rows["hf:bad-json"]["format_success_rate"] == 0.0
+    assert rows["hf:bad-json"]["latest_preview"] == "{not json"
+    assert rows["hf:ok"]["format_health"] == "healthy"
+    assert rows["hf:ok"]["workflow_health"] == "unmeasured"
 
 
 def test_research_provider_selection_uses_persisted_settings() -> None:

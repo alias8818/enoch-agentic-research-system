@@ -161,7 +161,7 @@ export const ROUTE_AUDIT: ReadonlyArray<{ hash: string; surface: RouteSurface; n
   { hash: '#research', surface: 'list', note: 'Candidate generation and promotion workbench' },
   { hash: '#intake', surface: 'list', note: 'Idea intake workbench' },
   { hash: '#automation', surface: 'list', note: 'Paper action automation rows' },
-  { hash: '#observability', surface: 'debug', note: 'Route/memory debug health' },
+  { hash: '#observability', surface: 'debug', note: 'Model, route, and memory health' },
   { hash: '#settings', surface: 'debug', note: 'Provider, model, and feature-flag configuration' },
   { hash: '#project:…', surface: 'detail', note: 'Structured project detail page' },
   { hash: '#run:…', surface: 'detail', note: 'Structured run detail page' },

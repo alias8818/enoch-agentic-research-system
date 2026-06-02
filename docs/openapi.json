@@ -5413,6 +5413,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "Worker preflight requires configured worker_wake_gate_url"
           }
         },
         "summary": "Dashboard Preflight",
@@ -7039,6 +7042,244 @@
         ]
       }
     },
+    "/control/api/settings/llm": {
+      "get": {
+        "operationId": "dashboard_llm_settings_control_api_settings_llm_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard Llm Settings Control Api Settings Llm Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dashboard Llm Settings",
+        "tags": [
+          "control-plane"
+        ]
+      },
+      "post": {
+        "operationId": "dashboard_update_llm_settings_control_api_settings_llm_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard Update Llm Settings Control Api Settings Llm Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Invalid LLM provider, model, workflow, or secret payload"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "description": "Mutating action requires a writable control-plane store; supabase_readonly is read-only"
+          }
+        },
+        "summary": "Dashboard Update Llm Settings",
+        "tags": [
+          "control-plane"
+        ]
+      }
+    },
+    "/control/api/settings/llm/health": {
+      "get": {
+        "operationId": "dashboard_llm_model_health_control_api_settings_llm_health_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard Llm Model Health Control Api Settings Llm Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dashboard Llm Model Health",
+        "tags": [
+          "control-plane"
+        ]
+      }
+    },
+    "/control/api/settings/llm/test": {
+      "post": {
+        "operationId": "dashboard_test_llm_settings_control_api_settings_llm_test_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard Test Llm Settings Control Api Settings Llm Test Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "description": "Invalid LLM provider/model test request"
+          },
+          "404": {
+            "description": "Unknown LLM provider or model"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dashboard Test Llm Settings",
+        "tags": [
+          "control-plane"
+        ]
+      }
+    },
     "/control/api/status": {
       "get": {
         "operationId": "dashboard_status_control_api_status_get",
@@ -7453,6 +7694,57 @@
         ]
       }
     },
+    "/control/api/v1/observability/llm-models": {
+      "get": {
+        "operationId": "dashboard_v1_observability_llm_models_control_api_v1_observability_llm_models_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Dashboard V1 Observability Llm Models Control Api V1 Observability Llm Models Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dashboard V1 Observability Llm Models",
+        "tags": [
+          "control-plane"
+        ]
+      }
+    },
     "/control/api/v1/observability/memory": {
       "get": {
         "operationId": "dashboard_v1_observability_memory_control_api_v1_observability_memory_get",
@@ -7499,6 +7791,57 @@
           }
         },
         "summary": "Dashboard V1 Observability Memory",
+        "tags": [
+          "control-plane"
+        ]
+      }
+    },
+    "/control/api/v1/observability/sentry-smoke": {
+      "post": {
+        "operationId": "sentry_smoke_control_api_v1_observability_sentry_smoke_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Sentry Smoke Control Api V1 Observability Sentry Smoke Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sentry Smoke",
         "tags": [
           "control-plane"
         ]

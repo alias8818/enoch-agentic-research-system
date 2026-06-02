@@ -51,7 +51,7 @@ The code contract lives in `dashboard/src/routePolicy.ts` as `DASHBOARD_LIFECYCL
 
 `#papers` owns the paper lifecycle. `#corpus` and `#automation` stay as compatibility hashes, but they are Papers subworkflows. The visible nav should keep Papers as the main route and expose paper workflow tabs inside that surface.
 
-`#observability` is the destination for model and provider health from ALI-104. It should summarize health, format adherence, latency, error class, and recent degradation before exposing raw event payloads.
+`#observability` is the destination for model and provider health from ALI-104. It should summarize health, format adherence, latency, error class, and recent degradation before exposing raw event payloads. The active telemetry vocabulary and endpoint contract live in [`llm-model-observability.md`](llm-model-observability.md).
 
 `#events` proves changes and alert evidence. It is not the first place an operator should go to decide whether automation can be left running.
 
@@ -68,6 +68,6 @@ The code contract lives in `dashboard/src/routePolicy.ts` as `DASHBOARD_LIFECYCL
 
 ## Next slices
 
-1. ALI-104: add deterministic model/provider observability under the Models and Observability owner instead of another unrelated dashboard page.
+1. ALI-104: continue expanding deterministic model/provider observability under the Models and Observability owner instead of another unrelated dashboard page.
 2. ALI-105/ALI-108: reduce duplicate Work Queue surfaces by folding candidate generation and idea intake into queue-owned panels when the read models support it.
 3. Continue demoting implementation nouns from visible navigation; route names should describe operator jobs, not storage tables.

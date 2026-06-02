@@ -8,6 +8,7 @@ export type ResourceEndpoint =
   | 'intake'
   | 'observability-health'
   | 'observability-memory'
+  | 'observability-llm'
 
 export type EmptyStateKind = 'idle' | 'filtered' | 'blocked'
 
@@ -136,6 +137,16 @@ export function deriveResourceErrorCopy(endpoint: ResourceEndpoint, error: unkno
       title: 'Route observability sample could not load',
       summary: 'The health read model failed before route logging status could render.',
       dispatchImpact: 'Debug visibility only — dispatch, research, and paper lanes are unaffected.',
+      ...base,
+    }
+  }
+
+  if (endpoint === 'observability-llm') {
+    return {
+      eyebrow: 'Model observability',
+      title: 'Model observability could not load',
+      summary: 'The bounded model health read model failed before provider and format posture could render.',
+      dispatchImpact: 'Model health visibility is unavailable; dispatch and lane controls are not directly blocked by this read-model failure.',
       ...base,
     }
   }

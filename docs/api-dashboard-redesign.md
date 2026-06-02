@@ -48,6 +48,7 @@ Add a bounded, versioned dashboard read API:
 /control/api/v1/events?page_size=&cursor=&entity_id=&event_type=&search=
 /control/api/v1/observability/memory
 /control/api/v1/observability/health
+/control/api/v1/observability/llm-models
 ```
 
 Rules:
