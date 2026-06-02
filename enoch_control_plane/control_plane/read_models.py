@@ -4696,7 +4696,9 @@ def _llm_model_operator_action(
     latest_failure_kind: str,
 ) -> str:
     if endpoint_health == "stale":
-        return "run a bounded model health check before trusting this model for automation"
+        return (
+            "run a bounded model health check before trusting this model for automation"
+        )
     if endpoint_health == "unhealthy":
         return f"fix provider endpoint health ({latest_failure_kind or 'unavailable'}) before using this model"
     if visible_output_health == "empty":

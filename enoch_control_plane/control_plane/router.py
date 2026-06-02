@@ -7207,7 +7207,8 @@ def _llm_provider_success_result(
         "latency_ms": int((time.monotonic() - started) * 1000),
         "finish_reason": _llm_test_finish_reason(data),
         "visible_chars": len(visible_text),
-        "response_preview": visible_text[:240] or str(data.get("raw_preview") or "")[:240],
+        "response_preview": visible_text[:240]
+        or str(data.get("raw_preview") or "")[:240],
         **usage,
     }
 
