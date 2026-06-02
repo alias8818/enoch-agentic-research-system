@@ -1246,6 +1246,7 @@ def test_queue_alert_findings_ignores_provider_recovery_grace_when_latest_tick_y
 ) -> None:
     report_path = tmp_path / "research-quality.json"
     report_path.write_text("{}", encoding="utf-8")
+    fresh_report_mtime = datetime.now(timezone.utc).isoformat()
     monkeypatch.setattr(
         alerts,
         "load_latest_quality_status",
@@ -1255,7 +1256,7 @@ def test_queue_alert_findings_ignores_provider_recovery_grace_when_latest_tick_y
             "label": "Research quality: clean",
             "severity_counts": {},
             "problem_counts": {},
-            "report_mtime": "2026-05-31T14:43:17Z",
+            "report_mtime": fresh_report_mtime,
             "report_path": str(report_path),
             "post_prompt_monitor": {
                 "malformed_provider_response_count": 16,
