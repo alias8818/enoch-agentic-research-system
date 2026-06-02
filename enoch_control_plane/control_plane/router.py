@@ -3861,6 +3861,15 @@ def _execute_provider_generation_attempt(
             default_sandbox=os.environ.get(
                 "ENOCH_RESEARCH_DEFAULT_SANDBOX", "danger-full-access"
             ),
+            response_format_type=os.environ.get(
+                "ENOCH_RESEARCH_PROVIDER_RESPONSE_FORMAT", "json_object"
+            ),
+            reasoning_effort=os.environ.get(
+                "ENOCH_RESEARCH_PROVIDER_REASONING_EFFORT", ""
+            ),
+            reasoning_exclude=_truthy_flag(
+                os.environ.get("ENOCH_RESEARCH_PROVIDER_REASONING_EXCLUDE", "")
+            ),
         )
     except Exception as exc:
         return _apply_provider_generation_failure(
@@ -7120,6 +7129,24 @@ def _llm_prompt_contract(value: Any) -> str:
     return contract
 
 
+def _llm_structured_output_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower().replace("-", "_")
+    if mode in {"", "prompt_only", "none"}:
+        return ""
+    if mode == "json_schema":
+        return mode
+    raise HTTPException(status_code=400, detail="unknown LLM structured_output_mode")
+
+
+def _llm_reasoning_effort(value: Any) -> str:
+    effort = str(value or "").strip().lower()
+    if not effort:
+        return ""
+    if effort in {"low", "medium", "high"}:
+        return effort
+    raise HTTPException(status_code=400, detail="unknown LLM reasoning_effort")
+
+
 def _llm_format_probe_prompt(contract: str) -> str:
     if contract == "strict_json":
         return 'Return only this compact JSON object, no markdown: {"ok":true,"items":[1,2]}'
@@ -7136,6 +7163,51 @@ def _llm_format_probe_prompt(contract: str) -> str:
 
 def _llm_format_probe_max_tokens(contract: str) -> int:
     return _LLM_FORMAT_PROBE_MAX_TOKENS.get(contract, 128)
+
+
+def _llm_probe_json_schema(contract: str) -> dict[str, Any]:
+    if contract == "candidate_json":
+        return {
+            "type": "object",
+            "properties": {
+                "candidates": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "rationale": {"type": "string"},
+                        },
+                        "required": ["title", "rationale"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["candidates"],
+            "additionalProperties": False,
+        }
+    return {
+        "type": "object",
+        "properties": {
+            "ok": {"type": "boolean"},
+            "items": {
+                "type": "array",
+                "prefixItems": [{"type": "integer"}, {"type": "integer"}],
+                "minItems": 2,
+                "maxItems": 2,
+            },
+        },
+        "required": ["ok", "items"],
+        "additionalProperties": False,
+    }
+
+
+def _llm_probe_schema_name(contract: str) -> str:
+    if contract == "candidate_json":
+        return "enoch_candidate_probe"
+    return f"enoch_{contract}_probe"
 
 
 def _llm_json_loads(text: str) -> Any:
@@ -7171,12 +7243,17 @@ def _schema_ok_for_llm_contract(contract: str, parsed: Any, text: str) -> bool:
             and parsed.get("items") == [1, 2]
             and (contract != "markdown_fenced_json" or text.lstrip().startswith("# "))
         )
+    candidates = (
+        parsed.get("candidates")
+        if isinstance(parsed, dict)
+        else parsed
+    )
     return (
-        isinstance(parsed, list)
-        and len(parsed) >= 1
-        and isinstance(parsed[0], dict)
-        and bool(str(parsed[0].get("title") or "").strip())
-        and bool(str(parsed[0].get("rationale") or "").strip())
+        isinstance(candidates, list)
+        and len(candidates) >= 1
+        and isinstance(candidates[0], dict)
+        and bool(str(candidates[0].get("title") or "").strip())
+        and bool(str(candidates[0].get("rationale") or "").strip())
     )
 
 
@@ -7254,6 +7331,10 @@ def _record_llm_model_test_event(
         "schema_ok",
         "malformed_kind",
         "sanitized_or_refusal_detected",
+        "structured_output_mode",
+        "response_format_type",
+        "reasoning_effort",
+        "reasoning_excluded",
     ):
         if key in result:
             payload[key] = result.get(key)
@@ -7271,19 +7352,43 @@ def _record_llm_model_test_event(
     return str(event_id or "")
 
 
-def _llm_model_payload(model_id: str, *, prompt_contract: str = "") -> dict[str, Any]:
+def _llm_model_payload(
+    model_id: str,
+    *,
+    prompt_contract: str = "",
+    structured_output_mode: str = "",
+    reasoning_effort: str = "",
+    reasoning_exclude: bool = False,
+) -> dict[str, Any]:
     prompt = (
         _llm_format_probe_prompt(prompt_contract)
         if prompt_contract
         else "Reply with exactly: ok"
     )
     max_tokens = _llm_format_probe_max_tokens(prompt_contract) if prompt_contract else 12
-    return {
+    payload: dict[str, Any] = {
         "model": model_id,
         "max_tokens": max_tokens,
         "temperature": 0,
         "messages": [{"role": "user", "content": prompt}],
     }
+    if prompt_contract and structured_output_mode == "json_schema":
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": _llm_probe_schema_name(prompt_contract),
+                "strict": True,
+                "schema": _llm_probe_json_schema(prompt_contract),
+            },
+        }
+    if reasoning_effort or reasoning_exclude:
+        reasoning: dict[str, Any] = {}
+        if reasoning_effort:
+            reasoning["effort"] = reasoning_effort
+        if reasoning_exclude:
+            reasoning["exclude"] = True
+        payload["reasoning"] = reasoning
+    return payload
 
 
 def _llm_provider_test_request(
@@ -7292,6 +7397,9 @@ def _llm_provider_test_request(
     model: Any | None,
     *,
     prompt_contract: str = "",
+    structured_output_mode: str = "",
+    reasoning_effort: str = "",
+    reasoning_exclude: bool = False,
 ) -> urllib.request.Request:
     headers = _llm_provider_auth_headers(config, provider)
     base_url = provider.base_url.rstrip("/")
@@ -7313,7 +7421,13 @@ def _llm_provider_test_request(
     return urllib.request.Request(
         f"{base_url}{path}",
         data=json.dumps(
-            _llm_model_payload(model.model_id, prompt_contract=prompt_contract)
+            _llm_model_payload(
+                model.model_id,
+                prompt_contract=prompt_contract,
+                structured_output_mode=structured_output_mode,
+                reasoning_effort=reasoning_effort,
+                reasoning_exclude=reasoning_exclude,
+            )
         ).encode("utf-8"),
         method="POST",
         headers=headers,
@@ -7328,6 +7442,9 @@ def _llm_provider_success_result(
     started: float,
     data: dict[str, Any],
     prompt_contract: str = "",
+    structured_output_mode: str = "",
+    reasoning_effort: str = "",
+    reasoning_exclude: bool = False,
 ) -> dict[str, Any]:
     visible_text = _llm_test_visible_text(data)
     usage = _llm_test_usage(data)
@@ -7348,6 +7465,13 @@ def _llm_provider_success_result(
         **usage,
     }
     if prompt_contract:
+        if structured_output_mode:
+            result["structured_output_mode"] = structured_output_mode
+            result["response_format_type"] = structured_output_mode
+        if reasoning_effort:
+            result["reasoning_effort"] = reasoning_effort
+        if reasoning_exclude:
+            result["reasoning_excluded"] = True
         result.update(
             _evaluate_llm_format_probe(
                 prompt_contract,
@@ -7398,6 +7522,9 @@ def _run_llm_provider_test(
     provider_id: str,
     model_id: str,
     prompt_contract: str = "",
+    structured_output_mode: str = "",
+    reasoning_effort: str = "",
+    reasoning_exclude: bool = False,
 ) -> dict[str, Any]:
     provider = _llm_provider_by_id(settings, provider_id)
     model = _llm_model_by_id(settings, model_id) if model_id else None
@@ -7405,7 +7532,13 @@ def _run_llm_provider_test(
     started = time.monotonic()
     try:
         req = _llm_provider_test_request(
-            config, provider, model, prompt_contract=prompt_contract
+            config,
+            provider,
+            model,
+            prompt_contract=prompt_contract,
+            structured_output_mode=structured_output_mode,
+            reasoning_effort=reasoning_effort,
+            reasoning_exclude=reasoning_exclude,
         )
         with urllib.request.urlopen(req, timeout=20) as response:  # noqa: S310 - operator-configured provider URL
             body = response.read(32768).decode("utf-8", errors="replace")
@@ -7420,6 +7553,9 @@ def _run_llm_provider_test(
                 started=started,
                 data=data,
                 prompt_contract=prompt_contract,
+                structured_output_mode=structured_output_mode,
+                reasoning_effort=reasoning_effort,
+                reasoning_exclude=reasoning_exclude,
             )
     except urllib.error.HTTPError as exc:
         detail = exc.read(2048).decode("utf-8", errors="replace")
@@ -7577,20 +7713,37 @@ def _dashboard_update_llm_settings_response(
 
 def _llm_test_request_fields(
     payload: Mapping[str, Any],
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, bool]:
     provider_id = str(payload.get("provider_id") or "").strip()
     model_id = str(payload.get("model_id") or "").strip()
     source = str(payload.get("source") or "manual").strip().lower()
     prompt_contract = _llm_prompt_contract(
         payload.get("prompt_contract") or payload.get("probe_contract")
     )
+    structured_output_mode = _llm_structured_output_mode(
+        payload.get("structured_output_mode") or payload.get("response_format_type")
+    )
+    reasoning_effort = _llm_reasoning_effort(payload.get("reasoning_effort"))
+    reasoning_exclude = _truthy_flag(payload.get("reasoning_exclude"))
     if source not in {"manual", "autopilot", "scheduled"}:
         raise HTTPException(status_code=400, detail="invalid LLM test source")
     if not provider_id:
         raise HTTPException(status_code=400, detail="provider_id is required")
     if prompt_contract and not model_id:
         raise HTTPException(status_code=400, detail="prompt_contract requires model_id")
-    return provider_id, model_id, source, prompt_contract
+    if structured_output_mode and not prompt_contract:
+        raise HTTPException(
+            status_code=400, detail="structured_output_mode requires prompt_contract"
+        )
+    return (
+        provider_id,
+        model_id,
+        source,
+        prompt_contract,
+        structured_output_mode,
+        reasoning_effort,
+        reasoning_exclude,
+    )
 
 
 def _dashboard_test_llm_settings_response(
@@ -7598,9 +7751,15 @@ def _dashboard_test_llm_settings_response(
     store: Any,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    provider_id, model_id, source, prompt_contract = _llm_test_request_fields(
-        payload or {}
-    )
+    (
+        provider_id,
+        model_id,
+        source,
+        prompt_contract,
+        structured_output_mode,
+        reasoning_effort,
+        reasoning_exclude,
+    ) = _llm_test_request_fields(payload or {})
     settings = read_llm_settings(config)
     result = _run_llm_provider_test(
         config,
@@ -7608,6 +7767,9 @@ def _dashboard_test_llm_settings_response(
         provider_id=provider_id,
         model_id=model_id,
         prompt_contract=prompt_contract,
+        structured_output_mode=structured_output_mode,
+        reasoning_effort=reasoning_effort,
+        reasoning_exclude=reasoning_exclude,
     )
     provider = _llm_provider_by_id(settings, provider_id)
     model = _llm_model_by_id(settings, model_id) if model_id else None

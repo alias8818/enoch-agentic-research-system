@@ -17285,6 +17285,75 @@ def test_provider_generation_records_success_attempt_event():
     assert payload["planned_count"] == 1
 
 
+def test_provider_generation_passes_strict_schema_env_options(monkeypatch):
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+
+    class _Plan:
+        admission_decision = "admitted"
+
+        def to_json(self) -> dict[str, str]:
+            return {"candidate_id": "candidate-1"}
+
+    class _Store:
+        def append_event(self, **_kwargs: object) -> None:
+            return None
+
+        def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
+            return {"inserted": 1}
+
+    seen: dict[str, object] = {}
+
+    def fake_generate(**kwargs):
+        seen.update(kwargs)
+        return {
+            "provider_response_id": "resp-schema",
+            "attempts_used": 1,
+            "candidates": [{"title": "candidate"}],
+        }
+
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_RESPONSE_FORMAT", "json_schema")
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_REASONING_EFFORT", "low")
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_REASONING_EXCLUDE", "true")
+
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={
+            "machine_target": "gb10",
+            "lane_key": "http://gb10-worker:8787",
+            "worker_role": "gpu",
+        },
+        provider_openai_base_url="https://openrouter.ai/api/v1",
+        provider_model="deepseek/deepseek-v4-pro",
+        max_candidates=1,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=fake_generate
+        ),
+        research_facility=SimpleNamespace(plan_candidates=lambda *_args: [_Plan()]),
+        store=_Store(),
+        requested_by="pytest",
+        provider_id="openrouter",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert response["provider_generation_attempt"]["status"] == "success"
+    assert seen["response_format_type"] == "json_schema"
+    assert seen["reasoning_effort"] == "low"
+    assert seen["reasoning_exclude"] is True
+
+
 def test_lane_feed_limited_promotion_candidates_do_not_overfill_satisfied_gpu_lane():
     from enoch_control_plane.control_plane.router import (
         _lane_feed_limited_promotion_candidates,

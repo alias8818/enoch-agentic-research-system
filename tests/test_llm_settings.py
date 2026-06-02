@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import urllib.error
 from pathlib import Path
@@ -735,6 +736,114 @@ def test_llm_settings_candidate_json_probe_uses_structured_output_budget(
         assert payload["valid_json"] is True
         assert payload["schema_ok"] is True
         assert payload["malformed_kind"] == ""
+
+
+def test_llm_settings_openrouter_candidate_schema_probe_records_structured_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, *_args: object) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":"{\\"candidates\\":'
+                b'[{\\\"title\\\":\\\"Probe\\\",\\\"rationale\\\":\\\"Schema\\\"}]}"},'
+                b'"finish_reason":"stop"}]}'
+            )
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> int:
+            self.events.append(kwargs)
+            return len(self.events)
+
+        def event_page(self, **_kwargs: object):
+            return self.events, None, False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        store = FakeStore()
+        client = _client(config, monkeypatch=monkeypatch, store=store)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        settings.models.append(
+            LLMModelSettings(
+                model_id="deepseek/deepseek-v4-pro",
+                provider_id="openrouter",
+                label="DeepSeek V4 Pro",
+                enabled=True,
+                weight=90,
+            )
+        )
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+        seen: dict[str, object] = {}
+
+        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+            seen["body"] = req.data.decode("utf-8")
+            seen["timeout"] = timeout
+            return FakeResponse()
+
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            fake_urlopen,
+        )
+
+        response = client.post(
+            "/control/api/settings/llm/test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={
+                "provider_id": "openrouter",
+                "model_id": "deepseek/deepseek-v4-pro",
+                "source": "manual",
+                "prompt_contract": "candidate_json",
+                "structured_output_mode": "json_schema",
+                "reasoning_effort": "low",
+                "reasoning_exclude": True,
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["prompt_contract"] == "candidate_json"
+        assert body["max_tokens"] == 1024
+        assert body["valid_json"] is True
+        assert body["schema_ok"] is True
+        assert body["structured_output_mode"] == "json_schema"
+        assert body["response_format_type"] == "json_schema"
+        assert body["reasoning_effort"] == "low"
+        assert body["reasoning_excluded"] is True
+
+        request_payload = json.loads(str(seen["body"]))
+        assert request_payload["response_format"]["type"] == "json_schema"
+        schema = request_payload["response_format"]["json_schema"]
+        assert schema["name"] == "enoch_candidate_probe"
+        assert schema["strict"] is True
+        assert schema["schema"]["required"] == ["candidates"]
+        assert request_payload["reasoning"] == {"effort": "low", "exclude": True}
+
+        event_payload = store.events[0]["payload"]
+        assert event_payload["source"] == "format_probe"
+        assert event_payload["structured_output_mode"] == "json_schema"
+        assert event_payload["response_format_type"] == "json_schema"
+        assert event_payload["reasoning_effort"] == "low"
+        assert event_payload["reasoning_excluded"] is True
 
 
 def test_llm_settings_format_probe_records_malformed_output(

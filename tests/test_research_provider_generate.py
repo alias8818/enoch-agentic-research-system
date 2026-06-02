@@ -188,6 +188,52 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
     assert "Pure simulations" in prompt
 
 
+def test_provider_generate_can_request_strict_json_schema_response_format() -> None:
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps(_provider_payload()).encode("utf-8")
+
+    with patch(
+        "scripts.research_provider_generate.urllib.request.urlopen",
+        return_value=FakeResponse(),
+    ) as urlopen:
+        result = research_provider_generate.generate_provider_candidates(
+            base_url="https://openrouter.ai/api/v1",
+            model="deepseek/deepseek-v4-pro",
+            api_key="or-secret",
+            max_candidates=1,
+            topic="quantization",
+            temperature=0.7,
+            seed="seed-json-schema",
+            response_format_type="json_schema",
+            reasoning_effort="low",
+            reasoning_exclude=True,
+        )
+
+    assert result["ok"] is True
+    request = urlopen.call_args.args[0]
+    payload = json.loads(request.data.decode("utf-8"))
+    assert payload["response_format"]["type"] == "json_schema"
+    schema = payload["response_format"]["json_schema"]
+    assert schema["name"] == "enoch_research_candidates"
+    assert schema["strict"] is True
+    assert schema["schema"]["required"] == ["candidates"]
+    assert schema["schema"]["properties"]["candidates"]["maxItems"] == 1
+    assert (
+        schema["schema"]["properties"]["candidates"]["items"][
+            "additionalProperties"
+        ]
+        is False
+    )
+    assert payload["reasoning"] == {"effort": "low", "exclude": True}
+
+
 def test_provider_generate_omits_authorization_for_proxy_default_even_with_key() -> (
     None
 ):

@@ -73,6 +73,108 @@ def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _research_candidates_json_schema(max_candidates: int) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "candidates": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": max_candidates,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "generation_mode": {"type": "string"},
+                        "category": {"type": "string"},
+                        "priority": {"type": "string"},
+                        "hypothesis": {"type": "string"},
+                        "mechanism": {"type": "string"},
+                        "description": {"type": "string"},
+                        "implementation": {"type": "string"},
+                        "baseline_to_beat": {"type": "string"},
+                        "success_threshold": {"type": "string"},
+                        "kill_condition": {"type": "string"},
+                        "accessibility_delta": {"type": "string"},
+                        "expected_artifacts": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "required_evidence": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "likely_failure_modes": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "estimated_runtime_class": {"type": "string"},
+                        "expected_token_budget": {"type": "string"},
+                        "machine_target": {"type": "string"},
+                        "model": {"type": "string"},
+                        "sandbox": {"type": "string"},
+                        "novelty_score": {"type": "number"},
+                        "feasibility_score": {"type": "number"},
+                        "accessibility_score": {"type": "number"},
+                        "falsifiability_score": {"type": "number"},
+                        "novelty_comparison": {"type": "string"},
+                        "risk_notes": {"type": "string"},
+                    },
+                    "required": [
+                        "title",
+                        "generation_mode",
+                        "category",
+                        "priority",
+                        "hypothesis",
+                        "mechanism",
+                        "description",
+                        "implementation",
+                        "baseline_to_beat",
+                        "success_threshold",
+                        "kill_condition",
+                        "accessibility_delta",
+                        "expected_artifacts",
+                        "required_evidence",
+                        "likely_failure_modes",
+                        "estimated_runtime_class",
+                        "expected_token_budget",
+                        "machine_target",
+                        "model",
+                        "sandbox",
+                        "novelty_score",
+                        "feasibility_score",
+                        "accessibility_score",
+                        "falsifiability_score",
+                        "novelty_comparison",
+                        "risk_notes",
+                    ],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["candidates"],
+        "additionalProperties": False,
+    }
+
+
+def _provider_response_format(
+    response_format_type: str, *, max_candidates: int
+) -> dict[str, Any]:
+    mode = response_format_type.strip().lower().replace("-", "_")
+    if mode in {"", "json_object"}:
+        return {"type": "json_object"}
+    if mode != "json_schema":
+        raise ValueError("response_format_type must be json_object or json_schema")
+    return {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "enoch_research_candidates",
+            "strict": True,
+            "schema": _research_candidates_json_schema(max_candidates),
+        },
+    }
+
+
 class ProviderCandidateGenerationError(ValueError):
     """Provider generation failed with bounded per-attempt diagnostics."""
 
@@ -254,6 +356,10 @@ def call_openai_compatible_chat(
     temperature: float = 0.8,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: int = 120,
+    response_format_type: str = "json_object",
+    max_candidates: int = 3,
+    reasoning_effort: str = "",
+    reasoning_exclude: bool = False,
 ) -> dict[str, Any]:
     payload = {
         "model": model,
@@ -266,8 +372,17 @@ def call_openai_compatible_chat(
         ],
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
+        "response_format": _provider_response_format(
+            response_format_type, max_candidates=max_candidates
+        ),
     }
+    if reasoning_effort or reasoning_exclude:
+        reasoning: dict[str, Any] = {}
+        if reasoning_effort:
+            reasoning["effort"] = reasoning_effort.strip().lower()
+        if reasoning_exclude:
+            reasoning["exclude"] = True
+        payload["reasoning"] = reasoning
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "EnochResearchFacility/0.1",
@@ -397,6 +512,9 @@ def generate_provider_candidates(
     default_machine: str = "gb10",
     default_model: str = "gpt-5.5",
     default_sandbox: str = "danger-full-access",
+    response_format_type: str = "json_object",
+    reasoning_effort: str = "",
+    reasoning_exclude: bool = False,
 ) -> dict[str, Any]:
     max_candidates = max(1, min(int(max_candidates), 10))
     seed = seed or utc_now()
@@ -429,6 +547,10 @@ def generate_provider_candidates(
                 temperature=temperature,
                 timeout=timeout,
                 max_tokens=max_tokens,
+                response_format_type=response_format_type,
+                max_candidates=max_candidates,
+                reasoning_effort=reasoning_effort,
+                reasoning_exclude=reasoning_exclude,
             )
             provider_payload = attempt_payload
             candidates = candidates_from_provider_response(
@@ -508,6 +630,26 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=int(os.environ.get("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", "1")),
     )
+    parser.add_argument(
+        "--response-format-type",
+        choices=("json_object", "json_schema"),
+        default=os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_RESPONSE_FORMAT", "json_object"
+        ),
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=("", "low", "medium", "high"),
+        default=os.environ.get("ENOCH_RESEARCH_PROVIDER_REASONING_EFFORT", ""),
+    )
+    parser.add_argument(
+        "--reasoning-exclude",
+        action="store_true",
+        default=os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_REASONING_EXCLUDE", ""
+        ).lower()
+        in {"1", "true", "yes"},
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
 
@@ -523,6 +665,9 @@ def main(argv: list[str] | None = None) -> int:
         timeout=args.timeout,
         max_tokens=args.max_tokens,
         attempts=args.attempts,
+        response_format_type=args.response_format_type,
+        reasoning_effort=args.reasoning_effort,
+        reasoning_exclude=args.reasoning_exclude,
     )
     text = json.dumps(payload, indent=2, sort_keys=True)
     if args.output:

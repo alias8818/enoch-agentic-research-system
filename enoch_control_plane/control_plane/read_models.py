@@ -4586,6 +4586,12 @@ def _llm_model_health_payload(row: Mapping[str, Any]) -> dict[str, Any]:
         ],
         "workflow_id": _text(payload.get("workflow_id")),
         "prompt_contract": _text(payload.get("prompt_contract")),
+        "structured_output_mode": _text(payload.get("structured_output_mode"))
+        or "prompt_only",
+        "response_format_type": _text(payload.get("response_format_type"))
+        or "prompt_only",
+        "reasoning_effort": _text(payload.get("reasoning_effort")),
+        "reasoning_excluded": bool(payload.get("reasoning_excluded")),
         "malformed_kind": _text(payload.get("malformed_kind")),
         "input_tokens": int(payload.get("input_tokens") or 0),
         "output_tokens": int(payload.get("output_tokens") or 0),
@@ -4770,6 +4776,10 @@ def _llm_workflow_model_recommendation(
                     "malformed_kind": "",
                     "finish_reason": "",
                     "visible_chars": 0,
+                    "structured_output_mode": "",
+                    "response_format_type": "",
+                    "reasoning_effort": "",
+                    "reasoning_excluded": False,
                 }
             )
             continue
@@ -4793,6 +4803,12 @@ def _llm_workflow_model_recommendation(
                 "finish_reason": finish_reason,
                 "visible_chars": visible_chars,
                 "checked_at": _text(event.get("checked_at")),
+                "structured_output_mode": _text(
+                    event.get("structured_output_mode")
+                ),
+                "response_format_type": _text(event.get("response_format_type")),
+                "reasoning_effort": _text(event.get("reasoning_effort")),
+                "reasoning_excluded": bool(event.get("reasoning_excluded")),
             }
         )
     if endpoint_health != "healthy":
@@ -5016,6 +5032,12 @@ def _llm_model_health_row(
         "latest_visible_chars": int((latest or {}).get("visible_chars") or 0),
         "latest_preview": latest_preview,
         "latest_prompt_contract": _text((latest or {}).get("prompt_contract")),
+        "latest_structured_output_mode": _text(
+            (latest or {}).get("structured_output_mode")
+        ),
+        "latest_response_format_type": _text((latest or {}).get("response_format_type")),
+        "latest_reasoning_effort": _text((latest or {}).get("reasoning_effort")),
+        "latest_reasoning_excluded": bool((latest or {}).get("reasoning_excluded")),
         "latest_format_checked_at": _text((latest_format or {}).get("checked_at")),
         "latest_workflow_id": _text((latest or {}).get("workflow_id")),
         "latest_malformed_kind": _text((latest or {}).get("malformed_kind")),
