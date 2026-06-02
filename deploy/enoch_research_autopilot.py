@@ -1117,6 +1117,140 @@ def _run_selected_llm_model_health_checks(
     return checked, failures
 
 
+def _llm_model_format_probe_contracts() -> list[str]:
+    raw = os.environ.get(
+        "ENOCH_LLM_MODEL_FORMAT_PROBE_CONTRACTS",
+        "strict_json,markdown_fenced_json,candidate_json",
+    )
+    contracts: list[str] = []
+    for item in raw.split(","):
+        contract = item.strip().lower().replace("-", "_")
+        if (
+            contract
+            in {
+                "strict_json",
+                "markdown_fenced_json",
+                "candidate_json",
+            }
+            and contract not in contracts
+        ):
+            contracts.append(contract)
+    return contracts
+
+
+def _llm_model_format_probe_reason(
+    health: dict | None, *, now: float, min_interval_seconds: int
+) -> str:
+    if not health:
+        return ""
+    endpoint = str(health.get("endpoint_health") or health.get("status") or "").lower()
+    if endpoint and endpoint != "healthy":
+        return ""
+    latest = _parse_health_checked_at(health.get("latest_format_checked_at"))
+    if latest > 0 and now - latest < min_interval_seconds:
+        return ""
+    format_health = str(health.get("format_health") or "").strip().lower()
+    if format_health in {"", "unmeasured"}:
+        return "stale_format_probe"
+    if format_health == "degraded":
+        malformed = str(health.get("latest_malformed_kind") or "").strip()
+        return f"degraded_format:{malformed}" if malformed else "degraded_format"
+    if latest <= 0 or now - latest >= min_interval_seconds:
+        return "stale_format_probe"
+    return ""
+
+
+def _llm_model_format_probe_candidates(
+    settings: dict, *, now: float, min_interval_seconds: int, contracts: list[str]
+) -> tuple[list[dict], int]:
+    provider_ids = _enabled_provider_ids(settings)
+    health_by_model = _health_rows_by_model(settings)
+    candidates: list[dict] = []
+    enabled_model_count = 0
+    if not contracts:
+        return candidates, enabled_model_count
+    enabled_models = (settings.get("settings") or {}).get("models") or []
+    for model in enabled_models:
+        if not isinstance(model, dict) or not bool(model.get("enabled", True)):
+            continue
+        provider_id = str(model.get("provider_id") or "").strip()
+        model_id = str(model.get("model_id") or "").strip()
+        if not provider_id or not model_id or provider_id not in provider_ids:
+            continue
+        enabled_model_count += 1
+        health = health_by_model.get((provider_id, model_id))
+        reason = _llm_model_format_probe_reason(
+            health, now=now, min_interval_seconds=min_interval_seconds
+        )
+        if not reason:
+            continue
+        latest_ts = _parse_health_checked_at(
+            (health or {}).get("latest_format_checked_at")
+        )
+        for contract_index, contract in enumerate(contracts):
+            candidates.append(
+                {
+                    "provider_id": provider_id,
+                    "model_id": model_id,
+                    "prompt_contract": contract,
+                    "contract_index": contract_index,
+                    "reason": reason,
+                    "latest_checked_ts": latest_ts,
+                }
+            )
+    return candidates, enabled_model_count
+
+
+def _llm_model_format_probe_priority(item: dict) -> tuple[int, float, str, int]:
+    reason = str(item.get("reason") or "")
+    if reason == "stale_format_probe":
+        group = 0
+    elif reason.startswith("degraded_format"):
+        group = 1
+    else:
+        group = 2
+    return (
+        group,
+        float(item.get("latest_checked_ts") or 0.0),
+        str(item.get("model_id") or ""),
+        int(item.get("contract_index") or 0),
+    )
+
+
+def _run_selected_llm_model_format_probes(
+    selected: list[dict], *, base_url: str, token: str, timeout: int
+) -> tuple[list[dict], list[dict]]:
+    checked: list[dict] = []
+    failures: list[dict] = []
+    for item in selected:
+        payload = {
+            "provider_id": item["provider_id"],
+            "model_id": item["model_id"],
+            "source": "autopilot",
+            "prompt_contract": item["prompt_contract"],
+        }
+        try:
+            checked.append(
+                _post_json(
+                    base_url,
+                    "/control/api/settings/llm/test",
+                    token,
+                    payload,
+                    timeout=timeout,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - continue bounded format sampling
+            failures.append(
+                {
+                    "provider_id": item["provider_id"],
+                    "model_id": item["model_id"],
+                    "prompt_contract": item["prompt_contract"],
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
+    return checked, failures
+
+
 def run_llm_model_health_checks(base_url: str, token: str) -> dict:
     if not base_url or not token:
         return {
@@ -1174,6 +1308,78 @@ def run_llm_model_health_checks(base_url: str, token: str) -> dict:
     }
 
 
+def run_llm_model_format_probes(base_url: str, token: str) -> dict:
+    if not base_url or not token:
+        return {
+            "ok": True,
+            "action": "llm_model_format_probes_skipped",
+            "reason": "missing control URL or token",
+        }
+    if not _truthy("ENOCH_LLM_MODEL_FORMAT_PROBES_ENABLED", "0"):
+        return {
+            "ok": True,
+            "action": "llm_model_format_probes_skipped",
+            "reason": "disabled",
+        }
+    limit = _bounded_int("ENOCH_LLM_MODEL_FORMAT_PROBE_LIMIT", 2, 0, 20)
+    if limit <= 0:
+        return {
+            "ok": True,
+            "action": "llm_model_format_probes_skipped",
+            "reason": "limit=0",
+        }
+    min_interval = _bounded_int(
+        "ENOCH_LLM_MODEL_FORMAT_PROBE_MIN_INTERVAL_SECONDS",
+        86400,
+        300,
+        604800,
+    )
+    timeout = _bounded_int("ENOCH_LLM_MODEL_FORMAT_PROBE_TIMEOUT_SECONDS", 45, 5, 180)
+    contracts = _llm_model_format_probe_contracts()
+    if not contracts:
+        return {
+            "ok": True,
+            "action": "llm_model_format_probes_skipped",
+            "reason": "no contracts configured",
+        }
+    try:
+        settings = _get_json(base_url, "/control/api/settings/llm", token, timeout=10)
+    except Exception as exc:  # noqa: BLE001 - sidecar visibility should not abort tick
+        return {
+            "ok": False,
+            "action": "llm_model_format_probes_failed",
+            "reason": f"settings lookup failed: {type(exc).__name__}: {exc}",
+        }
+    candidates, enabled_model_count = _llm_model_format_probe_candidates(
+        settings,
+        now=time.time(),
+        min_interval_seconds=min_interval,
+        contracts=contracts,
+    )
+    selected = sorted(candidates, key=_llm_model_format_probe_priority)[:limit]
+    selected_reasons = {
+        f"{item['model_id']}:{item['prompt_contract']}": str(item["reason"])
+        for item in selected
+    }
+    checked, failures = _run_selected_llm_model_format_probes(
+        selected, base_url=base_url, token=token, timeout=timeout
+    )
+    return {
+        "ok": not failures,
+        "action": "llm_model_format_probes",
+        "checked_count": len(checked),
+        "failure_count": len(failures),
+        "skipped_count": max(0, len(candidates) - len(selected)),
+        "candidate_count": len(candidates),
+        "enabled_model_count": enabled_model_count,
+        "limit": limit,
+        "contracts": contracts,
+        "selected_reasons": selected_reasons,
+        "checked": checked,
+        "failures": failures,
+    }
+
+
 def _attach_autopilot_sidecars(result: dict, base_url: str, token: str) -> None:
     history_result = append_research_autopilot_history(result)
     result["research_autopilot_history"] = history_result
@@ -1183,6 +1389,7 @@ def _attach_autopilot_sidecars(result: dict, base_url: str, token: str) -> None:
     )
     result["research_janitor_llm_review"] = run_quota_gated_janitor_llm_review()
     result["llm_model_health_checks"] = run_llm_model_health_checks(base_url, token)
+    result["llm_model_format_probes"] = run_llm_model_format_probes(base_url, token)
 
 
 def _finalize_autopilot_tick(

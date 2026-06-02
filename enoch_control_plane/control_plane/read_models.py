@@ -4741,6 +4741,7 @@ def _llm_model_health_row(
     workflow_health = _llm_model_workflow_health(format_events)
     latest_failure_kind = _text((latest or {}).get("failure_kind"))
     latest_preview = _text((latest or {}).get("response_preview_redacted"))[:240]
+    latest_format = format_events[0] if format_events else None
     return {
         "provider_id": provider_id,
         "provider_label": provider_labels.get(provider_id, provider_id),
@@ -4788,6 +4789,7 @@ def _llm_model_health_row(
         "latest_visible_chars": int((latest or {}).get("visible_chars") or 0),
         "latest_preview": latest_preview,
         "latest_prompt_contract": _text((latest or {}).get("prompt_contract")),
+        "latest_format_checked_at": _text((latest_format or {}).get("checked_at")),
         "latest_workflow_id": _text((latest or {}).get("workflow_id")),
         "latest_malformed_kind": _text((latest or {}).get("malformed_kind")),
         "operator_action": _llm_model_operator_action(

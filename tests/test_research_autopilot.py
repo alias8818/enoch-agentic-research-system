@@ -583,6 +583,153 @@ def test_llm_model_health_check_reason_retries_unhealthy_after_cooldown() -> Non
     )
 
 
+def test_llm_model_format_probes_select_unmeasured_models_with_limit(monkeypatch):
+    monkeypatch.setenv("ENOCH_LLM_MODEL_FORMAT_PROBES_ENABLED", "1")
+    monkeypatch.setenv("ENOCH_LLM_MODEL_FORMAT_PROBE_LIMIT", "2")
+    monkeypatch.setenv(
+        "ENOCH_LLM_MODEL_FORMAT_PROBE_CONTRACTS",
+        "strict_json,markdown_fenced_json",
+    )
+    monkeypatch.setenv("ENOCH_LLM_MODEL_FORMAT_PROBE_MIN_INTERVAL_SECONDS", "86400")
+
+    settings_payload = {
+        "ok": True,
+        "settings": {
+            "providers": [
+                {"provider_id": "synthetic", "enabled": True},
+                {"provider_id": "openrouter", "enabled": True},
+            ],
+            "models": [
+                {
+                    "provider_id": "openrouter",
+                    "model_id": "openrouter/owl-alpha",
+                    "enabled": True,
+                },
+                {
+                    "provider_id": "openrouter",
+                    "model_id": "moonshotai/kimi-k2.6",
+                    "enabled": True,
+                },
+                {
+                    "provider_id": "synthetic",
+                    "model_id": "hf:zai-org/GLM-5.1",
+                    "enabled": True,
+                },
+            ],
+        },
+        "model_health": {
+            "models": [
+                {
+                    "provider_id": "openrouter",
+                    "model_id": "openrouter/owl-alpha",
+                    "endpoint_health": "healthy",
+                    "format_health": "unmeasured",
+                    "latest_format_checked_at": "",
+                },
+                {
+                    "provider_id": "openrouter",
+                    "model_id": "moonshotai/kimi-k2.6",
+                    "endpoint_health": "healthy",
+                    "format_health": "degraded",
+                    "latest_malformed_kind": "invalid_json",
+                    "latest_format_checked_at": "2026-06-02T10:00:00Z",
+                },
+                {
+                    "provider_id": "synthetic",
+                    "model_id": "hf:zai-org/GLM-5.1",
+                    "endpoint_health": "unhealthy",
+                    "format_health": "unmeasured",
+                    "latest_format_checked_at": "",
+                },
+            ]
+        },
+    }
+    posts: list[dict] = []
+
+    def fake_post(
+        _base_url: str, _path: str, _token: str, payload: dict, *, timeout: int
+    ) -> dict:
+        posts.append(payload)
+        return {
+            "ok": True,
+            "provider_id": payload["provider_id"],
+            "model_id": payload["model_id"],
+            "prompt_contract": payload["prompt_contract"],
+        }
+
+    with (
+        patch.object(autopilot, "_get_json", return_value=settings_payload),
+        patch.object(autopilot, "_post_json", side_effect=fake_post),
+        patch.object(autopilot, "time") as fake_time,
+    ):
+        fake_time.time.return_value = 1_759_339_200.0
+        result = autopilot.run_llm_model_format_probes("http://control", "token")
+
+    assert result["ok"] is True
+    assert result["checked_count"] == 2
+    assert result["candidate_count"] == 2
+    assert result["skipped_count"] == 0
+    assert result["contracts"] == ["strict_json", "markdown_fenced_json"]
+    assert result["selected_reasons"] == {
+        "openrouter/owl-alpha:strict_json": "stale_format_probe",
+        "openrouter/owl-alpha:markdown_fenced_json": "stale_format_probe",
+    }
+    assert posts == [
+        {
+            "provider_id": "openrouter",
+            "model_id": "openrouter/owl-alpha",
+            "source": "autopilot",
+            "prompt_contract": "strict_json",
+        },
+        {
+            "provider_id": "openrouter",
+            "model_id": "openrouter/owl-alpha",
+            "source": "autopilot",
+            "prompt_contract": "markdown_fenced_json",
+        },
+    ]
+
+
+def test_llm_model_format_probe_reason_respects_cooldown() -> None:
+    latest = "2026-06-02T10:00:00Z"
+    latest_ts = autopilot._parse_health_checked_at(latest)  # noqa: SLF001
+    health = {
+        "endpoint_health": "healthy",
+        "format_health": "degraded",
+        "latest_malformed_kind": "invalid_json",
+        "latest_format_checked_at": latest,
+    }
+
+    assert (
+        autopilot._llm_model_format_probe_reason(  # noqa: SLF001
+            health, now=latest_ts + 86399, min_interval_seconds=86400
+        )
+        == ""
+    )
+    assert (
+        autopilot._llm_model_format_probe_reason(  # noqa: SLF001
+            health, now=latest_ts + 86400, min_interval_seconds=86400
+        )
+        == "degraded_format:invalid_json"
+    )
+    assert (
+        autopilot._llm_model_format_probe_reason(  # noqa: SLF001
+            {"endpoint_health": "unhealthy", "format_health": "unmeasured"},
+            now=latest_ts + 86400,
+            min_interval_seconds=86400,
+        )
+        == ""
+    )
+    assert (
+        autopilot._llm_model_format_probe_reason(  # noqa: SLF001
+            None,
+            now=latest_ts + 86400,
+            min_interval_seconds=86400,
+        )
+        == ""
+    )
+
+
 def test_autopilot_history_counts_malformed_provider_responses(tmp_path, monkeypatch):
     history = tmp_path / "history.jsonl"
     monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(history))

@@ -76,6 +76,21 @@ When `prompt_contract` is set, the endpoint records the event as
 `source=format_probe` and persists the deterministic parser result in
 `valid_json`, `schema_ok`, and `malformed_kind`.
 
+The research autopilot can run the same probes as a bounded sidecar when
+explicitly enabled:
+
+| Environment variable | Default | Purpose |
+| --- | --- | --- |
+| `ENOCH_LLM_MODEL_FORMAT_PROBES_ENABLED` | `0` | Opt-in switch for scheduled format probes. |
+| `ENOCH_LLM_MODEL_FORMAT_PROBE_LIMIT` | `2` | Maximum probe requests per finalized autopilot tick. |
+| `ENOCH_LLM_MODEL_FORMAT_PROBE_MIN_INTERVAL_SECONDS` | `86400` | Cooldown before re-probing a model with recent format evidence. |
+| `ENOCH_LLM_MODEL_FORMAT_PROBE_CONTRACTS` | `strict_json,markdown_fenced_json,candidate_json` | Contracts eligible for scheduled probing. |
+| `ENOCH_LLM_MODEL_FORMAT_PROBE_TIMEOUT_SECONDS` | `45` | Per-request timeout for scheduled probe calls. |
+
+The sidecar skips endpoint-unhealthy models and probes only stale, unmeasured, or
+cooldown-expired degraded format rows. This keeps endpoint recovery separate from
+format usefulness checks and avoids repeated provider calls on every tick.
+
 ## Deterministic invariants
 
 - Endpoint health must not imply automation usefulness.
