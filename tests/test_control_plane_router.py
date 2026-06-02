@@ -78,6 +78,98 @@ def _live_config(tmp: str) -> GateConfig:
     )
 
 
+def _write_synthetic_llm_settings(config: GateConfig, api_key: str) -> None:
+    state_dir = Path(config.state_dir)
+    secret_dir = state_dir / "llm-provider-secrets"
+    secret_dir.mkdir(parents=True, exist_ok=True)
+    (secret_dir / "synthetic.token").write_text(api_key, encoding="utf-8")
+    (state_dir / "llm-provider-settings.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "providers": [
+                    {
+                        "provider_id": "synthetic",
+                        "label": "Synthetic",
+                        "api_format": "openai_compatible",
+                        "base_url": "https://api.synthetic.new/openai/v1",
+                        "api_key_env": "",
+                        "enabled": True,
+                    },
+                    {
+                        "provider_id": "openrouter",
+                        "label": "OpenRouter",
+                        "api_format": "openai_compatible",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "api_key_env": "",
+                        "enabled": True,
+                    },
+                ],
+                "models": [
+                    {
+                        "model_id": "hf:zai-org/GLM-5.1",
+                        "provider_id": "synthetic",
+                        "label": "GLM",
+                        "enabled": True,
+                    },
+                    {
+                        "model_id": "moonshotai/kimi-k2.6",
+                        "provider_id": "openrouter",
+                        "label": "Kimi",
+                        "enabled": True,
+                    },
+                ],
+                "workflows": [
+                    {
+                        "workflow_id": "research_generation",
+                        "label": "Research agents",
+                        "provider_ids": ["synthetic", "openrouter"],
+                        "model_pool": [
+                            "hf:zai-org/GLM-5.1",
+                            "moonshotai/kimi-k2.6",
+                        ],
+                        "default_model": "moonshotai/kimi-k2.6",
+                        "enabled": True,
+                        "temperature": 0.7,
+                        "max_tokens": 8000,
+                    },
+                    {
+                        "workflow_id": "paper_writing",
+                        "label": "Paper writing",
+                        "provider_ids": ["synthetic"],
+                        "model_pool": ["hf:zai-org/GLM-5.1"],
+                        "default_model": "hf:zai-org/GLM-5.1",
+                        "enabled": True,
+                        "temperature": 0.2,
+                        "max_tokens": 12000,
+                    },
+                    {
+                        "workflow_id": "research_review",
+                        "label": "Research review",
+                        "provider_ids": ["synthetic"],
+                        "model_pool": ["hf:zai-org/GLM-5.1"],
+                        "default_model": "hf:zai-org/GLM-5.1",
+                        "enabled": True,
+                        "temperature": 0.2,
+                        "max_tokens": 8000,
+                    },
+                    {
+                        "workflow_id": "general_agent",
+                        "label": "General agents",
+                        "provider_ids": ["synthetic"],
+                        "model_pool": ["hf:zai-org/GLM-5.1"],
+                        "default_model": "hf:zai-org/GLM-5.1",
+                        "enabled": True,
+                        "temperature": 0.3,
+                        "max_tokens": 8000,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def _client(tmp: str) -> TestClient:
     app = FastAPI()
     config = _config(tmp)
@@ -1755,97 +1847,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
     def test_research_facility_provider_budget_uses_synthetic_settings(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _config(tmp)
-            state_dir = Path(config.state_dir)
-            secret_dir = state_dir / "llm-provider-secrets"
-            secret_dir.mkdir(parents=True, exist_ok=True)
-            (secret_dir / "synthetic.token").write_text(
-                "synthetic-budget-key", encoding="utf-8"
-            )
-            (state_dir / "llm-provider-settings.json").write_text(
-                json.dumps(
-                    {
-                        "schema_version": 1,
-                        "providers": [
-                            {
-                                "provider_id": "synthetic",
-                                "label": "Synthetic",
-                                "api_format": "openai_compatible",
-                                "base_url": "https://api.synthetic.new/openai/v1",
-                                "api_key_env": "",
-                                "enabled": True,
-                            },
-                            {
-                                "provider_id": "openrouter",
-                                "label": "OpenRouter",
-                                "api_format": "openai_compatible",
-                                "base_url": "https://openrouter.ai/api/v1",
-                                "api_key_env": "",
-                                "enabled": True,
-                            },
-                        ],
-                        "models": [
-                            {
-                                "model_id": "hf:zai-org/GLM-5.1",
-                                "provider_id": "synthetic",
-                                "label": "GLM",
-                                "enabled": True,
-                            },
-                            {
-                                "model_id": "moonshotai/kimi-k2.6",
-                                "provider_id": "openrouter",
-                                "label": "Kimi",
-                                "enabled": True,
-                            },
-                        ],
-                        "workflows": [
-                            {
-                                "workflow_id": "research_generation",
-                                "label": "Research agents",
-                                "provider_ids": ["synthetic", "openrouter"],
-                                "model_pool": [
-                                    "hf:zai-org/GLM-5.1",
-                                    "moonshotai/kimi-k2.6",
-                                ],
-                                "default_model": "moonshotai/kimi-k2.6",
-                                "enabled": True,
-                                "temperature": 0.7,
-                                "max_tokens": 8000,
-                            },
-                            {
-                                "workflow_id": "paper_writing",
-                                "label": "Paper writing",
-                                "provider_ids": ["synthetic"],
-                                "model_pool": ["hf:zai-org/GLM-5.1"],
-                                "default_model": "hf:zai-org/GLM-5.1",
-                                "enabled": True,
-                                "temperature": 0.2,
-                                "max_tokens": 12000,
-                            },
-                            {
-                                "workflow_id": "research_review",
-                                "label": "Research review",
-                                "provider_ids": ["synthetic"],
-                                "model_pool": ["hf:zai-org/GLM-5.1"],
-                                "default_model": "hf:zai-org/GLM-5.1",
-                                "enabled": True,
-                                "temperature": 0.2,
-                                "max_tokens": 8000,
-                            },
-                            {
-                                "workflow_id": "general_agent",
-                                "label": "General agents",
-                                "provider_ids": ["synthetic"],
-                                "model_pool": ["hf:zai-org/GLM-5.1"],
-                                "default_model": "hf:zai-org/GLM-5.1",
-                                "enabled": True,
-                                "temperature": 0.3,
-                                "max_tokens": 8000,
-                            },
-                        ],
-                    }
-                ),
-                encoding="utf-8",
-            )
+            _write_synthetic_llm_settings(config, "synthetic-budget-key")
             client = _client_with_config(config)
             quota = {
                 "subscription": {"limit": 2500, "requests": 1},
@@ -1882,6 +1884,53 @@ class ControlPlaneRouterTests(unittest.TestCase):
             args, kwargs = fetch.call_args
             self.assertEqual(args[0], "https://api.synthetic.new/v2/quotas")
             self.assertEqual(kwargs["api_key"], "synthetic-budget-key")
+
+    def test_automation_readiness_provider_budget_uses_synthetic_settings(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp)
+            _write_synthetic_llm_settings(config, "synthetic-readiness-key")
+            client = _client_with_config(config)
+            quota = {
+                "subscription": {"limit": 2500, "requests": 1},
+                "weeklyTokenLimit": {"remainingCredits": "$100.00"},
+                "rollingFiveHourLimit": {
+                    "remaining": 2500,
+                    "max": 2500,
+                    "limited": False,
+                },
+            }
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "ENOCH_RESEARCH_PROVIDER_BASE_URL": "",
+                        "ENOCH_RESEARCH_PROVIDER_API_KEY": "",
+                    },
+                    clear=False,
+                ),
+                patch("scripts.research_provider_budget.fetch_json", return_value=quota) as fetch,
+            ):
+                response = client.get(
+                    "/control/api/v1/automation-readiness",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            provider_check = next(
+                item for item in body["checks"] if item["name"] == "provider_budget_ok"
+            )
+            self.assertTrue(provider_check["ok"])
+            self.assertEqual(
+                provider_check["data"]["budget_endpoint_host"], "api.synthetic.new"
+            )
+            self.assertEqual(provider_check["data"]["budget_endpoint_path"], "/v2/quotas")
+            args, kwargs = fetch.call_args
+            self.assertEqual(args[0], "https://api.synthetic.new/v2/quotas")
+            self.assertEqual(kwargs["api_key"], "synthetic-readiness-key")
 
     def test_synthetic_budget_check_skips_non_synthetic_provider(self) -> None:
         calls: list[str] = []
