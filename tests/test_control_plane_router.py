@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import (
     _active_lane_worker_confirmation,
+    _fetch_synthetic_research_budget,
     _handle_followup_and_early_skips,
     _project_prompt,
     _write_deterministic_paper,
@@ -1711,6 +1712,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
             body = response.json()
             self.assertTrue(body["ok"])
             self.assertEqual(body["auth_mode"], "bearer")
+            self.assertEqual(body["budget_endpoint_host"], "api.synthetic.new")
+            self.assertEqual(body["budget_endpoint_path"], "/v2/quotas")
             self.assertEqual(body["remaining_credits"], 119.77)
             self.assertEqual(body["rolling_remaining"], 2499)
             self.assertEqual(body["failures"], [])
@@ -1744,8 +1747,171 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(body["ok"])
             self.assertEqual(body["auth_mode"], "exe_http_proxy")
             self.assertIn("provider budget check failed", body["failures"][0])
+            self.assertEqual(body["budget_endpoint_host"], "synthetic.int.exe.xyz")
+            self.assertEqual(body["budget_endpoint_path"], "/v2/quotas")
             self.assertNotIn("api_key", response.text.lower())
             self.assertNotIn("bearer", response.text.lower())
+
+    def test_research_facility_provider_budget_uses_synthetic_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _config(tmp)
+            state_dir = Path(config.state_dir)
+            secret_dir = state_dir / "llm-provider-secrets"
+            secret_dir.mkdir(parents=True, exist_ok=True)
+            (secret_dir / "synthetic.token").write_text(
+                "synthetic-budget-key", encoding="utf-8"
+            )
+            (state_dir / "llm-provider-settings.json").write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "providers": [
+                            {
+                                "provider_id": "synthetic",
+                                "label": "Synthetic",
+                                "api_format": "openai_compatible",
+                                "base_url": "https://api.synthetic.new/openai/v1",
+                                "api_key_env": "",
+                                "enabled": True,
+                            },
+                            {
+                                "provider_id": "openrouter",
+                                "label": "OpenRouter",
+                                "api_format": "openai_compatible",
+                                "base_url": "https://openrouter.ai/api/v1",
+                                "api_key_env": "",
+                                "enabled": True,
+                            },
+                        ],
+                        "models": [
+                            {
+                                "model_id": "hf:zai-org/GLM-5.1",
+                                "provider_id": "synthetic",
+                                "label": "GLM",
+                                "enabled": True,
+                            },
+                            {
+                                "model_id": "moonshotai/kimi-k2.6",
+                                "provider_id": "openrouter",
+                                "label": "Kimi",
+                                "enabled": True,
+                            },
+                        ],
+                        "workflows": [
+                            {
+                                "workflow_id": "research_generation",
+                                "label": "Research agents",
+                                "provider_ids": ["synthetic", "openrouter"],
+                                "model_pool": [
+                                    "hf:zai-org/GLM-5.1",
+                                    "moonshotai/kimi-k2.6",
+                                ],
+                                "default_model": "moonshotai/kimi-k2.6",
+                                "enabled": True,
+                                "temperature": 0.7,
+                                "max_tokens": 8000,
+                            },
+                            {
+                                "workflow_id": "paper_writing",
+                                "label": "Paper writing",
+                                "provider_ids": ["synthetic"],
+                                "model_pool": ["hf:zai-org/GLM-5.1"],
+                                "default_model": "hf:zai-org/GLM-5.1",
+                                "enabled": True,
+                                "temperature": 0.2,
+                                "max_tokens": 12000,
+                            },
+                            {
+                                "workflow_id": "research_review",
+                                "label": "Research review",
+                                "provider_ids": ["synthetic"],
+                                "model_pool": ["hf:zai-org/GLM-5.1"],
+                                "default_model": "hf:zai-org/GLM-5.1",
+                                "enabled": True,
+                                "temperature": 0.2,
+                                "max_tokens": 8000,
+                            },
+                            {
+                                "workflow_id": "general_agent",
+                                "label": "General agents",
+                                "provider_ids": ["synthetic"],
+                                "model_pool": ["hf:zai-org/GLM-5.1"],
+                                "default_model": "hf:zai-org/GLM-5.1",
+                                "enabled": True,
+                                "temperature": 0.3,
+                                "max_tokens": 8000,
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = _client_with_config(config)
+            quota = {
+                "subscription": {"limit": 2500, "requests": 1},
+                "weeklyTokenLimit": {"remainingCredits": "$100.00"},
+                "rollingFiveHourLimit": {
+                    "remaining": 2500,
+                    "max": 2500,
+                    "limited": False,
+                },
+            }
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "ENOCH_RESEARCH_PROVIDER_BASE_URL": "",
+                        "ENOCH_RESEARCH_PROVIDER_API_KEY": "",
+                    },
+                    clear=False,
+                ),
+                patch("scripts.research_provider_budget.fetch_json", return_value=quota) as fetch,
+            ):
+                response = client.get(
+                    "/control/api/research/provider-budget",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertEqual(body["auth_mode"], "bearer")
+            self.assertEqual(body["budget_endpoint_host"], "api.synthetic.new")
+            self.assertEqual(body["budget_endpoint_path"], "/v2/quotas")
+            args, kwargs = fetch.call_args
+            self.assertEqual(args[0], "https://api.synthetic.new/v2/quotas")
+            self.assertEqual(kwargs["api_key"], "synthetic-budget-key")
+
+    def test_synthetic_budget_check_skips_non_synthetic_provider(self) -> None:
+        calls: list[str] = []
+
+        class ProviderBudget:
+            @staticmethod
+            def fetch_json(*args, **kwargs):
+                calls.append("fetch")
+                raise AssertionError("non-synthetic providers must not hit quota")
+
+            @staticmethod
+            def synthetic_budget_status(*args, **kwargs):
+                raise AssertionError("non-synthetic providers must not parse quota")
+
+        budget = _fetch_synthetic_research_budget(
+            provider_id="openrouter",
+            provider_base_url="https://openrouter.ai/api/v1",
+            provider_api_key="openrouter-key",
+            estimated_requests=1,
+            bounded_int=lambda *_args: 2,
+            bounded_float=lambda *_args: 5.0,
+            research_provider_budget=ProviderBudget,
+        )
+
+        self.assertEqual(calls, [])
+        self.assertTrue(budget["ok"])
+        self.assertTrue(budget["budget_check_skipped"])
+        self.assertEqual(budget["provider_id"], "openrouter")
+        self.assertEqual(budget["budget_endpoint_host"], "openrouter.ai")
+        self.assertEqual(budget["budget_endpoint_path"], "/api/v1/v2/quotas")
 
     def test_automation_readiness_blocks_stale_active_worker_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
