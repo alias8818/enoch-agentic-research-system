@@ -52,6 +52,30 @@ The existing `/control/api/settings/llm/health` remains available for settings
 workflows. Dashboard V2 uses the v1 Observability endpoint so model health lives
 with route, memory, and support signals instead of creating another page.
 
+## Format probes
+
+The bounded provider/model test endpoint supports optional format probes:
+
+```json
+{
+  "provider_id": "openrouter",
+  "model_id": "openrouter/owl-alpha",
+  "prompt_contract": "strict_json"
+}
+```
+
+Supported first-slice contracts:
+
+| Contract | Expected output | Failure examples |
+| --- | --- | --- |
+| `strict_json` | A compact JSON object matching `{"ok": true, "items": [1, 2]}` with no Markdown wrapper. | prose, fenced JSON, invalid JSON, schema mismatch, empty output |
+| `markdown_fenced_json` | A Markdown heading plus a `json` fenced block containing the same probe object. | missing fence, invalid fenced JSON, schema mismatch |
+| `candidate_json` | A compact JSON array with at least one candidate object containing `title` and `rationale`. | object instead of array, missing fields, invalid JSON |
+
+When `prompt_contract` is set, the endpoint records the event as
+`source=format_probe` and persists the deterministic parser result in
+`valid_json`, `schema_ok`, and `malformed_kind`.
+
 ## Deterministic invariants
 
 - Endpoint health must not imply automation usefulness.

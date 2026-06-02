@@ -7099,6 +7099,111 @@ def _scrub_llm_test_preview(config: GateConfig, text: Any, provider: Any) -> str
     return preview[:240]
 
 
+_LLM_FORMAT_PROBE_CONTRACTS = {
+    "strict_json",
+    "markdown_fenced_json",
+    "candidate_json",
+}
+
+
+def _llm_prompt_contract(value: Any) -> str:
+    contract = str(value or "").strip().lower().replace("-", "_")
+    if not contract:
+        return ""
+    if contract not in _LLM_FORMAT_PROBE_CONTRACTS:
+        raise HTTPException(status_code=400, detail="unknown LLM prompt_contract")
+    return contract
+
+
+def _llm_format_probe_prompt(contract: str) -> str:
+    if contract == "strict_json":
+        return 'Return only this compact JSON object, no markdown: {"ok":true,"items":[1,2]}'
+    if contract == "markdown_fenced_json":
+        return (
+            "Return exactly two parts: a Markdown heading '# Probe' and a json fenced "
+            'code block containing {"ok":true,"items":[1,2]}.'
+        )
+    return (
+        "Return only a compact JSON array with one candidate object. The object must "
+        'have string fields "title" and "rationale".'
+    )
+
+
+def _llm_json_loads(text: str) -> Any:
+    return json.loads(text)
+
+
+def _llm_fenced_json(text: str) -> str:
+    match = re.search(r"```json\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
+def _looks_like_refusal_or_sanitized(text: str) -> bool:
+    lowered = text.lower()
+    return any(
+        marker in lowered
+        for marker in (
+            "i can't",
+            "i cannot",
+            "i'm unable",
+            "i am unable",
+            "as an ai",
+            "cannot comply",
+            "sorry",
+        )
+    )
+
+
+def _schema_ok_for_llm_contract(contract: str, parsed: Any, text: str) -> bool:
+    if contract in {"strict_json", "markdown_fenced_json"}:
+        return (
+            isinstance(parsed, dict)
+            and parsed.get("ok") is True
+            and parsed.get("items") == [1, 2]
+            and (contract != "markdown_fenced_json" or text.lstrip().startswith("# "))
+        )
+    return (
+        isinstance(parsed, list)
+        and len(parsed) >= 1
+        and isinstance(parsed[0], dict)
+        and bool(str(parsed[0].get("title") or "").strip())
+        and bool(str(parsed[0].get("rationale") or "").strip())
+    )
+
+
+def _evaluate_llm_format_probe(
+    contract: str, *, visible_text: str, finish_reason: str
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "prompt_contract": contract,
+        "valid_json": False,
+        "schema_ok": False,
+        "malformed_kind": "",
+        "sanitized_or_refusal_detected": _looks_like_refusal_or_sanitized(visible_text),
+    }
+    if not visible_text.strip():
+        out["malformed_kind"] = "empty_visible_output"
+        return out
+    parse_text = visible_text.strip()
+    if contract == "markdown_fenced_json":
+        parse_text = _llm_fenced_json(visible_text)
+        if not parse_text:
+            out["malformed_kind"] = "missing_fenced_json"
+            return out
+    try:
+        parsed = _llm_json_loads(parse_text)
+    except json.JSONDecodeError:
+        out["malformed_kind"] = (
+            "length_truncated_json" if finish_reason == "length" else "invalid_json"
+        )
+        return out
+    out["valid_json"] = True
+    out["schema_ok"] = _schema_ok_for_llm_contract(contract, parsed, visible_text)
+    if not out["schema_ok"]:
+        out["malformed_kind"] = "schema_mismatch"
+    return out
+
+
 def _record_llm_model_test_event(
     store: Any,
     config: GateConfig,
@@ -7156,20 +7261,34 @@ def _record_llm_model_test_event(
     return str(event_id or "")
 
 
-def _llm_model_payload(model_id: str) -> dict[str, Any]:
+def _llm_model_payload(model_id: str, *, prompt_contract: str = "") -> dict[str, Any]:
+    prompt = (
+        _llm_format_probe_prompt(prompt_contract)
+        if prompt_contract
+        else "Reply with exactly: ok"
+    )
+    max_tokens = 128 if prompt_contract else 12
     return {
         "model": model_id,
-        "max_tokens": 12,
+        "max_tokens": max_tokens,
         "temperature": 0,
-        "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+        "messages": [{"role": "user", "content": prompt}],
     }
 
 
 def _llm_provider_test_request(
-    config: GateConfig, provider: Any, model: Any | None
+    config: GateConfig,
+    provider: Any,
+    model: Any | None,
+    *,
+    prompt_contract: str = "",
 ) -> urllib.request.Request:
     headers = _llm_provider_auth_headers(config, provider)
     base_url = provider.base_url.rstrip("/")
+    if prompt_contract and model is None:
+        raise HTTPException(
+            status_code=400, detail="prompt_contract requires a model_id"
+        )
     if model is None:
         return urllib.request.Request(
             f"{base_url}/models",
@@ -7183,7 +7302,9 @@ def _llm_provider_test_request(
     )
     return urllib.request.Request(
         f"{base_url}{path}",
-        data=json.dumps(_llm_model_payload(model.model_id)).encode("utf-8"),
+        data=json.dumps(
+            _llm_model_payload(model.model_id, prompt_contract=prompt_contract)
+        ).encode("utf-8"),
         method="POST",
         headers=headers,
     )
@@ -7196,21 +7317,32 @@ def _llm_provider_success_result(
     status_code: int,
     started: float,
     data: dict[str, Any],
+    prompt_contract: str = "",
 ) -> dict[str, Any]:
     visible_text = _llm_test_visible_text(data)
     usage = _llm_test_usage(data)
-    return {
+    finish_reason = _llm_test_finish_reason(data)
+    result = {
         "ok": 200 <= status_code < 300,
         "provider_id": provider.provider_id,
         "model_id": model.model_id if model is not None else "",
         "status_code": status_code,
         "latency_ms": int((time.monotonic() - started) * 1000),
-        "finish_reason": _llm_test_finish_reason(data),
+        "finish_reason": finish_reason,
         "visible_chars": len(visible_text),
         "response_preview": visible_text[:240]
         or str(data.get("raw_preview") or "")[:240],
         **usage,
     }
+    if prompt_contract:
+        result.update(
+            _evaluate_llm_format_probe(
+                prompt_contract,
+                visible_text=visible_text,
+                finish_reason=finish_reason,
+            )
+        )
+    return result
 
 
 def _llm_provider_error_result(
@@ -7252,13 +7384,16 @@ def _run_llm_provider_test(
     settings: LLMSettings,
     provider_id: str,
     model_id: str,
+    prompt_contract: str = "",
 ) -> dict[str, Any]:
     provider = _llm_provider_by_id(settings, provider_id)
     model = _llm_model_by_id(settings, model_id) if model_id else None
     _validate_llm_provider_test_target(config, provider, model)
     started = time.monotonic()
     try:
-        req = _llm_provider_test_request(config, provider, model)
+        req = _llm_provider_test_request(
+            config, provider, model, prompt_contract=prompt_contract
+        )
         with urllib.request.urlopen(req, timeout=20) as response:  # noqa: S310 - operator-configured provider URL
             body = response.read(32768).decode("utf-8", errors="replace")
             try:
@@ -7271,6 +7406,7 @@ def _run_llm_provider_test(
                 status_code=int(response.status),
                 started=started,
                 data=data,
+                prompt_contract=prompt_contract,
             )
     except urllib.error.HTTPError as exc:
         detail = exc.read(2048).decode("utf-8", errors="replace")
@@ -7426,15 +7562,22 @@ def _dashboard_update_llm_settings_response(
     return response
 
 
-def _llm_test_request_fields(payload: Mapping[str, Any]) -> tuple[str, str, str]:
+def _llm_test_request_fields(
+    payload: Mapping[str, Any],
+) -> tuple[str, str, str, str]:
     provider_id = str(payload.get("provider_id") or "").strip()
     model_id = str(payload.get("model_id") or "").strip()
     source = str(payload.get("source") or "manual").strip().lower()
+    prompt_contract = _llm_prompt_contract(
+        payload.get("prompt_contract") or payload.get("probe_contract")
+    )
     if source not in {"manual", "autopilot", "scheduled"}:
         raise HTTPException(status_code=400, detail="invalid LLM test source")
     if not provider_id:
         raise HTTPException(status_code=400, detail="provider_id is required")
-    return provider_id, model_id, source
+    if prompt_contract and not model_id:
+        raise HTTPException(status_code=400, detail="prompt_contract requires model_id")
+    return provider_id, model_id, source, prompt_contract
 
 
 def _dashboard_test_llm_settings_response(
@@ -7442,10 +7585,16 @@ def _dashboard_test_llm_settings_response(
     store: Any,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    provider_id, model_id, source = _llm_test_request_fields(payload or {})
+    provider_id, model_id, source, prompt_contract = _llm_test_request_fields(
+        payload or {}
+    )
     settings = read_llm_settings(config)
     result = _run_llm_provider_test(
-        config, settings=settings, provider_id=provider_id, model_id=model_id
+        config,
+        settings=settings,
+        provider_id=provider_id,
+        model_id=model_id,
+        prompt_contract=prompt_contract,
     )
     provider = _llm_provider_by_id(settings, provider_id)
     model = _llm_model_by_id(settings, model_id) if model_id else None
@@ -7461,7 +7610,7 @@ def _dashboard_test_llm_settings_response(
         provider=provider,
         model=model,
         result=result,
-        source=source,
+        source="format_probe" if prompt_contract else source,
     )
     if event_id:
         result["event_id"] = event_id

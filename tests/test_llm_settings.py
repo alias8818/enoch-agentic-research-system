@@ -549,6 +549,188 @@ def test_llm_settings_model_test_records_visible_output_health(
         assert health.json()["structurally_unhealthy_count"] == 1
 
 
+def test_llm_settings_format_probe_records_schema_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, *_args: object) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":"{\\"ok\\":true,'
+                b'\\"items\\":[1,2]}"},"finish_reason":"stop"}]}'
+            )
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> int:
+            self.events.append(kwargs)
+            return len(self.events)
+
+        def event_page(self, **_kwargs: object):
+            return self.events, None, False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        store = FakeStore()
+        client = _client(config, monkeypatch=monkeypatch, store=store)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        settings.models.append(
+            LLMModelSettings(
+                model_id="owl/strict-json",
+                provider_id="openrouter",
+                label="Owl Strict JSON",
+                enabled=True,
+                weight=90,
+            )
+        )
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+        seen: dict[str, object] = {}
+
+        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+            seen["body"] = req.data.decode("utf-8")
+            seen["timeout"] = timeout
+            return FakeResponse()
+
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            fake_urlopen,
+        )
+
+        response = client.post(
+            "/control/api/settings/llm/test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={
+                "provider_id": "openrouter",
+                "model_id": "owl/strict-json",
+                "prompt_contract": "strict_json",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["prompt_contract"] == "strict_json"
+        assert body["valid_json"] is True
+        assert body["schema_ok"] is True
+        assert body["malformed_kind"] == ""
+        assert '"max_tokens": 128' in str(seen["body"])
+        assert "Return only this compact JSON object" in str(seen["body"])
+        payload = store.events[0]["payload"]
+        assert payload["source"] == "format_probe"
+        assert payload["prompt_contract"] == "strict_json"
+        assert payload["valid_json"] is True
+        assert payload["schema_ok"] is True
+        assert payload["malformed_kind"] == ""
+
+
+def test_llm_settings_format_probe_records_malformed_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, *_args: object) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":"not json"},'
+                b'"finish_reason":"stop"}]}'
+            )
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> int:
+            self.events.append(
+                {
+                    "event_id": len(self.events) + 1,
+                    "created_at": "2026-06-02T10:00:00Z",
+                    **kwargs,
+                }
+            )
+            return len(self.events)
+
+        def event_page(self, **_kwargs: object):
+            return self.events, None, False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        store = FakeStore()
+        client = _client(config, monkeypatch=monkeypatch, store=store)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        settings.models.append(
+            LLMModelSettings(
+                model_id="owl/strict-json",
+                provider_id="openrouter",
+                label="Owl Strict JSON",
+                enabled=True,
+                weight=90,
+            )
+        )
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            lambda _req, timeout: FakeResponse(),
+        )
+
+        response = client.post(
+            "/control/api/settings/llm/test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={
+                "provider_id": "openrouter",
+                "model_id": "owl/strict-json",
+                "prompt_contract": "strict_json",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["valid_json"] is False
+        assert body["schema_ok"] is False
+        assert body["malformed_kind"] == "invalid_json"
+        health = client.get(
+            "/control/api/v1/observability/llm-models",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+        rows = {row["model_id"]: row for row in health.json()["models"]}
+        assert rows["owl/strict-json"]["endpoint_health"] == "healthy"
+        assert rows["owl/strict-json"]["format_health"] == "degraded"
+        assert rows["owl/strict-json"]["latest_malformed_kind"] == "invalid_json"
+
+
 def test_llm_model_health_summary_marks_recent_failures_and_stale_models() -> None:
     from enoch_control_plane.control_plane.read_models import llm_model_health_summary
 
