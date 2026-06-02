@@ -226,9 +226,7 @@ def test_provider_generate_can_request_strict_json_schema_response_format() -> N
     assert schema["schema"]["required"] == ["candidates"]
     assert schema["schema"]["properties"]["candidates"]["maxItems"] == 1
     assert (
-        schema["schema"]["properties"]["candidates"]["items"][
-            "additionalProperties"
-        ]
+        schema["schema"]["properties"]["candidates"]["items"]["additionalProperties"]
         is False
     )
     assert payload["reasoning"] == {"effort": "low", "exclude": True}

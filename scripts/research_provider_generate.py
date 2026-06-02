@@ -645,9 +645,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--reasoning-exclude",
         action="store_true",
-        default=os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_REASONING_EXCLUDE", ""
-        ).lower()
+        default=os.environ.get("ENOCH_RESEARCH_PROVIDER_REASONING_EXCLUDE", "").lower()
         in {"1", "true", "yes"},
     )
     parser.add_argument("--output", type=Path)

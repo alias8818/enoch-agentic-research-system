@@ -273,7 +273,9 @@ def test_structurally_unhealthy_llm_model_blocks_longhaul_readiness() -> None:
     assert result["summary"]["llm_model_structurally_unhealthy_count"] == 2
 
 
-def test_structural_llm_attention_does_not_block_when_workflows_have_usable_models() -> None:
+def test_structural_llm_attention_does_not_block_when_workflows_have_usable_models() -> (
+    None
+):
     payload = _ready_payload()
     payload["llm_model_health"] = {
         "ok": False,

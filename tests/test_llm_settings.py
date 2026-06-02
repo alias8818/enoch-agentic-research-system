@@ -658,7 +658,7 @@ def test_llm_settings_candidate_json_probe_uses_structured_output_budget(
         def read(self, *_args: object) -> bytes:
             return (
                 b'{"choices":[{"message":{"content":'
-                b'"[{\\\"title\\\":\\\"Probe\\\",\\\"rationale\\\":\\\"Enough budget\\\"}]"},'
+                b'"[{\\"title\\":\\"Probe\\",\\"rationale\\":\\"Enough budget\\"}]"},'
                 b'"finish_reason":"stop"}]}'
             )
 
@@ -753,7 +753,7 @@ def test_llm_settings_openrouter_candidate_schema_probe_records_structured_mode(
         def read(self, *_args: object) -> bytes:
             return (
                 b'{"choices":[{"message":{"content":"{\\"candidates\\":'
-                b'[{\\\"title\\\":\\\"Probe\\\",\\\"rationale\\\":\\\"Schema\\\"}]}"},'
+                b'[{\\"title\\":\\"Probe\\",\\"rationale\\":\\"Schema\\"}]}"},'
                 b'"finish_reason":"stop"}]}'
             )
 

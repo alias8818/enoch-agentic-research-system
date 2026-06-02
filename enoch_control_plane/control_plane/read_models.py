@@ -4803,9 +4803,7 @@ def _llm_workflow_model_recommendation(
                 "finish_reason": finish_reason,
                 "visible_chars": visible_chars,
                 "checked_at": _text(event.get("checked_at")),
-                "structured_output_mode": _text(
-                    event.get("structured_output_mode")
-                ),
+                "structured_output_mode": _text(event.get("structured_output_mode")),
                 "response_format_type": _text(event.get("response_format_type")),
                 "reasoning_effort": _text(event.get("reasoning_effort")),
                 "reasoning_excluded": bool(event.get("reasoning_excluded")),
@@ -5035,7 +5033,9 @@ def _llm_model_health_row(
         "latest_structured_output_mode": _text(
             (latest or {}).get("structured_output_mode")
         ),
-        "latest_response_format_type": _text((latest or {}).get("response_format_type")),
+        "latest_response_format_type": _text(
+            (latest or {}).get("response_format_type")
+        ),
         "latest_reasoning_effort": _text((latest or {}).get("reasoning_effort")),
         "latest_reasoning_excluded": bool((latest or {}).get("reasoning_excluded")),
         "latest_format_checked_at": _text((latest_format or {}).get("checked_at")),

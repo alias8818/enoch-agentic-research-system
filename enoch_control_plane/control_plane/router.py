@@ -7243,11 +7243,7 @@ def _schema_ok_for_llm_contract(contract: str, parsed: Any, text: str) -> bool:
             and parsed.get("items") == [1, 2]
             and (contract != "markdown_fenced_json" or text.lstrip().startswith("# "))
         )
-    candidates = (
-        parsed.get("candidates")
-        if isinstance(parsed, dict)
-        else parsed
-    )
+    candidates = parsed.get("candidates") if isinstance(parsed, dict) else parsed
     return (
         isinstance(candidates, list)
         and len(candidates) >= 1
@@ -7365,7 +7361,9 @@ def _llm_model_payload(
         if prompt_contract
         else "Reply with exactly: ok"
     )
-    max_tokens = _llm_format_probe_max_tokens(prompt_contract) if prompt_contract else 12
+    max_tokens = (
+        _llm_format_probe_max_tokens(prompt_contract) if prompt_contract else 12
+    )
     payload: dict[str, Any] = {
         "model": model_id,
         "max_tokens": max_tokens,
