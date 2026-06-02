@@ -7169,6 +7169,51 @@ def _run_llm_provider_test(
         )
 
 
+def _llm_settings_provider_ids(settings: LLMSettings) -> list[str]:
+    return [provider.provider_id for provider in settings.providers]
+
+
+def _llm_settings_workflow_ids(settings: LLMSettings) -> list[str]:
+    return [workflow.workflow_id for workflow in settings.workflows]
+
+
+def _llm_settings_updated_event_payload(
+    config: GateConfig,
+    *,
+    settings: LLMSettings,
+    requested_by: str,
+    written_provider_secrets: list[str],
+    recovered_provider_secrets: list[str],
+) -> dict[str, Any]:
+    return {
+        "requested_by": requested_by,
+        "settings_path": str(llm_settings_path(config)),
+        "providers": _llm_settings_provider_ids(settings),
+        "workflows": _llm_settings_workflow_ids(settings),
+        "provider_secret_updates": written_provider_secrets,
+        "recovered_provider_secret_updates": recovered_provider_secrets,
+    }
+
+
+def _safe_append_llm_settings_updated_event(
+    store: Any,
+    *,
+    idempotency_key: str,
+    payload: Mapping[str, Any],
+) -> tuple[Any, str]:
+    try:
+        event_id = store.append_event(
+            idempotency_key=idempotency_key,
+            event_type="settings.llm.updated",
+            entity_type="settings",
+            entity_id="llm",
+            payload=payload,
+        )
+    except Exception as exc:  # pragma: no cover - visibility only
+        return None, f"{type(exc).__name__}: {exc}"
+    return event_id, ""
+
+
 def _append_llm_settings_updated_event(
     store: Any,
     config: GateConfig,
@@ -7178,24 +7223,17 @@ def _append_llm_settings_updated_event(
     written_provider_secrets: list[str],
     recovered_provider_secrets: list[str],
 ) -> tuple[Any, str]:
-    try:
-        event_id = store.append_event(
-            idempotency_key=f"llm-settings:{settings.updated_at}:{requested_by}",
-            event_type="settings.llm.updated",
-            entity_type="settings",
-            entity_id="llm",
-            payload={
-                "requested_by": requested_by,
-                "settings_path": str(llm_settings_path(config)),
-                "providers": [provider.provider_id for provider in settings.providers],
-                "workflows": [workflow.workflow_id for workflow in settings.workflows],
-                "provider_secret_updates": written_provider_secrets,
-                "recovered_provider_secret_updates": recovered_provider_secrets,
-            },
-        )
-    except Exception as exc:  # pragma: no cover - visibility only
-        return None, f"{type(exc).__name__}: {exc}"
-    return event_id, ""
+    return _safe_append_llm_settings_updated_event(
+        store,
+        idempotency_key=f"llm-settings:{settings.updated_at}:{requested_by}",
+        payload=_llm_settings_updated_event_payload(
+            config,
+            settings=settings,
+            requested_by=requested_by,
+            written_provider_secrets=written_provider_secrets,
+            recovered_provider_secrets=recovered_provider_secrets,
+        ),
+    )
 
 
 def _dashboard_llm_settings_response(
