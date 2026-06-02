@@ -168,9 +168,6 @@ function OverviewPageBody({
             onRefresh={refresh}
             onCheckReadiness={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
           />
-          <TopActions actions={data.top_actions} primaryAction={primaryAction} />
-          <ResearchSignalQualityCard quality={data.research_signal_quality} />
-          <ResearchYieldCard researchYield={data.research_yield} />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
         </div>
       </div>
@@ -183,6 +180,12 @@ function OverviewPageBody({
         readinessLoading={readinessLoading}
         readinessError={readinessError}
         onSecondaryOpenChange={onSecondaryOpenChange}
+      />
+      <OverviewSecondaryAnalytics
+        topActions={data.top_actions}
+        primaryAction={primaryAction}
+        researchSignalQuality={data.research_signal_quality}
+        researchYield={data.research_yield}
       />
     </div>
   )
@@ -948,6 +951,26 @@ function ResearchQualityRecommendedAction({ recommendation }: Readonly<{ recomme
     <QualitySnapshotDetail title="Recommended action">
       <p>{recommendation}</p>
     </QualitySnapshotDetail>
+  )
+}
+
+function OverviewSecondaryAnalytics({
+  topActions,
+  primaryAction,
+  researchSignalQuality,
+  researchYield,
+}: Readonly<{
+  topActions: OverviewResponse['top_actions']
+  primaryAction: TopAction | undefined
+  researchSignalQuality: OverviewResponse['research_signal_quality']
+  researchYield: OverviewResponse['research_yield']
+}>) {
+  return (
+    <section className="secondary-analytics" aria-label="Secondary analytics">
+      <TopActions actions={topActions} primaryAction={primaryAction} />
+      <ResearchSignalQualityCard quality={researchSignalQuality} />
+      <ResearchYieldCard researchYield={researchYield} />
+    </section>
   )
 }
 

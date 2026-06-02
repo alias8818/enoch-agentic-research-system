@@ -105,7 +105,7 @@ it('requests live worker refresh for overview lane status', async () => {
   expect(screen.queryByText('Stale active: worker reports no matching live run.')).not.toBeInTheDocument()
 })
 
-it('shows research signal quality in the overview side rail', async () => {
+it('shows research signal quality below the command-center secondary fold', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
       ok: true,
@@ -555,6 +555,13 @@ it('shows research signal quality in the overview side rail', async () => {
   render(<App />)
 
   const quality = await screen.findByLabelText('Research signal quality')
+  const primaryAction = screen.getByLabelText('Primary action')
+  const sideRail = primaryAction.parentElement
+  const secondaryFold = screen.getByText('Show secondary details').closest('details')
+  expect(sideRail).toHaveClass('side-rail')
+  expect(within(sideRail as HTMLElement).queryByLabelText('Research signal quality')).not.toBeInTheDocument()
+  expect(secondaryFold).not.toBeNull()
+  expect(Boolean(secondaryFold!.compareDocumentPosition(quality) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   expect(within(quality).getByText('warnings')).toBeInTheDocument()
   expect(within(quality).getByText('Weak evidence')).toBeInTheDocument()
   expect(within(quality).getByText('2')).toBeInTheDocument()

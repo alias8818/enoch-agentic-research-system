@@ -271,6 +271,8 @@ button:disabled { cursor: not-allowed; }
 
 .side-rail { display: grid; gap: 0.85rem; }
 
+.secondary-analytics { display: grid; gap: 0.85rem; }
+
 .eyebrow {
   margin: 0;
   color: #d6a957;
