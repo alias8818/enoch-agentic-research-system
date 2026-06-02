@@ -19,7 +19,7 @@ Definitions:
 - `candidate`: generated or imported possible work that is not yet a queued dispatch row.
 - `queue row`: admitted work with lane, target, priority, blocked/queued/active state, and dispatch readiness.
 - `dispatch/run`: a concrete worker execution attempt or run history record.
-- `worker lane`: CPU or GB10 lane telemetry, current worker confirmation, backlog pressure, and lane blockers.
+- `worker lane`: CPU or [GB10 runtime](current-runtime-snapshot.md) lane telemetry, current worker confirmation, backlog pressure, and lane blockers.
 - `evidence/artifact`: decision files, evidence bundles, run artifacts, package inputs, and inspection records.
 - `paper/package/import`: paper draft, rewrite, finalization, package lint, corpus import, and publication-readiness state.
 - `event/alert`: audit event, queue alert, conflict, notification, or operator-facing evidence of a state change.
