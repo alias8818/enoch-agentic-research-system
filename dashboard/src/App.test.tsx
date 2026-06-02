@@ -1282,8 +1282,12 @@ it('keeps visible resource filters aligned with hash navigation', async () => {
 
   await screen.findByText('Active item')
   expect(screen.getByLabelText(/Status/i)).toHaveValue('active')
-  expect(new URL(fetchMockCallUrl(fetchMock, 0), 'https://enoch.local').searchParams.get('status')).toBe('queued')
-  expect(new URL(fetchMockCallUrl(fetchMock, 1), 'https://enoch.local').searchParams.get('status')).toBe('active')
+  const firstParams = new URL(fetchMockCallUrl(fetchMock, 0), 'https://enoch.local').searchParams
+  const secondParams = new URL(fetchMockCallUrl(fetchMock, 1), 'https://enoch.local').searchParams
+  expect(firstParams.get('queue')).toBe('queued')
+  expect(firstParams.get('status')).toBeNull()
+  expect(secondParams.get('queue')).toBe('active')
+  expect(secondParams.get('status')).toBeNull()
 })
 
 it('keeps unsupported hashes inside the V2 shell with route suggestions only', () => {
@@ -1411,7 +1415,7 @@ it('keeps queue hash search filters in the V2 queue read model', async () => {
 
   expect(await screen.findByRole('heading', { name: 'Queue' })).toBeInTheDocument()
   expect(await screen.findByText('GB10 queued work')).toBeInTheDocument()
-  expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/queue?page_size=50&sort=priority&status=queued&search=gb10&queue=all', expect.any(Object))
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/queue?page_size=50&sort=priority&queue=queued&search=gb10', expect.any(Object))
 })
 
 it('keeps paper hash filters in the V2 papers read model', async () => {

@@ -26,7 +26,7 @@ afterEach(() => {
   globalThis.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
 })
 
-it('loads queue rows from the V1 queue endpoint with the route status', async () => {
+it('loads queue rows from the V1 queue endpoint with the route queue slice', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ rows: [{ project_id: 'p1', status: 'queued', title: 'Queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
@@ -37,10 +37,10 @@ it('loads queue rows from the V1 queue endpoint with the route status', async ()
   expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/control/api/v1/queue?'), expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
   const url = fetchMockUrl(fetchMock, 0)
   expect(url.pathname).toBe('/control/api/v1/queue')
-  expectParam(url, 'queue', 'all')
+  expectParam(url, 'queue', 'queued')
   expectParam(url, 'page_size', '50')
   expectParam(url, 'sort', 'priority')
-  expectParam(url, 'status', 'queued')
+  expect(url.searchParams.get('status')).toBeNull()
 })
 
 
@@ -113,22 +113,26 @@ it('syncs route-derived status changes into resource page backend filters', asyn
   expect(screen.getByLabelText(/Status/i)).toHaveValue('active')
   const first = fetchMockUrl(fetchMock, 0)
   const second = fetchMockUrl(fetchMock, 1)
-  expectParam(first, 'status', 'queued')
-  expectParam(second, 'status', 'active')
+  expectParam(first, 'queue', 'queued')
+  expect(new URL(first, 'https://enoch.local').searchParams.get('status')).toBeNull()
+  expectParam(second, 'queue', 'active')
+  expect(new URL(second, 'https://enoch.local').searchParams.get('status')).toBeNull()
 })
 
-it('explains active queue empty state when overview counts active work', async () => {
+it('loads active lane rows through the backend queue slice', async () => {
   saveToken('test-token')
-  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
     counts: { active: 2, queued: 47 },
-    rows: [],
-    page: { returned: 0, has_more: false },
+    rows: [{ project_id: 'active-lane-row', status: 'awaiting_wake', title: 'Active lane row' }],
+    page: { returned: 1, has_more: false },
   }), { status: 200 }))
 
   renderWithClient(<QueuePage route={{ page: 'queue', status: 'active', search: '', hash: '#queue:active' }} />)
 
-  expect(await screen.findByText('Active lane work is not shown in this queue slice')).toBeInTheDocument()
-  expect(screen.getByText(/2 active/)).toBeInTheDocument()
+  expect(await screen.findByText('Active lane row')).toBeInTheDocument()
+  const url = fetchMockUrl(fetchMock, 0)
+  expectParam(url, 'queue', 'active')
+  expect(url.searchParams.get('status')).toBeNull()
   expect(screen.queryByText('Queue is empty')).not.toBeInTheDocument()
 })
 
@@ -336,7 +340,8 @@ it('applies queue filters and follows the backend cursor without inventing pagin
 
   let url = fetchMockUrl(fetchMock, 1)
   expectParam(url, 'search', 'oracle')
-  expectParam(url, 'status', 'active')
+  expectParam(url, 'queue', 'active')
+  expect(url.searchParams.get('status')).toBeNull()
   expectParam(url, 'page_size', '25')
   expect(url.searchParams.get('cursor')).toBeNull()
 
@@ -346,7 +351,8 @@ it('applies queue filters and follows the backend cursor without inventing pagin
   url = fetchMockUrl(fetchMock, 2)
   expectParam(url, 'cursor', 'cursor-3')
   expectParam(url, 'search', 'oracle')
-  expectParam(url, 'status', 'active')
+  expectParam(url, 'queue', 'active')
+  expect(url.searchParams.get('status')).toBeNull()
 })
 
 it('loads saved queue filter presets from localStorage and applies them to the queue read model', async () => {
@@ -365,7 +371,8 @@ it('loads saved queue filter presets from localStorage and applies them to the q
 
   const url = fetchMockUrl(fetchMock, 1)
   expectParam(url, 'search', 'oracle')
-  expectParam(url, 'status', 'queued')
+  expectParam(url, 'queue', 'queued')
+  expect(url.searchParams.get('status')).toBeNull()
   expectParam(url, 'page_size', '25')
 })
 

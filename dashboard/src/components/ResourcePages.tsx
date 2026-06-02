@@ -212,6 +212,18 @@ function queueHash(state: FilterState): string {
   return `${base}${hashQuery([['search', state.search]])}`
 }
 
+function queueListParams(state: FilterState): URLSearchParams {
+  const params = new URLSearchParams({ page_size: state.pageSize, sort: 'priority' })
+  const queueSlice = ['active', 'blocked', 'queued'].includes(state.status)
+    ? state.status
+    : 'all'
+  params.set('queue', queueSlice)
+  if (state.status && queueSlice === 'all') params.set('status', state.status)
+  if (state.search) params.set('search', state.search)
+  if (state.cursor) params.set('cursor', state.cursor)
+  return params
+}
+
 function statusHash(base: string, statusKey: string, state: FilterState): string {
   return `${base}${hashQuery([[statusKey, state.status], ['search', state.search]])}`
 }
@@ -453,8 +465,7 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
     setLiveDispatchProjectId('')
     setLiveDispatchSignature('')
   }, [route.search, route.status])
-  const params = withCommonParams(filters, 'priority')
-  params.set('queue', 'all')
+  const params = queueListParams(filters)
   const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/queue?${params}`).then(parseQueueListResponse) })
   if (query.isLoading) return <LoadingStateCard label="queue" />
   if (query.isError) return <ResourceErrorCard endpoint="queue" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry queue" />
