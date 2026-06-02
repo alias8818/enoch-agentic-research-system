@@ -25,10 +25,10 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument()
   fireEvent.click(screen.getByText('More'))
   expect(screen.getByRole('link', { name: 'Events' })).toHaveAttribute('href', '/control/dashboard-v2#events')
-  expect(screen.getByRole('link', { name: 'Paper corpus import' })).toHaveAttribute('href', '/control/dashboard-v2#corpus')
   expect(screen.getByRole('link', { name: 'Candidate generation' })).toHaveAttribute('href', '/control/dashboard-v2#research')
   expect(screen.getByRole('link', { name: 'Idea intake' })).toHaveAttribute('href', '/control/dashboard-v2#intake')
-  expect(screen.getByRole('link', { name: 'Paper actions' })).toHaveAttribute('href', '/control/dashboard-v2#automation')
+  expect(screen.queryByRole('link', { name: 'Paper corpus import' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Paper actions' })).not.toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Corpus' })).not.toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Research' })).not.toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Intake' })).not.toBeInTheDocument()
@@ -41,6 +41,35 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
   await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(5))
+})
+
+it('keeps paper sub-workflow compatibility hashes owned by the Papers nav', async () => {
+  globalThis.location.hash = '#corpus'
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ paper_pipeline: { publish_ready: 0, published_imported: 0, publication_ready_total: 0 } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [], page: { returned: 0 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Paper corpus import' })).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: 'Papers' }).some((link) => link.classList.contains('nav-link--active'))).toBe(true)
+  expect(screen.getByRole('navigation', { name: 'Papers workflow' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /Paper actions/ })).toHaveAttribute('href', '/control/dashboard-v2#automation')
+})
+
+it('keeps paper action hashes owned by the Papers nav', async () => {
+  globalThis.location.hash = '#automation'
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: {}, rows: [], page: { returned: 0 } }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Paper actions' })).toBeInTheDocument()
+  expect(screen.getAllByRole('link', { name: 'Papers' }).some((link) => link.classList.contains('nav-link--active'))).toBe(true)
+  expect(screen.getByRole('navigation', { name: 'Papers workflow' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /Paper corpus import/ })).toHaveAttribute('href', '/control/dashboard-v2#corpus')
 })
 
 it('closes the More menu after navigating to settings', async () => {

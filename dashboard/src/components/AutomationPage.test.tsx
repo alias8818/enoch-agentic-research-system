@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -27,6 +27,10 @@ it('loads publication automation rows from the bounded API', async () => {
   renderWithClient(<AutomationPage />)
 
   await screen.findByText('Paper project')
+  const workflowNav = screen.getByRole('navigation', { name: 'Papers workflow' })
+  expect(within(workflowNav).getByRole('link', { name: /Paper actions/ })).toHaveAttribute('aria-current', 'page')
+  expect(within(workflowNav).getByRole('link', { name: /Papers/ })).toHaveAttribute('href', '/control/dashboard-v2#papers')
+  expect(within(workflowNav).getByRole('link', { name: /Paper corpus import/ })).toHaveAttribute('href', '/control/dashboard-v2#corpus')
   expect(screen.getByText(/ready for automation triage/i)).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#automation:paper-1')
   expect(fetchMock).toHaveBeenCalledWith(

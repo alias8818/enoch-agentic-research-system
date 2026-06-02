@@ -42,13 +42,17 @@ function currentRoute(): DashboardRoute {
   return parseDashboardRoute(canonical)
 }
 
+const PAPER_WORKFLOW_PAGES = new Set<DashboardRoute['page']>(['papers', 'corpus', 'automation'])
+
 function navClass(route: DashboardRoute, page: DashboardRoute['page']): string {
-  const active = route.page === page || (route.page === 'detail' && detailParentPage(route.kind) === page)
+  const active = route.page === page
+    || (page === 'papers' && PAPER_WORKFLOW_PAGES.has(route.page))
+    || (route.page === 'detail' && detailParentPage(route.kind) === page)
   if (active) return 'nav-link nav-link--active'
   return 'nav-link'
 }
 
-const MORE_NAV_PAGES = new Set<DashboardRoute['page']>(['events', 'observability', 'corpus', 'research', 'intake', 'automation', 'settings', 'unsupported'])
+const MORE_NAV_PAGES = new Set<DashboardRoute['page']>(['events', 'observability', 'research', 'intake', 'settings', 'unsupported'])
 
 function moreNavClass(route: DashboardRoute): string {
   if (MORE_NAV_PAGES.has(route.page)) return 'nav-more nav-more--active'
@@ -120,10 +124,8 @@ function DashboardNav({ route, onClearToken }: Readonly<{ route: DashboardRoute;
         <div className="nav-menu">
           <a className={navClass(route, 'events')} href={dashboardV2Href('#events')} onClick={closeMore}>Events</a>
           <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')} onClick={closeMore}>Observability</a>
-          <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')} onClick={closeMore}>Paper corpus import</a>
           <a className={navClass(route, 'research')} href={dashboardV2Href('#research')} onClick={closeMore}>Candidate generation</a>
           <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')} onClick={closeMore}>Idea intake</a>
-          <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')} onClick={closeMore}>Paper actions</a>
           <a className={navClass(route, 'settings')} href={dashboardV2Href('#settings')} onClick={closeMore}>Settings</a>
           <button className="nav-link" type="button" onClick={(event) => {
             closeMore(event)

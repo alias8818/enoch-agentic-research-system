@@ -13,6 +13,7 @@ import { OperatorResultCard } from './operator/OperatorResultCard'
 import { SelectedEntityActions } from './operator/SelectedEntityActions'
 import { automationTableColumns, simpleTableColumns } from '../tablePresentation'
 import { PageHeader } from './PageHeader'
+import { PaperWorkflowNav } from './PaperWorkflowNav'
 import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummary'
 
 type MutationResult = Record<string, unknown>
@@ -482,6 +483,8 @@ export function AutomationPage({
           </>
         )}
       />
+
+      <PaperWorkflowNav active="automation" />
 
       <ListFilterBar
         state={filters}

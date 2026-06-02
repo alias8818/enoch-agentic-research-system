@@ -54,6 +54,7 @@ import {
   PageShell,
   RawJsonDetails,
 } from './ui'
+import { PaperWorkflowNav } from './PaperWorkflowNav'
 import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummary'
 
 type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null; sentry_enabled?: boolean; sentry_configured?: boolean; sentry_environment?: string; sentry_release?: string }
@@ -470,6 +471,7 @@ export function PapersPage({ route }: Readonly<{ route: Extract<DashboardRoute, 
   if (query.isError) return <ResourceErrorCard endpoint="papers" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry papers" />
   return (
     <PageShell title="Papers" subtitle="Track draft, finalization, and publication readiness." dataSource="/control/api/v1/papers" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
+      <PaperWorkflowNav active="papers" />
       <ListFilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={query.data?.rows || []} columns={papersTableColumns} empty={derivePapersEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: displayText(row.paper_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
@@ -512,6 +514,7 @@ export function CorpusPage({ route }: Readonly<{ route?: Extract<DashboardRoute,
   const { status: importValidationStatus, detail: validationDetail } = corpusImportValidationCopy(publishReady)
   return (
     <PageShell title="Paper corpus import" subtitle="Find publication-ready drafts that still need corpus import." dataSource="/control/api/v1/papers and corpus import ledger" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || overview.isFetching} onRefresh={() => { refetchAllInBackground(() => query.refetch(), () => overview.refetch()) }} />}>
+      <PaperWorkflowNav active="corpus" />
       <section className="count-grid" aria-label="Corpus import summary">
         <CountCard label="Missing corpus import" value={publishReady} detail="Finalized publication drafts without corpus-import ledger rows." />
         <CountCard label="Already imported" value={imported} detail="Publication-ready drafts already recorded in corpus_imports." />

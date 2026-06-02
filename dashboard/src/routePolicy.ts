@@ -78,13 +78,13 @@ export function classifyDashboardRoute(route: DashboardRoute): RouteClassificati
     case 'events':
       return { surface: 'list', label: 'Events' }
     case 'corpus':
-      return { surface: 'list', label: 'Paper corpus import' }
+      return { surface: 'list', label: 'Paper corpus import', parentListHash: '#papers' }
     case 'research':
       return { surface: 'list', label: 'Candidate generation' }
     case 'intake':
       return { surface: 'list', label: 'Idea intake' }
     case 'automation':
-      return { surface: 'list', label: 'Paper actions' }
+      return { surface: 'list', label: 'Paper actions', parentListHash: '#papers' }
     case 'observability':
       return { surface: 'debug', label: 'Observability' }
     case 'detail':

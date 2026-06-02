@@ -53,4 +53,10 @@ describe('routePolicy', () => {
 
     expect(unsupportedRouteSuggestions('#paper:missing').map((item) => item.label)).toContain('Paper actions')
   })
+
+  it('parents paper sub-workflow routes back to the Papers list', () => {
+    expect(classifyDashboardRoute(parseDashboardRoute('#corpus')).parentListHash).toBe('#papers')
+    expect(classifyDashboardRoute(parseDashboardRoute('#automation')).parentListHash).toBe('#papers')
+    expect(classifyDashboardRoute(parseDashboardRoute('#papers')).parentListHash).toBeUndefined()
+  })
 })

@@ -196,6 +196,48 @@ button:disabled { cursor: not-allowed; }
   box-shadow: var(--focus-ring);
 }
 
+.paper-workflow-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.paper-workflow-link {
+  display: grid;
+  gap: 0.2rem;
+  min-height: 4.3rem;
+  border: 1px solid rgba(244, 241, 234, 0.12);
+  border-radius: 0.75rem;
+  background: rgba(12, 12, 10, 0.62);
+  color: #cfc6b8;
+  padding: 0.72rem 0.82rem;
+  text-decoration: none;
+}
+
+.paper-workflow-link span {
+  color: #fff8ea;
+  font-size: 0.86rem;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.paper-workflow-link small {
+  color: #9f988f;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.paper-workflow-link:hover,
+.paper-workflow-link--active {
+  border-color: rgba(226, 177, 91, 0.65);
+  background: #221c11;
+}
+
+.paper-workflow-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .auth-frame {
   min-height: 100vh;
   display: grid;
