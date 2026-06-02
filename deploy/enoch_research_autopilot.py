@@ -775,6 +775,46 @@ def _resolve_control_token(config: dict) -> str:
     )
 
 
+def _control_hold_skip_result(base_url: str, token: str) -> dict | None:
+    if _truthy("ENOCH_RESEARCH_AUTOPILOT_RUN_WHILE_HELD", "0"):
+        return None
+    try:
+        status = _get_json(base_url, "/control/api/status", token, timeout=10)
+    except Exception:
+        return None
+    flags = status.get("flags") if isinstance(status, dict) else {}
+    if not isinstance(flags, dict):
+        return None
+    held_by: list[str] = []
+    if bool(flags.get("maintenance_mode")):
+        held_by.append("maintenance_mode")
+    if bool(flags.get("queue_paused")):
+        held_by.append("queue_paused")
+    if not held_by:
+        return None
+    return {
+        "ok": True,
+        "action": "skipped",
+        "reason": f"research autopilot skipped while control plane is held: {', '.join(held_by)}",
+        "hold_state": {
+            "queue_paused": bool(flags.get("queue_paused")),
+            "maintenance_mode": bool(flags.get("maintenance_mode")),
+            "pause_reason": str(flags.get("pause_reason") or ""),
+            "paused_at": str(flags.get("paused_at") or ""),
+            "paused_by": str(flags.get("paused_by") or ""),
+        },
+    }
+
+
+def _main_control_hold_exit(base_url: str, token: str) -> int | None:
+    result = _control_hold_skip_result(base_url, token)
+    if result is None:
+        return None
+    result["research_autopilot_history"] = append_research_autopilot_history(result)
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
 def _main_missing_token_exit(token: str) -> int | None:
     if token:
         return None
@@ -1168,8 +1208,12 @@ def main() -> int:
     if exit_code is not None:
         return exit_code
 
-    payload, max_wait_seconds = _build_research_run_cycle_payload()
     base_url = _base_url(config)
+    exit_code = _main_control_hold_exit(base_url, token)
+    if exit_code is not None:
+        return exit_code
+
+    payload, max_wait_seconds = _build_research_run_cycle_payload()
     exit_code, result = _post_research_run_cycle(
         base_url, token, payload, max_wait_seconds
     )

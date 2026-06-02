@@ -108,6 +108,7 @@ def test_http_error_is_not_masked_by_recovery_probe(tmp_path, capsys, monkeypatc
     )
     monkeypatch.setenv("ENOCH_CONFIG", str(config))
     monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_RUN_WHILE_HELD", "1")
 
     http_error = error.HTTPError(
         url="http://127.0.0.1:8787/control/api/research/run-cycle",
@@ -131,6 +132,104 @@ def test_http_error_is_not_masked_by_recovery_probe(tmp_path, capsys, monkeypatc
     assert result["ok"] is False
     assert result["action"] == "failed"
     assert "HTTPError" in result["reason"]
+
+
+def test_research_autopilot_skips_run_cycle_during_control_hold(
+    tmp_path, capsys, monkeypatch
+):
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
+    history = tmp_path / "history.jsonl"
+    monkeypatch.setenv("ENOCH_CONFIG", str(config))
+    monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(history))
+
+    with (
+        patch.object(
+            autopilot,
+            "_get_json",
+            return_value={
+                "flags": {
+                    "queue_paused": True,
+                    "maintenance_mode": True,
+                    "pause_reason": "dashboard operator pause",
+                    "paused_at": "2026-06-01T10:32:23Z",
+                    "paused_by": "dashboard-v2",
+                }
+            },
+        ) as get_json,
+        patch.object(autopilot, "_post_json") as post_json,
+        patch.object(autopilot, "refresh_research_quality_report") as refresh,
+        patch.object(autopilot, "run_quota_gated_janitor_llm_review") as janitor,
+    ):
+        assert autopilot.main() == 0
+
+    post_json.assert_not_called()
+    refresh.assert_not_called()
+    janitor.assert_not_called()
+    get_json.assert_called_once_with(
+        "http://127.0.0.1:8787", "/control/api/status", "token", timeout=10
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert result["action"] == "skipped"
+    assert "maintenance_mode" in result["reason"]
+    assert result["hold_state"]["queue_paused"] is True
+    assert result["hold_state"]["maintenance_mode"] is True
+    assert result["research_autopilot_history"]["ok"] is True
+    rows = [json.loads(line) for line in history.read_text(encoding="utf-8").splitlines()]
+    assert rows[-1]["ok"] is True
+    assert rows[-1]["reason"] == result["reason"]
+
+
+def test_research_autopilot_hold_skip_can_be_overridden(tmp_path, monkeypatch):
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
+    monkeypatch.setenv("ENOCH_CONFIG", str(config))
+    monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_RUN_WHILE_HELD", "1")
+
+    with (
+        patch.object(autopilot, "_get_json") as get_json,
+        patch.object(
+            autopilot,
+            "_post_json",
+            return_value={"ok": True, "action": "research_cycle"},
+        ) as post_json,
+        patch.object(
+            autopilot,
+            "append_research_autopilot_history",
+            return_value={"ok": True},
+        ),
+        patch.object(
+            autopilot,
+            "refresh_research_quality_report",
+            return_value={"ok": True},
+        ),
+        patch.object(
+            autopilot,
+            "refresh_research_quality_window_comparison",
+            return_value={"ok": True},
+        ),
+        patch.object(
+            autopilot,
+            "run_quota_gated_janitor_llm_review",
+            return_value={"ok": True},
+        ),
+        patch.object(
+            autopilot,
+            "run_llm_model_health_checks",
+            return_value={"ok": True},
+        ),
+    ):
+        assert autopilot.main() == 0
+
+    get_json.assert_not_called()
+    post_json.assert_called_once()
 
 
 def test_research_quality_refresh_only_runs_read_only_report(
