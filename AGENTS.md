@@ -135,6 +135,25 @@ config.example.json           # Configuration template
 - pyright for type checking (strict mode with warning-level opt-outs)
 - Pre-commit hooks enforce: ruff, ruff-format, check-added-large-files, trailing-whitespace
 
+## Dashboard V2 Product Discipline
+
+Before changing Dashboard V2 UI, routes, tables, command results, detail pages,
+dashboard copy, dashboard assets, or dashboard read-model rendering, use the
+`enoch-dashboard-operator-design` skill.
+
+Hard rules:
+
+- Dashboard V2 is an operator command center, not a data explorer.
+- Do not add a page, route, panel, table column, metric, badge, or visible JSON
+  field unless it answers a concrete operator question.
+- Prefer deletion, demotion, grouping, collapsed debug details, or existing-route
+  reuse over adding another visible surface.
+- Raw JSON must appear only inside collapsed `details.raw-details`.
+- Red means operator risk, not normal active work.
+- The command center should expose one primary next action above the fold.
+- If semantics are wrong, fix the backend read model and add deterministic tests;
+  do not patch truth with frontend copy.
+
 ## CI Workflows
 
 - `.github/workflows/ci.yml` - Tests, lint, typecheck, semgrep, dashboard tests, E2E
