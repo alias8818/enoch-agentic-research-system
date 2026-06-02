@@ -20,7 +20,11 @@ test('command center overview matches baseline screenshot @visual', async ({ pag
   await openDashboardWithToken(page, '#overview')
   await expect(page.getByText('Can I leave this running?')).toBeVisible()
   await expect(page.getByLabel('Worker lanes')).toBeVisible()
+  await expect(page.getByText('Research signal quality')).toBeHidden()
+  await page.getByText('Show secondary details').click()
   await expect(page.getByText('Research signal quality')).toBeVisible()
+  await page.getByText('Show secondary details').click()
+  await expect(page.getByText('Research signal quality')).toBeHidden()
   await page.addStyleTag({
     content: '.command-stack { height: 1251px !important; overflow: hidden !important; }',
   })
