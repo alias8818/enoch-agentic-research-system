@@ -133,7 +133,7 @@ def test_queue_alert_findings_suppresses_live_dispatch_noise_during_hold() -> No
     assert findings == []
 
 
-def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
+def test_queue_alert_findings_suppresses_research_quality_warning_during_hold(
     monkeypatch, tmp_path
 ) -> None:
     report_path = tmp_path / "research-quality.json"
@@ -184,6 +184,60 @@ def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
 
     findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
 
+    assert findings == []
+
+
+def test_queue_alert_findings_preserves_research_quality_warning_when_not_held(
+    monkeypatch, tmp_path
+) -> None:
+    report_path = tmp_path / "research-quality.json"
+    report_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        alerts,
+        "load_latest_quality_status",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "status": "warnings",
+            "label": "warnings",
+            "severity_counts": {"warning": 2},
+            "problem_counts": {"weak_or_missing_evidence_strength": 2},
+            "report_mtime": "2000-01-01T00:00:00Z",
+            "report_path": str(report_path),
+            "post_prompt_monitor": {
+                "malformed_provider_response_count": 7,
+                "useful_adjacent_followup_delta": -4.0,
+            },
+            "problem_details": [
+                {
+                    "section": "decision_scores",
+                    "severity": "info",
+                    "problem": "supported_but_negative_requires_review",
+                    "project_id": "project-info",
+                    "run_id": "run-info",
+                    "title": "Informational Project",
+                },
+                {
+                    "section": "decision_scores",
+                    "severity": "warning",
+                    "problem": "weak_or_missing_evidence_strength",
+                    "project_id": "project-1",
+                    "run_id": "run-1",
+                    "title": "Weak Evidence Project",
+                },
+            ],
+        },
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+
     assert len(findings) == 1
     finding = findings[0]
     assert finding.severity == "warn"
@@ -209,7 +263,7 @@ def test_queue_alert_findings_preserves_research_quality_warning_during_hold(
     ]
 
 
-def test_queue_alert_findings_explains_review_required_signal_during_hold(
+def test_research_quality_finding_explains_review_required_signal_during_hold(
     monkeypatch, tmp_path
 ) -> None:
     report_path = tmp_path / "research-quality.json"
@@ -424,7 +478,7 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
                     "quality floor satisfied across 45 candidates and 50 decisions"
                 ),
             },
-            "report_mtime": "2026-05-31T00:22:14Z",
+            "report_mtime": "2026-06-02T09:45:15Z",
             "report_path": str(report_path),
             "post_prompt_monitor": {
                 "window_comparison": {
@@ -572,10 +626,9 @@ def test_queue_alert_findings_explains_review_required_signal_during_hold(
         source_freshness={},
     )
 
-    findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
+    finding = alerts._research_quality_alert_finding(status)  # type: ignore[attr-defined,arg-type]
 
-    assert len(findings) == 1
-    finding = findings[0]
+    assert finding is not None
     assert finding.message == (
         "research signal requires review: Useful follow-up signal declined "
         "from 6 to 2; no bounded paper-ready outputs are available"

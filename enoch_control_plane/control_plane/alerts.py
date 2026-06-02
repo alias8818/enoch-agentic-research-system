@@ -706,11 +706,13 @@ def queue_alert_findings(
     status: DashboardStatusResponse, *, hang_after_sec: int
 ) -> list[DashboardFinding]:
     findings: list[DashboardFinding] = list(status.conflicts)
-    research_quality_finding = _research_quality_alert_finding(status)
-    if research_quality_finding is not None:
-        findings.append(research_quality_finding)
     flags = status.flags
     intentional_hold = flags.queue_paused or flags.maintenance_mode
+    research_quality_finding = _research_quality_alert_finding(status)
+    if research_quality_finding is not None and (
+        not intentional_hold or research_quality_finding.severity == "critical"
+    ):
+        findings.append(research_quality_finding)
     if intentional_hold:
         return _dedupe_alert_findings(findings)
 
