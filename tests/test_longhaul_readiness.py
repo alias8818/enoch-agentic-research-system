@@ -273,6 +273,101 @@ def test_structurally_unhealthy_llm_model_blocks_longhaul_readiness() -> None:
     assert result["summary"]["llm_model_structurally_unhealthy_count"] == 2
 
 
+def test_structural_llm_attention_does_not_block_when_workflows_have_usable_models() -> None:
+    payload = _ready_payload()
+    payload["llm_model_health"] = {
+        "ok": False,
+        "status": "needs_attention",
+        "unhealthy_count": 0,
+        "structurally_unhealthy_count": 1,
+        "models": [
+            {
+                "provider_id": "synthetic",
+                "model_id": "hf:zai-org/GLM-5.1",
+                "endpoint_health": "healthy",
+                "status": "healthy",
+                "format_health": "healthy",
+                "visible_output_health": "healthy",
+                "reasoning_budget_health": "ok",
+                "latest_failure_kind": "",
+            },
+            {
+                "provider_id": "openrouter",
+                "model_id": "moonshotai/kimi-k2.6",
+                "endpoint_health": "healthy",
+                "status": "healthy",
+                "format_health": "degraded",
+                "visible_output_health": "empty",
+                "reasoning_budget_health": "length_limited",
+                "latest_failure_kind": "",
+            },
+        ],
+        "workflow_recommendations": [
+            {
+                "workflow_id": "research_generation",
+                "enabled": True,
+                "status": "needs_attention",
+                "required_contracts": ["candidate_json"],
+                "recommended_model_pool": ["hf:zai-org/GLM-5.1"],
+                "recommended_default_model": "hf:zai-org/GLM-5.1",
+            },
+            {
+                "workflow_id": "paper_writing",
+                "enabled": True,
+                "status": "healthy",
+                "required_contracts": ["markdown_fenced_json"],
+                "recommended_model_pool": ["openrouter/owl-alpha"],
+                "recommended_default_model": "openrouter/owl-alpha",
+            },
+        ],
+    }
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is True
+    assert "configured LLM model health needs attention" not in result["blockers"]
+    check = next(
+        item for item in result["checks"] if item["name"] == "llm_model_health_ok"
+    )
+    assert check["ok"] is True
+    assert "structural=1" in check["detail"]
+    assert "moonshotai/kimi-k2.6=format_degraded" in check["detail"]
+    assert result["summary"]["llm_model_health_status"] == "needs_attention"
+    assert result["summary"]["llm_model_unhealthy_count"] == 0
+    assert result["summary"]["llm_model_structurally_unhealthy_count"] == 1
+
+
+def test_blocked_llm_workflow_blocks_longhaul_readiness() -> None:
+    payload = _ready_payload()
+    payload["llm_model_health"] = {
+        "ok": False,
+        "status": "needs_attention",
+        "unhealthy_count": 0,
+        "structurally_unhealthy_count": 1,
+        "models": [],
+        "workflow_recommendations": [
+            {
+                "workflow_id": "research_generation",
+                "enabled": True,
+                "status": "blocked",
+                "required_contracts": ["candidate_json"],
+                "recommended_model_pool": [],
+                "recommended_default_model": "",
+            }
+        ],
+    }
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert "configured LLM model health needs attention" in result["blockers"]
+    check = next(
+        item for item in result["checks"] if item["name"] == "llm_model_health_ok"
+    )
+    assert check["ok"] is False
+    assert "blocked_workflows=research_generation:candidate_json" in check["detail"]
+
+
 def test_latest_provider_generation_failure_blocks_longhaul_readiness() -> None:
     payload = _ready_payload()
     payload["overview"]["provider_generation_attempts"] = {
