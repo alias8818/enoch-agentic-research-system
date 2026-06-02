@@ -23,10 +23,10 @@ export const ROUTE_AUDIT: ReadonlyArray<{ hash: string; surface: RouteSurface; n
   { hash: '#runs', surface: 'list', note: 'Run activity index' },
   { hash: '#papers', surface: 'list', note: 'Paper pipeline index' },
   { hash: '#events', surface: 'list', note: 'Bounded event log' },
-  { hash: '#corpus', surface: 'list', note: 'Corpus import gap list' },
-  { hash: '#research', surface: 'list', note: 'Research facility candidates' },
-  { hash: '#intake', surface: 'list', note: 'Ideas intake workbench' },
-  { hash: '#automation', surface: 'list', note: 'Publication automation rows' },
+  { hash: '#corpus', surface: 'list', note: 'Papers-owned corpus import gap list' },
+  { hash: '#research', surface: 'list', note: 'Candidate generation and promotion workbench' },
+  { hash: '#intake', surface: 'list', note: 'Idea intake workbench' },
+  { hash: '#automation', surface: 'list', note: 'Paper action automation rows' },
   { hash: '#observability', surface: 'debug', note: 'Route/memory debug health' },
   { hash: '#project:…', surface: 'detail', note: 'Structured project detail page' },
   { hash: '#run:…', surface: 'detail', note: 'Structured run detail page' },
@@ -78,13 +78,13 @@ export function classifyDashboardRoute(route: DashboardRoute): RouteClassificati
     case 'events':
       return { surface: 'list', label: 'Events' }
     case 'corpus':
-      return { surface: 'list', label: 'Corpus import' }
+      return { surface: 'list', label: 'Paper corpus import' }
     case 'research':
-      return { surface: 'list', label: 'Research facility' }
+      return { surface: 'list', label: 'Candidate generation' }
     case 'intake':
-      return { surface: 'list', label: 'Ideas intake' }
+      return { surface: 'list', label: 'Idea intake' }
     case 'automation':
-      return { surface: 'list', label: 'Publication automation' }
+      return { surface: 'list', label: 'Paper actions' }
     case 'observability':
       return { surface: 'debug', label: 'Observability' }
     case 'detail':
@@ -106,7 +106,7 @@ export function unsupportedRouteSuggestions(hash: string): { label: string; href
     { label: 'Queue', href: dashboardV2Href('#queue:queued') },
   ]
   if (hash.includes('paper') || hash.includes('review')) {
-    return [{ label: 'Papers', href: dashboardV2Href('#papers') }, { label: 'Publication automation', href: dashboardV2Href('#automation') }, ...suggestions]
+    return [{ label: 'Papers', href: dashboardV2Href('#papers') }, { label: 'Paper actions', href: dashboardV2Href('#automation') }, ...suggestions]
   }
   if (hash.includes('run')) {
     return [{ label: 'Runs', href: dashboardV2Href('#runs') }, ...suggestions]

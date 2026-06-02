@@ -120,10 +120,10 @@ function DashboardNav({ route, onClearToken }: Readonly<{ route: DashboardRoute;
         <div className="nav-menu">
           <a className={navClass(route, 'events')} href={dashboardV2Href('#events')} onClick={closeMore}>Events</a>
           <a className={navClass(route, 'observability')} href={dashboardV2Href('#observability')} onClick={closeMore}>Observability</a>
-          <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')} onClick={closeMore}>Corpus</a>
-          <a className={navClass(route, 'research')} href={dashboardV2Href('#research')} onClick={closeMore}>Research</a>
-          <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')} onClick={closeMore}>Intake</a>
-          <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')} onClick={closeMore}>Automation</a>
+          <a className={navClass(route, 'corpus')} href={dashboardV2Href('#corpus')} onClick={closeMore}>Paper corpus import</a>
+          <a className={navClass(route, 'research')} href={dashboardV2Href('#research')} onClick={closeMore}>Candidate generation</a>
+          <a className={navClass(route, 'intake')} href={dashboardV2Href('#intake')} onClick={closeMore}>Idea intake</a>
+          <a className={navClass(route, 'automation')} href={dashboardV2Href('#automation')} onClick={closeMore}>Paper actions</a>
           <a className={navClass(route, 'settings')} href={dashboardV2Href('#settings')} onClick={closeMore}>Settings</a>
           <button className="nav-link" type="button" onClick={(event) => {
             closeMore(event)

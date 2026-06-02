@@ -511,7 +511,7 @@ export function CorpusPage({ route }: Readonly<{ route?: Extract<DashboardRoute,
   const publicationReady = pipeline.publication_ready_total ?? 0
   const { status: importValidationStatus, detail: validationDetail } = corpusImportValidationCopy(publishReady)
   return (
-    <PageShell title="Corpus import" subtitle="Find publication-ready drafts that still need corpus import." dataSource="/control/api/v1/papers and corpus import ledger" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || overview.isFetching} onRefresh={() => { refetchAllInBackground(() => query.refetch(), () => overview.refetch()) }} />}>
+    <PageShell title="Paper corpus import" subtitle="Find publication-ready drafts that still need corpus import." dataSource="/control/api/v1/papers and corpus import ledger" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || overview.isFetching} onRefresh={() => { refetchAllInBackground(() => query.refetch(), () => overview.refetch()) }} />}>
       <section className="count-grid" aria-label="Corpus import summary">
         <CountCard label="Missing corpus import" value={publishReady} detail="Finalized publication drafts without corpus-import ledger rows." />
         <CountCard label="Already imported" value={imported} detail="Publication-ready drafts already recorded in corpus_imports." />
@@ -597,7 +597,7 @@ export function IntakePage({ route }: Readonly<{ route?: Extract<DashboardRoute,
   const rows = data.queued_projection || []
   const selectedRow = selection || rows.find((row) => displayText(row.idea_id) === routeIdeaId) || null
   return (
-    <PageShell title="Ideas intake" subtitle="Review admitted ideas, queue state, and next operator actions." dataSource="/control/api/intake/ideas" action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); refetchInBackground(() => query.refetch()) }} refreshLabel="Refresh intake" />}>
+    <PageShell title="Idea intake" subtitle="Review admitted ideas, queue state, and next operator actions." dataSource="/control/api/intake/ideas" action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); refetchInBackground(() => query.refetch()) }} refreshLabel="Refresh intake" />}>
       <WorkbenchOperatorSummary summary={data.operator_summary} />
       <section className="result-card">
         <h2>Latest intake sync</h2>

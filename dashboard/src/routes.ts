@@ -152,13 +152,13 @@ export function dashboardRouteTitle(route: DashboardRoute): string {
     case 'observability':
       return 'Observability'
     case 'corpus':
-      return 'Corpus import'
+      return 'Paper corpus import'
     case 'research':
-      return 'Research Facility'
+      return 'Candidate generation'
     case 'intake':
-      return 'Ideas intake'
+      return 'Idea intake'
     case 'automation':
-      return 'Publication automation'
+      return 'Paper actions'
     case 'settings':
       return 'Settings'
     case 'detail':

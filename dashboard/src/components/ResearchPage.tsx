@@ -548,7 +548,7 @@ export function ResearchPage({ route }: Readonly<{ route?: ResearchPageRoute }>)
   return (
     <section className="page-stack">
       <PageHeader
-        title="Research Facility"
+        title="Candidate generation"
         subtitle="Promote admitted candidates and run bounded research cycles safely."
         dataSource="/control/api/v1/research-facility and autopilot endpoints"
         action={(

@@ -100,8 +100,8 @@ export function deriveResourceErrorCopy(endpoint: ResourceEndpoint, error: unkno
 
   if (endpoint === 'papers' || endpoint === 'corpus') {
     return {
-      eyebrow: endpoint === 'corpus' ? 'Corpus import read model' : 'Papers read model',
-      title: endpoint === 'corpus' ? 'Corpus import rows could not load' : 'Papers could not load',
+      eyebrow: endpoint === 'corpus' ? 'Paper corpus import read model' : 'Papers read model',
+      title: endpoint === 'corpus' ? 'Paper corpus import rows could not load' : 'Papers could not load',
       summary: endpoint === 'corpus'
         ? 'Publication-ready draft rows failed before the corpus import table could render.'
         : 'The papers list failed before any paper rows could render.',
@@ -122,7 +122,7 @@ export function deriveResourceErrorCopy(endpoint: ResourceEndpoint, error: unkno
 
   if (endpoint === 'intake') {
     return {
-      eyebrow: 'Ideas intake read model',
+      eyebrow: 'Idea intake read model',
       title: 'Intake workbench could not load',
       summary: 'The bounded intake projection failed before idea rows could render.',
       dispatchImpact: 'Intake review is unavailable; admitted ideas may still queue through backend automation.',
@@ -186,7 +186,7 @@ export function deriveProjectsEmpty(context: ListFilterContext): ComposedEmptySt
   return idleEmpty(
     'No projects in this slice',
     'The project index is empty for the current view. That can mean intake has not promoted new work yet.',
-    'Check Ideas intake or the command center if you expected active projects.',
+    'Check Idea intake or the command center if you expected active projects.',
   )
 }
 
@@ -225,7 +225,7 @@ export function derivePapersEmpty(context: ListFilterContext): ComposedEmptyStat
   return idleEmpty(
     'No paper actions pending',
     'Nothing in the papers slice needs operator attention right now.',
-    'Publication automation and corpus import may still have work on other routes.',
+    'Paper actions and paper corpus import may still have work on other routes.',
   )
 }
 

@@ -25,6 +25,14 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument()
   fireEvent.click(screen.getByText('More'))
   expect(screen.getByRole('link', { name: 'Events' })).toHaveAttribute('href', '/control/dashboard-v2#events')
+  expect(screen.getByRole('link', { name: 'Paper corpus import' })).toHaveAttribute('href', '/control/dashboard-v2#corpus')
+  expect(screen.getByRole('link', { name: 'Candidate generation' })).toHaveAttribute('href', '/control/dashboard-v2#research')
+  expect(screen.getByRole('link', { name: 'Idea intake' })).toHaveAttribute('href', '/control/dashboard-v2#intake')
+  expect(screen.getByRole('link', { name: 'Paper actions' })).toHaveAttribute('href', '/control/dashboard-v2#automation')
+  expect(screen.queryByRole('link', { name: 'Corpus' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Research' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Intake' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: 'Automation' })).not.toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Legacy dashboard' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByText('Show secondary details'))
   expect(screen.getAllByRole('link', { name: 'Runs' }).some((link) => link.getAttribute('href') === '/control/dashboard-v2#runs')).toBe(true)
@@ -1254,7 +1262,7 @@ it('canonicalizes alias hashes to supported routes on load', () => {
   render(<App />)
 
   expect(globalThis.location.hash).toBe('#automation')
-  expect(screen.getByRole('heading', { name: 'Publication automation' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Paper actions' })).toBeInTheDocument()
 })
 
 it('redirects legacy status hashes to the command center', () => {
@@ -1324,7 +1332,7 @@ it('keeps corpus hash filters in the V2 corpus read model', async () => {
 
   render(<App />)
 
-  expect(await screen.findByRole('heading', { name: 'Corpus import' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Paper corpus import' })).toBeInTheDocument()
   expect(await screen.findByText('Manifest review paper')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/papers?page_size=50&sort=recent&status=draft_review&search=manifest', expect.any(Object))
 })
@@ -1399,7 +1407,7 @@ it('opens legacy review hashes in the V2 automation page instead of legacy fallb
 
   render(<App />)
 
-  expect(await screen.findByRole('heading', { name: 'Publication automation' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Paper actions' })).toBeInTheDocument()
   expect(await screen.findByText('Legacy review paper')).toBeInTheDocument()
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/publication-automation/paper-legacy', expect.any(Object))
@@ -1419,7 +1427,7 @@ it('opens intake hashes in the V2 ideas intake page instead of legacy fallback',
 
   render(<App />)
 
-  expect(await screen.findByRole('heading', { name: 'Ideas intake' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Idea intake' })).toBeInTheDocument()
   expect(await screen.findByText('Better queue policy')).toBeInTheDocument()
   expect(screen.getByText('duplicate')).toBeInTheDocument()
   expect(screen.queryByText('This V2 page is not implemented yet')).not.toBeInTheDocument()
@@ -1441,7 +1449,7 @@ it('opens intake idea hashes as first-class V2 details', async () => {
 
   render(<App />)
 
-  expect(await screen.findByRole('heading', { name: 'Ideas intake' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Idea intake' })).toBeInTheDocument()
   const detail = await screen.findByLabelText('Intake idea detail')
   expect(detail).toHaveTextContent('Direct idea detail')
   expect(detail).toHaveTextContent('idea-1')

@@ -44,4 +44,13 @@ describe('routePolicy', () => {
       expect(hrefs, hash).not.toContain(overviewHref)
     }
   })
+
+  it('labels overlapping secondary routes by operator job instead of implementation noun', () => {
+    expect(classifyDashboardRoute(parseDashboardRoute('#corpus')).label).toBe('Paper corpus import')
+    expect(classifyDashboardRoute(parseDashboardRoute('#research')).label).toBe('Candidate generation')
+    expect(classifyDashboardRoute(parseDashboardRoute('#intake')).label).toBe('Idea intake')
+    expect(classifyDashboardRoute(parseDashboardRoute('#automation')).label).toBe('Paper actions')
+
+    expect(unsupportedRouteSuggestions('#paper:missing').map((item) => item.label)).toContain('Paper actions')
+  })
 })

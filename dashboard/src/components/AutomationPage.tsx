@@ -266,7 +266,7 @@ function AutomationPageFeedback({
         </section>
       ) : null}
       {automationLoading ? <div className="state-card">Loading publication automation…</div> : null}
-      {automationError ? <div className="state-card state-card--error">Publication automation unavailable: {String(automationError.message)}</div> : null}
+      {automationError ? <div className="state-card state-card--error">Paper actions unavailable: {String(automationError.message)}</div> : null}
     </>
   )
 }
@@ -469,7 +469,7 @@ export function AutomationPage({
   return (
     <section className="page-stack">
       <PageHeader
-        title="Publication automation"
+        title="Paper actions"
         subtitle="Dry-run first, then run per-paper rewrite, finalization, reject, and checklist actions on selected rows."
         dataSource="/control/api/publication-automation"
         action={(
@@ -533,7 +533,7 @@ export function AutomationPage({
       ) : null}
 
       {!automation.isLoading && !automation.isError ? (
-        <WorkbenchCountsFold counts={counts} label="Publication automation counts" />
+        <WorkbenchCountsFold counts={counts} label="Paper action counts" />
       ) : null}
 
       {activePaperId ? (
