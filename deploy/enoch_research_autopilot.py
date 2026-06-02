@@ -86,7 +86,11 @@ def _synthetic_provider_api_key(config: dict) -> str:
     if os.environ.get("SYNTHETIC_API_KEY"):
         return os.environ["SYNTHETIC_API_KEY"]
     configured = os.environ.get("ENOCH_LLM_PROVIDER_SECRETS_DIR", "").strip()
-    secret_dir = Path(configured).expanduser() if configured else _state_dir(config) / "llm-provider-secrets"
+    secret_dir = (
+        Path(configured).expanduser()
+        if configured
+        else _state_dir(config) / "llm-provider-secrets"
+    )
     secret_path = secret_dir / "synthetic.token"
     try:
         if secret_path.is_symlink():

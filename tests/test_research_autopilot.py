@@ -179,7 +179,9 @@ def test_research_autopilot_skips_run_cycle_during_control_hold(
     assert result["hold_state"]["queue_paused"] is True
     assert result["hold_state"]["maintenance_mode"] is True
     assert result["research_autopilot_history"]["ok"] is True
-    rows = [json.loads(line) for line in history.read_text(encoding="utf-8").splitlines()]
+    rows = [
+        json.loads(line) for line in history.read_text(encoding="utf-8").splitlines()
+    ]
     assert rows[-1]["ok"] is True
     assert rows[-1]["reason"] == result["reason"]
 

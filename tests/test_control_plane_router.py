@@ -1793,7 +1793,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                         "ENOCH_RESEARCH_PROVIDER_API_KEY": "synthetic-budget-key",
                     },
                 ),
-                patch("scripts.research_provider_budget.fetch_json", return_value=quota) as fetch,
+                patch(
+                    "scripts.research_provider_budget.fetch_json", return_value=quota
+                ) as fetch,
             ):
                 response = client.get(
                     "/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2",
@@ -1868,7 +1870,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     },
                     clear=False,
                 ),
-                patch("scripts.research_provider_budget.fetch_json", return_value=quota) as fetch,
+                patch(
+                    "scripts.research_provider_budget.fetch_json", return_value=quota
+                ) as fetch,
             ):
                 response = client.get(
                     "/control/api/research/provider-budget",
@@ -1911,7 +1915,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     },
                     clear=False,
                 ),
-                patch("scripts.research_provider_budget.fetch_json", return_value=quota) as fetch,
+                patch(
+                    "scripts.research_provider_budget.fetch_json", return_value=quota
+                ) as fetch,
             ):
                 response = client.get(
                     "/control/api/v1/automation-readiness",
@@ -1927,7 +1933,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(
                 provider_check["data"]["budget_endpoint_host"], "api.synthetic.new"
             )
-            self.assertEqual(provider_check["data"]["budget_endpoint_path"], "/v2/quotas")
+            self.assertEqual(
+                provider_check["data"]["budget_endpoint_path"], "/v2/quotas"
+            )
             args, kwargs = fetch.call_args
             self.assertEqual(args[0], "https://api.synthetic.new/v2/quotas")
             self.assertEqual(kwargs["api_key"], "synthetic-readiness-key")
