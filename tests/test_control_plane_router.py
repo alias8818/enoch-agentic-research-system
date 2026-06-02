@@ -1692,9 +1692,16 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "secret_echo": "synthetic-key-should-not-leak",
             }
 
-            with patch(
-                "scripts.research_provider_budget.fetch_json", return_value=quota
-            ) as fetch:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "ENOCH_RESEARCH_PROVIDER_BASE_URL": "https://api.synthetic.new",
+                        "ENOCH_RESEARCH_PROVIDER_API_KEY": "synthetic-budget-key",
+                    },
+                ),
+                patch("scripts.research_provider_budget.fetch_json", return_value=quota) as fetch,
+            ):
                 response = client.get(
                     "/control/api/research/provider-budget?estimated_requests=1&reserve_requests=2",
                     headers=headers,
@@ -1703,17 +1710,18 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             body = response.json()
             self.assertTrue(body["ok"])
-            self.assertEqual(body["auth_mode"], "exe_http_proxy")
+            self.assertEqual(body["auth_mode"], "bearer")
             self.assertEqual(body["remaining_credits"], 119.77)
             self.assertEqual(body["rolling_remaining"], 2499)
             self.assertEqual(body["failures"], [])
             self.assertIsNone(body["payload_json"])
             self.assertNotIn("secret_echo", response.text)
             self.assertNotIn("synthetic-key-should-not-leak", response.text)
+            self.assertNotIn("synthetic-budget-key", response.text)
             self.assertNotIn("Authorization", response.text)
             fetch.assert_called_once()
             _, kwargs = fetch.call_args
-            self.assertEqual(kwargs["api_key"], "")
+            self.assertEqual(kwargs["api_key"], "synthetic-budget-key")
 
     def test_research_facility_provider_budget_fails_safely_without_secret(
         self,

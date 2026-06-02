@@ -103,6 +103,7 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 def budget_status(
     *,
     base_url: str,
+    api_key: str,
     estimated_requests: int,
     reserve_requests: int,
     min_remaining_credits: float,
@@ -111,7 +112,7 @@ def budget_status(
     timeout: int,
 ) -> dict[str, Any]:
     payload = research_provider_budget.fetch_json(
-        f"{base_url.rstrip('/')}/v2/quotas", api_key="", timeout=timeout
+        f"{base_url.rstrip('/')}/v2/quotas", api_key=api_key, timeout=timeout
     )
     result = research_provider_budget.synthetic_budget_status(
         payload,
@@ -277,6 +278,7 @@ Candidates JSON:
 def call_review_model(
     *,
     base_url: str,
+    api_key: str,
     model: str,
     prompt: str,
     timeout: int,
@@ -287,7 +289,7 @@ def call_review_model(
         base_url=base_url,
         model=model,
         prompt=prompt,
-        api_key="",
+        api_key=api_key,
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
@@ -836,8 +838,10 @@ def _run_provider_review(
     *,
     dry_run: bool,
 ) -> None:
+    api_key = os.environ.get("SYNTHETIC_API_KEY", "")
     budget = budget_status(
         base_url=args.provider_base_url,
+        api_key=api_key,
         estimated_requests=args.estimated_requests,
         reserve_requests=args.reserve_requests,
         min_remaining_credits=args.min_remaining_credits,
@@ -878,6 +882,7 @@ def _run_provider_review(
     try:
         raw = call_review_model(
             base_url=args.openai_base_url,
+            api_key=api_key,
             model=args.model,
             prompt=prompt,
             timeout=args.timeout,

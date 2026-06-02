@@ -25,6 +25,7 @@ def test_llm_review_budget_checks_weekly_percent(monkeypatch):
 
     result = research_facility_llm_review.budget_status(
         base_url="https://synthetic.int.exe.xyz",
+        api_key="",
         estimated_requests=1,
         reserve_requests=5,
         min_remaining_credits=10.0,
@@ -36,6 +37,41 @@ def test_llm_review_budget_checks_weekly_percent(monkeypatch):
     assert result["ok"] is False
     assert result["weekly_percent_remaining"] == 24.9
     assert "weekly percent remaining" in "; ".join(result["failures"])
+
+
+def test_llm_review_budget_passes_provider_api_key(monkeypatch):
+    calls = []
+    payload = {
+        "weeklyTokenLimit": {"remainingCredits": "$100.00", "percentRemaining": 90.0},
+        "rollingFiveHourLimit": {"remaining": 2000, "max": 2500, "limited": False},
+        "subscription": {"limit": 2500, "requests": 0},
+    }
+
+    def fake_fetch(url, *, api_key, timeout):
+        calls.append((url, api_key, timeout))
+        return payload
+
+    monkeypatch.setattr(
+        research_facility_llm_review.research_provider_budget,
+        "fetch_json",
+        fake_fetch,
+    )
+
+    result = research_facility_llm_review.budget_status(
+        base_url="https://api.synthetic.new",
+        api_key="synthetic-budget-key",
+        estimated_requests=1,
+        reserve_requests=5,
+        min_remaining_credits=10.0,
+        min_rolling_remaining=150,
+        min_weekly_percent_remaining=25.0,
+        timeout=10,
+    )
+
+    assert result["ok"] is True
+    assert calls == [
+        ("https://api.synthetic.new/v2/quotas", "synthetic-budget-key", 10)
+    ]
 
 
 def test_llm_review_normalizes_valid_decisions_only():

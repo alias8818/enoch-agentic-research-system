@@ -41,6 +41,61 @@ def _load_config() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _state_dir(config: dict) -> Path:
+    return Path(str(config.get("state_dir") or "/var/lib/enoch-control-plane"))
+
+
+def _synthetic_settings_provider(config: dict) -> dict:
+    configured = os.environ.get("ENOCH_LLM_SETTINGS_PATH", "").strip()
+    path = (
+        Path(configured).expanduser()
+        if configured
+        else _state_dir(config) / "llm-provider-settings.json"
+    )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    for provider in data.get("providers") or []:
+        if str(provider.get("provider_id") or "").strip() == "synthetic":
+            return provider if isinstance(provider, dict) else {}
+    return {}
+
+
+def _synthetic_provider_openai_base_url() -> str:
+    if os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL"):
+        return os.environ["ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL"].rstrip("/")
+    provider = _synthetic_settings_provider(_load_config())
+    base_url = str(provider.get("base_url") or "").strip()
+    if base_url:
+        return base_url.rstrip("/")
+    return default_research_provider_openai_base_url()
+
+
+def _synthetic_provider_base_url() -> str:
+    if os.environ.get("ENOCH_RESEARCH_PROVIDER_BASE_URL"):
+        return os.environ["ENOCH_RESEARCH_PROVIDER_BASE_URL"].rstrip("/")
+    openai_base_url = _synthetic_provider_openai_base_url()
+    suffix = "/openai/v1"
+    if openai_base_url.endswith(suffix):
+        return openai_base_url[: -len(suffix)]
+    return DEFAULT_RESEARCH_PROVIDER_BASE_URL
+
+
+def _synthetic_provider_api_key(config: dict) -> str:
+    if os.environ.get("SYNTHETIC_API_KEY"):
+        return os.environ["SYNTHETIC_API_KEY"]
+    configured = os.environ.get("ENOCH_LLM_PROVIDER_SECRETS_DIR", "").strip()
+    secret_dir = Path(configured).expanduser() if configured else _state_dir(config) / "llm-provider-secrets"
+    secret_path = secret_dir / "synthetic.token"
+    try:
+        if secret_path.is_symlink():
+            return ""
+        return secret_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def _base_url(config: dict) -> str:
     host = str(config.get("listen_host") or "127.0.0.1")
     if host in {"0.0.0.0", "::"}:
@@ -437,14 +492,9 @@ def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
         sys.executable,
         str(_repo_root() / "scripts" / "research_facility_llm_review.py"),
         "--provider-base-url",
-        os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_BASE_URL", DEFAULT_RESEARCH_PROVIDER_BASE_URL
-        ),
+        _synthetic_provider_base_url(),
         "--openai-base-url",
-        os.environ.get(
-            "ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL",
-            default_research_provider_openai_base_url(),
-        ),
+        _synthetic_provider_openai_base_url(),
         "--model",
         _provider_model(),
         "--batch-size",
@@ -494,6 +544,15 @@ def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
             ]
         )
     return cmd
+
+
+def _janitor_llm_review_env(database_url: str) -> dict[str, str]:
+    env = _database_url_env(database_url)
+    if not env.get("SYNTHETIC_API_KEY"):
+        api_key = _synthetic_provider_api_key(_load_config())
+        if api_key:
+            env["SYNTHETIC_API_KEY"] = api_key
+    return env
 
 
 def _read_janitor_llm_payload(output: Path) -> dict:
@@ -580,7 +639,7 @@ def run_quota_gated_janitor_llm_review() -> dict:
             stderr=subprocess.PIPE,
             timeout=timeout + 30,
             check=False,
-            env=_database_url_env(database_url),
+            env=_janitor_llm_review_env(database_url),
         )
     except subprocess.TimeoutExpired:
         return _janitor_llm_review_subprocess_error(

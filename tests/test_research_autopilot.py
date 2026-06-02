@@ -575,6 +575,25 @@ def test_janitor_llm_review_disabled_by_default(monkeypatch):
 
 def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
     output = tmp_path / "janitor-llm.json"
+    config_path = tmp_path / "config.json"
+    state_dir = tmp_path / "state"
+    secret_dir = state_dir / "llm-provider-secrets"
+    secret_dir.mkdir(parents=True)
+    (secret_dir / "synthetic.token").write_text("synthetic-secret", encoding="utf-8")
+    (state_dir / "llm-provider-settings.json").write_text(
+        json.dumps(
+            {
+                "providers": [
+                    {
+                        "provider_id": "synthetic",
+                        "base_url": "https://api.synthetic.new/openai/v1",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path.write_text(json.dumps({"state_dir": str(state_dir)}), encoding="utf-8")
     calls: list[dict] = []
 
     def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
@@ -602,6 +621,7 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
         return Mock(returncode=0, stdout="", stderr="")
 
     monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED", "1")
+    monkeypatch.setenv("ENOCH_CONFIG", str(config_path))
     monkeypatch.setenv(
         "ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db"
     )
@@ -628,5 +648,11 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
     assert "150" in cmd
     assert "postgresql://user:secret@host/db" not in json.dumps(result["command"])
     assert "--database-url" not in result["command"]
+    assert "synthetic-secret" not in json.dumps(result["command"])
+    assert "--provider-base-url" in cmd
+    assert "https://api.synthetic.new" in cmd
+    assert "--openai-base-url" in cmd
+    assert "https://api.synthetic.new/openai/v1" in cmd
     assert calls[0]["env"]["DATABASE_URL"] == "postgresql://user:secret@host/db"
+    assert calls[0]["env"]["SYNTHETIC_API_KEY"] == "synthetic-secret"
     assert "ENOCH_SUPABASE_DATABASE_URL" not in calls[0]["env"]
