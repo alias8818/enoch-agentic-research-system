@@ -7104,6 +7104,11 @@ _LLM_FORMAT_PROBE_CONTRACTS = {
     "markdown_fenced_json",
     "candidate_json",
 }
+_LLM_FORMAT_PROBE_MAX_TOKENS = {
+    "strict_json": 128,
+    "markdown_fenced_json": 512,
+    "candidate_json": 1024,
+}
 
 
 def _llm_prompt_contract(value: Any) -> str:
@@ -7127,6 +7132,10 @@ def _llm_format_probe_prompt(contract: str) -> str:
         "Return only a compact JSON array with one candidate object. The object must "
         'have string fields "title" and "rationale".'
     )
+
+
+def _llm_format_probe_max_tokens(contract: str) -> int:
+    return _LLM_FORMAT_PROBE_MAX_TOKENS.get(contract, 128)
 
 
 def _llm_json_loads(text: str) -> Any:
@@ -7240,6 +7249,7 @@ def _record_llm_model_test_event(
         "reasoning_tokens",
         "workflow_id",
         "prompt_contract",
+        "max_tokens",
         "valid_json",
         "schema_ok",
         "malformed_kind",
@@ -7267,7 +7277,7 @@ def _llm_model_payload(model_id: str, *, prompt_contract: str = "") -> dict[str,
         if prompt_contract
         else "Reply with exactly: ok"
     )
-    max_tokens = 128 if prompt_contract else 12
+    max_tokens = _llm_format_probe_max_tokens(prompt_contract) if prompt_contract else 12
     return {
         "model": model_id,
         "max_tokens": max_tokens,
@@ -7328,6 +7338,9 @@ def _llm_provider_success_result(
         "model_id": model.model_id if model is not None else "",
         "status_code": status_code,
         "latency_ms": int((time.monotonic() - started) * 1000),
+        "max_tokens": _llm_format_probe_max_tokens(prompt_contract)
+        if prompt_contract
+        else 12,
         "finish_reason": finish_reason,
         "visible_chars": len(visible_text),
         "response_preview": visible_text[:240]

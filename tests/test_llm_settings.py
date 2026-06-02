@@ -636,6 +636,102 @@ def test_llm_settings_format_probe_records_schema_success(
         payload = store.events[0]["payload"]
         assert payload["source"] == "format_probe"
         assert payload["prompt_contract"] == "strict_json"
+        assert payload["max_tokens"] == 128
+        assert payload["valid_json"] is True
+        assert payload["schema_ok"] is True
+        assert payload["malformed_kind"] == ""
+
+
+def test_llm_settings_candidate_json_probe_uses_structured_output_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self, *_args: object) -> bytes:
+            return (
+                b'{"choices":[{"message":{"content":'
+                b'"[{\\\"title\\\":\\\"Probe\\\",\\\"rationale\\\":\\\"Enough budget\\\"}]"},'
+                b'"finish_reason":"stop"}]}'
+            )
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> int:
+            self.events.append(kwargs)
+            return len(self.events)
+
+        def event_page(self, **_kwargs: object):
+            return self.events, None, False
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        store = FakeStore()
+        client = _client(config, monkeypatch=monkeypatch, store=store)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        settings.models.append(
+            LLMModelSettings(
+                model_id="owl/candidate-json",
+                provider_id="openrouter",
+                label="Owl Candidate JSON",
+                enabled=True,
+                weight=90,
+            )
+        )
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+        seen: dict[str, object] = {}
+
+        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+            seen["body"] = req.data.decode("utf-8")
+            seen["timeout"] = timeout
+            return FakeResponse()
+
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            fake_urlopen,
+        )
+
+        response = client.post(
+            "/control/api/settings/llm/test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={
+                "provider_id": "openrouter",
+                "model_id": "owl/candidate-json",
+                "prompt_contract": "candidate_json",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["prompt_contract"] == "candidate_json"
+        assert body["max_tokens"] == 1024
+        assert body["valid_json"] is True
+        assert body["schema_ok"] is True
+        assert body["malformed_kind"] == ""
+        assert '"max_tokens": 1024' in str(seen["body"])
+        assert "compact JSON array" in str(seen["body"])
+        payload = store.events[0]["payload"]
+        assert payload["source"] == "format_probe"
+        assert payload["prompt_contract"] == "candidate_json"
+        assert payload["max_tokens"] == 1024
         assert payload["valid_json"] is True
         assert payload["schema_ok"] is True
         assert payload["malformed_kind"] == ""
