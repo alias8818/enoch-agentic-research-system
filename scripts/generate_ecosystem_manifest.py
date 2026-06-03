@@ -58,7 +58,9 @@ def promising_signal_count_from_repo(promising: Path) -> int:
             f"promising signals status_counts sum {summed} does not match data/signals.jsonl count {count}"
         )
     if manifest.get("public_evidence_copied") is not False:
-        raise SystemExit("promising signals manifest public_evidence_copied must be false")
+        raise SystemExit(
+            "promising signals manifest public_evidence_copied must be false"
+        )
     return count
 
 
