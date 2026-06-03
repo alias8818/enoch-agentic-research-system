@@ -624,7 +624,9 @@ def _openrouter_key_endpoint(openai_base_url: str) -> str:
     parsed = urlparse(str(openai_base_url or "").rstrip("/"))
     hostname = (parsed.hostname or "").rstrip(".").lower()
     if hostname != "openrouter.ai":
-        raise ValueError(f"OpenRouter budget host is not allowed: {hostname or 'unknown'}")
+        raise ValueError(
+            f"OpenRouter budget host is not allowed: {hostname or 'unknown'}"
+        )
     path = parsed.path.rstrip("/")
     if path.endswith("/api/v1"):
         key_path = f"{path}/key"
