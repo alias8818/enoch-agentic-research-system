@@ -7257,8 +7257,14 @@ def _llm_json_loads(text: str) -> Any:
 
 
 def _llm_fenced_json(text: str) -> str:
-    match = re.search(r"```json\s*(.*?)```", text, flags=re.IGNORECASE | re.DOTALL)
-    return match.group(1).strip() if match else ""
+    fence_start = text.lower().find("```json")
+    if fence_start < 0:
+        return ""
+    content_start = fence_start + len("```json")
+    fence_end = text.find("```", content_start)
+    if fence_end < 0:
+        return ""
+    return text[content_start:fence_end].strip()
 
 
 def _looks_like_refusal_or_sanitized(text: str) -> bool:

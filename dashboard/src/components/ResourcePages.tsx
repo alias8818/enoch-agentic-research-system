@@ -171,7 +171,7 @@ function workflowRecommendationHeadline(items: ObservabilityWorkflowRecommendati
 
 function healthLabel(value: string | undefined): string {
   if (!value) return 'unknown'
-  return value.replace(/_/g, ' ')
+  return value.replaceAll('_', ' ')
 }
 
 function percentText(value: number | undefined): string {

@@ -74,28 +74,24 @@ def _route_hashes(route_policy: str) -> list[str]:
     return re.findall(r"hash: '(#[^']+)'", route_policy)
 
 
-def validate() -> list[str]:
-    errors: list[str] = []
-    inventory = _read(INVENTORY)
-    route_policy = _read(ROUTE_POLICY)
+def _missing_entries(
+    entries: list[str],
+    content: str,
+    *,
+    label: str,
+    backtick_wrapped: bool = False,
+) -> list[str]:
+    missing: list[str] = []
+    for entry in entries:
+        expected = f"`{entry}`" if backtick_wrapped else entry
+        if expected not in content:
+            missing.append(f"inventory missing {label}: {entry}")
+    return missing
 
-    for surface in REQUIRED_ROUTE_SURFACES:
-        if f"`{surface}`" not in inventory:
-            errors.append(f"inventory missing route surface: {surface}")
 
-    for surface in REQUIRED_COMMAND_CENTER_SURFACES:
-        if surface not in inventory:
-            errors.append(f"inventory missing command-center surface: {surface}")
-
-    for surface in REQUIRED_RESOURCE_SURFACES:
-        if surface not in inventory:
-            errors.append(f"inventory missing resource surface: {surface}")
-
-    for decision in REQUIRED_DECISIONS:
-        if decision not in inventory:
-            errors.append(f"inventory missing demotion/merge decision: {decision}")
-
+def _undocumented_policy_routes(route_policy: str) -> list[str]:
     documented_routes = set(REQUIRED_ROUTE_SURFACES)
+    errors: list[str] = []
     for route_hash in _route_hashes(route_policy):
         normalized = route_hash.replace("…", "...")
         if ":" in normalized and not normalized.endswith("..."):
@@ -104,6 +100,38 @@ def validate() -> list[str]:
             errors.append(
                 f"routePolicy route not documented in inventory: {route_hash}"
             )
+    return errors
+
+
+def validate() -> list[str]:
+    errors: list[str] = []
+    inventory = _read(INVENTORY)
+    route_policy = _read(ROUTE_POLICY)
+
+    errors.extend(
+        _missing_entries(
+            REQUIRED_ROUTE_SURFACES,
+            inventory,
+            label="route surface",
+            backtick_wrapped=True,
+        )
+    )
+    errors.extend(
+        _missing_entries(
+            REQUIRED_COMMAND_CENTER_SURFACES,
+            inventory,
+            label="command-center surface",
+        )
+    )
+    errors.extend(
+        _missing_entries(
+            REQUIRED_RESOURCE_SURFACES, inventory, label="resource surface"
+        )
+    )
+    errors.extend(
+        _missing_entries(REQUIRED_DECISIONS, inventory, label="demotion/merge decision")
+    )
+    errors.extend(_undocumented_policy_routes(route_policy))
 
     return errors
 
