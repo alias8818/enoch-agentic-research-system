@@ -32,7 +32,10 @@ from .promising_signal_priority import (
     promising_signal_bucket,
     ranked_followup_readiness,
 )
-from .llm_harness_telemetry import LLM_HARNESS_EVENT_TYPES
+from .llm_harness_telemetry import (
+    LLM_HARNESS_COST_OBSERVATION_EVENT,
+    LLM_HARNESS_EVENT_TYPES,
+)
 from .research_quality_freshness import research_quality_report_freshness
 from .state_contract import (
     ACTIVE_QUEUE_STATUSES,
@@ -4535,7 +4538,12 @@ def llm_harness_telemetry_summary(
     events = events[: max(1, min(limit, 200))]
     failure_count = sum(1 for event in events if _text(event.get("status")) != "ok")
     total_cost = round(
-        sum(float(event.get("estimated_cost_usd") or 0) for event in events), 6
+        sum(
+            float(event.get("estimated_cost_usd") or 0)
+            for event in events
+            if event.get("event_type") == LLM_HARNESS_COST_OBSERVATION_EVENT
+        ),
+        6,
     )
     return {
         "ok": failure_count == 0,
