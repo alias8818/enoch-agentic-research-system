@@ -216,7 +216,7 @@ case "$host" in
   enoch-core.exe.xyz)
     printf '%s\n' '{"host":"control","status_counts":{},"worker_lanes":[]}'
     ;;
-  100.92.44.26)
+  gx10-efe8)
     printf '%s\n' '{"host":"gb10","mcp_server_count":2,"mcp_servers_fingerprint":"gb10hash"}'
     ;;
   root@enoch-worker-cpu-1)

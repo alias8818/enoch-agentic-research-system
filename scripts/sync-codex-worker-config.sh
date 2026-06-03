@@ -11,7 +11,7 @@ worker service account. The CPU worker's existing .codex directory is backed up
 first, and CPU project trust entries are preserved by default.
 
 Environment overrides:
-  GB10_HOST              Source SSH host. Default: 100.92.44.26
+  GB10_HOST              Source SSH host. Default: gx10-efe8
   GB10_CODEX_HOME        Source Codex home. Default: /home/jeremy/.codex
   CPU_HOST               Destination SSH host. Default: root@enoch-worker-cpu-1
   CPU_CODEX_HOME         Destination Codex home. Default: /var/lib/enoch-cpu-worker/.codex
@@ -25,7 +25,7 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-gb10_host="${GB10_HOST:-100.92.44.26}"
+gb10_host="${GB10_HOST:-gx10-efe8}"
 gb10_codex_home="${GB10_CODEX_HOME:-/home/jeremy/.codex}"
 cpu_host="${CPU_HOST:-root@enoch-worker-cpu-1}"
 cpu_codex_home="${CPU_CODEX_HOME:-/var/lib/enoch-cpu-worker/.codex}"

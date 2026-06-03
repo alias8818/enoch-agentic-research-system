@@ -17,7 +17,7 @@ it never emits token or auth file contents.
 
 Environment overrides:
   ENOCH_CONTROL_HOST          Default: enoch-core.exe.xyz
-  ENOCH_GB10_HOST             Default: 100.92.44.26
+  ENOCH_GB10_HOST             Default: gx10-efe8
   ENOCH_CPU_HOST              Default: root@enoch-worker-cpu-1
   ENOCH_CONTROL_RUNTIME       Default: /opt/enoch-control-plane
   ENOCH_GB10_CODEX_HOME       Default: /home/jeremy/.codex
@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 control_host="${ENOCH_CONTROL_HOST:-enoch-core.exe.xyz}"
-gb10_host="${ENOCH_GB10_HOST:-100.92.44.26}"
+gb10_host="${ENOCH_GB10_HOST:-gx10-efe8}"
 cpu_host="${ENOCH_CPU_HOST:-root@enoch-worker-cpu-1}"
 control_runtime="${ENOCH_CONTROL_RUNTIME:-/opt/enoch-control-plane}"
 gb10_codex_home="${ENOCH_GB10_CODEX_HOME:-/home/jeremy/.codex}"

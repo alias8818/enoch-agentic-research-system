@@ -60,7 +60,7 @@ case "$profile" in
     default_service_scope="system"
     ;;
   gb10-worker)
-    default_host="100.92.44.26"
+    default_host="gx10-efe8"
     default_runtime="/home/jeremy/projects/enoch_testing_ground/enoch-control-plane"
     default_service="enoch-worker-gate.service"
     default_uv="uv"
