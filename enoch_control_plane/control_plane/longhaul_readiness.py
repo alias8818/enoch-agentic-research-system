@@ -492,29 +492,39 @@ def _add_provider_generation_attempt_check(
 def _llm_model_health_issue_summary(health: dict[str, Any]) -> str:
     issues: list[str] = []
     for model in health.get("models") or []:
-        if not isinstance(model, dict):
+        issue = _llm_model_issue_summary_item(model)
+        if not issue:
             continue
-        model_id = str(model.get("model_id") or "unknown-model")
-        structural_issues: list[str] = []
-        if str(model.get("format_health") or "").strip() == "degraded":
-            structural_issues.append("format_degraded")
-        if str(model.get("visible_output_health") or "").strip() == "empty":
-            structural_issues.append("visible_output_empty")
-        if str(model.get("reasoning_budget_health") or "").strip() == "length_limited":
-            structural_issues.append("length_limited")
-        if structural_issues:
-            issues.append(f"{model_id}={'+'.join(structural_issues)}")
-            if len(issues) >= 3:
-                break
-            continue
-        status = str(model.get("status") or "").strip()
-        if status == "healthy":
-            continue
-        failure = str(model.get("latest_failure_kind") or "").strip()
-        issues.append(f"{model_id}={status}{':' + failure if failure else ''}")
+        issues.append(issue)
         if len(issues) >= 3:
             break
     return "; ".join(issues)
+
+
+def _llm_model_issue_summary_item(model: Any) -> str:
+    if not isinstance(model, dict):
+        return ""
+    model_id = str(model.get("model_id") or "unknown-model")
+    structural_issues = _llm_model_structural_issues(model)
+    if structural_issues:
+        return f"{model_id}={'+'.join(structural_issues)}"
+    status = str(model.get("status") or "").strip()
+    if status == "healthy":
+        return ""
+    failure = str(model.get("latest_failure_kind") or "").strip()
+    suffix = f":{failure}" if failure else ""
+    return f"{model_id}={status}{suffix}"
+
+
+def _llm_model_structural_issues(model: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
+    if str(model.get("format_health") or "").strip() == "degraded":
+        issues.append("format_degraded")
+    if str(model.get("visible_output_health") or "").strip() == "empty":
+        issues.append("visible_output_empty")
+    if str(model.get("reasoning_budget_health") or "").strip() == "length_limited":
+        issues.append("length_limited")
+    return issues
 
 
 def _blocked_llm_workflow_summaries(health: dict[str, Any]) -> list[str]:

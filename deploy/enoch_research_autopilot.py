@@ -1202,6 +1202,39 @@ def _llm_model_format_probe_reason(
     return ""
 
 
+def _enabled_llm_model_identity(
+    model: object, provider_ids: set[str]
+) -> tuple[str, str]:
+    if not isinstance(model, dict) or not bool(model.get("enabled", True)):
+        return "", ""
+    provider_id = str(model.get("provider_id") or "").strip()
+    model_id = str(model.get("model_id") or "").strip()
+    if provider_id and model_id and provider_id in provider_ids:
+        return provider_id, model_id
+    return "", ""
+
+
+def _llm_model_format_probe_items(
+    *,
+    provider_id: str,
+    model_id: str,
+    reason: str,
+    latest_ts: float,
+    contracts: list[str],
+) -> list[dict]:
+    return [
+        {
+            "provider_id": provider_id,
+            "model_id": model_id,
+            "prompt_contract": contract,
+            "contract_index": contract_index,
+            "reason": reason,
+            "latest_checked_ts": latest_ts,
+        }
+        for contract_index, contract in enumerate(contracts)
+    ]
+
+
 def _llm_model_format_probe_candidates(
     settings: dict, *, now: float, min_interval_seconds: int, contracts: list[str]
 ) -> tuple[list[dict], int]:
@@ -1213,11 +1246,8 @@ def _llm_model_format_probe_candidates(
         return candidates, enabled_model_count
     enabled_models = (settings.get("settings") or {}).get("models") or []
     for model in enabled_models:
-        if not isinstance(model, dict) or not bool(model.get("enabled", True)):
-            continue
-        provider_id = str(model.get("provider_id") or "").strip()
-        model_id = str(model.get("model_id") or "").strip()
-        if not provider_id or not model_id or provider_id not in provider_ids:
+        provider_id, model_id = _enabled_llm_model_identity(model, provider_ids)
+        if not provider_id:
             continue
         enabled_model_count += 1
         health = health_by_model.get((provider_id, model_id))
@@ -1229,17 +1259,15 @@ def _llm_model_format_probe_candidates(
         latest_ts = _parse_health_checked_at(
             (health or {}).get("latest_format_checked_at")
         )
-        for contract_index, contract in enumerate(contracts):
-            candidates.append(
-                {
-                    "provider_id": provider_id,
-                    "model_id": model_id,
-                    "prompt_contract": contract,
-                    "contract_index": contract_index,
-                    "reason": reason,
-                    "latest_checked_ts": latest_ts,
-                }
+        candidates.extend(
+            _llm_model_format_probe_items(
+                provider_id=provider_id,
+                model_id=model_id,
+                reason=reason,
+                latest_ts=latest_ts,
+                contracts=contracts,
             )
+        )
     return candidates, enabled_model_count
 
 

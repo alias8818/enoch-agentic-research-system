@@ -9,6 +9,7 @@ runtime queue tables and does not dispatch work.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import os
@@ -45,6 +46,26 @@ TOPIC_SPREAD = [
     "low-trust volunteer/distributed training",
     "agent evidence ledgers and falsification-first reliability",
 ]
+
+
+@dataclass(frozen=True)
+class ProviderGenerationRequest:
+    base_url: str
+    model: str
+    api_key: str = ""
+    max_candidates: int = 3
+    topic: str = ""
+    temperature: float = 0.8
+    seed: str = ""
+    timeout: int = 120
+    max_tokens: int = DEFAULT_MAX_TOKENS
+    attempts: int = 1
+    default_machine: str = "gb10"
+    default_model: str = "gpt-5.5"
+    default_sandbox: str = "danger-full-access"
+    response_format_type: str = "json_object"
+    reasoning_effort: str = ""
+    reasoning_exclude: bool = False
 
 
 def utc_now() -> str:
@@ -497,25 +518,36 @@ def candidates_from_provider_response(
     return out
 
 
+def _provider_generation_request(
+    request: ProviderGenerationRequest | None, overrides: dict[str, Any]
+) -> ProviderGenerationRequest:
+    if request is None:
+        return ProviderGenerationRequest(**overrides)
+    if overrides:
+        return replace(request, **overrides)
+    return request
+
+
 def generate_provider_candidates(
-    *,
-    base_url: str,
-    model: str,
-    api_key: str = "",
-    max_candidates: int = 3,
-    topic: str = "",
-    temperature: float = 0.8,
-    seed: str = "",
-    timeout: int = 120,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
-    attempts: int = 1,
-    default_machine: str = "gb10",
-    default_model: str = "gpt-5.5",
-    default_sandbox: str = "danger-full-access",
-    response_format_type: str = "json_object",
-    reasoning_effort: str = "",
-    reasoning_exclude: bool = False,
+    request: ProviderGenerationRequest | None = None, **overrides: Any
 ) -> dict[str, Any]:
+    request = _provider_generation_request(request, overrides)
+    base_url = request.base_url
+    model = request.model
+    api_key = request.api_key
+    max_candidates = request.max_candidates
+    topic = request.topic
+    temperature = request.temperature
+    seed = request.seed
+    timeout = request.timeout
+    max_tokens = request.max_tokens
+    attempts = request.attempts
+    default_machine = request.default_machine
+    default_model = request.default_model
+    default_sandbox = request.default_sandbox
+    response_format_type = request.response_format_type
+    reasoning_effort = request.reasoning_effort
+    reasoning_exclude = request.reasoning_exclude
     max_candidates = max(1, min(int(max_candidates), 10))
     seed = seed or utc_now()
     attempts = max(1, min(int(attempts), 3))

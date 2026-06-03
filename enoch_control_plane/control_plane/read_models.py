@@ -4568,7 +4568,15 @@ def _llm_model_health_payload(row: Mapping[str, Any]) -> dict[str, Any]:
     payload = row.get("payload")
     if not isinstance(payload, Mapping):
         return {}
-    out = {
+    out = _base_llm_model_health_payload(row, payload)
+    _copy_optional_bool_flags(out, payload)
+    return out
+
+
+def _base_llm_model_health_payload(
+    row: Mapping[str, Any], payload: Mapping[str, Any]
+) -> dict[str, Any]:
+    return {
         "event_id": row.get("event_id") or row.get("id"),
         "created_at": row.get("created_at") or row.get("updated_at") or "",
         "checked_at": _text(payload.get("checked_at") or row.get("created_at")),
@@ -4597,10 +4605,12 @@ def _llm_model_health_payload(row: Mapping[str, Any]) -> dict[str, Any]:
         "output_tokens": int(payload.get("output_tokens") or 0),
         "reasoning_tokens": int(payload.get("reasoning_tokens") or 0),
     }
+
+
+def _copy_optional_bool_flags(out: dict[str, Any], payload: Mapping[str, Any]) -> None:
     for key in ("valid_json", "schema_ok", "sanitized_or_refusal_detected"):
         if key in payload:
             out[key] = bool(payload.get(key))
-    return out
 
 
 def _llm_model_health_events_by_model(
@@ -4752,6 +4762,99 @@ def _llm_format_contract_passed(event: dict[str, Any] | None) -> bool:
     )
 
 
+def _unmeasured_llm_contract_result(contract: str) -> dict[str, Any]:
+    return {
+        "prompt_contract": contract,
+        "status": "unmeasured",
+        "malformed_kind": "",
+        "finish_reason": "",
+        "visible_chars": 0,
+        "structured_output_mode": "",
+        "response_format_type": "",
+        "reasoning_effort": "",
+        "reasoning_excluded": False,
+    }
+
+
+def _llm_contract_result_from_event(
+    contract: str, event: dict[str, Any], *, passed: bool
+) -> dict[str, Any]:
+    return {
+        "prompt_contract": contract,
+        "status": "pass" if passed else "fail",
+        "malformed_kind": _text(event.get("malformed_kind")),
+        "finish_reason": _text(event.get("finish_reason")).lower(),
+        "visible_chars": int(event.get("visible_chars") or 0),
+        "checked_at": _text(event.get("checked_at")),
+        "structured_output_mode": _text(event.get("structured_output_mode")),
+        "response_format_type": _text(event.get("response_format_type")),
+        "reasoning_effort": _text(event.get("reasoning_effort")),
+        "reasoning_excluded": bool(event.get("reasoning_excluded")),
+    }
+
+
+def _llm_contract_needs_token_budget(event: dict[str, Any]) -> bool:
+    malformed_kind = _text(event.get("malformed_kind"))
+    finish_reason = _text(event.get("finish_reason")).lower()
+    visible_chars = int(event.get("visible_chars") or 0)
+    return malformed_kind == "empty_visible_output" or (
+        finish_reason == "length" and visible_chars <= 0
+    )
+
+
+def _llm_workflow_model_operator_recommendation(
+    *,
+    model_id: str,
+    label: str,
+    endpoint_health: str,
+    format_failures: list[str],
+    token_budget_failures: list[str],
+    missing_contracts: list[str],
+) -> tuple[str, str]:
+    name = label or model_id
+    if endpoint_health != "healthy":
+        return (
+            "fix_endpoint",
+            f"fix endpoint health before using {name} in this workflow",
+        )
+    if format_failures:
+        contracts = ", ".join(format_failures)
+        return (
+            "remove_for_contract",
+            f"remove {name} from workflows requiring {contracts}; latest evidence is structurally unreliable",
+        )
+    if token_budget_failures:
+        contracts = ", ".join(token_budget_failures)
+        return (
+            "increase_max_tokens_or_remove",
+            f"increase max_tokens or remove {name} for {contracts} until visible structured output passes",
+        )
+    if missing_contracts:
+        contracts = ", ".join(missing_contracts)
+        return (
+            "probe_required",
+            f"run format probes for {contracts} before trusting {name} in this workflow",
+        )
+    return "usable", f"{name} passed required contract evidence for this workflow"
+
+
+def _missing_llm_workflow_model_recommendation(
+    model_id: str, required_contracts: list[str]
+) -> dict[str, Any]:
+    return {
+        "model_id": model_id,
+        "label": model_id,
+        "recommendation": "missing_model",
+        "operator_action": f"remove missing model {model_id} from this workflow pool",
+        "required_contracts": required_contracts,
+        "passed_contracts": [],
+        "missing_contracts": required_contracts,
+        "token_budget_failures": [],
+        "format_failures": [],
+        "contract_results": [],
+    }
+
+
 def _llm_workflow_model_recommendation(
     *,
     model_id: str,
@@ -4769,74 +4872,26 @@ def _llm_workflow_model_recommendation(
         event = _latest_llm_format_event_for_contract(attempts, contract)
         if event is None:
             missing_contracts.append(contract)
-            contract_results.append(
-                {
-                    "prompt_contract": contract,
-                    "status": "unmeasured",
-                    "malformed_kind": "",
-                    "finish_reason": "",
-                    "visible_chars": 0,
-                    "structured_output_mode": "",
-                    "response_format_type": "",
-                    "reasoning_effort": "",
-                    "reasoning_excluded": False,
-                }
-            )
+            contract_results.append(_unmeasured_llm_contract_result(contract))
             continue
-        malformed_kind = _text(event.get("malformed_kind"))
-        finish_reason = _text(event.get("finish_reason")).lower()
-        visible_chars = int(event.get("visible_chars") or 0)
         passed = _llm_format_contract_passed(event)
         if passed:
             passed_contracts.append(contract)
-        elif malformed_kind == "empty_visible_output" or (
-            finish_reason == "length" and visible_chars <= 0
-        ):
+        elif _llm_contract_needs_token_budget(event):
             token_budget_failures.append(contract)
         else:
             format_failures.append(contract)
         contract_results.append(
-            {
-                "prompt_contract": contract,
-                "status": "pass" if passed else "fail",
-                "malformed_kind": malformed_kind,
-                "finish_reason": finish_reason,
-                "visible_chars": visible_chars,
-                "checked_at": _text(event.get("checked_at")),
-                "structured_output_mode": _text(event.get("structured_output_mode")),
-                "response_format_type": _text(event.get("response_format_type")),
-                "reasoning_effort": _text(event.get("reasoning_effort")),
-                "reasoning_excluded": bool(event.get("reasoning_excluded")),
-            }
+            _llm_contract_result_from_event(contract, event, passed=passed)
         )
-    if endpoint_health != "healthy":
-        recommendation = "fix_endpoint"
-        operator_action = (
-            f"fix endpoint health before using {label or model_id} in this workflow"
-        )
-    elif format_failures:
-        recommendation = "remove_for_contract"
-        operator_action = (
-            f"remove {label or model_id} from workflows requiring "
-            f"{', '.join(format_failures)}; latest evidence is structurally unreliable"
-        )
-    elif token_budget_failures:
-        recommendation = "increase_max_tokens_or_remove"
-        operator_action = (
-            f"increase max_tokens or remove {label or model_id} for "
-            f"{', '.join(token_budget_failures)} until visible structured output passes"
-        )
-    elif missing_contracts:
-        recommendation = "probe_required"
-        operator_action = (
-            f"run format probes for {', '.join(missing_contracts)} before trusting "
-            f"{label or model_id} in this workflow"
-        )
-    else:
-        recommendation = "usable"
-        operator_action = (
-            f"{label or model_id} passed required contract evidence for this workflow"
-        )
+    recommendation, operator_action = _llm_workflow_model_operator_recommendation(
+        model_id=model_id,
+        label=label,
+        endpoint_health=endpoint_health,
+        format_failures=format_failures,
+        token_budget_failures=token_budget_failures,
+        missing_contracts=missing_contracts,
+    )
     return {
         "model_id": model_id,
         "label": label or model_id,
@@ -4849,6 +4904,39 @@ def _llm_workflow_model_recommendation(
         "format_failures": format_failures,
         "contract_results": contract_results,
     }
+
+
+def _llm_workflow_status_and_action(
+    *,
+    label: str,
+    model_pool: list[str],
+    usable_models: list[str],
+    required_contracts: list[str],
+) -> tuple[str, str]:
+    if not model_pool:
+        return "blocked", f"{label} has no configured model pool"
+    if not usable_models:
+        contracts = ", ".join(required_contracts)
+        return (
+            "blocked",
+            f"no model in {label} has passed {contracts}; tune max_tokens, remove degraded models, or run missing probes",
+        )
+    if len(usable_models) == len(model_pool):
+        return "healthy", f"{label} model pool has measured contract-compatible models"
+    return (
+        "needs_attention",
+        f"prefer {usable_models[0]} for {label}; remove or tune degraded pool entries",
+    )
+
+
+def _recommended_llm_workflow_default(
+    default_model: str, usable_models: list[str]
+) -> str:
+    if default_model in usable_models:
+        return default_model
+    if usable_models:
+        return usable_models[0]
+    return ""
 
 
 def _llm_workflow_recommendation(
@@ -4871,20 +4959,7 @@ def _llm_workflow_recommendation(
         row = model_rows.get(model_id)
         if row is None:
             recommendations.append(
-                {
-                    "model_id": model_id,
-                    "label": model_id,
-                    "recommendation": "missing_model",
-                    "operator_action": (
-                        f"remove missing model {model_id} from this workflow pool"
-                    ),
-                    "required_contracts": required_contracts,
-                    "passed_contracts": [],
-                    "missing_contracts": required_contracts,
-                    "token_budget_failures": [],
-                    "format_failures": [],
-                    "contract_results": [],
-                }
+                _missing_llm_workflow_model_recommendation(model_id, required_contracts)
             )
             continue
         attempts = events_by_model.get((row["provider_id"], model_id), [])
@@ -4899,28 +4974,11 @@ def _llm_workflow_recommendation(
         if item["recommendation"] == "usable":
             usable_models.append(model_id)
     default_model = _text(getattr(workflow, "default_model", ""))
-    if not model_pool:
-        status = "blocked"
-        operator_action = f"{label} has no configured model pool"
-    elif usable_models:
-        status = (
-            "healthy" if len(usable_models) == len(model_pool) else "needs_attention"
-        )
-        operator_action = (
-            f"prefer {usable_models[0]} for {label}; remove or tune degraded pool entries"
-            if status == "needs_attention"
-            else f"{label} model pool has measured contract-compatible models"
-        )
-    else:
-        status = "blocked"
-        operator_action = (
-            f"no model in {label} has passed {', '.join(required_contracts)}; "
-            "tune max_tokens, remove degraded models, or run missing probes"
-        )
-    recommended_default = (
-        default_model
-        if default_model in usable_models
-        else (usable_models[0] if usable_models else "")
+    status, operator_action = _llm_workflow_status_and_action(
+        label=label,
+        model_pool=model_pool,
+        usable_models=usable_models,
+        required_contracts=required_contracts,
     )
     return {
         "workflow_id": workflow_id,
@@ -4931,7 +4989,9 @@ def _llm_workflow_recommendation(
         "current_model_pool": model_pool,
         "current_default_model": default_model,
         "recommended_model_pool": usable_models,
-        "recommended_default_model": recommended_default,
+        "recommended_default_model": _recommended_llm_workflow_default(
+            default_model, usable_models
+        ),
         "operator_action": operator_action,
         "models": recommendations,
     }
@@ -4953,20 +5013,8 @@ def _llm_workflow_recommendations(
     ]
 
 
-def _llm_model_health_row(
-    model: Any,
-    *,
-    provider_labels: Mapping[str, str],
-    events_by_model: Mapping[tuple[str, str], list[dict[str, Any]]],
-) -> dict[str, Any]:
-    provider_id = _text(getattr(model, "provider_id", ""))
-    model_id = _text(getattr(model, "model_id", ""))
-    attempts = events_by_model.get((provider_id, model_id), [])
-    latest = attempts[0] if attempts else None
-    success_count = sum(1 for attempt in attempts if attempt.get("ok"))
-    failure_count = len(attempts) - success_count
-    format_events = _llm_model_format_events(attempts)
-    format_success_count = sum(
+def _llm_model_format_success_count(format_events: list[dict[str, Any]]) -> int:
+    return sum(
         1
         for attempt in format_events
         if (
@@ -4975,36 +5023,30 @@ def _llm_model_health_row(
             and not attempt.get("malformed_kind")
         )
     )
-    endpoint_health = _llm_model_health_status(latest)
-    format_health = _llm_model_format_health(format_events)
-    visible_output_health = _llm_model_visible_output_health(latest)
-    reasoning_budget_health = _llm_model_reasoning_budget_health(latest)
-    workflow_health = _llm_model_workflow_health(format_events)
-    latest_failure_kind = _text((latest or {}).get("failure_kind"))
-    latest_preview = _text((latest or {}).get("response_preview_redacted"))[:240]
-    latest_format = format_events[0] if format_events else None
+
+
+def _llm_attempt_rate(success_count: int, attempt_count: int) -> float:
+    if attempt_count <= 0:
+        return 0.0
+    return round(success_count / attempt_count, 3)
+
+
+def _llm_model_health_counts(
+    attempts: list[dict[str, Any]], format_events: list[dict[str, Any]]
+) -> dict[str, Any]:
+    success_count = sum(1 for attempt in attempts if attempt.get("ok"))
+    format_success_count = _llm_model_format_success_count(format_events)
     return {
-        "provider_id": provider_id,
-        "provider_label": provider_labels.get(provider_id, provider_id),
-        "model_id": model_id,
-        "label": _text(getattr(model, "label", "")) or model_id,
-        "enabled": True,
-        "status": endpoint_health,
-        "endpoint_health": endpoint_health,
-        "format_health": format_health,
-        "visible_output_health": visible_output_health,
-        "reasoning_budget_health": reasoning_budget_health,
-        "workflow_health": workflow_health,
         "attempt_count": len(attempts),
         "success_count": success_count,
-        "failure_count": failure_count,
+        "failure_count": len(attempts) - success_count,
         "format_attempt_count": len(format_events),
         "format_success_count": format_success_count,
         "consecutive_failures": _consecutive_llm_health_failures(attempts),
-        "success_rate": round(success_count / len(attempts), 3) if attempts else 0.0,
-        "format_success_rate": round(format_success_count / len(format_events), 3)
-        if format_events
-        else 0.0,
+        "success_rate": _llm_attempt_rate(success_count, len(attempts)),
+        "format_success_rate": _llm_attempt_rate(
+            format_success_count, len(format_events)
+        ),
         "empty_visible_output_count": sum(
             1
             for attempt in attempts
@@ -5021,14 +5063,21 @@ def _llm_model_health_row(
         "timeout_count": sum(
             1 for attempt in attempts if attempt.get("failure_kind") == "timeout"
         ),
+    }
+
+
+def _llm_latest_model_health_fields(
+    latest: dict[str, Any] | None, latest_format: dict[str, Any] | None
+) -> dict[str, Any]:
+    return {
         "latest": latest,
         "latest_checked_at": _text((latest or {}).get("checked_at")),
-        "latest_failure_kind": latest_failure_kind,
+        "latest_failure_kind": _text((latest or {}).get("failure_kind")),
         "latest_latency_ms": int((latest or {}).get("latency_ms") or 0),
         "latest_status_code": int((latest or {}).get("status_code") or 0),
         "latest_finish_reason": _text((latest or {}).get("finish_reason")),
         "latest_visible_chars": int((latest or {}).get("visible_chars") or 0),
-        "latest_preview": latest_preview,
+        "latest_preview": _text((latest or {}).get("response_preview_redacted"))[:240],
         "latest_prompt_contract": _text((latest or {}).get("prompt_contract")),
         "latest_structured_output_mode": _text(
             (latest or {}).get("structured_output_mode")
@@ -5041,6 +5090,39 @@ def _llm_model_health_row(
         "latest_format_checked_at": _text((latest_format or {}).get("checked_at")),
         "latest_workflow_id": _text((latest or {}).get("workflow_id")),
         "latest_malformed_kind": _text((latest or {}).get("malformed_kind")),
+    }
+
+
+def _llm_model_health_row(
+    model: Any,
+    *,
+    provider_labels: Mapping[str, str],
+    events_by_model: Mapping[tuple[str, str], list[dict[str, Any]]],
+) -> dict[str, Any]:
+    provider_id = _text(getattr(model, "provider_id", ""))
+    model_id = _text(getattr(model, "model_id", ""))
+    attempts = events_by_model.get((provider_id, model_id), [])
+    latest = attempts[0] if attempts else None
+    format_events = _llm_model_format_events(attempts)
+    endpoint_health = _llm_model_health_status(latest)
+    format_health = _llm_model_format_health(format_events)
+    visible_output_health = _llm_model_visible_output_health(latest)
+    reasoning_budget_health = _llm_model_reasoning_budget_health(latest)
+    workflow_health = _llm_model_workflow_health(format_events)
+    latest_failure_kind = _text((latest or {}).get("failure_kind"))
+    latest_format = format_events[0] if format_events else None
+    row = {
+        "provider_id": provider_id,
+        "provider_label": provider_labels.get(provider_id, provider_id),
+        "model_id": model_id,
+        "label": _text(getattr(model, "label", "")) or model_id,
+        "enabled": True,
+        "status": endpoint_health,
+        "endpoint_health": endpoint_health,
+        "format_health": format_health,
+        "visible_output_health": visible_output_health,
+        "reasoning_budget_health": reasoning_budget_health,
+        "workflow_health": workflow_health,
         "operator_action": _llm_model_operator_action(
             endpoint_health=endpoint_health,
             format_health=format_health,
@@ -5049,6 +5131,9 @@ def _llm_model_health_row(
             latest_failure_kind=latest_failure_kind,
         ),
     }
+    row.update(_llm_model_health_counts(attempts, format_events))
+    row.update(_llm_latest_model_health_fields(latest, latest_format))
+    return row
 
 
 def llm_model_health_summary(
