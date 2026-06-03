@@ -22,6 +22,7 @@ from enoch_control_plane.control_plane.router import (
     _fetch_synthetic_research_budget,
     _handle_followup_and_early_skips,
     _project_prompt,
+    _run_resume_systemctl,
     _write_deterministic_paper,
     create_control_plane_router,
 )
@@ -250,6 +251,25 @@ def test_dashboard_maintenance_resume_rearms_systemd_and_records_observation() -
         ]
         assert len(rearm_events) == 1
         assert rearm_events[0]["entity_id"] == "queue"
+
+
+def test_resume_systemctl_exception_response_omits_raw_exception_text() -> None:
+    def raise_os_error(*args: object, **kwargs: object) -> object:
+        raise OSError("Traceback: token=secret path=/root/private")
+
+    with patch("subprocess.run", side_effect=raise_os_error):
+        result = _run_resume_systemctl(["restart", "enoch-research-autopilot.timer"])
+
+    encoded = json.dumps(result)
+    assert result == {
+        "ok": False,
+        "command": ["systemctl", "restart", "enoch-research-autopilot.timer"],
+        "error": "systemctl command failed to start",
+        "error_type": "OSError",
+    }
+    assert "Traceback" not in encoded
+    assert "secret" not in encoded
+    assert "/root/private" not in encoded
 
 
 def test_draft_next_live_requires_named_override_while_paused() -> None:

@@ -320,11 +320,20 @@ def _run_resume_systemctl(args: list[str], *, timeout: int = 10) -> dict[str, An
             text=True,
             timeout=timeout,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired:
         return {
             "ok": False,
             "command": command,
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": "systemctl command timed out",
+            "error_type": "TimeoutExpired",
+            "timeout_seconds": timeout,
+        }
+    except OSError:
+        return {
+            "ok": False,
+            "command": command,
+            "error": "systemctl command failed to start",
+            "error_type": "OSError",
         }
     return {
         "ok": result.returncode == 0,
