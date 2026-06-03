@@ -147,8 +147,7 @@ def native_routing_metrics(records: Iterable[Mapping[str, Any]]) -> RoutingMetri
             sum(_number(row, "estimated_cost_usd", "cost_usd") for row in rows), 6
         ),
         admitted_candidates=sum(
-            _integer(row, "admitted_candidate_count", "promoted_count")
-            for row in rows
+            _integer(row, "admitted_candidate_count", "promoted_count") for row in rows
         ),
         provider_failures=sum(1 for row in rows if _status_failed(row)),
         malformed_outputs=sum(
@@ -191,7 +190,10 @@ def sidecar_routing_metrics(events: Iterable[Mapping[str, Any]]) -> RoutingMetri
         if event_type == "llm_harness.route_decision":
             if trace_id:
                 trace_ids.add(trace_id)
-            if _status_failed(payload) or _text(payload.get("budget_gate_status")) == "blocked":
+            if (
+                _status_failed(payload)
+                or _text(payload.get("budget_gate_status")) == "blocked"
+            ):
                 route_failures += 1
         if event_type == "llm_harness.output_contract":
             contract_checks += 1
@@ -231,16 +233,28 @@ def _metric_value(metrics: RoutingMetrics, name: str) -> float | None:
 
 
 def _comparison_row(
-    native: RoutingMetrics, sidecar: RoutingMetrics, name: str, *, higher_is_better: bool
+    native: RoutingMetrics,
+    sidecar: RoutingMetrics,
+    name: str,
+    *,
+    higher_is_better: bool,
 ) -> dict[str, Any]:
     native_value = _metric_value(native, name)
     sidecar_value = _metric_value(sidecar, name)
     if native_value is None or sidecar_value is None:
         result = "incomplete"
     elif higher_is_better:
-        result = "sidecar_better_or_equal" if sidecar_value >= native_value else "native_better"
+        result = (
+            "sidecar_better_or_equal"
+            if sidecar_value >= native_value
+            else "native_better"
+        )
     else:
-        result = "sidecar_better_or_equal" if sidecar_value <= native_value else "native_better"
+        result = (
+            "sidecar_better_or_equal"
+            if sidecar_value <= native_value
+            else "native_better"
+        )
     return {
         "metric": name,
         "native": native_value,
@@ -259,12 +273,24 @@ def compare_routing_strategies(
     native = native_routing_metrics(native_records)
     sidecar = sidecar_routing_metrics(sidecar_events)
     comparisons = [
-        _comparison_row(native, sidecar, "cost_per_admitted_candidate", higher_is_better=False),
-        _comparison_row(native, sidecar, "provider_failure_rate", higher_is_better=False),
-        _comparison_row(native, sidecar, "malformed_output_rate", higher_is_better=False),
-        _comparison_row(native, sidecar, "output_contract_pass_rate", higher_is_better=True),
-        _comparison_row(native, sidecar, "admitted_candidate_yield", higher_is_better=True),
-        _comparison_row(native, sidecar, "source_usefulness_rate", higher_is_better=True),
+        _comparison_row(
+            native, sidecar, "cost_per_admitted_candidate", higher_is_better=False
+        ),
+        _comparison_row(
+            native, sidecar, "provider_failure_rate", higher_is_better=False
+        ),
+        _comparison_row(
+            native, sidecar, "malformed_output_rate", higher_is_better=False
+        ),
+        _comparison_row(
+            native, sidecar, "output_contract_pass_rate", higher_is_better=True
+        ),
+        _comparison_row(
+            native, sidecar, "admitted_candidate_yield", higher_is_better=True
+        ),
+        _comparison_row(
+            native, sidecar, "source_usefulness_rate", higher_is_better=True
+        ),
     ]
     incomplete_reasons: list[str] = []
     if native.attempts < min_attempts:
@@ -303,8 +329,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Compare native LLM routing with sidecar routing telemetry."
     )
-    parser.add_argument("--native-json", required=True, help="JSON array of native records")
-    parser.add_argument("--sidecar-json", required=True, help="JSON array of sidecar events")
+    parser.add_argument(
+        "--native-json", required=True, help="JSON array of native records"
+    )
+    parser.add_argument(
+        "--sidecar-json", required=True, help="JSON array of sidecar events"
+    )
     parser.add_argument("--min-attempts", type=int, default=5)
     args = parser.parse_args()
     report = compare_routing_strategies(
