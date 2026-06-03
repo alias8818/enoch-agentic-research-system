@@ -392,3 +392,53 @@ it('renders queue alert findings, blockers, and current resolution from event de
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/events?event_id=7714&include_payload=true&page_size=1&sort=recent', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/status', expect.any(Object))
 })
+
+it('fetches full event detail when selected event row only has payload summary', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      rows: [{
+        event_id: 21173,
+        event_type: 'queue_alert.detected',
+        entity_type: 'queue_alert',
+        entity_id: 'a04f20c95c67da1b',
+        created_at: '2026-06-03T14:31:00Z',
+        payload: {
+          fingerprint: 'a04f20c95c67da1b',
+          dispatch_safe: true,
+          dispatch_blockers: [],
+          transient_suppressed_findings: [],
+          findings: [
+            {
+              severity: 'warn',
+              source: 'research_quality',
+              message: 'research signal requires review: no bounded paper-ready outputs are available',
+              suggested_action: 'inspect warning findings before widening automation',
+            },
+          ],
+        },
+      }],
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      dispatch_safe: true,
+      dispatch_blockers: [],
+    }), { status: 200 }))
+
+  renderWithClient(<DetailPage selection={{
+    kind: 'event',
+    id: '21173',
+    row: {
+      event_id: 21173,
+      event_type: 'queue_alert.detected',
+      entity_type: 'queue_alert',
+      entity_id: 'a04f20c95c67da1b',
+      created_at: '2026-06-03T14:31:00Z',
+      payload_summary: { keys: [], bytes: 16752 },
+    },
+  }} />)
+
+  expect(await screen.findByText('Queue alert detail')).toBeInTheDocument()
+  expect(screen.getByText('Alert findings')).toBeInTheDocument()
+  expect(screen.getAllByText('research signal requires review: no bounded paper-ready outputs are available').length).toBeGreaterThan(0)
+  expect(screen.queryByText('payload empty')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/events?event_id=21173&include_payload=true&page_size=1&sort=recent', expect.any(Object))
+})

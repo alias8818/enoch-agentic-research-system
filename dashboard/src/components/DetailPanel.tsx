@@ -415,17 +415,23 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
 }
 
 function resolveDetailPayload(selection: DetailSelection, queryData?: Record<string, unknown>): Record<string, unknown> {
-  if (selection.kind === 'event' && selection.row) return selection.row
   if (!endpoint(selection)) return selection.row || {}
   if (selection.kind === 'event') {
     const rows = Array.isArray(queryData?.rows) ? queryData.rows : []
-    return record(rows[0])
+    return record(rows[0]) || selection.row || {}
   }
   return queryData || {}
 }
 
+function hasInlineEventDetail(selection: DetailSelection): boolean {
+  if (selection.kind !== 'event' || !selection.row) return false
+  const row = record(selection.row)
+  if (row.payload) return true
+  return !row.payload_summary
+}
+
 function DetailBody({ selection }: Readonly<{ selection: DetailSelection }>) {
-  const hasInlineEvent = selection.kind === 'event' && selection.row
+  const hasInlineEvent = hasInlineEventDetail(selection)
   const url = endpoint(selection)
   const query = useQuery({
     queryKey: ['detail', selection.kind, selection.id],
@@ -522,7 +528,7 @@ function DetailPageBody({
 
 export function DetailPage({ selection }: Readonly<{ selection: DetailSelection }>) {
   const inlineRow = selection.row
-  const hasInlineEvent = Boolean(selection.kind === 'event' && inlineRow)
+  const hasInlineEvent = hasInlineEventDetail(selection)
   const url = endpoint(selection)
   const query = useQuery({
     queryKey: ['detail-page', selection.kind, selection.id],
