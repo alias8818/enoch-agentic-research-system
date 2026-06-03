@@ -81,7 +81,13 @@ def _check_manifest_paths(
     root: Path, manifest: dict[str, Any], failures: list[str]
 ) -> list[Path]:
     paths: list[Path] = []
-    for key in ("data_file", "ranking_file", "schema_file", "index_file", "ranked_index_file"):
+    for key in (
+        "data_file",
+        "ranking_file",
+        "schema_file",
+        "index_file",
+        "ranked_index_file",
+    ):
         rel = _as_text(manifest.get(key))
         if not rel:
             _fail(f"promising-signals manifest {key} must be set", failures)
@@ -102,24 +108,42 @@ def _check_manifest(
         return []
     manifest_paths = _check_manifest_paths(root, manifest, failures)
     if manifest.get("data_file") != "data/signals.jsonl":
-        _fail("promising-signals manifest data_file must be data/signals.jsonl", failures)
+        _fail(
+            "promising-signals manifest data_file must be data/signals.jsonl", failures
+        )
     project_ids = manifest.get("project_ids")
     if not isinstance(project_ids, list) or not project_ids:
-        _fail("promising-signals manifest project_ids must be a non-empty list", failures)
+        _fail(
+            "promising-signals manifest project_ids must be a non-empty list", failures
+        )
         return
     row_project_ids = {_as_text(row.get("project_id")) for row in signal_rows}
-    missing_rows = sorted(_as_text(project_id) for project_id in project_ids if _as_text(project_id) not in row_project_ids)
+    missing_rows = sorted(
+        _as_text(project_id)
+        for project_id in project_ids
+        if _as_text(project_id) not in row_project_ids
+    )
     if missing_rows:
-        _fail(f"manifest project_ids missing from signals.jsonl: {missing_rows[:5]}", failures)
+        _fail(
+            f"manifest project_ids missing from signals.jsonl: {missing_rows[:5]}",
+            failures,
+        )
     missing_markdown = [
-        project_id for project_id in project_ids if not list((root / "signals").glob(f"{project_id}.md"))
+        project_id
+        for project_id in project_ids
+        if not list((root / "signals").glob(f"{project_id}.md"))
     ]
     if missing_markdown:
-        _fail(f"manifest project_ids missing signal markdown: {missing_markdown[:5]}", failures)
+        _fail(
+            f"manifest project_ids missing signal markdown: {missing_markdown[:5]}",
+            failures,
+        )
     return manifest_paths
 
 
-def _check_ranking(ranking: Any, signal_rows: list[dict[str, Any]], failures: list[str]) -> None:
+def _check_ranking(
+    ranking: Any, signal_rows: list[dict[str, Any]], failures: list[str]
+) -> None:
     if not isinstance(ranking, dict):
         _fail("promising-signals ranking must be an object", failures)
         return
@@ -131,10 +155,14 @@ def _check_ranking(ranking: Any, signal_rows: list[dict[str, Any]], failures: li
     missing_rows = sorted(
         _as_text(item.get("project_id"))
         for item in items
-        if isinstance(item, dict) and _as_text(item.get("project_id")) not in row_project_ids
+        if isinstance(item, dict)
+        and _as_text(item.get("project_id")) not in row_project_ids
     )
     if missing_rows:
-        _fail(f"ranking project_ids missing from signals.jsonl: {missing_rows[:5]}", failures)
+        _fail(
+            f"ranking project_ids missing from signals.jsonl: {missing_rows[:5]}",
+            failures,
+        )
 
 
 def validate_promising_signals(root: Path) -> dict[str, Any]:
@@ -146,7 +174,9 @@ def validate_promising_signals(root: Path) -> dict[str, Any]:
     signal_rows = _check_jsonl(root / "data" / "signals.jsonl", failures)
     manifest_paths = _check_manifest(root, manifest, signal_rows, failures)
     _check_ranking(ranking, signal_rows, failures)
-    public_scan_paths = sorted({*public_paths, *manifest_paths, *sorted((root / "signals").glob("*.md"))})
+    public_scan_paths = sorted(
+        {*public_paths, *manifest_paths, *sorted((root / "signals").glob("*.md"))}
+    )
     check_public_secret_tokens(public_scan_paths, failures)
     return {
         "ok": not failures,
@@ -159,7 +189,9 @@ def validate_promising_signals(root: Path) -> dict[str, Any]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--promising", required=True, help="Path to enoch-promising-signals checkout")
+    parser.add_argument(
+        "--promising", required=True, help="Path to enoch-promising-signals checkout"
+    )
     args = parser.parse_args(argv)
     report = validate_promising_signals(Path(args.promising))
     print(json.dumps(report, indent=2, sort_keys=True))

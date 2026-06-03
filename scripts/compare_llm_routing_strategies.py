@@ -69,7 +69,9 @@ class RoutingMetrics:
     def report(self) -> dict[str, Any]:
         data = asdict(self)
         for metric in METRIC_DEFINITIONS:
-            data[metric] = None if metric in self.missing_metrics else _metric_value(self, metric)
+            data[metric] = (
+                None if metric in self.missing_metrics else _metric_value(self, metric)
+            )
         return data
 
 
@@ -139,7 +141,9 @@ class SidecarMetricAccumulator:
 
     def metrics(self) -> RoutingMetrics:
         missing_metrics = (
-            ("cost_per_admitted_candidate",) if self.valid_cost_observations <= 0 else ()
+            ("cost_per_admitted_candidate",)
+            if self.valid_cost_observations <= 0
+            else ()
         )
         return RoutingMetrics(
             attempts=len(self.trace_ids),
@@ -213,7 +217,9 @@ def native_routing_metrics(records: Iterable[Mapping[str, Any]]) -> RoutingMetri
     rows = list(records)
     attempts = len(rows)
     missing_metrics = []
-    if attempts and any(_number_optional(row, "estimated_cost_usd", "cost_usd") is None for row in rows):
+    if attempts and any(
+        _number_optional(row, "estimated_cost_usd", "cost_usd") is None for row in rows
+    ):
         missing_metrics.append("cost_per_admitted_candidate")
     contract_checks = sum(
         _integer(row, "output_contract_checks", "contract_checks")

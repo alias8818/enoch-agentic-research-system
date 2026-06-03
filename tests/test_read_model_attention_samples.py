@@ -32,7 +32,7 @@ def test_blocked_attention_samples_include_non_blocked_attention_rows() -> None:
             "status": "needs_review",
             "next_action_hint": "inspect_evidence",
             "current_run_id": "run-needs-review",
-                "operator_lane": "needs_operator",
-                "operator_detail_stage": "blocked_needs_operator",
+            "operator_lane": "needs_operator",
+            "operator_detail_stage": "blocked_needs_operator",
         }
     ]

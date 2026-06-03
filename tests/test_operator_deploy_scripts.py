@@ -353,8 +353,8 @@ def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> Non
     assert "enoch-postgres-backup.timer" in combined
     assert "resume-enoch-automation" in resume
     assert "CONTROL_CURL_CONFIG" in combined
-    assert "--config \"$CONTROL_CURL_CONFIG\"" in combined
-    assert "-H \"Authorization: Bearer $CONTROL_TOKEN\"" not in combined
+    assert '--config "$CONTROL_CURL_CONFIG"' in combined
+    assert '-H "Authorization: Bearer $CONTROL_TOKEN"' not in combined
     assert "enoch_codex_runner(\\\\.sh)?" in stop
     assert "enoch_codex_dispatch(\\\\.sh)?" in stop
     assert "codex(\\\\.js)?" in stop

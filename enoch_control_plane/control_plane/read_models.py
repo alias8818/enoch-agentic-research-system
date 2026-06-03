@@ -1557,10 +1557,11 @@ def blocked_attention_samples_from_rows(
                 "status": _text(row.get("status")),
                 "next_action_hint": _text(row.get("next_action_hint")),
                 "current_run_id": _text(row.get("current_run_id") or row.get("run_id")),
-                "operator_lane": _text(row.get("operator_lane") or stage["operator_lane"]),
+                "operator_lane": _text(
+                    row.get("operator_lane") or stage["operator_lane"]
+                ),
                 "operator_detail_stage": _text(
-                    row.get("operator_detail_stage")
-                    or stage["operator_detail_stage"]
+                    row.get("operator_detail_stage") or stage["operator_detail_stage"]
                 ),
             }
         )
