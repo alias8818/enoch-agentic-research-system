@@ -743,6 +743,15 @@ def _is_benign_skip_result(result: dict) -> bool:
         return True
     if action == "research_cycle_blocked":
         return True
+    if action == "research_cycle":
+        return any(
+            phrase in reason
+            for phrase in (
+                "blocked item(s) need attention",
+                "provider budget unavailable",
+                "provider budget check unavailable",
+            )
+        )
     return False
 
 

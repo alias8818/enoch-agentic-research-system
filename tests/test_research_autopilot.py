@@ -101,6 +101,26 @@ def test_finalize_autopilot_tick_exits_zero_for_controlled_budget_block(monkeypa
     )
 
 
+def test_finalize_autopilot_tick_exits_zero_for_controlled_research_cycle_block(
+    monkeypatch,
+):
+    monkeypatch.setattr(autopilot, "_attach_autopilot_sidecars", lambda *_args: None)
+
+    assert (
+        autopilot._finalize_autopilot_tick(
+            {
+                "ok": False,
+                "action": "research_cycle",
+                "reason": (
+                    "1 blocked item(s) need attention; "
+                    "provider budget check unavailable for provider openrouter"
+                ),
+            }
+        )
+        == 0
+    )
+
+
 def test_remote_disconnect_is_success_when_control_plane_recovers(
     tmp_path, capsys, monkeypatch
 ):
