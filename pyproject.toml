@@ -1,6 +1,6 @@
 [project]
 name = "enoch-control-plane"
-version = "1.41.10"
+version = "1.41.11"
 description = "Enoch Control Plane for auditable agentic research automation"
 requires-python = ">=3.11"
 dependencies = [
