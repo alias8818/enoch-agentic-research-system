@@ -727,16 +727,29 @@ def _is_benign_skip_result(result: dict) -> bool:
     """Return true for normal long-haul idle/backpressure outcomes.
 
     The timer should not enter failed state just because a previous tick still
-    has a worker lane active. That is expected bounded backpressure, not an
-    automation failure.
+    has a worker lane active, or because the control plane made a recorded
+    policy decision to block the tick. Those are expected bounded
+    backpressure/attention states, not automation failures.
     """
 
     reason = str(result.get("reason") or "").lower()
     action = str(result.get("action") or "").lower()
-    return "active worker lane already exists" in reason or action in {
+    if action in {
         "skipped",
         "noop",
-    }
+    }:
+        return True
+    if "active worker lane already exists" in reason:
+        return True
+    if action == "research_cycle_blocked":
+        return any(
+            phrase in reason
+            for phrase in (
+                "blocked item(s) need attention",
+                "active worker lane already exists",
+            )
+        )
+    return False
 
 
 def _research_autopilot_failure(reason: str) -> dict:

@@ -46,6 +46,46 @@ def test_active_worker_lane_is_benign_timer_backpressure():
     )
 
 
+def test_dashboard_attention_block_is_benign_timer_backpressure():
+    assert (
+        autopilot._is_benign_skip_result(
+            {
+                "ok": False,
+                "action": "research_cycle_blocked",
+                "reason": "1 blocked item(s) need attention",
+            }
+        )
+        is True
+    )
+    assert (
+        autopilot._is_benign_skip_result(
+            {
+                "ok": False,
+                "action": "research_cycle_blocked",
+                "reason": "provider budget unavailable",
+            }
+        )
+        is False
+    )
+
+
+def test_finalize_autopilot_tick_exits_zero_for_controlled_dashboard_attention_block(
+    monkeypatch,
+):
+    monkeypatch.setattr(autopilot, "_attach_autopilot_sidecars", lambda *_args: None)
+
+    assert (
+        autopilot._finalize_autopilot_tick(
+            {
+                "ok": False,
+                "action": "research_cycle_blocked",
+                "reason": "1 blocked item(s) need attention",
+            }
+        )
+        == 0
+    )
+
+
 def test_remote_disconnect_is_success_when_control_plane_recovers(
     tmp_path, capsys, monkeypatch
 ):
