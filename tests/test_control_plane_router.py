@@ -677,6 +677,45 @@ def test_research_paper_stage_records_evidence_rewrite_error() -> None:
     }
 
 
+def test_research_paper_stage_skips_after_dispatch_when_wait_disabled() -> None:
+    from enoch_control_plane.control_plane.router import _execute_research_paper_stages
+
+    class FakeStore:
+        def active_items(self) -> list[dict[str, str]]:
+            return []
+
+    def draft_next(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("paper drafting must not run after non-waiting dispatch")
+
+    response = {"dispatch_started": True, "stages": []}
+
+    drafted, finalized = _execute_research_paper_stages(
+        store=FakeStore(),
+        response=response,
+        max_paper_drafts=1,
+        max_publication_rewrites=1,
+        wait_for_completion=False,
+        wait_result={"action": "skipped"},
+        requested_by="test",
+        draft_next=draft_next,
+        rewrite_paper_review_draft=lambda *_args, **_kwargs: None,
+        control_api_bearer_token=TOKEN,
+    )
+
+    assert drafted == []
+    assert finalized == []
+    assert response["stages"] == [
+        {
+            "stage": "paper_draft",
+            "ok": False,
+            "reason": (
+                "dispatched work started and wait_for_completion is disabled; "
+                "paper stage skipped"
+            ),
+        }
+    ]
+
+
 class ControlPlaneRouterTests(unittest.TestCase):
     def test_deterministic_paper_writes_are_atomic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

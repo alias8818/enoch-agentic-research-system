@@ -878,12 +878,34 @@ def _main_missing_token_exit(token: str) -> int | None:
     return 2
 
 
+def _research_run_cycle_request_timeout(payload: dict) -> int:
+    generation_timeout = int(payload.get("generation_timeout") or 240)
+    generation_attempts = int(payload.get("generation_attempts") or 1)
+    wait_timeout = (
+        int(payload.get("max_wait_seconds") or 0)
+        if bool(payload.get("wait_for_completion"))
+        else 0
+    )
+    paper_timeout = (
+        600
+        if int(payload.get("max_paper_drafts_per_run") or 0)
+        or int(payload.get("max_publication_rewrites_per_run") or 0)
+        else 0
+    )
+    return max(
+        60,
+        generation_timeout * generation_attempts + wait_timeout + paper_timeout + 120,
+    )
+
+
 def _build_research_run_cycle_payload() -> tuple[dict, int]:
     wait_for_completion = _truthy("ENOCH_RESEARCH_AUTOPILOT_WAIT", "0")
     max_wait_seconds = _bounded_int(
         "ENOCH_RESEARCH_AUTOPILOT_MAX_WAIT_SECONDS", 900, 0, 1800
     )
     papers_enabled = _truthy("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1")
+    generation_timeout = _bounded_int("ENOCH_RESEARCH_PROVIDER_TIMEOUT", 240, 10, 300)
+    generation_attempts = _bounded_int("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3)
     payload = {
         "enabled": True,
         "dry_run": False,
@@ -898,9 +920,8 @@ def _build_research_run_cycle_payload() -> tuple[dict, int]:
         "generation_max_tokens": _bounded_int(
             "ENOCH_RESEARCH_PROVIDER_MAX_TOKENS", 8000, 1000, 16000
         ),
-        "generation_attempts": _bounded_int(
-            "ENOCH_RESEARCH_PROVIDER_ATTEMPTS", 2, 1, 3
-        ),
+        "generation_timeout": generation_timeout,
+        "generation_attempts": generation_attempts,
         "max_provider_requests_per_run": _bounded_int(
             "ENOCH_RESEARCH_AUTOPILOT_PROVIDER_REQUESTS", 1, 0, 1
         ),
@@ -935,7 +956,7 @@ def _build_research_run_cycle_payload() -> tuple[dict, int]:
             "ENOCH_RESEARCH_AUTOPILOT_RESERVE_REQUESTS", 2, 0, 100
         ),
     }
-    return payload, max_wait_seconds
+    return payload, _research_run_cycle_request_timeout(payload)
 
 
 def _transient_disconnect_exit(

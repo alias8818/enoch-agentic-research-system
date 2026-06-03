@@ -5280,6 +5280,18 @@ def _execute_research_paper_stages(
     finalized_papers: list[dict[str, Any]] = []
     if not max_paper_drafts:
         return drafted_papers, finalized_papers
+    if response.get("dispatch_started") and not wait_for_completion:
+        response["stages"].append(
+            {
+                "stage": "paper_draft",
+                "ok": False,
+                "reason": (
+                    "dispatched work started and wait_for_completion is disabled; "
+                    "paper stage skipped"
+                ),
+            }
+        )
+        return drafted_papers, finalized_papers
     if (
         response.get("dispatch_started")
         and wait_for_completion

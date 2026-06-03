@@ -547,6 +547,37 @@ def test_research_autopilot_retries_stale_rotation_model_without_model() -> None
     assert "model" not in retry_payload
 
 
+def test_research_autopilot_timeout_uses_provider_envelope_when_wait_disabled(
+    monkeypatch,
+):
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_WAIT", "0")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_MAX_WAIT_SECONDS", "900")
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_TIMEOUT", "300")
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", "3")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "0")
+
+    payload, request_timeout = autopilot._build_research_run_cycle_payload()
+
+    assert payload["wait_for_completion"] is False
+    assert payload["max_wait_seconds"] == 0
+    assert payload["generation_timeout"] == 300
+    assert payload["generation_attempts"] == 3
+    assert request_timeout == 1020
+
+
+def test_research_autopilot_timeout_includes_paper_stage_when_enabled(monkeypatch):
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_WAIT", "0")
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_TIMEOUT", "240")
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_ATTEMPTS", "2")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_PAPERS", "1")
+
+    payload, request_timeout = autopilot._build_research_run_cycle_payload()
+
+    assert payload["max_paper_drafts_per_run"] == 1
+    assert payload["max_publication_rewrites_per_run"] == 1
+    assert request_timeout == 1200
+
+
 def test_llm_model_health_checks_respect_cooldown_for_unhealthy_models(monkeypatch):
     monkeypatch.setenv("ENOCH_LLM_MODEL_HEALTH_CHECKS_ENABLED", "1")
     monkeypatch.setenv("ENOCH_LLM_MODEL_HEALTH_CHECK_LIMIT", "2")
