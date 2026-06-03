@@ -358,6 +358,9 @@ def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> Non
     assert "worker process checks failed" in stop
     assert '{"disabled", "masked", "not-found"}' in stop
     assert "StrictHostKeyChecking=accept-new" in stop
+    assert "ENOCH_MAINTENANCE_WORKER_SSH_TIMEOUT" in stop
+    assert "timeout=timeout_seconds" in stop
+    assert "worker ssh check timed out" in stop
 
 
 def test_longhaul_guard_links_incidents_to_durable_checks() -> None:

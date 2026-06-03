@@ -80,8 +80,9 @@ backup_timer_active="$(systemctl is-active enoch-postgres-backup.timer 2>/dev/nu
 backup_timer_enabled="$(systemctl is-enabled enoch-postgres-backup.timer 2>/dev/null || true)"
 
 worker_checks_json="$(python3 - "${WORKER_HOSTS[@]}" <<'PY'
-import json, subprocess, sys
+import json, os, subprocess, sys
 checks = []
+timeout_seconds = int(os.environ.get("ENOCH_MAINTENANCE_WORKER_SSH_TIMEOUT", "12"))
 for host in sys.argv[1:]:
     cmd = [
         "ssh",
@@ -94,7 +95,24 @@ for host in sys.argv[1:]:
         host,
         "pgrep -af 'codex|enoch_codex_runner|enoch_codex_dispatch' || true",
     ]
-    result = subprocess.run(cmd, text=True, capture_output=True, check=False)
+    try:
+        result = subprocess.run(
+            cmd,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        checks.append({
+            "host": host,
+            "ok": False,
+            "returncode": 124,
+            "codex_processes": [],
+            "stderr": f"worker ssh check timed out after {timeout_seconds}s",
+            "stdout": (exc.stdout or "")[-500:],
+        })
+        continue
     lines = [
         line
         for line in result.stdout.splitlines()
