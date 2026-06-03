@@ -226,6 +226,35 @@ def test_provider_budget_must_be_checked_and_ok() -> None:
     assert "provider budget below threshold or unavailable" in result["blockers"]
 
 
+def test_blocked_queue_readiness_names_first_actionable_row() -> None:
+    payload = _ready_payload()
+    payload["state"]["counts"]["blocked"] = 1
+    payload["overview"]["operator_counts"]["needs_attention"] = 1
+    payload["overview"]["blocked_attention_samples"] = [
+        {
+            "project_id": "p-blocked",
+            "project_name": "Real-data tiny-model gradient coreset validation",
+            "status": "blocked",
+            "next_action_hint": "inspect_worker_gate_failure",
+            "current_run_id": "run-blocked",
+        }
+    ]
+
+    result = evaluate_longhaul_readiness(now=NOW, **payload)
+
+    assert result["ok"] is False
+    assert (
+        "blocked/needs-attention items exist: Real-data tiny-model gradient coreset validation (inspect_worker_gate_failure)"
+        in result["blockers"]
+    )
+    check = next(
+        item for item in result["checks"] if item["name"] == "no_blocked_or_attention"
+    )
+    assert "Real-data tiny-model gradient coreset validation" in check["detail"]
+    assert "inspect_worker_gate_failure" in check["detail"]
+    assert check["data"]["samples"][0]["project_id"] == "p-blocked"
+
+
 def test_structurally_unhealthy_llm_model_blocks_longhaul_readiness() -> None:
     payload = _ready_payload()
     payload["llm_model_health"] = {

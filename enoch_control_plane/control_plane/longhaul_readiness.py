@@ -304,19 +304,49 @@ def _add_blocked_attention_check(
     acc: _ReadinessAccumulator,
     counts: dict[str, Any],
     operator_counts: dict[str, Any],
+    overview: dict[str, Any],
 ) -> tuple[int, int]:
     blocked = int(counts.get("blocked") or 0)
     needs_attention = int(operator_counts.get("needs_attention") or 0)
+    samples = _blocked_attention_samples(overview)
+    detail = f"blocked={blocked}, needs_attention={needs_attention}"
+    if samples:
+        sample = samples[0]
+        sample_title = str(
+            sample.get("project_name")
+            or sample.get("project_id")
+            or sample.get("title")
+            or "unknown item"
+        )
+        sample_action = str(sample.get("next_action_hint") or "").strip()
+        action_suffix = f" ({sample_action})" if sample_action else ""
+        detail = f"{detail}; first={sample_title}{action_suffix}"
+    blocker = (
+        f"blocked/needs-attention items exist: {sample_title}{action_suffix}"
+        if samples
+        else "blocked/needs-attention items exist"
+    )
     acc.add(
         check(
             "no_blocked_or_attention",
             blocked == 0 and needs_attention == 0,
-            f"blocked={blocked}, needs_attention={needs_attention}",
-            data={"blocked": blocked, "needs_attention": needs_attention},
+            detail,
+            data={
+                "blocked": blocked,
+                "needs_attention": needs_attention,
+                "samples": samples,
+            },
         ),
-        "blocked/needs-attention items exist",
+        blocker,
     )
     return blocked, needs_attention
+
+
+def _blocked_attention_samples(overview: dict[str, Any]) -> list[dict[str, Any]]:
+    samples = overview.get("blocked_attention_samples")
+    if not isinstance(samples, list):
+        return []
+    return [item for item in samples[:3] if isinstance(item, dict)]
 
 
 def _add_queue_consistency_check(
@@ -803,7 +833,7 @@ def evaluate_longhaul_readiness(
         corpus_max_age_seconds=corpus_max_age_seconds,
     )
     blocked, needs_attention = _add_blocked_attention_check(
-        acc, counts, operator_counts
+        acc, counts, operator_counts, overview
     )
     active, queued = _add_queue_consistency_check(
         acc,

@@ -2092,6 +2092,52 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(args[0], "https://api.synthetic.new/v2/quotas")
             self.assertEqual(kwargs["api_key"], "synthetic-readiness-key")
 
+    def test_automation_readiness_names_blocked_queue_sample(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            import_response = client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "readiness-blocked-sample-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "blocked-sample",
+                            "project_name": "Blocked Sample Project",
+                            "project_dir": "blocked-sample",
+                            "status": "blocked",
+                            "current_run_id": "run-blocked-sample",
+                            "next_action_hint": "inspect_worker_gate_failure",
+                            "manual_review_required": True,
+                        }
+                    ],
+                },
+            )
+            self.assertEqual(import_response.status_code, 200)
+
+            with patch("scripts.research_provider_budget.fetch_json", return_value={}):
+                response = client.get(
+                    "/control/api/v1/automation-readiness",
+                    headers=headers,
+                )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertIn(
+                "blocked/needs-attention items exist: Blocked Sample Project (inspect_worker_gate_failure)",
+                body["blockers"],
+            )
+            check = next(
+                item
+                for item in body["checks"]
+                if item["name"] == "no_blocked_or_attention"
+            )
+            self.assertEqual(
+                check["data"]["samples"][0]["project_id"], "blocked-sample"
+            )
+            self.assertIn("Blocked Sample Project", check["detail"])
+
     def test_automation_readiness_provider_budget_suppresses_proxy_secret(
         self,
     ) -> None:
