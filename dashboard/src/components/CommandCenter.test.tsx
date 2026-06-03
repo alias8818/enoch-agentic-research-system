@@ -436,6 +436,26 @@ it('uses dialog confirmations for queue pause instead of window.confirm', async 
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('uses the maintenance resume endpoint so dashboard resume rearms automation', async () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+  const onRefresh = vi.fn()
+
+  render(<SafetyBar flags={{ queue_paused: true, maintenance_mode: true }} onRefresh={onRefresh} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Resume queue' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Resume the queue?' })).toBeInTheDocument()
+  const dialog = screen.getByRole('dialog', { name: 'Resume the queue?' })
+  fireEvent.click(dialog.querySelectorAll('button')[1])
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/control/api/maintenance/resume', expect.objectContaining({ method: 'POST' })))
+  expect(fetchMock).not.toHaveBeenCalledWith('/control/resume', expect.anything())
+  expect(JSON.parse(fetchMockRequestBody(fetchMock, 0))).toEqual({
+    resumed_by: 'dashboard-v2',
+    maintenance_mode: false,
+  })
+  expect(onRefresh).toHaveBeenCalledTimes(1)
+})
+
 it('dry-runs dispatch from lane buttons without starting live dispatch', async () => {
   const confirmSpy = vi.spyOn(globalThis, 'confirm')
   const alertSpy = vi.spyOn(globalThis, 'alert')

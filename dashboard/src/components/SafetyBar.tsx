@@ -29,7 +29,7 @@ export function SafetyBar({ flags, onRefresh }: Readonly<{ flags: OverviewRespon
       tone: 'warn',
     })
     if (!confirmed) return
-    await apiPost('/control/resume', { resumed_by: 'dashboard-v2', maintenance_mode: false })
+    await apiPost('/control/api/maintenance/resume', { resumed_by: 'dashboard-v2', maintenance_mode: false })
     onRefresh()
   }
   return (

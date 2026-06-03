@@ -202,6 +202,55 @@ def _client_with_config(config: GateConfig) -> TestClient:
     return TestClient(app)
 
 
+def test_dashboard_maintenance_resume_rearms_systemd_and_records_observation() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        client.post(
+            "/control/pause",
+            headers=headers,
+            json={
+                "reason": "maintenance",
+                "paused_by": "pytest",
+                "maintenance_mode": True,
+            },
+        )
+
+        rearm = {
+            "ok": True,
+            "action": "systemd_rearm_and_kick",
+            "timers": ["enoch-research-autopilot.timer"],
+            "kick_services": ["enoch-research-autopilot.service"],
+            "steps": [],
+            "failures": [],
+        }
+        with (
+            patch(
+                "enoch_control_plane.control_plane.router._resume_automation_after_control_resume",
+                return_value=rearm,
+            ) as rearm_helper,
+            patch.object(
+                ControlPlaneStore, "upsert_dashboard_observation", autospec=True
+            ) as upsert_observation,
+        ):
+            response = client.post(
+                "/control/api/maintenance/resume",
+                headers=headers,
+                json={"resumed_by": "dashboard-v2", "maintenance_mode": False},
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["flags"]["queue_paused"] is False
+        assert body["flags"]["maintenance_mode"] is False
+        assert body["systemd"] == rearm
+        rearm_helper.assert_called_once_with()
+        upsert_observation.assert_called_once()
+        assert upsert_observation.call_args.kwargs["source"] == "resume_systemd_rearm"
+        assert upsert_observation.call_args.kwargs["status"] == "ok"
+
+
 def test_draft_next_live_requires_named_override_while_paused() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         config = _config(tmp)

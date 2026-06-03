@@ -196,6 +196,20 @@ _HTTP_503_WORKER_PREFLIGHT_URL: dict[int, dict[str, str]] = {
     },
 }
 
+MAINTENANCE_RESUME_TIMERS: tuple[str, ...] = (
+    "enoch-research-autopilot.timer",
+    "enoch-corpus-import-autopilot.timer",
+    "enoch-queue-alert-check.timer",
+    "enoch-source-lineage-check.timer",
+)
+
+MAINTENANCE_RESUME_KICK_SERVICES: tuple[str, ...] = (
+    "enoch-queue-alert-check.service",
+    "enoch-source-lineage-check.service",
+    "enoch-research-autopilot.service",
+    "enoch-corpus-import-autopilot.service",
+)
+
 _HTTP_404_RUN: dict[int, dict[str, str]] = {404: {"description": "Run not found"}}
 
 _HTTP_404_PROJECT: dict[int, dict[str, str]] = {
@@ -290,6 +304,64 @@ _HTTP_LLM_SETTINGS_TEST_RESPONSES: dict[int, dict[str, str]] = {
     400: {"description": "Invalid LLM provider/model test request"},
     404: {"description": "Unknown LLM provider or model"},
 }
+
+
+def _systemd_available_for_resume() -> bool:
+    return Path("/run/systemd/system").exists()
+
+
+def _run_resume_systemctl(args: list[str], *, timeout: int = 10) -> dict[str, Any]:
+    command = ["systemctl", *args]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {
+            "ok": False,
+            "command": command,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    return {
+        "ok": result.returncode == 0,
+        "command": command,
+        "returncode": result.returncode,
+        "stdout": result.stdout[-1000:],
+        "stderr": result.stderr[-1000:],
+    }
+
+
+def _resume_automation_after_control_resume() -> dict[str, Any]:
+    if os.environ.get("ENOCH_CONTROL_RESUME_REARM_SYSTEMD", "1") == "0":
+        return {"ok": True, "action": "systemd_rearm_skipped", "reason": "disabled"}
+    if not _systemd_available_for_resume():
+        return {
+            "ok": True,
+            "action": "systemd_rearm_skipped",
+            "reason": "systemd unavailable",
+        }
+
+    steps = [
+        _run_resume_systemctl(["daemon-reload"]),
+        _run_resume_systemctl(["enable", "--now", *MAINTENANCE_RESUME_TIMERS]),
+        _run_resume_systemctl(["restart", *MAINTENANCE_RESUME_TIMERS]),
+        _run_resume_systemctl(
+            ["start", "--no-block", *MAINTENANCE_RESUME_KICK_SERVICES]
+        ),
+    ]
+    failures = [step for step in steps if not step.get("ok")]
+    return {
+        "ok": not failures,
+        "action": "systemd_rearm_and_kick",
+        "timers": list(MAINTENANCE_RESUME_TIMERS),
+        "kick_services": list(MAINTENANCE_RESUME_KICK_SERVICES),
+        "steps": steps,
+        "failures": failures,
+    }
 
 
 class UnresolvableArtifactRootsError(RuntimeError):
@@ -7879,6 +7951,42 @@ def _dashboard_v1_llm_harness_observability_response(store: Any) -> dict[str, An
     }
 
 
+def _register_control_plane_maintenance_routes(
+    router: APIRouter,
+    config: GateConfig,
+    store: Any,
+    require_bearer: RequireBearer,
+) -> None:
+    @router.post("/api/maintenance/resume")
+    def dashboard_maintenance_resume(
+        payload: ResumeRequest,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        require_bearer(authorization)
+        _require_writable_store_http(
+            "operator maintenance resume",
+            backend=config.control_plane_store_backend,
+        )
+        store.resume(
+            resumed_by=payload.resumed_by,
+            maintenance_mode=payload.maintenance_mode,
+        )
+        rearm = _resume_automation_after_control_resume()
+        store.upsert_dashboard_observation(
+            source="resume_systemd_rearm",
+            status="ok" if rearm.get("ok") else "warn",
+            ttl_seconds=300,
+            payload=rearm,
+        )
+        flags = store.flags()
+        return {
+            "ok": bool(rearm.get("ok")),
+            "action": "maintenance_resume",
+            "flags": flags.model_dump(mode="json"),
+            "systemd": rearm,
+        }
+
+
 def _register_control_plane_llm_settings_routes(
     router: APIRouter,
     config: GateConfig,
@@ -8054,6 +8162,7 @@ def _register_control_plane_http_route_handlers(
     _register_control_plane_papers_events_routes(ns)
     _register_control_plane_research_routes(ns)
     _register_control_plane_operator_legacy_routes(ns)
+    _register_control_plane_maintenance_routes(router, config, store, require_bearer)
     _register_control_plane_llm_settings_routes(router, config, store, require_bearer)
 
 

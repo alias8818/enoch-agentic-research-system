@@ -347,8 +347,15 @@ def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> Non
     assert "ENOCH_MAINTENANCE_RESUME_ENABLE_PAPER_DRAFT" in resume
     assert "systemctl disable --now" in stop
     assert "systemctl enable --now" in resume
+    assert "systemctl restart" in resume
+    assert "systemctl start --no-block" in resume
     assert "/control/pause" in stop
     assert "/control/resume" in resume
+    assert "KICK_SERVICES=(" in resume
+    assert "enoch-research-autopilot.service" in resume
+    assert "enoch-corpus-import-autopilot.service" in resume
+    assert "enoch-queue-alert-check.service" in resume
+    assert "enoch-source-lineage-check.service" in resume
     assert "/control/api/status" in combined
     assert "enoch-postgres-backup.timer" in combined
     assert "resume-enoch-automation" in resume

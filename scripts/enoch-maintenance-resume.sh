@@ -22,6 +22,13 @@ MAINTENANCE_TIMERS=(
   enoch-source-lineage-check.timer
 )
 
+KICK_SERVICES=(
+  enoch-queue-alert-check.service
+  enoch-source-lineage-check.service
+  enoch-research-autopilot.service
+  enoch-corpus-import-autopilot.service
+)
+
 OPTIONAL_TIMERS=(
   enoch-paper-draft-next.timer
 )
@@ -91,6 +98,8 @@ PY
 resume_state="$(control_api POST /control/resume "$resume_payload")"
 
 systemctl enable --now "${MAINTENANCE_TIMERS[@]}" >/dev/null 2>&1 || true
+systemctl restart "${MAINTENANCE_TIMERS[@]}" >/dev/null 2>&1 || true
+systemctl start --no-block "${KICK_SERVICES[@]}" >/dev/null 2>&1 || true
 if [[ "${ENOCH_MAINTENANCE_RESUME_ENABLE_PAPER_DRAFT:-0}" == "1" ]]; then
   systemctl enable --now "${OPTIONAL_TIMERS[@]}" >/dev/null 2>&1 || true
 fi
@@ -100,10 +109,11 @@ timer_enabled="$(systemctl is-enabled "${MAINTENANCE_TIMERS[@]}" 2>/dev/null || 
 timer_active="$(systemctl is-active "${MAINTENANCE_TIMERS[@]}" 2>/dev/null || true)"
 paper_timer_enabled="$(systemctl is-enabled "${OPTIONAL_TIMERS[@]}" 2>/dev/null || true)"
 paper_timer_active="$(systemctl is-active "${OPTIONAL_TIMERS[@]}" 2>/dev/null || true)"
+kick_service_state="$(systemctl is-active "${KICK_SERVICES[@]}" 2>/dev/null || true)"
 backup_timer_active="$(systemctl is-active enoch-postgres-backup.timer 2>/dev/null || true)"
 backup_timer_enabled="$(systemctl is-enabled enoch-postgres-backup.timer 2>/dev/null || true)"
 
-python3 - "$resume_state" "$status_json" "$timer_enabled" "$timer_active" "$paper_timer_enabled" "$paper_timer_active" "$backup_timer_enabled" "$backup_timer_active" <<'PY'
+python3 - "$resume_state" "$status_json" "$timer_enabled" "$timer_active" "$paper_timer_enabled" "$paper_timer_active" "$kick_service_state" "$backup_timer_enabled" "$backup_timer_active" <<'PY'
 import json, sys
 resume_state = json.loads(sys.argv[1])
 status = json.loads(sys.argv[2])
@@ -111,8 +121,9 @@ timer_enabled = [line for line in sys.argv[3].splitlines() if line]
 timer_active = [line for line in sys.argv[4].splitlines() if line]
 paper_timer_enabled = [line for line in sys.argv[5].splitlines() if line]
 paper_timer_active = [line for line in sys.argv[6].splitlines() if line]
-backup_timer_enabled = sys.argv[7].strip()
-backup_timer_active = sys.argv[8].strip()
+kick_service_state = [line for line in sys.argv[7].splitlines() if line]
+backup_timer_enabled = sys.argv[8].strip()
+backup_timer_active = sys.argv[9].strip()
 flags = status.get("flags") or {}
 failures = []
 if flags.get("queue_paused"):
@@ -141,6 +152,9 @@ result = {
     "paper_draft_timer": {
         "enabled": paper_timer_enabled,
         "active": paper_timer_active,
+    },
+    "kick_services": {
+        "active": kick_service_state,
     },
     "postgres_backup_timer": {
         "enabled": backup_timer_enabled,
