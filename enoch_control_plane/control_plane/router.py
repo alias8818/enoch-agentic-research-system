@@ -6796,6 +6796,8 @@ def _cp_recently_completed_items_fast(
 ) -> list[dict[str, Any]]:
     if hasattr(store, "recently_completed_items_sql"):
         return store.recently_completed_items_sql(limit=limit)  # type: ignore[attr-defined]
+    if not hasattr(store, "queue_rows"):
+        return []
     rows = [
         row
         for row in store.queue_rows()
@@ -7005,6 +7007,12 @@ def _cp_mount_worker_lane_capacity(
 ) -> list[dict[str, Any]]:
     active_rows = list(active if active is not None else store.active_items())
     queue_rows = list(rows if rows is not None else store.queue_rows())
+    completed_reconcile_rows = _cp_recently_completed_items_fast(store)
+    reconcile_rows_by_project = {
+        str(row.get("project_id") or ""): row
+        for row in [*queue_rows, *completed_reconcile_rows]
+    }
+    reconcile_rows = list(reconcile_rows_by_project.values())
     run_rows = list(store.run_rows()) if hasattr(store, "run_rows") else []
     queued_candidates = _cp_queued_dispatch_candidates(store, queue_rows)
     active_by_lane = _cp_mount_rows_by_worker_lane(config, active_rows)
@@ -7050,7 +7058,7 @@ def _cp_mount_worker_lane_capacity(
                 lane_worker_preflight=lane_preflight,
                 lane_worker_preflight_key=lane_preflight_key,
                 lane_worker_dashboard=lane_dashboard,
-                queue_rows=queue_rows,
+                queue_rows=reconcile_rows,
                 run_rows=run_rows,
             )
         )
