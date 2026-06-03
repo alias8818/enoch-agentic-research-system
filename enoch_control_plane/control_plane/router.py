@@ -7967,18 +7967,22 @@ def _register_control_plane_maintenance_routes(
             "operator maintenance resume",
             backend=config.control_plane_store_backend,
         )
-        store.resume(
+        flags, resume_event_id = store.resume(
             resumed_by=payload.resumed_by,
             maintenance_mode=payload.maintenance_mode,
         )
         rearm = _resume_automation_after_control_resume()
-        store.upsert_dashboard_observation(
-            source="resume_systemd_rearm",
-            status="ok" if rearm.get("ok") else "warn",
-            ttl_seconds=300,
-            payload=rearm,
+        store.append_event(
+            idempotency_key=f"maintenance-resume-systemd:{resume_event_id}",
+            event_type="control.resume.systemd_rearm",
+            entity_type="control",
+            entity_id="queue",
+            payload={
+                "resume_event_id": resume_event_id,
+                "requested_by": payload.resumed_by,
+                "systemd": rearm,
+            },
         )
-        flags = store.flags()
         return {
             "ok": bool(rearm.get("ok")),
             "action": "maintenance_resume",

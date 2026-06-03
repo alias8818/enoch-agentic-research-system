@@ -224,15 +224,10 @@ def test_dashboard_maintenance_resume_rearms_systemd_and_records_observation() -
             "steps": [],
             "failures": [],
         }
-        with (
-            patch(
-                "enoch_control_plane.control_plane.router._resume_automation_after_control_resume",
-                return_value=rearm,
-            ) as rearm_helper,
-            patch.object(
-                ControlPlaneStore, "upsert_dashboard_observation", autospec=True
-            ) as upsert_observation,
-        ):
+        with patch(
+            "enoch_control_plane.control_plane.router._resume_automation_after_control_resume",
+            return_value=rearm,
+        ) as rearm_helper:
             response = client.post(
                 "/control/api/maintenance/resume",
                 headers=headers,
@@ -246,9 +241,15 @@ def test_dashboard_maintenance_resume_rearms_systemd_and_records_observation() -
         assert body["flags"]["maintenance_mode"] is False
         assert body["systemd"] == rearm
         rearm_helper.assert_called_once_with()
-        upsert_observation.assert_called_once()
-        assert upsert_observation.call_args.kwargs["source"] == "resume_systemd_rearm"
-        assert upsert_observation.call_args.kwargs["status"] == "ok"
+
+        events = client.get("/control/api/events", headers=headers).json()["rows"]
+        rearm_events = [
+            event
+            for event in events
+            if event["event_type"] == "control.resume.systemd_rearm"
+        ]
+        assert len(rearm_events) == 1
+        assert rearm_events[0]["entity_id"] == "queue"
 
 
 def test_draft_next_live_requires_named_override_while_paused() -> None:
