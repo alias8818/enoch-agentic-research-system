@@ -137,37 +137,49 @@ def _validate_safe_key(key: str, *, path: str) -> None:
         raise LLMHarnessTelemetryError(f"{path} is not allowed in llm_harness events")
 
 
+def _validate_safe_string(value: str, *, path: str) -> str:
+    if len(value) > _MAX_STRING_LENGTH:
+        raise LLMHarnessTelemetryError(f"{path} exceeds max telemetry string length")
+    for pattern in _SECRET_VALUE_PATTERNS:
+        if pattern.search(value):
+            raise LLMHarnessTelemetryError(f"{path} contains secret-like value")
+    return value
+
+
+def _validate_safe_list(value: list[Any], *, path: str, depth: int) -> list[Any]:
+    if len(value) > _MAX_LIST_LENGTH:
+        raise LLMHarnessTelemetryError(f"{path} exceeds max telemetry list length")
+    return [
+        _validate_bounded_safe_value(item, path=f"{path}[{index}]", depth=depth + 1)
+        for index, item in enumerate(value)
+    ]
+
+
+def _validate_safe_mapping(
+    value: Mapping[Any, Any], *, path: str, depth: int
+) -> dict[str, Any]:
+    safe_mapping: dict[str, Any] = {}
+    for raw_key, item in value.items():
+        key = str(raw_key)
+        nested_path = f"{path}.{key}"
+        _validate_safe_key(key, path=nested_path)
+        safe_mapping[key] = _validate_bounded_safe_value(
+            item, path=nested_path, depth=depth + 1
+        )
+    return safe_mapping
+
+
 def _validate_bounded_safe_value(value: Any, *, path: str, depth: int = 0) -> Any:
     if depth > _MAX_DEPTH:
         raise LLMHarnessTelemetryError(f"{path} exceeds max telemetry nesting depth")
     if value is None or isinstance(value, bool | int | float):
         return value
     if isinstance(value, str):
-        if len(value) > _MAX_STRING_LENGTH:
-            raise LLMHarnessTelemetryError(
-                f"{path} exceeds max telemetry string length"
-            )
-        for pattern in _SECRET_VALUE_PATTERNS:
-            if pattern.search(value):
-                raise LLMHarnessTelemetryError(f"{path} contains secret-like value")
-        return value
+        return _validate_safe_string(value, path=path)
     if isinstance(value, list):
-        if len(value) > _MAX_LIST_LENGTH:
-            raise LLMHarnessTelemetryError(f"{path} exceeds max telemetry list length")
-        return [
-            _validate_bounded_safe_value(item, path=f"{path}[{index}]", depth=depth + 1)
-            for index, item in enumerate(value)
-        ]
+        return _validate_safe_list(value, path=path, depth=depth)
     if isinstance(value, Mapping):
-        safe_mapping: dict[str, Any] = {}
-        for raw_key, item in value.items():
-            key = str(raw_key)
-            nested_path = f"{path}.{key}"
-            _validate_safe_key(key, path=nested_path)
-            safe_mapping[key] = _validate_bounded_safe_value(
-                item, path=nested_path, depth=depth + 1
-            )
-        return safe_mapping
+        return _validate_safe_mapping(value, path=path, depth=depth)
     raise LLMHarnessTelemetryError(f"{path} has unsupported telemetry value type")
 
 

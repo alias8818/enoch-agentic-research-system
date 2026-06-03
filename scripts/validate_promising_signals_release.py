@@ -116,7 +116,7 @@ def _check_manifest(
         _fail(
             "promising-signals manifest project_ids must be a non-empty list", failures
         )
-        return
+        return manifest_paths
     row_project_ids = {_as_text(row.get("project_id")) for row in signal_rows}
     missing_rows = sorted(
         _as_text(project_id)
