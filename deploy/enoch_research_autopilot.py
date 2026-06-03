@@ -742,13 +742,7 @@ def _is_benign_skip_result(result: dict) -> bool:
     if "active worker lane already exists" in reason:
         return True
     if action == "research_cycle_blocked":
-        return any(
-            phrase in reason
-            for phrase in (
-                "blocked item(s) need attention",
-                "active worker lane already exists",
-            )
-        )
+        return True
     return False
 
 

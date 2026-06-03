@@ -65,7 +65,7 @@ def test_dashboard_attention_block_is_benign_timer_backpressure():
                 "reason": "provider budget unavailable",
             }
         )
-        is False
+        is True
     )
 
 
@@ -80,6 +80,21 @@ def test_finalize_autopilot_tick_exits_zero_for_controlled_dashboard_attention_b
                 "ok": False,
                 "action": "research_cycle_blocked",
                 "reason": "1 blocked item(s) need attention",
+            }
+        )
+        == 0
+    )
+
+
+def test_finalize_autopilot_tick_exits_zero_for_controlled_budget_block(monkeypatch):
+    monkeypatch.setattr(autopilot, "_attach_autopilot_sidecars", lambda *_args: None)
+
+    assert (
+        autopilot._finalize_autopilot_tick(
+            {
+                "ok": False,
+                "action": "research_cycle_blocked",
+                "reason": "provider budget check unavailable for provider openrouter",
             }
         )
         == 0
