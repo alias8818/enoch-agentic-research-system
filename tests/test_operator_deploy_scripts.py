@@ -357,6 +357,7 @@ def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> Non
     assert "pgrep -af 'codex|enoch_codex_runner|enoch_codex_dispatch'" in stop
     assert "worker process checks failed" in stop
     assert '{"disabled", "masked", "not-found"}' in stop
+    assert "StrictHostKeyChecking=accept-new" in stop
 
 
 def test_longhaul_guard_links_incidents_to_durable_checks() -> None:

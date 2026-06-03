@@ -88,6 +88,8 @@ for host in sys.argv[1:]:
         "-o",
         "BatchMode=yes",
         "-o",
+        "StrictHostKeyChecking=accept-new",
+        "-o",
         "ConnectTimeout=8",
         host,
         "pgrep -af 'codex|enoch_codex_runner|enoch_codex_dispatch' || true",
