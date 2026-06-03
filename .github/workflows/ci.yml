@@ -60,6 +60,8 @@ jobs:
         run: python3 scripts/check_dashboard_v2_source_asset_pair.py --base ${{ github.event.pull_request.base.sha }}
       - name: Validate AGENTS.md consistency
         run: python3 scripts/validate_agents_md.py
+      - name: Validate LLM agentic harness evaluation
+        run: python3 scripts/validate_llm_agentic_harness_evaluation.py
       - name: Validate dashboard V2 committed assets
         run: python3 scripts/validate_dashboard_v2_assets.py --skip-npm-ci
       - name: Run tests with timing
