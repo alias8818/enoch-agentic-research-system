@@ -7870,6 +7870,15 @@ def _dashboard_v1_llm_model_observability_response(
     }
 
 
+def _dashboard_v1_llm_harness_observability_response(store: Any) -> dict[str, Any]:
+    return {
+        "source": "control_api_v1_observability_llm_harness",
+        "authority": "bounded persisted llm_harness telemetry events",
+        "generated_at": utc_now(),
+        **read_models.llm_harness_telemetry_summary(store),
+    }
+
+
 def _register_control_plane_llm_settings_routes(
     router: APIRouter,
     config: GateConfig,
@@ -7920,6 +7929,13 @@ def _register_control_plane_llm_settings_routes(
     ) -> dict[str, Any]:
         require_bearer(authorization)
         return _dashboard_v1_llm_model_observability_response(config, store)
+
+    @router.get("/api/v1/observability/llm-harness")
+    def dashboard_v1_observability_llm_harness(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        require_bearer(authorization)
+        return _dashboard_v1_llm_harness_observability_response(store)
 
 
 class _ControlPlaneHttpRegistrationNamespace(dict):

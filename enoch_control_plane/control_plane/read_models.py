@@ -32,6 +32,7 @@ from .promising_signal_priority import (
     promising_signal_bucket,
     ranked_followup_readiness,
 )
+from .llm_harness_telemetry import LLM_HARNESS_EVENT_TYPES
 from .research_quality_freshness import research_quality_report_freshness
 from .state_contract import (
     ACTIVE_QUEUE_STATUSES,
@@ -4463,6 +4464,96 @@ def _overview_next_candidate(next_candidate: Any) -> dict[str, Any] | None:
 
 PROVIDER_GENERATION_ATTEMPT_EVENT = "research.provider_generation.attempt"
 LLM_MODEL_TEST_EVENT = "settings.llm.model_test"
+
+
+def _llm_harness_event_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+    payload = row.get("payload")
+    if not isinstance(payload, Mapping):
+        payload = {}
+    return {
+        "event_id": row.get("event_id") or row.get("id"),
+        "event_type": _text(row.get("event_type")),
+        "created_at": row.get("created_at") or row.get("updated_at") or "",
+        "workflow_id": _text(payload.get("workflow_id")),
+        "run_id": _text(payload.get("run_id")),
+        "trace_id": _text(payload.get("trace_id")),
+        "provider_id": _text(payload.get("provider_id")),
+        "model_id": _text(payload.get("model_id")),
+        "tool_name": _text(payload.get("tool_name")),
+        "policy_id": _text(payload.get("policy_id")),
+        "source": _text(payload.get("source")),
+        "started_at": _text(payload.get("started_at")),
+        "completed_at": _text(payload.get("completed_at")),
+        "status": _text(payload.get("status")),
+        "failure_kind": _text(payload.get("failure_kind")),
+        "estimated_cost_usd": float(payload.get("estimated_cost_usd") or 0),
+        "input_token_count": int(payload.get("input_token_count") or 0),
+        "output_token_count": int(payload.get("output_token_count") or 0),
+        "selected_provider_id": _text(payload.get("selected_provider_id")),
+        "selected_model_id": _text(payload.get("selected_model_id")),
+        "selection_reason": _text(payload.get("selection_reason"))[:300],
+        "budget_gate_status": _text(payload.get("budget_gate_status")),
+        "health_gate_status": _text(payload.get("health_gate_status")),
+        "result_count": int(payload.get("result_count") or 0),
+        "source_urls": list(payload.get("source_urls") or [])[:10]
+        if isinstance(payload.get("source_urls"), list)
+        else [],
+        "source_titles": list(payload.get("source_titles") or [])[:10]
+        if isinstance(payload.get("source_titles"), list)
+        else [],
+        "retrieval_timestamp": _text(payload.get("retrieval_timestamp")),
+    }
+
+
+def _llm_harness_status_counts(events: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for event in events:
+        status = _text(event.get("status")) or "unknown"
+        counts[status] = counts.get(status, 0) + 1
+    return counts
+
+
+def _llm_harness_type_counts(events: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for event in events:
+        event_type = _text(event.get("event_type")) or "unknown"
+        counts[event_type] = counts.get(event_type, 0) + 1
+    return counts
+
+
+def llm_harness_telemetry_summary(
+    store: ControlPlaneStore, *, limit: int = 100
+) -> dict[str, Any]:
+    rows: list[Mapping[str, Any]] = []
+    per_type_limit = max(1, min(limit, 200))
+    for event_type in sorted(LLM_HARNESS_EVENT_TYPES):
+        rows.extend(
+            _event_rows_for_type(store, event_type=event_type, limit=per_type_limit)
+        )
+    events = [_llm_harness_event_payload(row) for row in rows]
+    events.sort(key=lambda row: int(row.get("event_id") or 0), reverse=True)
+    events = events[: max(1, min(limit, 200))]
+    failure_count = sum(1 for event in events if _text(event.get("status")) != "ok")
+    total_cost = round(
+        sum(float(event.get("estimated_cost_usd") or 0) for event in events), 6
+    )
+    return {
+        "ok": failure_count == 0,
+        "status": "healthy" if failure_count == 0 else "needs_attention",
+        "event_count": len(events),
+        "failure_count": failure_count,
+        "estimated_cost_usd": total_cost,
+        "status_counts": _llm_harness_status_counts(events),
+        "event_type_counts": _llm_harness_type_counts(events),
+        "recent_events": events,
+        "taxonomy": {
+            "llm_harness.route_decision": "provider/model selection before output is accepted",
+            "llm_harness.tool_call": "bounded tool invocation metadata without raw payloads",
+            "llm_harness.tool_result": "redacted retrieval result metadata and hashes",
+            "llm_harness.output_contract": "structured-output acceptance or rejection evidence",
+            "llm_harness.cost_observation": "bounded cost and token accounting evidence",
+        },
+    }
 
 
 def _provider_generation_attempt_payload(row: Mapping[str, Any]) -> dict[str, Any]:

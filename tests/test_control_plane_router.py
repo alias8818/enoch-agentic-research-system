@@ -25,6 +25,10 @@ from enoch_control_plane.control_plane.router import (
     _write_deterministic_paper,
     create_control_plane_router,
 )
+from enoch_control_plane.control_plane.llm_harness_telemetry import (
+    LLM_HARNESS_ROUTE_DECISION_EVENT,
+    record_llm_harness_event,
+)
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.models import (
     ImportSnapshotRequest,
@@ -357,6 +361,51 @@ def test_observability_sentry_smoke_requires_authentication() -> None:
         response = TestClient(app).post("/control/api/v1/observability/sentry-smoke")
 
     assert response.status_code == 401
+
+
+def test_observability_llm_harness_returns_persisted_telemetry() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        store = ControlPlaneStore(config.expanded_state_dir / "control_plane.sqlite3")
+        record_llm_harness_event(
+            store,
+            event_type=LLM_HARNESS_ROUTE_DECISION_EVENT,
+            payload={
+                "workflow_id": "idea_generation_enrichment",
+                "trace_id": "trace-route-1",
+                "provider_id": "openrouter",
+                "model_id": "cheap-model",
+                "policy_id": "llm-harness-read-only-v1",
+                "source": "pytest",
+                "started_at": "2026-06-03T03:00:00Z",
+                "completed_at": "2026-06-03T03:00:02Z",
+                "status": "ok",
+                "failure_kind": "",
+                "estimated_cost_usd": "0.0002",
+                "input_token_count": 100,
+                "output_token_count": 20,
+                "candidate_provider_ids": ["openrouter"],
+                "candidate_model_ids": ["cheap-model"],
+                "selected_provider_id": "openrouter",
+                "selected_model_id": "cheap-model",
+                "selection_reason": "lowest cost model above enrichment bar",
+                "fallback_rank": 0,
+                "budget_gate_status": "passed",
+                "health_gate_status": "passed",
+            },
+            idempotency_key="llm-harness:test-route",
+        )
+        response = _client_with_config(config).get(
+            "/control/api/v1/observability/llm-harness",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "control_api_v1_observability_llm_harness"
+    assert body["event_count"] == 1
+    assert body["event_type_counts"] == {LLM_HARNESS_ROUTE_DECISION_EVENT: 1}
+    assert body["recent_events"][0]["selected_model_id"] == "cheap-model"
 
 
 def _write_publication_artifacts(
