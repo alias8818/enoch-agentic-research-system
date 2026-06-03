@@ -352,6 +352,44 @@ def test_readonly_store_basic_query_methods() -> None:
         raise AssertionError("pause should be read-only")
 
 
+def test_supabase_latest_dashboard_observations_skips_invalid_sources() -> None:
+    rows = [
+        {
+            "observation_id": 1,
+            "source": "resume_systemd_rearm",
+            "scope": "global",
+            "observed_at": "2026-06-03T12:29:00+00:00",
+            "ttl_seconds": 300,
+            "status": "ok",
+            "payload_json": {},
+            "payload_hash": "bad",
+            "created_at": "2026-06-03T12:29:00+00:00",
+        },
+        {
+            "observation_id": 2,
+            "source": "worker_preflight",
+            "scope": "global",
+            "observed_at": "2026-06-03T12:30:00+00:00",
+            "ttl_seconds": 300,
+            "status": "ok",
+            "payload_json": {"ok": True},
+            "payload_hash": "good",
+            "created_at": "2026-06-03T12:30:00+00:00",
+        },
+    ]
+
+    class Store(s.SupabaseReadOnlyControlPlaneStore):
+        def _query(self, sql, params=()):  # noqa: ANN001 - test double
+            assert "from operator_observations" in sql
+            assert params == ("global",)
+            return rows
+
+    observations = Store("postgres://example").latest_dashboard_observations()
+
+    assert set(observations) == {"worker_preflight"}
+    assert observations["worker_preflight"].payload == {"ok": True}
+
+
 from enoch_control_plane.control_plane.models import (
     IdeaIntakeRequest,
     NotionIntakeRequest,

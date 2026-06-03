@@ -2915,20 +2915,30 @@ class SupabaseReadOnlyControlPlaneStore:
             """,
             (scope,),
         )
-        return {row["source"]: self._observation_from_row(row) for row in rows}
+        observations: dict[str, DashboardObservationRecord] = {}
+        for row in rows:
+            observation = self._observation_from_row(row)
+            if observation is not None:
+                observations[observation.source] = observation
+        return observations
 
-    def _observation_from_row(self, row: dict[str, Any]) -> DashboardObservationRecord:
-        return DashboardObservationRecord(
-            observation_id=int(row["observation_id"]),
-            source=row["source"],
-            scope=row["scope"],
-            observed_at=str(row["observed_at"]),
-            ttl_seconds=int(row["ttl_seconds"]),
-            status=row["status"],
-            payload=self._payload(row["payload_json"]),
-            payload_hash=row["payload_hash"],
-            created_at=str(row["created_at"]),
-        )
+    def _observation_from_row(
+        self, row: dict[str, Any]
+    ) -> DashboardObservationRecord | None:
+        try:
+            return DashboardObservationRecord(
+                observation_id=int(row["observation_id"]),
+                source=row["source"],
+                scope=row["scope"],
+                observed_at=str(row["observed_at"]),
+                ttl_seconds=int(row["ttl_seconds"]),
+                status=row["status"],
+                payload=self._payload(row["payload_json"]),
+                payload_hash=row["payload_hash"],
+                created_at=str(row["created_at"]),
+            )
+        except (TypeError, ValueError):
+            return None
 
     def export_snapshot(self, *, event_limit: int = 50) -> dict[str, Any]:
         return {
