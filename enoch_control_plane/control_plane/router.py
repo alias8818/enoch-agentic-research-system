@@ -7963,10 +7963,7 @@ def _register_control_plane_maintenance_routes(
         authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
         require_bearer(authorization)
-        _require_writable_store_http(
-            "operator maintenance resume",
-            backend=config.control_plane_store_backend,
-        )
+        _require_writable_store("operator maintenance resume")
         flags, resume_event_id = store.resume(
             resumed_by=payload.resumed_by,
             maintenance_mode=payload.maintenance_mode,
