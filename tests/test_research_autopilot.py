@@ -898,9 +898,11 @@ def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):
     assert "--database-url" not in result["command"]
     assert "synthetic-secret" not in json.dumps(result["command"])
     assert "--provider-base-url" in cmd
-    assert "https://api.synthetic.new" in cmd
+    assert cmd[cmd.index("--provider-base-url") + 1] == "https://api.synthetic.new"
     assert "--openai-base-url" in cmd
-    assert "https://api.synthetic.new/openai/v1" in cmd
+    assert (
+        cmd[cmd.index("--openai-base-url") + 1] == "https://api.synthetic.new/openai/v1"
+    )
     assert calls[0]["env"]["DATABASE_URL"] == "postgresql://user:secret@host/db"
     assert calls[0]["env"]["SYNTHETIC_API_KEY"] == "synthetic-secret"
     assert "ENOCH_SUPABASE_DATABASE_URL" not in calls[0]["env"]

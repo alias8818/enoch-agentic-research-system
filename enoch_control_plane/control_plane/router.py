@@ -7639,7 +7639,8 @@ def _safe_append_llm_settings_updated_event(
             payload=payload,
         )
     except Exception as exc:  # pragma: no cover - visibility only
-        return None, f"{type(exc).__name__}: {exc}"
+        capture_exception(exc)
+        return None, "settings update event could not be recorded"
     return event_id, ""
 
 

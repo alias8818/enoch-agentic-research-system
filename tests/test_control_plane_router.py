@@ -80,14 +80,14 @@ def _live_config(tmp: str) -> GateConfig:
 
 def _write_synthetic_llm_settings(
     config: GateConfig,
-    api_key: str,
+    test_provider_token: str,
     *,
     base_url: str = "https://api.synthetic.new/openai/v1",
 ) -> None:
     state_dir = Path(config.state_dir)
     secret_dir = state_dir / "llm-provider-secrets"
     secret_dir.mkdir(parents=True, exist_ok=True)
-    (secret_dir / "synthetic.token").write_text(api_key, encoding="utf-8")
+    (secret_dir / "synthetic.token").write_text(test_provider_token, encoding="utf-8")
     (state_dir / "llm-provider-settings.json").write_text(
         json.dumps(
             {

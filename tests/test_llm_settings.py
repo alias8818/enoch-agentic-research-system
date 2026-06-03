@@ -286,6 +286,31 @@ def test_llm_settings_api_persists_valid_updates() -> None:
         assert persisted.workflows[0].default_model == "openrouter/auto"
 
 
+def test_llm_settings_update_event_error_is_generic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingEventStore:
+        def append_event(self, **_kwargs: object) -> int:
+            raise RuntimeError("stack trace details must stay server-side")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        client = _client(config, monkeypatch, FailingEventStore())
+        settings = default_llm_settings(config)
+
+        response = client.post(
+            "/control/api/settings/llm",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={"requested_by": "test", "settings": settings.model_dump(mode="json")},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["event_error"] == "settings update event could not be recorded"
+        assert "RuntimeError" not in response.text
+        assert "stack trace details" not in response.text
+
+
 def test_llm_settings_model_test_calls_exact_openai_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
