@@ -210,6 +210,8 @@ def _control_hold_skip_result(client: ControlClient) -> dict[str, Any] | None:
             "pause_reason": str(flags.get("pause_reason") or ""),
         },
     }
+
+
 def _log_drain_failure(
     index: int,
     *,

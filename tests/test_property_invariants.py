@@ -680,7 +680,10 @@ def test_draft_next_partial_evidence_never_creates_or_advances_paper(
             if path.is_file()
         )
 
-        response = client.post("/control/papers/draft-next", json={"force": True, "override_hold_action": "draft-next-while-held"})
+        response = client.post(
+            "/control/papers/draft-next",
+            json={"force": True, "override_hold_action": "draft-next-while-held"},
+        )
         after = client.get("/control/export/snapshot").json()
         after_files = sorted(
             str(path.relative_to(project_dir))
@@ -751,7 +754,10 @@ def test_draft_next_skips_partial_evidence_candidate_and_drafts_later_valid_cand
         )
         assert imported.status_code == 200
 
-        response = client.post("/control/papers/draft-next", json={"force": True, "override_hold_action": "draft-next-while-held"})
+        response = client.post(
+            "/control/papers/draft-next",
+            json={"force": True, "override_hold_action": "draft-next-while-held"},
+        )
         snapshot = client.get("/control/export/snapshot").json()
 
         assert response.status_code == 200

@@ -1886,10 +1886,7 @@ def _assert_live_dispatch_preconditions(
         )
     require_writable_store("live dispatch")
     flags = store.flags()
-    if (
-        flags.maintenance_mode
-        and held_override_action != "dispatch-one-while-held"
-    ):
+    if flags.maintenance_mode and held_override_action != "dispatch-one-while-held":
         raise HTTPException(
             status_code=409,
             detail=(

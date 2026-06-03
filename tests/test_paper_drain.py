@@ -10,7 +10,9 @@ from unittest.mock import Mock
 MODULE_PATH = (
     Path(__file__).resolve().parents[1] / "deploy" / "enoch_paper_drain_until_noop.py"
 )
-spec = importlib.util.spec_from_file_location("enoch_paper_drain_until_noop", MODULE_PATH)
+spec = importlib.util.spec_from_file_location(
+    "enoch_paper_drain_until_noop", MODULE_PATH
+)
 assert spec and spec.loader
 paper_drain = importlib.util.module_from_spec(spec)
 sys.modules["enoch_paper_drain_until_noop"] = paper_drain

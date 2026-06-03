@@ -329,9 +329,7 @@ def test_maintenance_scripts_have_valid_bash_syntax() -> None:
 
 
 def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> None:
-    stop = (ROOT / "scripts" / "enoch-maintenance-stop.sh").read_text(
-        encoding="utf-8"
-    )
+    stop = (ROOT / "scripts" / "enoch-maintenance-stop.sh").read_text(encoding="utf-8")
     resume = (ROOT / "scripts" / "enoch-maintenance-resume.sh").read_text(
         encoding="utf-8"
     )
