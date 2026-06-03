@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -78,6 +78,82 @@ class RoutingMetrics:
             }
         )
         return data
+
+
+@dataclass
+class SidecarMetricAccumulator:
+    trace_ids: set[str] = field(default_factory=set)
+    route_failures: int = 0
+    malformed_outputs: int = 0
+    contract_passes: int = 0
+    contract_checks: int = 0
+    admitted_candidates: int = 0
+    useful_sources: int = 0
+    checked_sources: int = 0
+    cost_by_trace: dict[str, float] = field(default_factory=lambda: defaultdict(float))
+    unscoped_cost: float = 0.0
+
+    def observe(self, payload: Mapping[str, Any]) -> None:
+        event_type = _text(payload.get("event_type"))
+        trace_id = _text(payload.get("trace_id") or payload.get("run_id"))
+        handlers = {
+            "llm_harness.route_decision": self._observe_route_decision,
+            "llm_harness.output_contract": self._observe_output_contract,
+            "llm_harness.tool_result": self._observe_tool_result,
+            "llm_harness.cost_observation": self._observe_cost_observation,
+        }
+        handler = handlers.get(event_type)
+        if handler:
+            handler(payload, trace_id)
+
+    def _observe_route_decision(
+        self, payload: Mapping[str, Any], trace_id: str
+    ) -> None:
+        if trace_id:
+            self.trace_ids.add(trace_id)
+        blocked = _text(payload.get("budget_gate_status")) == "blocked"
+        if _status_failed(payload) or blocked:
+            self.route_failures += 1
+
+    def _observe_output_contract(
+        self, payload: Mapping[str, Any], _trace_id: str
+    ) -> None:
+        self.contract_checks += 1
+        if _contract_passed(payload):
+            self.contract_passes += 1
+        else:
+            self.malformed_outputs += 1
+        self.admitted_candidates += _integer(
+            payload, "admitted_candidate_count", "accepted_candidate_count"
+        )
+
+    def _observe_tool_result(self, payload: Mapping[str, Any], _trace_id: str) -> None:
+        self.useful_sources += _integer(payload, "useful_source_count")
+        self.checked_sources += _integer(payload, "checked_source_count")
+
+    def _observe_cost_observation(
+        self, payload: Mapping[str, Any], trace_id: str
+    ) -> None:
+        cost = _number(payload, "estimated_cost_usd")
+        if trace_id:
+            self.cost_by_trace[trace_id] += cost
+        else:
+            self.unscoped_cost += cost
+
+    def metrics(self) -> RoutingMetrics:
+        return RoutingMetrics(
+            attempts=len(self.trace_ids),
+            total_cost_usd=round(
+                sum(self.cost_by_trace.values()) + self.unscoped_cost, 6
+            ),
+            admitted_candidates=self.admitted_candidates,
+            provider_failures=self.route_failures,
+            malformed_outputs=self.malformed_outputs,
+            output_contract_passes=self.contract_passes,
+            output_contract_checks=self.contract_checks,
+            useful_sources=self.useful_sources,
+            checked_sources=self.checked_sources,
+        )
 
 
 def _rate(numerator: int, denominator: int) -> float | None:
@@ -172,59 +248,10 @@ def _event_payload(row: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def sidecar_routing_metrics(events: Iterable[Mapping[str, Any]]) -> RoutingMetrics:
-    payloads = [_event_payload(row) for row in events]
-    trace_ids: set[str] = set()
-    route_failures = 0
-    malformed_outputs = 0
-    contract_passes = 0
-    contract_checks = 0
-    admitted_candidates = 0
-    useful_sources = 0
-    checked_sources = 0
-    cost_by_trace: dict[str, float] = defaultdict(float)
-    unscoped_cost = 0.0
-
-    for payload in payloads:
-        event_type = _text(payload.get("event_type"))
-        trace_id = _text(payload.get("trace_id") or payload.get("run_id"))
-        if event_type == "llm_harness.route_decision":
-            if trace_id:
-                trace_ids.add(trace_id)
-            if (
-                _status_failed(payload)
-                or _text(payload.get("budget_gate_status")) == "blocked"
-            ):
-                route_failures += 1
-        if event_type == "llm_harness.output_contract":
-            contract_checks += 1
-            if _contract_passed(payload):
-                contract_passes += 1
-            else:
-                malformed_outputs += 1
-            admitted_candidates += _integer(
-                payload, "admitted_candidate_count", "accepted_candidate_count"
-            )
-        if event_type == "llm_harness.tool_result":
-            useful_sources += _integer(payload, "useful_source_count")
-            checked_sources += _integer(payload, "checked_source_count")
-        if event_type == "llm_harness.cost_observation":
-            cost = _number(payload, "estimated_cost_usd")
-            if trace_id:
-                cost_by_trace[trace_id] += cost
-            else:
-                unscoped_cost += cost
-
-    return RoutingMetrics(
-        attempts=len(trace_ids),
-        total_cost_usd=round(sum(cost_by_trace.values()) + unscoped_cost, 6),
-        admitted_candidates=admitted_candidates,
-        provider_failures=route_failures,
-        malformed_outputs=malformed_outputs,
-        output_contract_passes=contract_passes,
-        output_contract_checks=contract_checks,
-        useful_sources=useful_sources,
-        checked_sources=checked_sources,
-    )
+    accumulator = SidecarMetricAccumulator()
+    for row in events:
+        accumulator.observe(_event_payload(row))
+    return accumulator.metrics()
 
 
 def _metric_value(metrics: RoutingMetrics, name: str) -> float | None:

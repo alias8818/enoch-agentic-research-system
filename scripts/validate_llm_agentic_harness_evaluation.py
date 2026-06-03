@@ -34,47 +34,53 @@ REQUIRED_COMPARISON_METRICS = [
     "admitted_candidate_yield",
     "source_usefulness_rate",
 ]
+REQUIRED_SECTIONS = [
+    "## Recommendation",
+    "## Current workflow inventory",
+    "## Tool policy",
+    "## Deterministic telemetry contract",
+    "## Boundary invariants",
+    "## Cost and risk estimate",
+    "## Native versus sidecar comparison metrics",
+    "## Proof-of-concept plan",
+    "## Implementation issues to create",
+]
+REQUIRED_PHRASES = {
+    "Keep native Enoch provider routing as the production authority.": (
+        "missing native-routing recommendation"
+    ),
+    "Trial a bounded agentic sidecar": "missing bounded-sidecar trial recommendation",
+    "No raw provider response": "missing raw payload/secret exclusion",
+    "insufficient_data": "missing incomplete-data decision",
+    "sidecar_candidate_for_manual_review": (
+        "missing manual-review-only sidecar decision"
+    ),
+}
+
+
+def _missing_entries(text: str, entries: list[str], message: str) -> list[str]:
+    return [message.format(item=item) for item in entries if item not in text]
+
+
+def _missing_phrases(text: str) -> list[str]:
+    return [
+        message for phrase, message in REQUIRED_PHRASES.items() if phrase not in text
+    ]
 
 
 def validation_failures(text: str) -> list[str]:
-    failures: list[str] = []
-    required_sections = [
-        "## Recommendation",
-        "## Current workflow inventory",
-        "## Tool policy",
-        "## Deterministic telemetry contract",
-        "## Boundary invariants",
-        "## Cost and risk estimate",
-        "## Native versus sidecar comparison metrics",
-        "## Proof-of-concept plan",
-        "## Implementation issues to create",
+    return [
+        *_missing_entries(text, REQUIRED_SECTIONS, "missing section: {item}"),
+        *_missing_entries(
+            text, REQUIRED_WORKFLOWS, "missing workflow inventory row: {item}"
+        ),
+        *_missing_entries(text, REQUIRED_EVENTS, "missing telemetry event: {item}"),
+        *_missing_entries(text, REQUIRED_INVARIANTS, "missing invariant: {item}"),
+        *_missing_entries(
+            text, REQUIRED_COMPARISON_METRICS, "missing comparison metric: {item}"
+        ),
+        *_missing_phrases(text),
     ]
-    for section in required_sections:
-        if section not in text:
-            failures.append(f"missing section: {section}")
-    for workflow in REQUIRED_WORKFLOWS:
-        if workflow not in text:
-            failures.append(f"missing workflow inventory row: {workflow}")
-    for event in REQUIRED_EVENTS:
-        if event not in text:
-            failures.append(f"missing telemetry event: {event}")
-    for invariant in REQUIRED_INVARIANTS:
-        if invariant not in text:
-            failures.append(f"missing invariant: {invariant}")
-    for metric in REQUIRED_COMPARISON_METRICS:
-        if metric not in text:
-            failures.append(f"missing comparison metric: {metric}")
-    if "Keep native Enoch provider routing as the production authority." not in text:
-        failures.append("missing native-routing recommendation")
-    if "Trial a bounded agentic sidecar" not in text:
-        failures.append("missing bounded-sidecar trial recommendation")
-    if "No raw provider response" not in text:
-        failures.append("missing raw payload/secret exclusion")
-    if "insufficient_data" not in text:
-        failures.append("missing incomplete-data decision")
-    if "sidecar_candidate_for_manual_review" not in text:
-        failures.append("missing manual-review-only sidecar decision")
-    return failures
 
 
 def main() -> int:
