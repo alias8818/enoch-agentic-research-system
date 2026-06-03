@@ -352,7 +352,11 @@ def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> Non
     assert "/control/api/status" in combined
     assert "enoch-postgres-backup.timer" in combined
     assert "resume-enoch-automation" in resume
-    assert "pgrep -af 'codex|enoch_codex_runner|enoch_codex_dispatch'" in stop
+    assert (
+        "pgrep -af '(^|[ /])(codex|enoch_codex_runner|enoch_codex_dispatch)( |$)'"
+        in stop
+    )
+    assert "--avoid (^|/)(init|X|sshd|language_server|node|codex)$" not in stop
     assert "worker process checks failed" in stop
     assert '{"disabled", "masked", "not-found"}' in stop
     assert "StrictHostKeyChecking=accept-new" in stop

@@ -93,7 +93,7 @@ for host in sys.argv[1:]:
         "-o",
         "ConnectTimeout=8",
         host,
-        "pgrep -af 'codex|enoch_codex_runner|enoch_codex_dispatch' || true",
+        "pgrep -af '(^|[ /])(codex|enoch_codex_runner|enoch_codex_dispatch)( |$)' || true",
     ]
     try:
         result = subprocess.run(
