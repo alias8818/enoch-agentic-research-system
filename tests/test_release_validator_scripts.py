@@ -90,6 +90,23 @@ def _write_manifest_inputs(corpus: Path) -> None:
     )
 
 
+def _write_promising_manifest(promising: Path, *, record_count: int = 2) -> None:
+    (promising / "data").mkdir(parents=True)
+    (promising / "data" / "signals.jsonl").write_text(
+        "\n".join("{}" for _ in range(record_count)) + "\n", encoding="utf-8"
+    )
+    (promising / "data" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "record_count": record_count,
+                "status_counts": {"useful_signal": record_count},
+                "public_evidence_copied": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_generate_ecosystem_manifest_rejects_missing_system_and_docs_repos(
     tmp_path, monkeypatch
 ) -> None:
@@ -128,8 +145,7 @@ def test_generate_ecosystem_manifest_includes_promising_signal_count(
     system.mkdir()
     docs.mkdir()
     _write_manifest_inputs(corpus)
-    (promising / "data").mkdir(parents=True)
-    (promising / "data" / "signals.jsonl").write_text("{}\n{}\n", encoding="utf-8")
+    _write_promising_manifest(promising)
     output = tmp_path / "ecosystem.json"
 
     monkeypatch.setattr(
@@ -157,6 +173,55 @@ def test_generate_ecosystem_manifest_includes_promising_signal_count(
         manifest["repos"]["promising_signals"]["name"]
         == "alias8818/enoch-promising-signals"
     )
+
+
+def test_generate_ecosystem_manifest_rejects_promising_manifest_drift(
+    tmp_path, monkeypatch
+) -> None:
+    system = tmp_path / "system"
+    docs = tmp_path / "docs"
+    corpus = tmp_path / "corpus"
+    promising = tmp_path / "promising"
+    system.mkdir()
+    docs.mkdir()
+    _write_manifest_inputs(corpus)
+    _write_promising_manifest(promising, record_count=2)
+    (promising / "data" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "record_count": 1,
+                "status_counts": {"useful_signal": 1},
+                "public_evidence_copied": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "ecosystem.json"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_ecosystem_manifest.py",
+            "--system",
+            str(system),
+            "--docs",
+            str(docs),
+            "--corpus",
+            str(corpus),
+            "--promising",
+            str(promising),
+            "--output",
+            str(output),
+        ],
+    )
+
+    with pytest.raises(
+        SystemExit,
+        match="promising signals manifest count 1 does not match data/signals.jsonl count 2",
+    ):
+        generate_ecosystem_manifest.main()
+    assert not output.exists()
 
 
 def test_generate_ecosystem_manifest_rejects_boolean_counts(

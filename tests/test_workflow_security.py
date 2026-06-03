@@ -26,3 +26,20 @@ def test_public_release_integrity_authenticates_github_metadata_fetches() -> Non
     )[1].split("- name: Render Supabase corpus import ledger validation SQL", 1)[0]
     assert "GH_TOKEN: ${{ github.token }}" in validate_step
     assert "python3 scripts/validate_public_release.py" in validate_step
+
+
+def test_public_release_integrity_runs_promising_signals_validators() -> None:
+    workflow = Path(".github/workflows/public-release-integrity.yml").read_text(
+        encoding="utf-8"
+    )
+
+    promising_step = workflow.split(
+        "- name: Validate promising signals release surfaces", 1
+    )[1].split(
+        "- name: Generate fresh manifest without overwriting committed public manifest",
+        1,
+    )[0]
+
+    assert "working-directory: enoch-promising-signals" in promising_step
+    assert "python3 scripts/validate.py" in promising_step
+    assert "python3 scripts/validate_public_trust_surfaces.py" in promising_step

@@ -27,6 +27,41 @@ def require_repo_path(label: str, path: Path) -> Path:
     return resolved
 
 
+def promising_signal_count_from_repo(promising: Path) -> int:
+    data_path = promising / "data" / "signals.jsonl"
+    manifest_path = promising / "data" / "manifest.json"
+    if not data_path.exists():
+        raise SystemExit(f"promising signals data file does not exist: {data_path}")
+    if not manifest_path.exists():
+        raise SystemExit(f"promising signals manifest does not exist: {manifest_path}")
+    count = sum(
+        1 for line in data_path.read_text(encoding="utf-8").splitlines() if line.strip()
+    )
+    manifest = load_json(manifest_path)
+    manifest_count = require_nonnegative_int(
+        manifest.get("record_count"), label="promising signals manifest record count"
+    )
+    if manifest_count != count:
+        raise SystemExit(
+            f"promising signals manifest count {manifest_count} does not match data/signals.jsonl count {count}"
+        )
+    status_counts = manifest.get("status_counts")
+    if not isinstance(status_counts, dict):
+        raise SystemExit("promising signals manifest status_counts must be an object")
+    summed = 0
+    for status, value in status_counts.items():
+        summed += require_nonnegative_int(
+            value, label=f"promising signals status count {status}"
+        )
+    if summed != count:
+        raise SystemExit(
+            f"promising signals status_counts sum {summed} does not match data/signals.jsonl count {count}"
+        )
+    if manifest.get("public_evidence_copied") is not False:
+        raise SystemExit("promising signals manifest public_evidence_copied must be false")
+    return count
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate the public Enoch ecosystem manifest from corpus state."
@@ -75,12 +110,7 @@ def main() -> int:
     )
     promising_signal_count = 0
     if promising:
-        signals_path = promising / "data" / "signals.jsonl"
-        promising_signal_count = sum(
-            1
-            for line in signals_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        )
+        promising_signal_count = promising_signal_count_from_repo(promising)
     pass_count = require_nonnegative_int(
         report.get("passed"), label="packaging provenance pass count"
     )

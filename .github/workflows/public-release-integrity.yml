@@ -52,6 +52,11 @@ jobs:
         working-directory: enoch-agentic-research-system
         run: |
           python3 scripts/validate_runtime_snapshot_links.py
+      - name: Validate promising signals release surfaces
+        working-directory: enoch-promising-signals
+        run: |
+          python3 scripts/validate.py
+          python3 scripts/validate_public_trust_surfaces.py
       - name: Generate fresh manifest without overwriting committed public manifest
         working-directory: enoch-agentic-research-system
         run: |
