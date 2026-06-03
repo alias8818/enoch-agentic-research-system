@@ -115,6 +115,35 @@ def test_comparison_refuses_all_pass_when_data_is_incomplete() -> None:
     assert report["mutates_production_routing"] is False
 
 
+def test_comparison_treats_missing_sidecar_cost_as_incomplete() -> None:
+    sidecar_without_cost = [
+        event
+        for event in _sidecar_events()
+        if event["event_type"] != "llm_harness.cost_observation"
+    ]
+
+    report = compare_routing_strategies(
+        _native_records(), sidecar_without_cost, min_attempts=2
+    )
+
+    assert report["decision"] == INSUFFICIENT_DATA_DECISION
+    assert report["sidecar_metrics"]["cost_per_admitted_candidate"] is None
+    assert "missing metric: cost_per_admitted_candidate" in report["incomplete_reasons"]
+
+
+def test_comparison_treats_missing_native_cost_as_incomplete() -> None:
+    native_without_cost = [dict(row) for row in _native_records()]
+    native_without_cost[0].pop("estimated_cost_usd")
+
+    report = compare_routing_strategies(
+        native_without_cost, _sidecar_events(), min_attempts=2
+    )
+
+    assert report["decision"] == INSUFFICIENT_DATA_DECISION
+    assert report["native_metrics"]["cost_per_admitted_candidate"] is None
+    assert "missing metric: cost_per_admitted_candidate" in report["incomplete_reasons"]
+
+
 def test_comparison_marks_sidecar_candidate_only_with_complete_better_metrics() -> None:
     report = compare_routing_strategies(
         _native_records(), _sidecar_events(), min_attempts=2

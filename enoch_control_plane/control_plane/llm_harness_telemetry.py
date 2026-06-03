@@ -129,6 +129,14 @@ def _validate_numeric_fields(payload: Mapping[str, Any]) -> None:
             raise LLMHarnessTelemetryError(f"{field} must be non-negative")
 
 
+def _validate_safe_key(key: str, *, path: str) -> None:
+    normalized = key.lower().replace("-", "_")
+    if normalized in _RAW_PAYLOAD_KEYS:
+        raise LLMHarnessTelemetryError(f"{path} is not allowed in llm_harness events")
+    if key not in _SAFE_KEY_EXCEPTIONS and _SENSITIVE_KEY_RE.search(key):
+        raise LLMHarnessTelemetryError(f"{path} is not allowed in llm_harness events")
+
+
 def _validate_bounded_safe_value(value: Any, *, path: str, depth: int = 0) -> Any:
     if depth > _MAX_DEPTH:
         raise LLMHarnessTelemetryError(f"{path} exceeds max telemetry nesting depth")
@@ -151,12 +159,15 @@ def _validate_bounded_safe_value(value: Any, *, path: str, depth: int = 0) -> An
             for index, item in enumerate(value)
         ]
     if isinstance(value, Mapping):
-        return {
-            str(key): _validate_bounded_safe_value(
-                item, path=f"{path}.{key}", depth=depth + 1
+        safe_mapping: dict[str, Any] = {}
+        for raw_key, item in value.items():
+            key = str(raw_key)
+            nested_path = f"{path}.{key}"
+            _validate_safe_key(key, path=nested_path)
+            safe_mapping[key] = _validate_bounded_safe_value(
+                item, path=nested_path, depth=depth + 1
             )
-            for key, item in value.items()
-        }
+        return safe_mapping
     raise LLMHarnessTelemetryError(f"{path} has unsupported telemetry value type")
 
 
@@ -164,15 +175,7 @@ def _validate_safe_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     safe: dict[str, Any] = {}
     for raw_key, value in payload.items():
         key = str(raw_key)
-        normalized = key.lower().replace("-", "_")
-        if normalized in _RAW_PAYLOAD_KEYS:
-            raise LLMHarnessTelemetryError(
-                f"{key} is not allowed in llm_harness events"
-            )
-        if key not in _SAFE_KEY_EXCEPTIONS and _SENSITIVE_KEY_RE.search(key):
-            raise LLMHarnessTelemetryError(
-                f"{key} is not allowed in llm_harness events"
-            )
+        _validate_safe_key(key, path=key)
         safe[key] = _validate_bounded_safe_value(value, path=key)
     return safe
 

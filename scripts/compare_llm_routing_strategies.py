@@ -38,6 +38,7 @@ class RoutingMetrics:
     output_contract_checks: int
     useful_sources: int
     checked_sources: int
+    missing_metrics: tuple[str, ...] = ()
 
     @property
     def cost_per_admitted_candidate(self) -> float | None:
@@ -67,16 +68,8 @@ class RoutingMetrics:
 
     def report(self) -> dict[str, Any]:
         data = asdict(self)
-        data.update(
-            {
-                "cost_per_admitted_candidate": self.cost_per_admitted_candidate,
-                "provider_failure_rate": self.provider_failure_rate,
-                "malformed_output_rate": self.malformed_output_rate,
-                "output_contract_pass_rate": self.output_contract_pass_rate,
-                "admitted_candidate_yield": self.admitted_candidate_yield,
-                "source_usefulness_rate": self.source_usefulness_rate,
-            }
-        )
+        for metric in METRIC_DEFINITIONS:
+            data[metric] = None if metric in self.missing_metrics else _metric_value(self, metric)
         return data
 
 
@@ -92,6 +85,7 @@ class SidecarMetricAccumulator:
     checked_sources: int = 0
     cost_by_trace: dict[str, float] = field(default_factory=lambda: defaultdict(float))
     unscoped_cost: float = 0.0
+    valid_cost_observations: int = 0
 
     def observe(self, payload: Mapping[str, Any]) -> None:
         event_type = _text(payload.get("event_type"))
@@ -134,13 +128,19 @@ class SidecarMetricAccumulator:
     def _observe_cost_observation(
         self, payload: Mapping[str, Any], trace_id: str
     ) -> None:
-        cost = _number(payload, "estimated_cost_usd")
+        cost = _number_optional(payload, "estimated_cost_usd")
+        if cost is None:
+            return
+        self.valid_cost_observations += 1
         if trace_id:
             self.cost_by_trace[trace_id] += cost
         else:
             self.unscoped_cost += cost
 
     def metrics(self) -> RoutingMetrics:
+        missing_metrics = (
+            ("cost_per_admitted_candidate",) if self.valid_cost_observations <= 0 else ()
+        )
         return RoutingMetrics(
             attempts=len(self.trace_ids),
             total_cost_usd=round(
@@ -153,6 +153,7 @@ class SidecarMetricAccumulator:
             output_contract_checks=self.contract_checks,
             useful_sources=self.useful_sources,
             checked_sources=self.checked_sources,
+            missing_metrics=missing_metrics,
         )
 
 
@@ -166,7 +167,7 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _number(row: Mapping[str, Any], *keys: str) -> float:
+def _number_optional(row: Mapping[str, Any], *keys: str) -> float | None:
     for key in keys:
         value = row.get(key)
         if value is None or value == "":
@@ -175,7 +176,11 @@ def _number(row: Mapping[str, Any], *keys: str) -> float:
             return float(value)
         except (TypeError, ValueError):
             continue
-    return 0.0
+    return None
+
+
+def _number(row: Mapping[str, Any], *keys: str) -> float:
+    return _number_optional(row, *keys) or 0.0
 
 
 def _integer(row: Mapping[str, Any], *keys: str) -> int:
@@ -207,6 +212,9 @@ def _contract_checked(row: Mapping[str, Any]) -> bool:
 def native_routing_metrics(records: Iterable[Mapping[str, Any]]) -> RoutingMetrics:
     rows = list(records)
     attempts = len(rows)
+    missing_metrics = []
+    if attempts and any(_number_optional(row, "estimated_cost_usd", "cost_usd") is None for row in rows):
+        missing_metrics.append("cost_per_admitted_candidate")
     contract_checks = sum(
         _integer(row, "output_contract_checks", "contract_checks")
         or (1 if _contract_checked(row) else 0)
@@ -239,6 +247,7 @@ def native_routing_metrics(records: Iterable[Mapping[str, Any]]) -> RoutingMetri
         output_contract_checks=contract_checks,
         useful_sources=sum(_integer(row, "useful_source_count") for row in rows),
         checked_sources=sum(_integer(row, "checked_source_count") for row in rows),
+        missing_metrics=tuple(missing_metrics),
     )
 
 
@@ -255,6 +264,8 @@ def sidecar_routing_metrics(events: Iterable[Mapping[str, Any]]) -> RoutingMetri
 
 
 def _metric_value(metrics: RoutingMetrics, name: str) -> float | None:
+    if name in metrics.missing_metrics:
+        return None
     value = getattr(metrics, name)
     return value() if callable(value) else value
 

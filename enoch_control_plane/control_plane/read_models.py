@@ -1542,6 +1542,33 @@ def operator_counts_from_rows(rows: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def blocked_attention_samples_from_rows(
+    rows: list[dict[str, Any]], *, limit: int = 3
+) -> list[dict[str, Any]]:
+    samples: list[dict[str, Any]] = []
+    for row in _reconciled_operator_rows(rows):
+        stage = operator_stage_for_record(row)
+        if not bool(row.get("operator_attention") or stage["operator_attention"]):
+            continue
+        samples.append(
+            {
+                "project_id": _text(row.get("project_id")),
+                "project_name": _text(row.get("project_name") or row.get("title")),
+                "status": _text(row.get("status")),
+                "next_action_hint": _text(row.get("next_action_hint")),
+                "current_run_id": _text(row.get("current_run_id") or row.get("run_id")),
+                "operator_lane": _text(row.get("operator_lane") or stage["operator_lane"]),
+                "operator_detail_stage": _text(
+                    row.get("operator_detail_stage")
+                    or stage["operator_detail_stage"]
+                ),
+            }
+        )
+        if len(samples) >= limit:
+            break
+    return samples
+
+
 def page_response(
     *,
     rows: list[dict[str, Any]],
@@ -5317,6 +5344,9 @@ def overview(
     operator_detail_counts = operator_detail_counts_from_rows(
         [*operator_queue_rows, *paper_rows]
     )
+    blocked_attention_samples = blocked_attention_samples_from_rows(
+        [*operator_queue_rows, *paper_rows]
+    )
     raw_write_candidates = eligible_paper_draft_candidates(
         raw_queue_rows, raw_paper_rows
     )
@@ -5386,6 +5416,7 @@ def overview(
         "paper_counts": paper_counts,
         "operator_counts": operator_counts,
         "operator_detail_counts": operator_detail_counts,
+        "blocked_attention_samples": blocked_attention_samples,
         "flags": _flags_payload(flags),
         "paper_pipeline": paper_pipeline,
         "research_yield": research_yield,

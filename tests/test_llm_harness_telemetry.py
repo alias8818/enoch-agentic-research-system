@@ -88,6 +88,26 @@ def test_validate_llm_harness_event_rejects_raw_or_secret_keys(
         validate_llm_harness_event(LLM_HARNESS_TOOL_RESULT_EVENT, payload)
 
 
+@pytest.mark.parametrize(
+    "unsafe_key",
+    [
+        "raw_provider_response",
+        "request_headers",
+        "authorization",
+        "provider_secret",
+        "api_key",
+    ],
+)
+def test_validate_llm_harness_event_rejects_nested_raw_or_secret_keys(
+    unsafe_key: str,
+) -> None:
+    payload = _tool_result_payload()
+    payload["metadata"] = {"safe": True, unsafe_key: {"unsafe": True}}
+
+    with pytest.raises(LLMHarnessTelemetryError, match=f"metadata.{unsafe_key}"):
+        validate_llm_harness_event(LLM_HARNESS_TOOL_RESULT_EVENT, payload)
+
+
 def test_validate_llm_harness_event_rejects_secret_like_values() -> None:
     payload = _route_payload()
     payload["selection_reason"] = "use bearer sk-or-v1-thisShouldNeverPersist123456"

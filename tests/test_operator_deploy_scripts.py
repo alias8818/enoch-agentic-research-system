@@ -352,17 +352,22 @@ def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> Non
     assert "/control/api/status" in combined
     assert "enoch-postgres-backup.timer" in combined
     assert "resume-enoch-automation" in resume
-    assert (
-        "pgrep -af '(^|[ /])(codex|enoch_codex_runner|enoch_codex_dispatch)( |$)'"
-        in stop
-    )
+    assert "CONTROL_CURL_CONFIG" in combined
+    assert "--config \"$CONTROL_CURL_CONFIG\"" in combined
+    assert "-H \"Authorization: Bearer $CONTROL_TOKEN\"" not in combined
+    assert "enoch_codex_runner(\\\\.sh)?" in stop
+    assert "enoch_codex_dispatch(\\\\.sh)?" in stop
+    assert "codex(\\\\.js)?" in stop
     assert "--avoid (^|/)(init|X|sshd|language_server|node|codex)$" not in stop
     assert "worker process checks failed" in stop
     assert '{"disabled", "masked", "not-found"}' in stop
-    assert "StrictHostKeyChecking=accept-new" in stop
+    assert "StrictHostKeyChecking=accept-new" not in stop
+    assert "StrictHostKeyChecking={strict_host_key_checking}" in stop
+    assert "ENOCH_MAINTENANCE_SSH_STRICT_HOST_KEY_CHECKING:-yes" in stop
     assert "ENOCH_MAINTENANCE_WORKER_SSH_TIMEOUT" in stop
     assert "timeout=timeout_seconds" in stop
     assert "worker ssh check timed out" in stop
+    assert "def tail_text" in stop
 
 
 def test_longhaul_guard_links_incidents_to_durable_checks() -> None:

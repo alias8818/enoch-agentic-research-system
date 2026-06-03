@@ -39,6 +39,17 @@ if [[ -z "$CONTROL_TOKEN" ]]; then
   echo "missing control token; set ENOCH_CONTROL_TOKEN or ENOCH_CONFIG" >&2
   exit 2
 fi
+CONTROL_CURL_CONFIG="$(mktemp)"
+chmod 600 "$CONTROL_CURL_CONFIG"
+trap 'rm -f "$CONTROL_CURL_CONFIG"' EXIT
+python3 - "$CONTROL_TOKEN" "$CONTROL_CURL_CONFIG" <<'PY'
+import sys
+token, path = sys.argv[1], sys.argv[2]
+escaped = token.replace("\\", "\\\\").replace('"', '\\"')
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(f'header = "Authorization: Bearer {escaped}"\n')
+    fh.write('header = "Content-Type: application/json"\n')
+PY
 
 control_api() {
   local method="$1"
@@ -46,15 +57,14 @@ control_api() {
   local payload="${3:-}"
   if [[ "$method" == "GET" ]]; then
     curl -fsS \
-      -H "Authorization: Bearer $CONTROL_TOKEN" \
-      "$CONTROL_URL$path"
+      --config "$CONTROL_CURL_CONFIG" \
+      --url "$CONTROL_URL$path"
   else
     curl -fsS \
       -X "$method" \
-      -H "Authorization: Bearer $CONTROL_TOKEN" \
-      -H "Content-Type: application/json" \
+      --config "$CONTROL_CURL_CONFIG" \
       --data-binary "$payload" \
-      "$CONTROL_URL$path"
+      --url "$CONTROL_URL$path"
   fi
 }
 

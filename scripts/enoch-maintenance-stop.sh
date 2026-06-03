@@ -26,6 +26,8 @@ MAINTENANCE_SERVICES=(
 WORKER_HOSTS=(
   ${ENOCH_MAINTENANCE_WORKER_HOSTS:-root@enoch-worker-cpu-1 jeremy@gx10-efe8}
 )
+WORKER_PROCESS_REGEX="${ENOCH_MAINTENANCE_WORKER_PROCESS_REGEX:-(^|[ /])(codex(\\.js)?|enoch_codex_runner(\\.sh)?|enoch_codex_dispatch(\\.sh)?)( |$)}"
+SSH_STRICT_HOST_KEY_CHECKING="${ENOCH_MAINTENANCE_SSH_STRICT_HOST_KEY_CHECKING:-yes}"
 
 if [[ -z "$CONTROL_TOKEN" && -r "$CONFIG_PATH" ]]; then
   CONTROL_TOKEN="$(python3 - "$CONFIG_PATH" <<'PY'
@@ -40,6 +42,17 @@ if [[ -z "$CONTROL_TOKEN" ]]; then
   echo "missing control token; set ENOCH_CONTROL_TOKEN or ENOCH_CONFIG" >&2
   exit 2
 fi
+CONTROL_CURL_CONFIG="$(mktemp)"
+chmod 600 "$CONTROL_CURL_CONFIG"
+trap 'rm -f "$CONTROL_CURL_CONFIG"' EXIT
+python3 - "$CONTROL_TOKEN" "$CONTROL_CURL_CONFIG" <<'PY'
+import sys
+token, path = sys.argv[1], sys.argv[2]
+escaped = token.replace("\\", "\\\\").replace('"', '\\"')
+with open(path, "w", encoding="utf-8") as fh:
+    fh.write(f'header = "Authorization: Bearer {escaped}"\n')
+    fh.write('header = "Content-Type: application/json"\n')
+PY
 
 control_api() {
   local method="$1"
@@ -47,15 +60,14 @@ control_api() {
   local payload="${3:-}"
   if [[ "$method" == "GET" ]]; then
     curl -fsS \
-      -H "Authorization: Bearer $CONTROL_TOKEN" \
-      "$CONTROL_URL$path"
+      --config "$CONTROL_CURL_CONFIG" \
+      --url "$CONTROL_URL$path"
   else
     curl -fsS \
       -X "$method" \
-      -H "Authorization: Bearer $CONTROL_TOKEN" \
-      -H "Content-Type: application/json" \
+      --config "$CONTROL_CURL_CONFIG" \
       --data-binary "$payload" \
-      "$CONTROL_URL$path"
+      --url "$CONTROL_URL$path"
   fi
 }
 
@@ -79,21 +91,31 @@ timer_active="$(systemctl is-active "${MAINTENANCE_TIMERS[@]}" 2>/dev/null || tr
 backup_timer_active="$(systemctl is-active enoch-postgres-backup.timer 2>/dev/null || true)"
 backup_timer_enabled="$(systemctl is-enabled enoch-postgres-backup.timer 2>/dev/null || true)"
 
-worker_checks_json="$(python3 - "${WORKER_HOSTS[@]}" <<'PY'
+worker_checks_json="$(python3 - "$SSH_STRICT_HOST_KEY_CHECKING" "$WORKER_PROCESS_REGEX" "${WORKER_HOSTS[@]}" <<'PY'
 import json, os, subprocess, sys
 checks = []
 timeout_seconds = int(os.environ.get("ENOCH_MAINTENANCE_WORKER_SSH_TIMEOUT", "12"))
-for host in sys.argv[1:]:
+
+def tail_text(value, limit=500):
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        value = value.decode("utf-8", errors="replace")
+    return str(value)[-limit:]
+
+strict_host_key_checking = sys.argv[1]
+worker_process_regex = sys.argv[2]
+for host in sys.argv[3:]:
     cmd = [
         "ssh",
         "-o",
         "BatchMode=yes",
         "-o",
-        "StrictHostKeyChecking=accept-new",
+        f"StrictHostKeyChecking={strict_host_key_checking}",
         "-o",
         "ConnectTimeout=8",
         host,
-        "pgrep -af '(^|[ /])(codex|enoch_codex_runner|enoch_codex_dispatch)( |$)' || true",
+        f"pgrep -af {worker_process_regex!r} || true",
     ]
     try:
         result = subprocess.run(
@@ -110,7 +132,7 @@ for host in sys.argv[1:]:
             "returncode": 124,
             "codex_processes": [],
             "stderr": f"worker ssh check timed out after {timeout_seconds}s",
-            "stdout": (exc.stdout or "")[-500:],
+            "stdout": tail_text(exc.stdout),
         })
         continue
     lines = [
@@ -123,7 +145,7 @@ for host in sys.argv[1:]:
         "ok": result.returncode in {0, 1},
         "returncode": result.returncode,
         "codex_processes": lines,
-        "stderr": result.stderr[-500:],
+        "stderr": tail_text(result.stderr),
     })
 print(json.dumps(checks, sort_keys=True))
 PY
