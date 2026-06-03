@@ -26,6 +26,14 @@ REQUIRED_INVARIANTS = [
     "Tool allowlists are per workflow, not global.",
     "Structured output must pass the existing workflow parser or schema",
 ]
+REQUIRED_COMPARISON_METRICS = [
+    "cost_per_admitted_candidate",
+    "provider_failure_rate",
+    "malformed_output_rate",
+    "output_contract_pass_rate",
+    "admitted_candidate_yield",
+    "source_usefulness_rate",
+]
 
 
 def validation_failures(text: str) -> list[str]:
@@ -37,6 +45,7 @@ def validation_failures(text: str) -> list[str]:
         "## Deterministic telemetry contract",
         "## Boundary invariants",
         "## Cost and risk estimate",
+        "## Native versus sidecar comparison metrics",
         "## Proof-of-concept plan",
         "## Implementation issues to create",
     ]
@@ -52,12 +61,19 @@ def validation_failures(text: str) -> list[str]:
     for invariant in REQUIRED_INVARIANTS:
         if invariant not in text:
             failures.append(f"missing invariant: {invariant}")
+    for metric in REQUIRED_COMPARISON_METRICS:
+        if metric not in text:
+            failures.append(f"missing comparison metric: {metric}")
     if "Keep native Enoch provider routing as the production authority." not in text:
         failures.append("missing native-routing recommendation")
     if "Trial a bounded agentic sidecar" not in text:
         failures.append("missing bounded-sidecar trial recommendation")
     if "No raw provider response" not in text:
         failures.append("missing raw payload/secret exclusion")
+    if "insufficient_data" not in text:
+        failures.append("missing incomplete-data decision")
+    if "sidecar_candidate_for_manual_review" not in text:
+        failures.append("missing manual-review-only sidecar decision")
     return failures
 
 

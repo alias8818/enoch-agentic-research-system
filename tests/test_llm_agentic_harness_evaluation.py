@@ -18,3 +18,12 @@ def test_llm_agentic_harness_evaluation_requires_all_workflows() -> None:
     assert "missing workflow inventory row: Model health probes" in (
         validator.validation_failures(broken)
     )
+
+
+def test_llm_agentic_harness_evaluation_requires_comparison_metrics() -> None:
+    text = Path("docs/llm-agentic-harness-evaluation.md").read_text(encoding="utf-8")
+    broken = text.replace("source_usefulness_rate", "source_rate")
+
+    assert "missing comparison metric: source_usefulness_rate" in (
+        validator.validation_failures(broken)
+    )

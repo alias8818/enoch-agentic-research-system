@@ -111,6 +111,28 @@ key may be stored in these events.
 | Model health probes | Low. Current probes are small. | Low. | Medium if tools are mistakenly added; they should not be. |
 | Idea generation and enrichment | Medium. Search/provider calls can grow with backlog. | Medium. Admission gates contain most harm. | Medium. Best first PoC because blast radius is bounded. |
 
+## Native versus sidecar comparison metrics
+
+Native Enoch provider routing remains the production authority until a
+deterministic comparison report has enough evidence for both native routing and
+the read-only sidecar. The report must not mutate production routing, workflow
+pools, queue rows, settings, paper state, or readiness state.
+
+Required comparison metrics:
+
+- `cost_per_admitted_candidate`
+- `provider_failure_rate`
+- `malformed_output_rate`
+- `output_contract_pass_rate`
+- `admitted_candidate_yield`
+- `source_usefulness_rate`
+
+The report decision must be `insufficient_data` when either strategy is below
+the configured minimum attempt count or any required metric is unavailable.
+Complete sidecar-superior evidence may only produce
+`sidecar_candidate_for_manual_review`; it is not permission to replace native
+routing automatically.
+
 ## Proof-of-concept plan
 
 1. Add a read-only `idea_generation_enrichment` sidecar.
@@ -132,4 +154,3 @@ key may be stored in these events.
   and output-contract pass/fail.
 - Add provider-router comparison metrics that compare native routing against the
   sidecar without changing production routing.
-
