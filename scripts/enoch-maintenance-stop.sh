@@ -127,7 +127,7 @@ if not flags.get("maintenance_mode"):
     failures.append("maintenance_mode is not true")
 if active_items:
     failures.append(f"active rows remain: {len(active_items)}")
-if any(value not in {"disabled", "masked"} for value in timer_enabled):
+if any(value not in {"disabled", "masked", "not-found"} for value in timer_enabled):
     failures.append(f"maintenance timers not disabled: {timer_enabled}")
 if any(value != "inactive" for value in timer_active):
     failures.append(f"maintenance timers not inactive: {timer_active}")
