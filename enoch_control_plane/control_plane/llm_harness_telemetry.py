@@ -82,12 +82,12 @@ _RAW_PAYLOAD_KEYS = {
     "tool_payload",
 }
 _SECRET_VALUE_PATTERNS = (
-    re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE),
-    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
-    re.compile(r"\bsk-or-v1-[A-Za-z0-9_-]{12,}\b"),
-    re.compile(r"\bghp_[A-Za-z0-9_]{12,}\b"),
-    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{12,}\b"),
-    re.compile(r"\blin_api_[A-Za-z0-9_]{12,}\b"),
+    re.compile(r"\bbearer\s+[\w.~+/=-]{8,}", re.IGNORECASE),
+    re.compile(r"\bsk-[\w-]{12,}\b"),
+    re.compile(r"\bsk-or-v1-[\w-]{12,}\b"),
+    re.compile(r"\bghp_\w{12,}\b"),
+    re.compile(r"\bgithub_pat_\w{12,}\b"),
+    re.compile(r"\blin_api_\w{12,}\b"),
 )
 
 
