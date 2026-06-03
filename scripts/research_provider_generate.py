@@ -19,7 +19,7 @@ import urllib.request
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from enoch_control_plane.research_provider_defaults import (
     DEFAULT_RESEARCH_PROVIDER_MODEL,
@@ -524,7 +524,7 @@ def _provider_generation_request(
     if request is None:
         return ProviderGenerationRequest(**overrides)
     if overrides:
-        return replace(request, **overrides)
+        return cast(ProviderGenerationRequest, replace(request, **overrides))
     return request
 
 

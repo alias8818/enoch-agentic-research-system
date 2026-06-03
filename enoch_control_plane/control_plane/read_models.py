@@ -5069,27 +5069,29 @@ def _llm_model_health_counts(
 def _llm_latest_model_health_fields(
     latest: dict[str, Any] | None, latest_format: dict[str, Any] | None
 ) -> dict[str, Any]:
+    latest_payload = latest or {}
+    latest_format_payload = latest_format or {}
     return {
         "latest": latest,
-        "latest_checked_at": _text((latest or {}).get("checked_at")),
-        "latest_failure_kind": _text((latest or {}).get("failure_kind")),
-        "latest_latency_ms": int((latest or {}).get("latency_ms") or 0),
-        "latest_status_code": int((latest or {}).get("status_code") or 0),
-        "latest_finish_reason": _text((latest or {}).get("finish_reason")),
-        "latest_visible_chars": int((latest or {}).get("visible_chars") or 0),
-        "latest_preview": _text((latest or {}).get("response_preview_redacted"))[:240],
-        "latest_prompt_contract": _text((latest or {}).get("prompt_contract")),
+        "latest_checked_at": _text(latest_payload.get("checked_at")),
+        "latest_failure_kind": _text(latest_payload.get("failure_kind")),
+        "latest_latency_ms": int(latest_payload.get("latency_ms") or 0),
+        "latest_status_code": int(latest_payload.get("status_code") or 0),
+        "latest_finish_reason": _text(latest_payload.get("finish_reason")),
+        "latest_visible_chars": int(latest_payload.get("visible_chars") or 0),
+        "latest_preview": _text(latest_payload.get("response_preview_redacted"))[:240],
+        "latest_prompt_contract": _text(latest_payload.get("prompt_contract")),
         "latest_structured_output_mode": _text(
-            (latest or {}).get("structured_output_mode")
+            latest_payload.get("structured_output_mode")
         ),
         "latest_response_format_type": _text(
-            (latest or {}).get("response_format_type")
+            latest_payload.get("response_format_type")
         ),
-        "latest_reasoning_effort": _text((latest or {}).get("reasoning_effort")),
-        "latest_reasoning_excluded": bool((latest or {}).get("reasoning_excluded")),
-        "latest_format_checked_at": _text((latest_format or {}).get("checked_at")),
-        "latest_workflow_id": _text((latest or {}).get("workflow_id")),
-        "latest_malformed_kind": _text((latest or {}).get("malformed_kind")),
+        "latest_reasoning_effort": _text(latest_payload.get("reasoning_effort")),
+        "latest_reasoning_excluded": bool(latest_payload.get("reasoning_excluded")),
+        "latest_format_checked_at": _text(latest_format_payload.get("checked_at")),
+        "latest_workflow_id": _text(latest_payload.get("workflow_id")),
+        "latest_malformed_kind": _text(latest_payload.get("malformed_kind")),
     }
 
 
