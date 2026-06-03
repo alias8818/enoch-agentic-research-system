@@ -187,7 +187,7 @@ def test_queue_alert_findings_suppresses_research_quality_warning_during_hold(
     assert findings == []
 
 
-def test_queue_alert_findings_preserves_research_quality_warning_when_not_held(
+def test_queue_alert_findings_suppresses_research_quality_warning_when_not_held(
     monkeypatch, tmp_path
 ) -> None:
     report_path = tmp_path / "research-quality.json"
@@ -238,8 +238,10 @@ def test_queue_alert_findings_preserves_research_quality_warning_when_not_held(
 
     findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
 
-    assert len(findings) == 1
-    finding = findings[0]
+    assert findings == []
+
+    finding = alerts._research_quality_alert_finding(status)  # type: ignore[attr-defined,arg-type]
+    assert finding is not None
     assert finding.severity == "warn"
     assert finding.source == "research_quality"
     assert finding.authority == "latest read-only DSPy/research-quality report"
@@ -261,6 +263,96 @@ def test_queue_alert_findings_preserves_research_quality_warning_when_not_held(
             "title": "Weak Evidence Project",
         }
     ]
+
+
+def test_queue_alert_notify_does_not_page_on_research_quality_warning(
+    monkeypatch, tmp_path
+) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import alerts
+    from enoch_control_plane.control_plane.alerts import (
+        evaluate_and_notify_queue_alerts,
+    )
+
+    report_path = tmp_path / "research-quality.json"
+    report_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        alerts,
+        "load_latest_quality_status",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "status": "warnings",
+            "label": "Research quality: warnings",
+            "severity_counts": {"warning": 1},
+            "problem_counts": {"weak_or_missing_evidence_strength": 1},
+            "report_mtime": datetime.now(timezone.utc).isoformat(),
+            "report_path": str(report_path),
+            "post_prompt_monitor": {
+                "malformed_provider_response_count": 4,
+                "useful_adjacent_followup_delta": 11.0,
+            },
+            "problem_details": [
+                {
+                    "section": "decision_scores",
+                    "severity": "warning",
+                    "problem": "weak_or_missing_evidence_strength",
+                    "project_id": "project-1",
+                    "run_id": "run-1",
+                    "title": "Weak Evidence Project",
+                }
+            ],
+        },
+    )
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        live_dispatch_enabled=True,
+        queue_alert_hang_after_sec=300,
+        queue_alert_cooldown_sec=3600,
+        pushover_alerts_enabled=True,
+        pushover_app_token="app",
+        pushover_user_key="user",
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+        dispatch_safe=True,
+        dispatch_blockers=[],
+    )
+
+    class Store:
+        def event_rows(self, limit=100):  # noqa: ANN001 - alert store fake
+            return []
+
+        def append_event(self, **_kwargs):  # noqa: ANN003 - alert store fake
+            raise AssertionError("non-critical research quality must not append alert")
+
+    def fail_pushover(*_args, **_kwargs):  # noqa: ANN001 - test guard
+        raise AssertionError("non-critical research quality must not page Pushover")
+
+    monkeypatch.setattr(alerts, "send_pushover", fail_pushover)
+
+    result = evaluate_and_notify_queue_alerts(
+        config=config,
+        store=Store(),
+        status=status,
+        dry_run=False,
+        force_notify=False,
+        requested_by="test",
+    )  # type: ignore[arg-type]
+
+    assert result["should_alert"] is False
+    assert result["sent"] is False
+    assert result["fingerprint"] == "none"
+    assert result["findings"] == []
 
 
 def test_research_quality_finding_explains_review_required_signal_during_hold(

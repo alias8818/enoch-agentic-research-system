@@ -709,8 +709,9 @@ def queue_alert_findings(
     flags = status.flags
     intentional_hold = flags.queue_paused or flags.maintenance_mode
     research_quality_finding = _research_quality_alert_finding(status)
-    if research_quality_finding is not None and (
-        not intentional_hold or research_quality_finding.severity == "critical"
+    if (
+        research_quality_finding is not None
+        and research_quality_finding.severity == "critical"
     ):
         findings.append(research_quality_finding)
     if intentional_hold:
