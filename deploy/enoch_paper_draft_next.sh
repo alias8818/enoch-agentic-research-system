@@ -55,6 +55,56 @@ post_json() {
   printf '%s' "$response"
   return "$status"
 }
+get_json() {
+  local path="$1"
+  local config_file
+  config_file="$(mktemp)"
+  chmod 600 "$config_file"
+  CURL_TEMP_FILES+=("$config_file")
+  {
+    printf 'fail\n'
+    printf 'show-error\n'
+    printf 'silent\n'
+    printf 'request = "GET"\n'
+    printf 'url = "%s%s"\n' "$CONTROL_URL" "$path"
+    printf 'header = "Authorization: Bearer %s"\n' "$CONTROL_TOKEN"
+  } >"$config_file"
+  local response status
+  set +e
+  response="$(curl --config "$config_file")"
+  status=$?
+  set -e
+  rm -f "$config_file"
+  printf '%s' "$response"
+  return "$status"
+}
+status_response="$(get_json "/control/api/status")"
+hold_skip="$(python3 - "$status_response" <<'PY'
+import json, sys
+status = json.loads(sys.argv[1])
+flags = status.get("flags") or {}
+held_by = []
+if flags.get("maintenance_mode"):
+    held_by.append("maintenance_mode")
+if flags.get("queue_paused"):
+    held_by.append("queue_paused")
+if held_by:
+    print(json.dumps({
+        "ok": True,
+        "action": "skipped",
+        "reason": "paper draft automation skipped while control plane is held: " + ", ".join(held_by),
+        "hold_state": {
+            "queue_paused": bool(flags.get("queue_paused")),
+            "maintenance_mode": bool(flags.get("maintenance_mode")),
+            "pause_reason": str(flags.get("pause_reason") or ""),
+        },
+    }, sort_keys=True))
+PY
+)"
+if [[ -n "$hold_skip" ]]; then
+  printf '%s\n' "$hold_skip"
+  exit 0
+fi
 draft_response="$(post_json "/control/papers/draft-next" "{\"force\":false,\"requested_by\":\"systemd:enoch-paper-draft-next\"}")"
 draft_action="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("action",""))' <<<"$draft_response")"
 paper_id="$(python3 -c 'import json,sys; print((json.load(sys.stdin).get("paper") or {}).get("paper_id",""))' <<<"$draft_response")"

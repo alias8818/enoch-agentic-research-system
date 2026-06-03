@@ -766,9 +766,29 @@ def _research_autopilot_failure(reason: str) -> dict:
 def _main_quality_refresh_exit() -> int | None:
     if not _truthy("ENOCH_RESEARCH_QUALITY_REFRESH_ONLY"):
         return None
+    hold_result = _quality_refresh_control_hold_skip_result()
+    if hold_result is not None:
+        print(json.dumps(hold_result, sort_keys=True))
+        return 0
     result = refresh_research_quality_report()
     print(json.dumps(result, sort_keys=True))
     return 0 if result.get("ok") else 1
+
+
+def _quality_refresh_control_hold_skip_result() -> dict | None:
+    try:
+        config = _load_config()
+    except (OSError, json.JSONDecodeError):
+        return None
+    token = _resolve_control_token(config)
+    if not token:
+        return None
+    return _control_hold_skip_result(
+        _base_url(config),
+        token,
+        override_env="ENOCH_RESEARCH_QUALITY_REFRESH_RUN_WHILE_HELD",
+        component="research quality refresh",
+    )
 
 
 def _main_autopilot_disabled_exit() -> int | None:
@@ -795,8 +815,14 @@ def _resolve_control_token(config: dict) -> str:
     )
 
 
-def _control_hold_skip_result(base_url: str, token: str) -> dict | None:
-    if _truthy("ENOCH_RESEARCH_AUTOPILOT_RUN_WHILE_HELD", "0"):
+def _control_hold_skip_result(
+    base_url: str,
+    token: str,
+    *,
+    override_env: str = "ENOCH_RESEARCH_AUTOPILOT_RUN_WHILE_HELD",
+    component: str = "research autopilot",
+) -> dict | None:
+    if _truthy(override_env, "0"):
         return None
     try:
         status = _get_json(base_url, "/control/api/status", token, timeout=10)
@@ -815,7 +841,7 @@ def _control_hold_skip_result(base_url: str, token: str) -> dict | None:
     return {
         "ok": True,
         "action": "skipped",
-        "reason": f"research autopilot skipped while control plane is held: {', '.join(held_by)}",
+        "reason": f"{component} skipped while control plane is held: {', '.join(held_by)}",
         "hold_state": {
             "queue_paused": bool(flags.get("queue_paused")),
             "maintenance_mode": bool(flags.get("maintenance_mode")),

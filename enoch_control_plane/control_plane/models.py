@@ -429,6 +429,7 @@ class DispatchNextRequest(BaseModel):
     dry_run: bool = True
     requested_by: str = "operator"
     force_preflight: bool = True
+    override_hold_action: str = ""
 
 
 class DispatchOneRequest(BaseModel):
@@ -436,6 +437,7 @@ class DispatchOneRequest(BaseModel):
     dry_run: bool = True
     requested_by: str = "operator"
     force_preflight: bool = True
+    override_hold_action: str = ""
 
 
 class FollowupLaunchRequest(BaseModel):
@@ -443,6 +445,7 @@ class FollowupLaunchRequest(BaseModel):
     requested_by: str = "operator"
     project_id: str = ""
     max_followup_depth: int = Field(default=4, ge=0, le=5)
+    override_hold_action: str = ""
 
 
 class FollowupLaunchResponse(BaseModel):
@@ -487,6 +490,7 @@ class DraftNextRequest(BaseModel):
     force: bool = False
     requested_by: str = "operator"
     dry_run: bool = False
+    override_hold_action: str = ""
 
 
 class DraftNextResponse(BaseModel):

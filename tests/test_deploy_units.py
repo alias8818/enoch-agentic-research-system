@@ -69,6 +69,11 @@ def test_paper_draft_unit_is_opt_in_and_never_dispatches() -> None:
         "control_api_bearer_token"
     )
     assert "curl --config" in script
+    assert "/control/api/status" in script
+    assert "paper draft automation skipped while control plane is held" in script
+    assert script.index("/control/api/status") < script.index(
+        "/control/papers/draft-next"
+    )
     assert "trap cleanup_curl_temp_files EXIT HUP INT TERM" in script
     assert "curl -fsS -X POST" not in script
     assert "/control/papers/draft-next" in combined
@@ -84,6 +89,8 @@ def test_paper_drain_is_bounded_opt_in_and_does_not_run_broad_rewrite_batches() 
     assert "ENOCH_ENABLE_PAPER_DRAIN" in script
     assert "ENOCH_PAPER_DRAIN_MAX_RUNS" in script
     assert "ENOCH_PAPER_DRAIN_FAIL_LIMIT" in script
+    assert "ENOCH_PAPER_DRAIN_RUN_WHILE_HELD" in script
+    assert "paper drain skipped while control plane is held" in script
     assert "/control/papers/draft-next" in script
     assert "/control/api/publication-automation/{encoded}/rewrite-draft" in script
     assert "/control/api/publication-automation/rewrite-batch" not in script

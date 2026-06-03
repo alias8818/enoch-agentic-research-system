@@ -39,6 +39,55 @@ def test_base_url_allows_explicit_environment_override(monkeypatch):
     )
 
 
+def test_corpus_import_autopilot_skips_before_repo_work_during_control_hold(
+    capsys, monkeypatch
+):
+    monkeypatch.setenv("ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT", "1")
+
+    with (
+        patch.object(
+            autopilot,
+            "_load_config",
+            return_value={"control_api_bearer_token": "token"},
+        ),
+        patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
+        patch.object(
+            autopilot,
+            "_get_json",
+            return_value={
+                "flags": {
+                    "queue_paused": True,
+                    "maintenance_mode": True,
+                    "pause_reason": "operator maintenance",
+                    "paused_at": "2026-06-02T20:00:00Z",
+                    "paused_by": "operator",
+                }
+            },
+        ) as get_json,
+        patch.object(
+            autopilot,
+            "_release_root",
+            side_effect=AssertionError("release root must not be inspected"),
+        ),
+        patch.object(
+            autopilot,
+            "_run",
+            side_effect=AssertionError("import commands must not run"),
+        ),
+    ):
+        assert autopilot.main() == 0
+
+    get_json.assert_called_once_with(
+        "http://127.0.0.1:8787", "/control/api/status", "token", timeout=10
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert output["ok"] is True
+    assert output["action"] == "skipped"
+    assert "maintenance_mode" in output["reason"]
+    assert output["hold_state"]["queue_paused"] is True
+    assert output["hold_state"]["maintenance_mode"] is True
+
+
 def test_dry_run_transient_failure_retries_before_blocking(tmp_path, capsys):
     for name in autopilot.REPO_NAMES:
         (tmp_path / name).mkdir()

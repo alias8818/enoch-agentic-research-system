@@ -122,6 +122,36 @@ class QueuePumpTests(unittest.TestCase):
         self.assertNotIn("checks", output["preflight"])
         self.assertLess(len(json.dumps(output)), 1000)
 
+    def test_queue_pump_skips_alert_and_mutations_while_control_plane_held(
+        self,
+    ) -> None:
+        status = {
+            "flags": {
+                "queue_paused": True,
+                "maintenance_mode": True,
+                "pause_reason": "operator maintenance",
+            },
+            "dispatch_safe": True,
+            "dispatch_blockers": [],
+            "active_items": [],
+            "next_candidate": {"project_id": "queued-idea"},
+            "conflicts": [],
+        }
+        code, output, calls = self._run_main(status=status)
+        paths = [path for _base_url, path, _token, _payload in calls]
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("/control/api/alerts/queue-check", paths)
+        self.assertNotIn("/control/papers/draft-next", paths)
+        self.assertNotIn("/control/api/v1/followups/launch-next", paths)
+        self.assertNotIn("/control/dispatch-next", paths)
+        self.assertEqual(output["alert"]["action"], "skipped")
+        self.assertEqual(output["alert"]["reason"], "control plane held")
+        self.assertEqual(output["dispatch"]["reason"], "control plane held")
+        self.assertEqual(output["paper_draft"]["reason"], "control plane held")
+        self.assertTrue(output["alert"]["hold_state"]["maintenance_mode"])
+        self.assertTrue(output["alert"]["hold_state"]["queue_paused"])
+
     def test_queue_pump_dispatches_when_enabled_draft_next_fails(self) -> None:
         calls: list[str] = []
         status = {

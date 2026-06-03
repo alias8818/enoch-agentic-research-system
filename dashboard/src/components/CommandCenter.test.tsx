@@ -57,6 +57,23 @@ it('runs dispatch primary actions as safe dry-runs instead of only linking away'
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 
+it('disables mutating primary action checks while the control plane is held', () => {
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+  render(
+    <PrimaryAction
+      action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }}
+      controlHoldReason="maintenance mode is on"
+      onRefresh={vi.fn()}
+    />,
+  )
+
+  expect(screen.getByRole('button', { name: 'Check dispatch' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Dispatch work' })).toBeDisabled()
+  expect(screen.getByText('maintenance mode is on')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
 it('explains why the primary live action is disabled before preflight', () => {
   render(<PrimaryAction action={{ kind: 'dispatch_next', title: 'Dispatch GB10 lane', summary: 'One queued candidate matches the idle lane.', action_label: 'Dispatch', action_hash: '#queue:queued' }} />)
 
@@ -287,6 +304,47 @@ it('renders worker lane commands without deriving queue truth from aggregate cou
   expect(screen.getByText('Ready to dispatch queued work.')).toBeInTheDocument()
   expect(screen.getAllByText('Check dispatch')).toHaveLength(2)
   expect(screen.getByText('Bulk lane commands').closest('details')).not.toHaveAttribute('open')
+})
+
+it('disables worker lane feed, dispatch, and reconcile commands while the control plane is held', () => {
+  render(<WorkerLanes
+    lanes={[
+      {
+        lane_key: 'cpu',
+        machine_target: 'cpu-proxmox-1',
+        status: 'active',
+        queued_count: 0,
+        dispatch_available: false,
+        active_item: { project_id: 'project-cpu', current_run_id: 'run-cpu', project_name: 'CPU job' },
+        active_confirmation: { state: 'stale_active' },
+      },
+      {
+        lane_key: 'gb10',
+        machine_target: 'gb10',
+        status: 'idle',
+        queued_count: 1,
+        dispatch_available: true,
+        feed_pressure: { next_autopilot_action: 'generate_candidate' },
+        next_candidate: { project_id: 'gb10-project', project_name: 'GB10 job' },
+      },
+    ]}
+    controlHoldReason="queue is paused"
+    onRefresh={() => undefined}
+  />)
+
+  expect(screen.getAllByText('Lane commands disabled: queue is paused.')).toHaveLength(2)
+  expect(screen.getByRole('button', { name: 'Run safe reconcile' })).toBeDisabled()
+  screen.getAllByRole('button', { name: 'Feed idle lane' }).forEach((button) => expect(button).toBeDisabled())
+  screen.getAllByRole('button', { name: 'Check dispatch' }).forEach((button) => expect(button).toBeDisabled())
+  screen.getAllByRole('button', { name: 'Dispatch lane' }).forEach((button) => expect(button).toBeDisabled())
+
+  openBulkLaneCommands()
+  expect(screen.getByRole('button', { name: 'Feed idle lanes' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Run feed cycle' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Check open lanes' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Dispatch open lanes' })).toBeDisabled()
+  expect(screen.getByText('Feed commands disabled: queue is paused.')).toBeInTheDocument()
+  expect(screen.getByText('Dispatch commands disabled: queue is paused.')).toBeInTheDocument()
 })
 
 it('explains unavailable worker confirmation with the backend reason', () => {

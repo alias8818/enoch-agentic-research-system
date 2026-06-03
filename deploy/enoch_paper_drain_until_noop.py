@@ -90,6 +90,24 @@ class ControlClient:
                 data = {"raw": raw}
             return exc.code, data
 
+    def get(self, path: str) -> tuple[int, dict[str, Any]]:
+        req = urllib.request.Request(
+            self.base_url + path,
+            method="GET",
+            headers={"Authorization": f"Bearer {self.token}"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310 - operator configured LAN URL
+                raw = resp.read().decode("utf-8", errors="replace")
+                return resp.status, json.loads(raw or "{}")
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            try:
+                data = json.loads(raw or "{}")
+            except json.JSONDecodeError:
+                data = {"raw": raw}
+            return exc.code, data
+
 
 def summarize(
     index: int, draft: dict[str, Any], rewrite: dict[str, Any] | None, status: int
@@ -163,6 +181,35 @@ def _load_drain_settings() -> DrainSettings:
     )
 
 
+def _control_hold_skip_result(client: ControlClient) -> dict[str, Any] | None:
+    if os.environ.get("ENOCH_PAPER_DRAIN_RUN_WHILE_HELD", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return None
+    status_code, status = client.get("/control/api/status")
+    if status_code >= 400:
+        return None
+    flags = status.get("flags") if isinstance(status.get("flags"), dict) else {}
+    held_by: list[str] = []
+    if bool(flags.get("maintenance_mode")):
+        held_by.append("maintenance_mode")
+    if bool(flags.get("queue_paused")):
+        held_by.append("queue_paused")
+    if not held_by:
+        return None
+    return {
+        "ok": True,
+        "action": "skipped",
+        "reason": f"paper drain skipped while control plane is held: {', '.join(held_by)}",
+        "hold_state": {
+            "queue_paused": bool(flags.get("queue_paused")),
+            "maintenance_mode": bool(flags.get("maintenance_mode")),
+            "pause_reason": str(flags.get("pause_reason") or ""),
+        },
+    }
 def _log_drain_failure(
     index: int,
     *,
@@ -333,7 +380,12 @@ def _run_drain_loop(settings: DrainSettings) -> int:
 def main() -> int:
     if os.environ.get("ENOCH_ENABLE_PAPER_DRAIN", "0") != "1":
         return _print_disabled_skip()
-    return _run_drain_loop(_load_drain_settings())
+    settings = _load_drain_settings()
+    hold_skip = _control_hold_skip_result(settings.client)
+    if hold_skip is not None:
+        print(json.dumps(hold_skip, sort_keys=True))
+        return 0
+    return _run_drain_loop(settings)
 
 
 if __name__ == "__main__":

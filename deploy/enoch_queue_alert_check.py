@@ -18,6 +18,7 @@ ALERT_FINDINGS_PRESENT_REASON = (
 DISPATCH_NOT_SAFE_REASON = "dispatch not safe"
 ACTIVE_WORKER_LANE_PRESENT_REASON = "active worker lane present"
 QUEUE_PUMP_DISABLED_REASON = "queue pump disabled"
+CONTROL_HELD_REASON = "control plane held"
 
 
 def _load_config() -> dict:
@@ -88,6 +89,33 @@ def _only_no_candidate_blocker(status: dict) -> bool:
 
 def _skipped(reason: str, **extra: object) -> dict:
     return {"action": "skipped", "reason": reason, **extra}
+
+
+def _control_hold_state(status: dict) -> dict:
+    flags = status.get("flags") if isinstance(status.get("flags"), dict) else {}
+    held_by: list[str] = []
+    if bool(flags.get("maintenance_mode")):
+        held_by.append("maintenance_mode")
+    if bool(flags.get("queue_paused")):
+        held_by.append("queue_paused")
+    return {
+        "held": bool(held_by),
+        "held_by": held_by,
+        "queue_paused": bool(flags.get("queue_paused")),
+        "maintenance_mode": bool(flags.get("maintenance_mode")),
+        "pause_reason": str(flags.get("pause_reason") or ""),
+    }
+
+
+def _held_skip(reason: str, status: dict) -> dict:
+    hold = _control_hold_state(status)
+    return _skipped(
+        reason,
+        held_by=hold["held_by"],
+        queue_paused=hold["queue_paused"],
+        maintenance_mode=hold["maintenance_mode"],
+        pause_reason=hold["pause_reason"],
+    )
 
 
 def _skip_dispatch_followup_bundle(
@@ -240,6 +268,21 @@ def _execute_queue_pump(
     publication_rewrite = _skipped("no paper drafted")
     paper_draft = pump_disabled
 
+    if _control_hold_state(status)["held"]:
+        dispatch, followup_dry_run, followup_launch = _skip_dispatch_followup_bundle(
+            CONTROL_HELD_REASON,
+            blockers=[*(_control_hold_state(status)["held_by"] or [])],
+        )
+        paper_draft = _held_skip(CONTROL_HELD_REASON, status)
+        publication_rewrite = _held_skip(CONTROL_HELD_REASON, status)
+        return (
+            dispatch,
+            paper_draft,
+            followup_dry_run,
+            followup_launch,
+            publication_rewrite,
+        )
+
     if alert.get("should_alert"):
         dispatch, followup_dry_run, followup_launch = _skip_dispatch_followup_bundle(
             ALERT_FINDINGS_PRESENT_REASON
@@ -338,13 +381,23 @@ def main() -> int:
             "ok": False,
             "error": f"preflight request failed: {type(exc).__name__}: {exc}",
         }
-    alert = _post_json(
-        base_url,
-        "/control/api/alerts/queue-check",
-        token,
-        {"dry_run": False, "requested_by": "systemd:enoch-queue-alert-check"},
-    )
     status = _get_json(base_url, "/control/api/status", token)
+    if _control_hold_state(status)["held"]:
+        alert = {
+            "should_alert": False,
+            "sent": False,
+            "alerts_enabled": False,
+            "action": "skipped",
+            "reason": CONTROL_HELD_REASON,
+            "hold_state": _control_hold_state(status),
+        }
+    else:
+        alert = _post_json(
+            base_url,
+            "/control/api/alerts/queue-check",
+            token,
+            {"dry_run": False, "requested_by": "systemd:enoch-queue-alert-check"},
+        )
     queue_pump_enabled = bool(
         config.get("queue_pump_enabled", config.get("live_dispatch_enabled", False))
     )

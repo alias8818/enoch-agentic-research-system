@@ -81,6 +81,12 @@ function readinessCheckButtonLabel(hasReadiness: boolean): string {
   return 'Check readiness'
 }
 
+function controlHoldReason(flags?: OverviewResponse['flags']): string {
+  if (flags?.maintenance_mode) return 'maintenance mode is on'
+  if (flags?.queue_paused) return 'queue is paused'
+  return ''
+}
+
 function readinessCheckCardLabel(
   error: unknown,
   readiness: AutomationReadiness | undefined,
@@ -141,6 +147,7 @@ function OverviewPageBody({
 }>) {
   const diagnosis = data.movement_diagnosis || { status: 'unknown', primary_reason: 'No movement diagnosis returned.', blockers: [] }
   const primaryAction = resolvePrimaryAction(data, readinessData)
+  const holdReason = controlHoldReason(data.flags)
   const recentEvents = data.recent_events || []
   const activeItems = data.active_items || []
   const operatorCounts = data.operator_counts || {}
@@ -161,11 +168,12 @@ function OverviewPageBody({
       />
       <MovementDiagnosis diagnosis={diagnosis} />
       <div className="command-grid">
-        <WorkerLanes lanes={statusData?.worker_lanes || []} isLoading={statusLoading} error={statusError} onRefresh={refresh} />
+        <WorkerLanes lanes={statusData?.worker_lanes || []} isLoading={statusLoading} error={statusError} controlHoldReason={holdReason} onRefresh={refresh} />
         <div className="side-rail">
           <PrimaryAction
             action={primaryAction}
             onRefresh={refresh}
+            controlHoldReason={holdReason}
             onCheckReadiness={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
           />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />

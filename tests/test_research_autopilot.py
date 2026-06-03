@@ -349,6 +349,42 @@ def test_research_quality_refresh_only_runs_read_only_report(
     assert "--database-url" not in result["command"]
 
 
+def test_research_quality_refresh_only_skips_during_control_hold(
+    tmp_path, capsys, monkeypatch
+):
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
+    monkeypatch.setenv("ENOCH_CONFIG", str(config))
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REFRESH_ONLY", "1")
+
+    with (
+        patch.object(
+            autopilot,
+            "_get_json",
+            return_value={
+                "flags": {
+                    "queue_paused": True,
+                    "maintenance_mode": True,
+                    "pause_reason": "dashboard operator pause",
+                }
+            },
+        ) as get_json,
+        patch.object(autopilot, "refresh_research_quality_report") as refresh,
+    ):
+        assert autopilot.main() == 0
+
+    get_json.assert_called_once()
+    refresh.assert_not_called()
+    result = json.loads(capsys.readouterr().out)
+    assert result["action"] == "skipped"
+    assert (
+        result["reason"]
+        == "research quality refresh skipped while control plane is held: maintenance_mode, queue_paused"
+    )
+
+
 def test_research_quality_refresh_uses_configured_database_url(tmp_path, monkeypatch):
     config = tmp_path / "config.json"
     output = tmp_path / "latest-report.json"

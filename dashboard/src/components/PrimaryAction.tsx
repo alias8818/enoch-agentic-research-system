@@ -22,6 +22,7 @@ type PrimaryActionCtaProps = {
   isPending: boolean
   liveReady: boolean
   liveDisabledReason: string
+  controlHoldReason?: string
   onCheckReadiness?: () => void
   onDryRun: () => void | Promise<void>
   onLive: () => void | Promise<void>
@@ -76,21 +77,24 @@ function PrimaryActionDryRunControls({
   isPending,
   liveReady,
   liveDisabledReason,
+  controlHoldReason,
   onDryRun,
   onLive,
-}: Readonly<Pick<PrimaryActionCtaProps, 'action' | 'isPending' | 'liveReady' | 'liveDisabledReason' | 'onDryRun' | 'onLive'>>) {
+}: Readonly<Pick<PrimaryActionCtaProps, 'action' | 'isPending' | 'liveReady' | 'liveDisabledReason' | 'controlHoldReason' | 'onDryRun' | 'onLive'>>) {
   const liveLabel = livePrimaryButtonLabel(action)
+  const held = Boolean(controlHoldReason)
+  const disabledReason = controlHoldReason || liveDisabledReason
   return (
     <div className="primary-action-buttons">
-      <button className="secondary-button primary-action-cta" type="button" disabled={isPending} onClick={onDryRun}>
+      <button className="secondary-button primary-action-cta" type="button" disabled={isPending || held} onClick={onDryRun}>
         {dryRunCheckLabel(action)}
       </button>
       {liveLabel && (
-        <button className="primary-button primary-action-cta" type="button" disabled={isPending || !liveReady} onClick={onLive}>
+        <button className="primary-button primary-action-cta" type="button" disabled={isPending || held || !liveReady} onClick={onLive}>
           {liveLabel}
         </button>
       )}
-      {liveDisabledReason && <p className="primary-action-disabled-reason">{liveDisabledReason}</p>}
+      {disabledReason && <p className="primary-action-disabled-reason">{disabledReason}</p>}
     </div>
   )
 }
@@ -115,6 +119,7 @@ function PrimaryActionCta(props: Readonly<PrimaryActionCtaProps>) {
         isPending={isPending}
         liveReady={liveReady}
         liveDisabledReason={liveDisabledReason}
+        controlHoldReason={props.controlHoldReason}
         onDryRun={onDryRun}
         onLive={onLive}
       />
@@ -159,10 +164,12 @@ export function PrimaryAction({
   action,
   onRefresh,
   onCheckReadiness,
+  controlHoldReason,
 }: Readonly<{
   action?: TopAction
   onRefresh?: () => void
   onCheckReadiness?: () => void
+  controlHoldReason?: string
 }>) {
   const controller = usePrimaryActionController(action, onRefresh)
   if (!action) return <PrimaryActionIdle />
@@ -177,6 +184,7 @@ export function PrimaryAction({
       isPending={controller.isPending}
       liveReady={controller.liveReady}
       liveDisabledReason={liveDisabledReason}
+      controlHoldReason={controlHoldReason}
       result={controller.result}
       staleReady={controller.staleReady}
       dialog={controller.dialog}

@@ -81,6 +81,16 @@ def _base_url(config: dict[str, Any]) -> str:
     )
 
 
+def _get_json(base_url: str, path: str, token: str, *, timeout: int = 30) -> dict:
+    req = Request(
+        f"{base_url}{path}",
+        method="GET",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def _release_root() -> Path:
     return (
         Path(
@@ -555,6 +565,45 @@ def _resolve_control_token(config: dict[str, Any]) -> str:
     )
 
 
+def _control_hold_skip_result(base_url: str, token: str) -> dict[str, Any] | None:
+    if _truthy("ENOCH_CORPUS_IMPORT_RUN_WHILE_HELD", "0"):
+        return None
+    try:
+        status = _get_json(base_url, "/control/api/status", token, timeout=10)
+    except Exception:
+        return None
+    flags = status.get("flags") if isinstance(status, dict) else {}
+    if not isinstance(flags, dict):
+        return None
+    held_by: list[str] = []
+    if bool(flags.get("maintenance_mode")):
+        held_by.append("maintenance_mode")
+    if bool(flags.get("queue_paused")):
+        held_by.append("queue_paused")
+    if not held_by:
+        return None
+    return {
+        "ok": True,
+        "action": "skipped",
+        "reason": f"corpus import autopilot skipped while control plane is held: {', '.join(held_by)}",
+        "hold_state": {
+            "queue_paused": bool(flags.get("queue_paused")),
+            "maintenance_mode": bool(flags.get("maintenance_mode")),
+            "pause_reason": str(flags.get("pause_reason") or ""),
+            "paused_at": str(flags.get("paused_at") or ""),
+            "paused_by": str(flags.get("paused_by") or ""),
+        },
+    }
+
+
+def _main_control_hold_exit(base_url: str, token: str) -> int | None:
+    result = _control_hold_skip_result(base_url, token)
+    if result is None:
+        return None
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
 def _main_missing_token_exit(token: str) -> int | None:
     if token:
         return None
@@ -853,6 +902,17 @@ def main() -> int:
     if exit_code is not None:
         return exit_code
 
+    config = _load_config()
+    token = _resolve_control_token(config)
+    exit_code = _main_missing_token_exit(token)
+    if exit_code is not None:
+        return exit_code
+
+    base_url = _base_url(config)
+    exit_code = _main_control_hold_exit(base_url, token)
+    if exit_code is not None:
+        return exit_code
+
     limit = _bounded_int("ENOCH_CORPUS_IMPORT_LIMIT", 1, 1, 2)
     root = _release_root()
 
@@ -865,13 +925,6 @@ def main() -> int:
         return exit_code
 
     fast_forwarded: list[str] = []
-    config = _load_config()
-    token = _resolve_control_token(config)
-    exit_code = _main_missing_token_exit(token)
-    if exit_code is not None:
-        return exit_code
-
-    base_url = _base_url(config)
     system = root / "enoch-agentic-research-system"
     corpus = root / "enoch-ai-research-corpus"
     skip_github = _truthy("ENOCH_CORPUS_IMPORT_SKIP_GITHUB_METADATA", "1")

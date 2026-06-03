@@ -18,6 +18,7 @@ type WorkerLanesProps = {
   onRefresh: () => void
   isLoading?: boolean
   error?: unknown
+  controlHoldReason?: string
 }
 
 function laneLabel(lane: WorkerLane): string {
@@ -89,7 +90,8 @@ function laneFeedReason(lane: WorkerLane): string | null {
   return lane.feed_pressure?.operator_summary ?? laneDepthFeedMessage(lane)
 }
 
-function laneBlockedMessage(lane: WorkerLane, canFeed: boolean): string {
+function laneBlockedMessage(lane: WorkerLane, canFeed: boolean, controlHoldReason?: string): string {
+  if (controlHoldReason) return `Lane commands disabled: ${controlHoldReason}.`
   const blocker = lane.dispatch_blocker
   if (blocker) return blocker
   if (lane.status === 'active') return 'Lane is active.'
@@ -98,9 +100,10 @@ function laneBlockedMessage(lane: WorkerLane, canFeed: boolean): string {
   return `Next feed action is ${sentence(lane.feed_pressure?.next_autopilot_action)}.`
 }
 
-function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boolean): string {
+function laneDisabledReason(lane: WorkerLane, canFeed: boolean, canDispatch: boolean, controlHoldReason?: string): string {
+  if (controlHoldReason) return `Lane commands disabled: ${controlHoldReason}.`
   if (canDispatch) return 'Ready to dispatch queued work.'
-  return laneBlockedMessage(lane, canFeed)
+  return laneBlockedMessage(lane, canFeed, controlHoldReason)
 }
 
 function laneConfirmationMessage(lane: WorkerLane): string | null {
@@ -186,7 +189,8 @@ function dispatchDryRunAllowsLive(result: Record<string, unknown>): boolean {
   return displayText(result.action, '').toLowerCase().includes('dry_run')
 }
 
-function globalFeedDisabledReason(canFeedAny: boolean, liveFeedReady: boolean, canLiveFeed: boolean, busyAction: string | null): string {
+function globalFeedDisabledReason(canFeedAny: boolean, liveFeedReady: boolean, canLiveFeed: boolean, busyAction: string | null, controlHoldReason?: string): string {
+  if (controlHoldReason) return `Feed commands disabled: ${controlHoldReason}.`
   if (busyAction) return 'Feed idle lanes disabled: another lane command is running.'
   if (liveFeedReady && !canLiveFeed) return 'Run feed cycle disabled: lane state changed; run Feed idle lanes again.'
   if (!canFeedAny) return 'Feed idle lanes disabled: no lane is asking to generate or promote work.'
@@ -194,7 +198,8 @@ function globalFeedDisabledReason(canFeedAny: boolean, liveFeedReady: boolean, c
   return ''
 }
 
-function globalDispatchDisabledReason(canDispatchAny: boolean, canLiveDispatchOpenLanes: boolean, busyAction: string | null): string {
+function globalDispatchDisabledReason(canDispatchAny: boolean, canLiveDispatchOpenLanes: boolean, busyAction: string | null, controlHoldReason?: string): string {
+  if (controlHoldReason) return `Dispatch commands disabled: ${controlHoldReason}.`
   if (busyAction) return 'Dispatch open lanes disabled: another lane command is running.'
   if (!canDispatchAny) return 'Dispatch open lanes disabled: no lane can dispatch queued work.'
   if (!canLiveDispatchOpenLanes) return 'Dispatch open lanes disabled: run Check open lanes first.'
@@ -357,22 +362,24 @@ type LaneCardProps = Readonly<{
   lane: WorkerLane
   busyAction: 'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | 'reconcile' | null
   liveLaneProjectId: string
+  controlHoldReason?: string
   onFeedLane: () => void
   onDispatchLane: (lane: WorkerLane) => void
   onLiveDispatchLane: (lane: WorkerLane) => void
   onReconcileLane: (lane: WorkerLane) => void
 }>
 
-function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchLane, onLiveDispatchLane, onReconcileLane }: LaneCardProps) {
+function LaneCard({ lane, busyAction, liveLaneProjectId, controlHoldReason, onFeedLane, onDispatchLane, onLiveDispatchLane, onReconcileLane }: LaneCardProps) {
   const feedAction = lane.feed_pressure?.next_autopilot_action || 'observe'
   const canFeed = feedAction === 'generate_candidate' || feedAction === 'promote_candidate'
   const canDispatch = Boolean(lane.dispatch_available)
+  const held = Boolean(controlHoldReason)
   const projectId = displayText(lane.next_candidate?.project_id, '')
-  const canLiveDispatchLane = canDispatch && Boolean(projectId) && liveLaneProjectId === projectId
+  const canLiveDispatchLane = !held && canDispatch && Boolean(projectId) && liveLaneProjectId === projectId
   const active = laneProjectLabel(lane.active_item)
   const next = laneProjectLabel(lane.next_candidate)
   const feedReason = laneFeedReason(lane)
-  const disabledReason = laneDisabledReason(lane, canFeed, canDispatch)
+  const disabledReason = laneDisabledReason(lane, canFeed, canDispatch, controlHoldReason)
   const confirmationMessage = laneConfirmationMessage(lane)
   const canReconcile = laneHasStaleActiveConfirmation(lane)
   const reasonClassName = canDispatch ? 'lane-reason lane-reason--ready' : 'lane-reason'
@@ -408,10 +415,10 @@ function LaneCard({ lane, busyAction, liveLaneProjectId, onFeedLane, onDispatchL
       {confirmationMessage ? <p className={laneConfirmationClass(lane)}>{confirmationMessage}</p> : null}
       <p className={reasonClassName}>{disabledReason}</p>
       <div className="lane-actions">
-        <button className="secondary-button" disabled={!canFeed || busyAction !== null} onClick={onFeedLane}>Feed idle lane</button>
-        <button className="secondary-button" disabled={!canDispatch || busyAction !== null} onClick={() => onDispatchLane(lane)}>Check dispatch</button>
-        {canReconcile ? <button className="secondary-button" disabled={busyAction !== null} onClick={() => onReconcileLane(lane)}>Run safe reconcile</button> : null}
-        <button className="primary-button" disabled={!canLiveDispatchLane || busyAction !== null} onClick={() => onLiveDispatchLane(lane)}>Dispatch lane</button>
+        <button className="secondary-button" disabled={held || !canFeed || busyAction !== null} onClick={onFeedLane}>Feed idle lane</button>
+        <button className="secondary-button" disabled={held || !canDispatch || busyAction !== null} onClick={() => onDispatchLane(lane)}>Check dispatch</button>
+        {canReconcile ? <button className="secondary-button" disabled={held || busyAction !== null} onClick={() => onReconcileLane(lane)}>Run safe reconcile</button> : null}
+        <button className="primary-button" disabled={held || !canLiveDispatchLane || busyAction !== null} onClick={() => onLiveDispatchLane(lane)}>Dispatch lane</button>
       </div>
     </article>
   )
@@ -586,7 +593,7 @@ async function runSafeStaleActiveReconcile(deps: WorkerLaneCommandDeps, lane: Wo
 }
 
 
-export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Readonly<WorkerLanesProps>) {
+export function WorkerLanes({ lanes, onRefresh, isLoading = false, error, controlHoldReason }: Readonly<WorkerLanesProps>) {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null)
   const [busyAction, setBusyAction] = useState<'feed' | 'feed-live' | 'dispatch' | 'dispatch-live' | 'reconcile' | null>(null)
   const [liveFeedReady, setLiveFeedReady] = useState(false)
@@ -603,10 +610,11 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Read
   const canDispatchAny = rendered.some((lane) => lane.dispatch_available)
   const feedSignature = buildFeedSignature(feedEligibleLanes)
   const openLaneSignature = buildOpenLaneSignature(explicitOpenLaneCandidates, canDispatchAny)
-  const canLiveFeed = canFeedAny && liveFeedReady && liveFeedSignature === feedSignature
-  const canLiveDispatchOpenLanes = canDispatchAny && liveOpenLaneSignature === openLaneSignature
-  const feedDisabledReason = globalFeedDisabledReason(canFeedAny, liveFeedReady, canLiveFeed, busyAction)
-  const dispatchDisabledReason = globalDispatchDisabledReason(canDispatchAny, canLiveDispatchOpenLanes, busyAction)
+  const held = Boolean(controlHoldReason)
+  const canLiveFeed = !held && canFeedAny && liveFeedReady && liveFeedSignature === feedSignature
+  const canLiveDispatchOpenLanes = !held && canDispatchAny && liveOpenLaneSignature === openLaneSignature
+  const feedDisabledReason = globalFeedDisabledReason(canFeedAny, liveFeedReady, canLiveFeed, busyAction, controlHoldReason)
+  const dispatchDisabledReason = globalDispatchDisabledReason(canDispatchAny, canLiveDispatchOpenLanes, busyAction, controlHoldReason)
 
   const commandDeps: WorkerLaneCommandDeps = {
     feedSignature,
@@ -638,10 +646,10 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Read
           <details className="lane-bulk-actions">
             <summary>Bulk lane commands</summary>
             <div className="lane-console-actions">
-              <button className="secondary-button" disabled={!canFeedAny || busyAction !== null} onClick={() => { void runFeedLaneDryRun(commandDeps) }}>Feed idle lanes</button>
-              <button className="primary-button" disabled={!canLiveFeed || busyAction !== null} onClick={() => { void runLiveFeedCycle(commandDeps) }}>Run feed cycle</button>
-              <button className="secondary-button" disabled={!canDispatchAny || busyAction !== null} onClick={() => { void runDispatchLaneDryRun(commandDeps) }}>Check open lanes</button>
-              <button className="primary-button" disabled={!canLiveDispatchOpenLanes || busyAction !== null} onClick={() => { void runLiveDispatchOpenLanes(commandDeps) }}>Dispatch open lanes</button>
+              <button className="secondary-button" disabled={held || !canFeedAny || busyAction !== null} onClick={() => { void runFeedLaneDryRun(commandDeps) }}>Feed idle lanes</button>
+              <button className="primary-button" disabled={held || !canLiveFeed || busyAction !== null} onClick={() => { void runLiveFeedCycle(commandDeps) }}>Run feed cycle</button>
+              <button className="secondary-button" disabled={held || !canDispatchAny || busyAction !== null} onClick={() => { void runDispatchLaneDryRun(commandDeps) }}>Check open lanes</button>
+              <button className="primary-button" disabled={held || !canLiveDispatchOpenLanes || busyAction !== null} onClick={() => { void runLiveDispatchOpenLanes(commandDeps) }}>Dispatch open lanes</button>
               {feedDisabledReason || dispatchDisabledReason ? (
                 <div className="lane-command-reasons" aria-label="Worker lane command disabled reasons">
                   {feedDisabledReason ? <p>{feedDisabledReason}</p> : null}
@@ -661,6 +669,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error }: Read
                 lane={lane}
                 busyAction={busyAction}
                 liveLaneProjectId={liveLaneProjectId}
+                controlHoldReason={controlHoldReason}
                 onFeedLane={() => { void runFeedLaneDryRun(commandDeps) }}
                 onDispatchLane={(targetLane) => { void runDispatchLaneDryRun(commandDeps, targetLane) }}
                 onLiveDispatchLane={(targetLane) => { void runLiveDispatchLane(commandDeps, targetLane, liveLaneProjectId) }}

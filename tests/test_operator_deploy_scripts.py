@@ -323,6 +323,41 @@ def test_longhaul_guard_script_has_valid_bash_syntax() -> None:
     subprocess.run(["bash", "-n", str(script)], check=True)
 
 
+def test_maintenance_scripts_have_valid_bash_syntax() -> None:
+    for name in ("enoch-maintenance-stop.sh", "enoch-maintenance-resume.sh"):
+        subprocess.run(["bash", "-n", str(ROOT / "scripts" / name)], check=True)
+
+
+def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> None:
+    stop = (ROOT / "scripts" / "enoch-maintenance-stop.sh").read_text(
+        encoding="utf-8"
+    )
+    resume = (ROOT / "scripts" / "enoch-maintenance-resume.sh").read_text(
+        encoding="utf-8"
+    )
+    combined = stop + resume
+
+    for timer in (
+        "enoch-research-autopilot.timer",
+        "enoch-corpus-import-autopilot.timer",
+        "enoch-queue-alert-check.timer",
+        "enoch-source-lineage-check.timer",
+    ):
+        assert timer in stop
+        assert timer in resume
+    assert "enoch-paper-draft-next.timer" in stop
+    assert "ENOCH_MAINTENANCE_RESUME_ENABLE_PAPER_DRAFT" in resume
+    assert "systemctl disable --now" in stop
+    assert "systemctl enable --now" in resume
+    assert "/control/pause" in stop
+    assert "/control/resume" in resume
+    assert "/control/api/status" in combined
+    assert "enoch-postgres-backup.timer" in combined
+    assert "resume-enoch-automation" in resume
+    assert "pgrep -af 'codex|enoch_codex_runner|enoch_codex_dispatch'" in stop
+    assert "worker process checks failed" in stop
+
+
 def test_longhaul_guard_links_incidents_to_durable_checks() -> None:
     script = ROOT / "scripts" / "enoch-longhaul-guard.sh"
     text = script.read_text(encoding="utf-8")

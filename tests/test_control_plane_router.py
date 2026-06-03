@@ -198,6 +198,104 @@ def _client_with_config(config: GateConfig) -> TestClient:
     return TestClient(app)
 
 
+def test_draft_next_live_requires_named_override_while_paused() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        project_dir = Path(config.project_root) / "idea-draft-held"
+        project_dir.mkdir(parents=True)
+        (project_dir / "run_notes.md").write_text(
+            "Positive evidence supports drafting this paper.\n", encoding="utf-8"
+        )
+        (project_dir / ".enoch").mkdir(parents=True)
+        (project_dir / ".enoch" / "project_decision.json").write_text(
+            '{"project_decision":"finalize_positive"}\n', encoding="utf-8"
+        )
+        client = _client_with_config(config)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        client.post(
+            "/control/import/legacy-snapshot",
+            headers=headers,
+            json={
+                "idempotency_key": "import-draft-held",
+                "queue_rows": [
+                    {
+                        "project_id": "idea-draft-held",
+                        "project_name": "Draft Held",
+                        "project_dir": str(project_dir),
+                        "status": "completed",
+                        "last_run_state": "finalize_positive",
+                        "current_run_id": "run-draft-held",
+                        "manual_review_required": False,
+                    }
+                ],
+                "paper_rows": [],
+            },
+        )
+        client.post(
+            "/control/pause",
+            headers=headers,
+            json={
+                "reason": "test hold",
+                "paused_by": "pytest",
+                "maintenance_mode": False,
+            },
+        )
+
+        response = client.post(
+            "/control/papers/draft-next",
+            headers=headers,
+            json={"force": True, "dry_run": False, "requested_by": "pytest"},
+        )
+        assert response.status_code == 409
+        assert "draft-next-while-held" in response.text
+
+        override = client.post(
+            "/control/papers/draft-next",
+            headers=headers,
+            json={
+                "force": True,
+                "dry_run": False,
+                "requested_by": "pytest",
+                "override_hold_action": "draft-next-while-held",
+            },
+        )
+        assert override.status_code == 200
+
+
+def test_followup_launch_live_requires_named_override_while_paused() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        client.post(
+            "/control/pause",
+            headers=headers,
+            json={
+                "reason": "test hold",
+                "paused_by": "pytest",
+                "maintenance_mode": False,
+            },
+        )
+
+        response = client.post(
+            "/control/api/v1/followups/launch-next",
+            headers=headers,
+            json={"dry_run": False, "requested_by": "pytest"},
+        )
+        assert response.status_code == 409
+        assert "followup-launch-while-held" in response.text
+
+        override = client.post(
+            "/control/api/v1/followups/launch-next",
+            headers=headers,
+            json={
+                "dry_run": False,
+                "requested_by": "pytest",
+                "override_hold_action": "followup-launch-while-held",
+            },
+        )
+        assert override.status_code == 200
+
+
 def test_observability_health_exposes_sentry_status_without_dsn(monkeypatch) -> None:
     monkeypatch.delenv("SENTRY_DSN", raising=False)
     monkeypatch.setattr(
@@ -921,7 +1019,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             )
 
             draft = client.post(
-                "/control/papers/draft-next", headers=headers, json={"force": True}
+                "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
             )
             self.assertEqual(draft.status_code, 200)
             body = draft.json()
@@ -6285,6 +6383,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 def status_counts(self) -> dict[str, int]:
                     return {"blocked": 0, "queued": 0, "active": 0, "completed": 1}
 
+                def flags(self):
+                    return SimpleNamespace(queue_paused=False, maintenance_mode=False)
+
                 def research_facility_workbench_projection(
                     self, *, limit: int = 100
                 ) -> list[dict[str, str]]:
@@ -6405,6 +6506,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
                 def status_counts(self) -> dict[str, int]:
                     return {"blocked": 0, "queued": 0, "active": 0, "completed": 1}
+
+                def flags(self):
+                    return SimpleNamespace(queue_paused=False, maintenance_mode=False)
 
                 def research_facility_workbench_projection(
                     self, *, limit: int = 100
@@ -11475,7 +11579,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(state_after_import["counts"]["papers"], 0)
 
             draft = client.post(
-                "/control/papers/draft-next", headers=headers, json={"force": True}
+                "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
             )
             self.assertEqual(draft.status_code, 200)
             self.assertEqual(draft.json()["action"], "drafted")
@@ -11544,7 +11648,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 },
             )
             draft = client.post(
-                "/control/papers/draft-next", headers=headers, json={"force": True}
+                "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
             )
             self.assertEqual(draft.status_code, 200)
             self.assertEqual(draft.json()["action"], "noop")
@@ -11602,7 +11706,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     client.post(
                         "/control/papers/draft-next",
                         headers=headers,
-                        json={"force": True},
+                        json={"force": True, "override_hold_action": "draft-next-while-held"},
                     )
             snapshot = client.get("/control/export/snapshot", headers=headers).json()
             project = next(
@@ -12152,7 +12256,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 {"idea-one": "queued", "idea-two": "queued"},
             )
 
-    def test_dispatch_one_live_works_while_paused_and_only_dispatches_specified_project(
+    def test_dispatch_one_live_requires_named_override_while_paused(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -12225,12 +12329,23 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     side_effect=fake_post,
                 ),
             ):
-                response = client.post(
+                blocked = client.post(
                     "/control/dispatch-one",
                     headers=headers,
                     json={"project_id": "idea-one", "dry_run": False},
                 )
+                response = client.post(
+                    "/control/dispatch-one",
+                    headers=headers,
+                    json={
+                        "project_id": "idea-one",
+                        "dry_run": False,
+                        "override_hold_action": "dispatch-one-while-held",
+                    },
+                )
 
+            self.assertEqual(blocked.status_code, 409)
+            self.assertIn("override_hold_action", blocked.text)
             self.assertEqual(response.status_code, 200)
             body = response.json()
             self.assertEqual(body["action"], "live_dispatch_one")
@@ -13010,6 +13125,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     json={
                         "project_id": "idea-malformed-dispatch-body",
                         "dry_run": False,
+                        "override_hold_action": "dispatch-one-while-held",
                     },
                 )
 
@@ -13095,7 +13211,11 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 response = client.post(
                     "/control/dispatch-one",
                     headers=headers,
-                    json={"project_id": long_project_id, "dry_run": False},
+                    json={
+                        "project_id": long_project_id,
+                        "dry_run": False,
+                        "override_hold_action": "dispatch-one-while-held",
+                    },
                 )
 
             self.assertEqual(response.status_code, 200)
@@ -13436,7 +13556,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "test",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(committed.status_code, 200)
             self.assertEqual(committed.json()["created"], 242)
@@ -13513,7 +13633,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "test",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(repeated.status_code, 200)
             self.assertEqual(repeated.json()["created"], 0)
@@ -13603,7 +13723,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-filter-normalized-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(backfill.status_code, 200)
             with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
@@ -13678,7 +13798,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-review-mutation-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(backfill.status_code, 200)
 
@@ -13841,7 +13961,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "limit": 2,
                     "force": True,
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(committed.status_code, 200)
             body = committed.json()
@@ -14025,7 +14145,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "blocked-rewrite-finalize-attempt",
                     "requested_by": "ai-publication-pipeline",
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(package.status_code, 400)
             self.assertIn("review_status=blocked", package.text)
@@ -14078,7 +14198,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-rewrite-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
 
             response = client.post(
@@ -14199,7 +14319,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-rewrite-uninspectable-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             original_exists = Path.exists
 
@@ -14281,7 +14401,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-rewrite-replay-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
 
             with patch(
@@ -14594,7 +14714,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-invalid-project-id-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(backfill.status_code, 200)
 
@@ -14668,7 +14788,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-unreadable-snapshot-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(backfill.status_code, 200)
 
@@ -14768,7 +14888,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 json={
                     "idempotency_key": "router-rewrite-event-fail-backfill",
                     "dry_run": False,
-                },
+                    },
             )
             original_append_event = ControlPlaneStore.append_event
 
@@ -14854,7 +14974,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 json={
                     "idempotency_key": "router-rewrite-finalization-fail-backfill",
                     "dry_run": False,
-                },
+                    },
             )
 
             def fail_finalization(self, *args, **kwargs):  # noqa: ANN001, ARG001 - patched method
@@ -14944,7 +15064,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 json={
                     "idempotency_key": "router-rewrite-conflict-backfill",
                     "dry_run": False,
-                },
+                    },
             )
 
             conflict = client.post(
@@ -15006,7 +15126,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 json={
                     "idempotency_key": "router-rewrite-fail-backfill",
                     "dry_run": False,
-                },
+                    },
             )
             with patch(
                 "enoch_control_plane.control_plane.router.write_paper_artifacts",
@@ -15204,7 +15324,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-package-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
 
             dry = client.post(
@@ -15230,7 +15350,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "alice",
                     "target_label": "first-paper",
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(committed.status_code, 200)
             self.assertFalse(committed.json()["dry_run"])
@@ -15246,7 +15366,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "alice",
                     "target_label": "first-paper",
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(repeated.status_code, 200)
             self.assertFalse(repeated.json()["inserted_event"])
@@ -15300,7 +15420,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-unexpandable-artifact-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(backfill.status_code, 200)
 
@@ -15312,7 +15432,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "alice",
                     "target_label": "bad-artifact-path",
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(finalized.status_code, 400)
             self.assertIn("artifact", finalized.text.lower())
@@ -15359,7 +15479,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-unexpandable-dir-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(backfill.status_code, 200)
 
@@ -15371,7 +15491,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "alice",
                     "target_label": "bad-project-dir",
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(finalized.status_code, 400)
             self.assertIn("project", finalized.text.lower())
@@ -15423,7 +15543,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-invalid-dir-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(backfill.status_code, 200)
 
@@ -15435,7 +15555,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "alice",
                     "target_label": "bad-project-dir",
                     "dry_run": False,
-                },
+                    },
             )
 
             self.assertEqual(finalized.status_code, 400)
@@ -15501,7 +15621,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-rejected-normalized-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(backfill.status_code, 200)
             with sqlite3.connect(Path(tmp) / "state" / "control_plane.sqlite3") as conn:
@@ -15530,7 +15650,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "alice",
                     "target_label": "reject-variant",
                     "dry_run": False,
-                },
+                    },
             )
             self.assertEqual(finalized.status_code, 400)
             self.assertIn("rejected", finalized.text.lower())
@@ -15591,7 +15711,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "idempotency_key": "router-package-escape-backfill",
                     "source_audit_path": str(audit_path),
                     "dry_run": False,
-                },
+                    },
             )
 
             committed = client.post(
@@ -15602,7 +15722,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     "requested_by": "alice",
                     "target_label": "escape",
                     "dry_run": False,
-                },
+                    },
             )
 
             self.assertNotEqual(committed.status_code, 200)
@@ -15751,7 +15871,7 @@ def test_legacy_finalize_positive_without_evidence_does_not_write_paper() -> Non
         assert response.status_code == 200
 
         draft = client.post(
-            "/control/papers/draft-next", headers=headers, json={"force": True}
+            "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
         )
 
         assert draft.status_code in {200, 424}
@@ -15819,7 +15939,7 @@ def test_legacy_finalize_positive_missing_evidence_records_blocked_alert() -> No
                 side_effect=fake_send_pushover,
             ):
                 draft = client.post(
-                    "/control/papers/draft-next", headers=headers, json={"force": True}
+                    "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
                 )
 
         assert draft.status_code == 200
@@ -15891,7 +16011,7 @@ def test_raw_wake_ready_without_paper_decision_does_not_sync_or_alert() -> None:
                     json={"force": True, "dry_run": True},
                 )
                 draft = client.post(
-                    "/control/papers/draft-next", headers=headers, json={"force": True}
+                    "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
                 )
 
         assert dry_run.status_code == 200
@@ -15977,10 +16097,10 @@ def test_missing_evidence_alert_is_bucketed_per_run() -> None:
                 side_effect=fake_send_pushover,
             ):
                 first = client.post(
-                    "/control/papers/draft-next", headers=headers, json={"force": True}
+                    "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
                 )
                 second = client.post(
-                    "/control/papers/draft-next", headers=headers, json={"force": True}
+                    "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
                 )
 
         assert first.status_code == 200
@@ -16060,12 +16180,12 @@ def test_missing_evidence_alert_suppresses_reason_changes_for_same_candidate_day
                     first = client.post(
                         "/control/papers/draft-next",
                         headers=headers,
-                        json={"force": True},
+                        json={"force": True, "override_hold_action": "draft-next-while-held"},
                     )
                     second = client.post(
                         "/control/papers/draft-next",
                         headers=headers,
-                        json={"force": True},
+                        json={"force": True, "override_hold_action": "draft-next-while-held"},
                     )
 
         assert first.status_code == 200
@@ -16141,12 +16261,12 @@ def test_missing_evidence_alert_suppresses_same_candidate_across_same_day() -> N
                     first = client.post(
                         "/control/papers/draft-next",
                         headers=headers,
-                        json={"force": True},
+                        json={"force": True, "override_hold_action": "draft-next-while-held"},
                     )
                     second = client.post(
                         "/control/papers/draft-next",
                         headers=headers,
-                        json={"force": True},
+                        json={"force": True, "override_hold_action": "draft-next-while-held"},
                     )
 
         assert first.status_code == 200
@@ -16228,7 +16348,7 @@ def test_missing_evidence_alert_still_notifies_when_event_store_fails() -> None:
                     result = client.post(
                         "/control/papers/draft-next",
                         headers=headers,
-                        json={"force": True},
+                        json={"force": True, "override_hold_action": "draft-next-while-held"},
                     )
 
         assert result.status_code == 200
@@ -16283,7 +16403,7 @@ def test_draft_next_revalidates_decision_gate_after_evidence_sync() -> None:
             side_effect=sync_overwrites_positive,
         ):
             response = client.post(
-                "/control/papers/draft-next", headers=headers, json={"force": True}
+                "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
             )
 
         assert response.status_code == 200
@@ -16386,7 +16506,7 @@ def test_draft_next_does_not_let_paper_scout_row_override_post_sync_gate() -> No
             ),
         ):
             response = client.post(
-                "/control/papers/draft-next", headers=headers, json={"force": True}
+                "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
             )
 
         assert response.status_code == 200
@@ -16452,7 +16572,7 @@ def test_paper_draft_event_failure_does_not_publish_partial_paper_row() -> None:
                 RuntimeError, match="simulated paper drafted event failure"
             ):
                 client.post(
-                    "/control/papers/draft-next", headers=headers, json={"force": True}
+                    "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
                 )
 
         snapshot = client.get("/control/export/snapshot", headers=headers).json()
@@ -16509,7 +16629,7 @@ def test_paper_draft_backfill_failure_is_reported_without_losing_draft() -> None
             side_effect=RuntimeError("simulated backfill outage"),
         ):
             response = client.post(
-                "/control/papers/draft-next", headers=headers, json={"force": True}
+                "/control/papers/draft-next", headers=headers, json={"force": True, "override_hold_action": "draft-next-while-held"}
             )
 
         assert response.status_code == 200
@@ -16576,7 +16696,7 @@ def test_draft_next_live_rejects_supabase_readonly_before_artifact_writes() -> N
             response = client.post(
                 "/control/papers/draft-next",
                 headers={"Authorization": f"Bearer {TOKEN}"},
-                json={"force": True},
+                json={"force": True, "override_hold_action": "draft-next-while-held"},
             )
 
         assert response.status_code == 501

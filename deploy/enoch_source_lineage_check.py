@@ -10,6 +10,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib import request
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -17,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.alerts import send_pushover
+from enoch_control_plane.url_safety import secure_default_service_url
 from scripts.validate_source_lineage import build_report, fetch_snapshot, write_report
 
 DEFAULT_OUTPUT = Path("/var/lib/enoch-control-plane/source-lineage/latest-report.json")
@@ -36,6 +38,64 @@ def _database_url(config: GateConfig, explicit: str = "") -> str:
         or os.environ.get("DATABASE_URL", "")
         or config.supabase_database_url
     ).strip()
+
+
+def _base_url(config: GateConfig) -> str:
+    host = str(config.listen_host or "127.0.0.1")
+    if host in {"0.0.0.0", "::"}:
+        host = "127.0.0.1"
+    return os.environ.get("ENOCH_CONTROL_URL") or secure_default_service_url(
+        host, int(config.listen_port or 8787)
+    )
+
+
+def _get_control_status(config: GateConfig) -> dict[str, Any]:
+    token = str(config.control_api_bearer_token or "").strip()
+    if not token:
+        return {}
+    req = request.Request(
+        f"{_base_url(config)}/control/api/status",
+        method="GET",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _control_hold_skip_result(config: GateConfig) -> dict[str, Any] | None:
+    if os.environ.get("ENOCH_SOURCE_LINEAGE_RUN_WHILE_HELD", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return None
+    try:
+        status = _get_control_status(config)
+    except Exception:
+        return None
+    flags = status.get("flags") if isinstance(status, dict) else {}
+    if not isinstance(flags, dict):
+        return None
+    held_by: list[str] = []
+    if bool(flags.get("maintenance_mode")):
+        held_by.append("maintenance_mode")
+    if bool(flags.get("queue_paused")):
+        held_by.append("queue_paused")
+    if not held_by:
+        return None
+    return {
+        "ok": True,
+        "action": "skipped",
+        "reason": f"source-lineage check skipped while control plane is held: {', '.join(held_by)}",
+        "hold_state": {
+            "queue_paused": bool(flags.get("queue_paused")),
+            "maintenance_mode": bool(flags.get("maintenance_mode")),
+            "pause_reason": str(flags.get("pause_reason") or ""),
+            "paused_at": str(flags.get("paused_at") or ""),
+            "paused_by": str(flags.get("paused_by") or ""),
+        },
+    }
 
 
 def _build_report(database_url: str, created_after: str) -> dict[str, Any]:
@@ -195,6 +255,13 @@ def main() -> int:
     args = parser.parse_args()
 
     config = _load_config(args.config)
+    hold_skip = _control_hold_skip_result(config)
+    if hold_skip is not None:
+        if args.json:
+            print(json.dumps(hold_skip, indent=2, sort_keys=True))
+        else:
+            print(hold_skip["reason"])
+        return 0
     database_url = _database_url(config, args.database_url)
     if not database_url:
         raise SystemExit("source-lineage database URL is not configured")

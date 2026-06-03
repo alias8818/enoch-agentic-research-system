@@ -7,6 +7,60 @@ from types import SimpleNamespace
 from deploy import enoch_source_lineage_check as check
 
 
+def test_main_skips_source_lineage_sidecar_during_control_hold(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "state_dir": str(tmp_path / "state"),
+                "project_root": str(tmp_path / "projects"),
+                "dispatch_script_path": str(tmp_path / "dispatch.sh"),
+                "control_api_bearer_token": "token",
+                "completion_callback_url": "http://example.invalid/callback",
+                "completion_callback_token": "callback-token",
+                "supabase_database_url": "postgres://example",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        check,
+        "_get_control_status",
+        lambda _config: {
+            "flags": {
+                "queue_paused": True,
+                "maintenance_mode": True,
+                "pause_reason": "operator maintenance",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        check,
+        "_build_report",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("source-lineage report must not run while held")
+        ),
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "enoch_source_lineage_check.py",
+            "--config",
+            str(config),
+            "--json",
+        ],
+    )
+
+    assert check.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["action"] == "skipped"
+    assert payload["hold_state"]["queue_paused"] is True
+    assert payload["hold_state"]["maintenance_mode"] is True
+
+
 def test_run_check_writes_report_and_does_not_alert_when_clean(
     monkeypatch, tmp_path: Path
 ) -> None:
