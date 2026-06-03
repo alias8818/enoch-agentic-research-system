@@ -9798,8 +9798,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 headers=headers,
                 json={"dry_run": True},
             ).json()
-            self.assertTrue(alert["should_alert"])
-            self.assertTrue(
+            self.assertFalse(
                 any(item["source"] == "worker_settling" for item in alert["findings"])
             )
 
@@ -9889,8 +9888,133 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 headers=headers,
                 json={"dry_run": True},
             ).json()
-            self.assertTrue(alert["should_alert"])
+            self.assertFalse(
+                any(item["source"] == "worker_settling" for item in alert["findings"])
+            )
+
+    def test_dashboard_status_treats_recent_lane_completed_worker_run_as_backpressure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-worker:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            project_id = "idea-recent-gb10-complete"
+            run_id = "run-recent-gb10-complete"
+            now = datetime.now(timezone.utc).isoformat()
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "recent-lane-complete-worker-run",
+                    "queue_rows": [
+                        {
+                            "project_id": project_id,
+                            "project_name": "Recent GB10 Complete",
+                            "project_dir": project_id,
+                            "status": "completed",
+                            "machine_target": "gb10",
+                            "current_run_id": run_id,
+                            "last_run_state": "wake_ready",
+                        }
+                    ],
+                    "run_rows": [
+                        {
+                            "run_id": run_id,
+                            "project_id": project_id,
+                            "state": "wake_ready",
+                            "gate_state": "wake_ready",
+                            "current_activity": "worker_callback",
+                            "last_callback_at": now,
+                        }
+                    ],
+                },
+            )
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                scope="lane:http://gb10-worker:8787",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "target": "http://gb10-worker:8787",
+                    "checks": [
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "totals": {"active_or_waiting": 1, "live": 1},
+                                    "runs": [
+                                        {
+                                            "run_id": run_id,
+                                            "project_id": project_id,
+                                            "gate_state": "wake_ready",
+                                            "lifecycle_state": "active",
+                                            "is_live": True,
+                                            "active_process_count": 1,
+                                            "updated_at": now,
+                                        }
+                                    ],
+                                }
+                            },
+                        },
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                    ],
+                },
+            )
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertNotIn(
+                "worker live run without active control-plane row: gpu_worker",
+                status["dispatch_blockers"],
+            )
+            self.assertIn(
+                "worker settling completed run: gpu_worker",
+                status["dispatch_blockers"],
+            )
+            self.assertFalse(
+                any(item["severity"] == "critical" for item in status["conflicts"])
+            )
             self.assertTrue(
+                any(item["source"] == "worker_settling" for item in status["warnings"])
+            )
+
+            alert = client.post(
+                "/control/api/alerts/queue-check",
+                headers=headers,
+                json={"dry_run": True},
+            ).json()
+            self.assertFalse(
                 any(item["source"] == "worker_settling" for item in alert["findings"])
             )
 

@@ -1965,7 +1965,7 @@ def test_queue_alert_notify_suppresses_cooldown_duplicate(
     assert result["notification"]["detail"] == "cooldown duplicate suppressed"
 
 
-def test_queue_alert_findings_includes_worker_settling_warning() -> None:
+def test_queue_alert_findings_suppresses_worker_settling_warning() -> None:
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
         config=SimpleNamespace(live_dispatch_enabled=True),
@@ -1987,5 +1987,4 @@ def test_queue_alert_findings_includes_worker_settling_warning() -> None:
 
     findings = queue_alert_findings(status, hang_after_sec=3600)  # type: ignore[arg-type]
 
-    assert len(findings) == 1
-    assert findings[0].source == "worker_settling"
+    assert findings == []

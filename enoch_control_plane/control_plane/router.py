@@ -2803,12 +2803,16 @@ def _worker_settling_match_for_completed_runs(
         run_id = str(run.get("run_id") or "").strip()
         if run_id not in completed_run_ids:
             continue
-        if not _worker_run_is_settling_without_process(run):
+        if not (
+            _worker_run_is_settling_without_process(run)
+            or _worker_run_updated_recently(run)
+        ):
             continue
         return {
             "worker_run": run,
             "worker_check": no_live,
             "matched_run_id": run_id,
+            "match_type": "completed_worker_run_reconcile",
         }
     return None
 
@@ -6436,6 +6440,27 @@ def _append_dashboard_worker_lane_confirmation_findings(
         )
         no_live = _worker_no_live_failed_check(lane_preflight)
         if not int(lane.get("active_count") or 0) and no_live:
+            worker_settling = lane.get("worker_settling_after_vm_completion")
+            if isinstance(worker_settling, dict):
+                warnings.append(
+                    DashboardFinding(
+                        severity="warn",
+                        source="worker_settling",
+                        authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
+                        message=(
+                            f"{lane_label} worker is reconciling a recently completed VM run"
+                        ),
+                        observed_at=lane_preflight.observed_at
+                        if lane_preflight
+                        else None,
+                        suggested_action=(
+                            "wait for the worker quiet-window to clear before dispatch"
+                        ),
+                        data=worker_settling,
+                    )
+                )
+                blockers.append(f"worker settling completed run: {lane_label}")
+                continue
             finding = _orphan_worker_lane_finding(
                 lane, lane_label=lane_label, no_live=no_live
             )
@@ -6915,6 +6940,8 @@ def _cp_mount_worker_lane_capacity_entry(
     lane_worker_preflight: DashboardObservationRecord | None = None,
     lane_worker_preflight_key: str = "",
     lane_worker_dashboard: DashboardObservationRecord | None = None,
+    queue_rows: list[dict[str, Any]] | None = None,
+    run_rows: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     lane_key = str(lane["lane_key"])
     confirmation_preflight = lane_worker_preflight or worker_preflight
@@ -6936,6 +6963,13 @@ def _cp_mount_worker_lane_capacity_entry(
         )
     )
     active_item = lane_active[0] if lane_active else None
+    worker_settling_after_vm_completion = None
+    if lane_worker_preflight is not None and not lane_active:
+        worker_settling_after_vm_completion = _worker_settling_after_vm_completion(
+            preflight=lane_worker_preflight,
+            queue_rows=list(queue_rows or []),
+            run_rows=list(run_rows or []),
+        )
     return {
         **lane,
         "status": "active" if lane_active else "idle",
@@ -6951,6 +6985,7 @@ def _cp_mount_worker_lane_capacity_entry(
             "worker_preflight": lane_worker_preflight,
             "worker_dashboard_api": lane_worker_dashboard,
         },
+        "worker_settling_after_vm_completion": worker_settling_after_vm_completion,
         "queued_count": len(lane_queued),
         "next_candidate": _worker_lane_summary_row(next_candidate),
         "dispatch_available": dispatch_available,
@@ -6970,6 +7005,7 @@ def _cp_mount_worker_lane_capacity(
 ) -> list[dict[str, Any]]:
     active_rows = list(active if active is not None else store.active_items())
     queue_rows = list(rows if rows is not None else store.queue_rows())
+    run_rows = list(store.run_rows()) if hasattr(store, "run_rows") else []
     queued_candidates = _cp_queued_dispatch_candidates(store, queue_rows)
     active_by_lane = _cp_mount_rows_by_worker_lane(config, active_rows)
     queued_by_lane = _cp_mount_rows_by_worker_lane(config, queued_candidates)
@@ -7014,6 +7050,8 @@ def _cp_mount_worker_lane_capacity(
                 lane_worker_preflight=lane_preflight,
                 lane_worker_preflight_key=lane_preflight_key,
                 lane_worker_dashboard=lane_dashboard,
+                queue_rows=queue_rows,
+                run_rows=run_rows,
             )
         )
     return capacity

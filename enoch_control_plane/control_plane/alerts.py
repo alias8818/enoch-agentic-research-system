@@ -234,7 +234,6 @@ _WORKER_WARNING_SOURCES = frozenset(
         "worker_preflight",
         "worker_dashboard_api",
         "control_plane_db+worker_preflight",
-        "worker_settling",
     }
 )
 _WORKER_STALE_FRESHNESS_SOURCES = frozenset(
