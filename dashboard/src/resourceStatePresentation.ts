@@ -9,6 +9,7 @@ export type ResourceEndpoint =
   | 'observability-health'
   | 'observability-memory'
   | 'observability-llm'
+  | 'observability-llm-harness'
 
 export type EmptyStateKind = 'idle' | 'filtered' | 'blocked'
 
@@ -148,6 +149,16 @@ export function deriveResourceErrorCopy(endpoint: ResourceEndpoint, error: unkno
       title: 'Model observability could not load',
       summary: 'The bounded model health read model failed before provider and format posture could render.',
       dispatchImpact: 'Model health visibility is unavailable; dispatch and lane controls are not directly blocked by this read-model failure.',
+      ...base,
+    }
+  }
+
+  if (endpoint === 'observability-llm-harness') {
+    return {
+      eyebrow: 'LLM harness telemetry',
+      title: 'LLM harness telemetry could not load',
+      summary: 'The bounded harness telemetry read model failed before route, tool, contract, and cost posture could render.',
+      dispatchImpact: 'Harness visibility is unavailable; dispatch and lane controls are not directly blocked by this read-model failure.',
       ...base,
     }
   }

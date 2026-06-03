@@ -96,6 +96,36 @@ type ObservabilityWorkflowRecommendation = {
   operator_action?: string
   models?: ObservabilityWorkflowModelRecommendation[]
 }
+type ObservabilityLlmHarnessEvent = {
+  event_id?: number | string
+  event_type?: string
+  created_at?: string
+  workflow_id?: string
+  provider_id?: string
+  model_id?: string
+  selected_provider_id?: string
+  selected_model_id?: string
+  tool_name?: string
+  status?: string
+  failure_kind?: string
+  selection_reason?: string
+  budget_gate_status?: string
+  health_gate_status?: string
+  estimated_cost_usd?: number
+  input_token_count?: number
+  output_token_count?: number
+  result_count?: number
+}
+type ObservabilityLlmHarness = {
+  generated_at?: string
+  status?: string
+  event_count?: number
+  failure_count?: number
+  estimated_cost_usd?: number
+  status_counts?: Record<string, number>
+  event_type_counts?: Record<string, number>
+  recent_events?: ObservabilityLlmHarnessEvent[]
+}
 
 function numericCount(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -169,9 +199,51 @@ function workflowRecommendationHeadline(items: ObservabilityWorkflowRecommendati
   return 'No workflow model recommendations'
 }
 
+function harnessTelemetryHeadline(data: ObservabilityLlmHarness): string {
+  if ((data.event_count ?? 0) <= 0) return 'No harness telemetry recorded'
+  if ((data.failure_count ?? 0) > 0 || data.status === 'needs_attention') return 'Harness telemetry needs attention'
+  return 'Harness telemetry healthy'
+}
+
 function healthLabel(value: string | undefined): string {
   if (!value) return 'unknown'
   return value.replaceAll('_', ' ')
+}
+
+function costText(value: number | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(6)}` : '$0.000000'
+}
+
+function firstHarnessEvent(events: ObservabilityLlmHarnessEvent[], eventType: string): ObservabilityLlmHarnessEvent | undefined {
+  return events.find((event) => event.event_type === eventType)
+}
+
+function harnessEventTitle(event: ObservabilityLlmHarnessEvent | undefined, fallback: string): string {
+  if (!event) return fallback
+  if (event.event_type === 'llm_harness.route_decision') {
+    return `${event.selected_provider_id || event.provider_id || 'provider'} / ${event.selected_model_id || event.model_id || 'model'}`
+  }
+  if (event.event_type === 'llm_harness.tool_result' || event.event_type === 'llm_harness.tool_call') {
+    return event.tool_name || fallback
+  }
+  return event.workflow_id || fallback
+}
+
+function harnessEventDetail(event: ObservabilityLlmHarnessEvent | undefined, fallback: string): string {
+  if (!event) return fallback
+  if (event.event_type === 'llm_harness.route_decision') {
+    return event.selection_reason || 'Route decision recorded without an operator-facing reason.'
+  }
+  if (event.failure_kind) {
+    return `Latest status ${healthLabel(event.status)} with ${event.failure_kind}.`
+  }
+  if (event.event_type === 'llm_harness.cost_observation') {
+    return `${costText(event.estimated_cost_usd)} estimated cost; ${event.input_token_count ?? 0} input tokens and ${event.output_token_count ?? 0} output tokens.`
+  }
+  if (event.result_count !== undefined) {
+    return `${event.result_count} bounded result(s) recorded.`
+  }
+  return `Latest status ${healthLabel(event.status)}.`
 }
 
 function percentText(value: number | undefined): string {
@@ -736,14 +808,22 @@ export function ObservabilityPage() {
   const health = useQuery({ queryKey: ['observability', 'health'], queryFn: () => apiGet<ObservabilityHealth>('/control/api/v1/observability/health') })
   const memory = useQuery({ queryKey: ['observability', 'memory'], queryFn: () => apiGet<ObservabilityMemory>('/control/api/v1/observability/memory') })
   const llmModels = useQuery({ queryKey: ['observability', 'llm-models'], queryFn: () => apiGet<ObservabilityLlmModels>('/control/api/v1/observability/llm-models') })
-  if (health.isLoading || memory.isLoading || llmModels.isLoading) return <LoadingStateCard label="observability" />
+  const llmHarness = useQuery({ queryKey: ['observability', 'llm-harness'], queryFn: () => apiGet<ObservabilityLlmHarness>('/control/api/v1/observability/llm-harness') })
+  if (health.isLoading || memory.isLoading || llmModels.isLoading || llmHarness.isLoading) return <LoadingStateCard label="observability" />
   if (health.isError) return <ResourceErrorCard endpoint="observability-health" error={health.error} onRetry={() => { refetchInBackground(() => health.refetch()) }} retryLabel="Retry health sample" />
   if (memory.isError) return <ResourceErrorCard endpoint="observability-memory" error={memory.error} onRetry={() => { refetchInBackground(() => memory.refetch()) }} retryLabel="Retry memory sample" />
   if (llmModels.isError) return <ResourceErrorCard endpoint="observability-llm" error={llmModels.error} onRetry={() => { refetchInBackground(() => llmModels.refetch()) }} retryLabel="Retry model observability" />
+  if (llmHarness.isError) return <ResourceErrorCard endpoint="observability-llm-harness" error={llmHarness.error} onRetry={() => { refetchInBackground(() => llmHarness.refetch()) }} retryLabel="Retry harness telemetry" />
   const healthData = health.data || {}
   const memoryData = memory.data || {}
   const llmData = llmModels.data || {}
-  const generatedAt = `health ${healthData.generated_at || 'unknown'} · memory ${memoryData.generated_at || 'unknown'} · models ${llmData.generated_at || 'unknown'}`
+  const harnessData = llmHarness.data || {}
+  const harnessEvents = harnessData.recent_events || []
+  const routeDecision = firstHarnessEvent(harnessEvents, 'llm_harness.route_decision')
+  const toolResult = firstHarnessEvent(harnessEvents, 'llm_harness.tool_result') || firstHarnessEvent(harnessEvents, 'llm_harness.tool_call')
+  const outputContract = firstHarnessEvent(harnessEvents, 'llm_harness.output_contract')
+  const costObservation = firstHarnessEvent(harnessEvents, 'llm_harness.cost_observation')
+  const generatedAt = `health ${healthData.generated_at || 'unknown'} · memory ${memoryData.generated_at || 'unknown'} · models ${llmData.generated_at || 'unknown'} · harness ${harnessData.generated_at || 'unknown'}`
   const attentionModels = (llmData.models || []).filter((model) => (
     model.endpoint_health !== 'healthy'
     || model.format_health === 'degraded'
@@ -753,7 +833,7 @@ export function ObservabilityPage() {
   const visibleModels = (attentionModels.length > 0 ? attentionModels : (llmData.models || [])).slice(0, 6)
   const workflowRecommendations = (llmData.workflow_recommendations || []).slice(0, 4)
   return (
-    <PageShell title="Observability" subtitle="Check controller health, memory pressure, model usefulness, and route observability status." dataSource="/control/api/v1/observability bounded read models" action={<PageRefreshAction generatedAt={generatedAt} isFetching={health.isFetching || memory.isFetching || llmModels.isFetching} onRefresh={() => { refetchAllInBackground(() => health.refetch(), () => memory.refetch(), () => llmModels.refetch()) }} refreshLabel="Refresh observability" />}>
+    <PageShell title="Observability" subtitle="Check controller health, memory pressure, model usefulness, and route observability status." dataSource="/control/api/v1/observability bounded read models" action={<PageRefreshAction generatedAt={generatedAt} isFetching={health.isFetching || memory.isFetching || llmModels.isFetching || llmHarness.isFetching} onRefresh={() => { refetchAllInBackground(() => health.refetch(), () => memory.refetch(), () => llmModels.refetch(), () => llmHarness.refetch()) }} refreshLabel="Refresh observability" />}>
       <section className="detail-summary">
         <p className="eyebrow">Model observability</p>
         <h2>{modelObservabilityHeadline(llmData)}</h2>
@@ -825,6 +905,49 @@ export function ObservabilityPage() {
             )
           })}
         </section>
+      </section>
+      <section className="detail-summary">
+        <p className="eyebrow">LLM harness telemetry</p>
+        <h2>{harnessTelemetryHeadline(harnessData)}</h2>
+        <dl className="detail-field-grid">
+          <div className="detail-field"><dt>events</dt><dd>{harnessData.event_count ?? 0}</dd></div>
+          <div className="detail-field"><dt>failures</dt><dd>{harnessData.failure_count ?? 0}</dd></div>
+          <div className="detail-field"><dt>cost observed</dt><dd>{costText(harnessData.estimated_cost_usd)}</dd></div>
+          <div className="detail-field"><dt>sampled</dt><dd>{harnessData.generated_at || '—'}</dd></div>
+        </dl>
+        <section className="detail-operator-questions" aria-label="Harness operator questions">
+          <article className="detail-operator-question">
+            <h4>Latest route decision</h4>
+            <p><strong>{harnessEventTitle(routeDecision, 'No route decision recorded')}</strong></p>
+            <p>{harnessEventDetail(routeDecision, 'No provider/model route decision has been recorded yet.')}</p>
+            <dl className="detail-field-grid">
+              <div className="detail-field"><dt>budget gate</dt><dd>{healthLabel(routeDecision?.budget_gate_status)}</dd></div>
+              <div className="detail-field"><dt>health gate</dt><dd>{healthLabel(routeDecision?.health_gate_status)}</dd></div>
+              <div className="detail-field"><dt>workflow</dt><dd>{routeDecision?.workflow_id || '—'}</dd></div>
+            </dl>
+          </article>
+          <article className="detail-operator-question">
+            <h4>Latest tool result</h4>
+            <p><strong>{harnessEventTitle(toolResult, 'No tool call recorded')}</strong></p>
+            <p>{harnessEventDetail(toolResult, 'No bounded tool result has been recorded yet.')}</p>
+            <dl className="detail-field-grid">
+              <div className="detail-field"><dt>status</dt><dd>{healthLabel(toolResult?.status)}</dd></div>
+              <div className="detail-field"><dt>failure</dt><dd>{toolResult?.failure_kind || 'none'}</dd></div>
+              <div className="detail-field"><dt>workflow</dt><dd>{toolResult?.workflow_id || '—'}</dd></div>
+            </dl>
+          </article>
+          <article className="detail-operator-question">
+            <h4>Latest output contract</h4>
+            <p><strong>{harnessEventTitle(outputContract, 'No output contract recorded')}</strong></p>
+            <p>{harnessEventDetail(outputContract, 'No structured-output contract result has been recorded yet.')}</p>
+            <dl className="detail-field-grid">
+              <div className="detail-field"><dt>status</dt><dd>{healthLabel(outputContract?.status)}</dd></div>
+              <div className="detail-field"><dt>failure</dt><dd>{outputContract?.failure_kind || 'none'}</dd></div>
+              <div className="detail-field"><dt>latest cost</dt><dd>{costText(costObservation?.estimated_cost_usd)}</dd></div>
+            </dl>
+          </article>
+        </section>
+        <RawJsonDetails summary="Recent bounded harness events" payload={harnessEvents} />
       </section>
       <section className="detail-summary">
         <p className="eyebrow">Controller memory</p>

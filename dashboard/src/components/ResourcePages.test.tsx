@@ -593,6 +593,19 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
         ],
       }],
     }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      generated_at: '2026-05-20T12:00:03Z',
+      status: 'needs_attention',
+      event_count: 4,
+      failure_count: 1,
+      estimated_cost_usd: 0.0025,
+      recent_events: [
+        { event_id: 4, event_type: 'llm_harness.output_contract', created_at: '2026-05-20T12:00:03Z', workflow_id: 'idea_generation_enrichment', status: 'rejected', failure_kind: 'schema_mismatch' },
+        { event_id: 3, event_type: 'llm_harness.tool_result', created_at: '2026-05-20T12:00:02Z', workflow_id: 'idea_generation_enrichment', tool_name: 'exa_search', status: 'ok', result_count: 3 },
+        { event_id: 2, event_type: 'llm_harness.route_decision', created_at: '2026-05-20T12:00:01Z', workflow_id: 'idea_generation_enrichment', selected_provider_id: 'openrouter', selected_model_id: 'kimi-k2', selection_reason: 'cheap model passed required structured-output probe', budget_gate_status: 'ok', health_gate_status: 'ok' },
+        { event_id: 1, event_type: 'llm_harness.cost_observation', created_at: '2026-05-20T12:00:00Z', workflow_id: 'idea_generation_enrichment', status: 'ok', estimated_cost_usd: 0.0025, input_token_count: 1200, output_token_count: 180 },
+      ],
+    }), { status: 200 }))
 
   renderWithClient(<ObservabilityPage />)
 
@@ -605,6 +618,18 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   expect(screen.getByText('Recommendations use measured prompt-contract probes, not endpoint health alone.')).toBeInTheDocument()
   expect(screen.getByText('prefer owl for Research agents; remove or tune degraded pool entries')).toBeInTheDocument()
   expect(screen.getByText('increase max_tokens or remove GLM for candidate_json until visible structured output passes')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Harness telemetry needs attention' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Latest route decision' })).toBeInTheDocument()
+  expect(screen.getByText('openrouter / kimi-k2')).toBeInTheDocument()
+  expect(screen.getByText('cheap model passed required structured-output probe')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Latest tool result' })).toBeInTheDocument()
+  expect(screen.getByText('exa_search')).toBeInTheDocument()
+  expect(screen.getByText('3 bounded result(s) recorded.')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Latest output contract' })).toBeInTheDocument()
+  expect(screen.getByText('Latest status rejected with schema_mismatch.')).toBeInTheDocument()
+  const harnessRawSummary = screen.getByText('Recent bounded harness events')
+  expect(harnessRawSummary.closest('details.raw-details')).not.toBeNull()
+  expect(screen.getByText((content) => content.includes('llm_harness.route_decision')).closest('details.raw-details')).not.toBeNull()
   expect(await screen.findByRole('heading', { name: 'Memory is inside configured threshold' })).toBeInTheDocument()
   expect(screen.getByText('128.3 MiB')).toBeInTheDocument()
   expect(screen.getByText('Route logging enabled')).toBeInTheDocument()
@@ -615,6 +640,7 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/observability/health', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/observability/memory', expect.any(Object))
   expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/api/v1/observability/llm-models', expect.any(Object))
+  expect(fetchMock).toHaveBeenNthCalledWith(4, '/control/api/v1/observability/llm-harness', expect.any(Object))
 })
 
 it('refreshes observability samples explicitly from the V2 page', async () => {
@@ -622,9 +648,11 @@ it('refreshes observability samples explicitly from the V2 page', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:00Z', route_observability_enabled: true, route_observability_log_configured: false, latest_route_observation: '{"route":"/old","status":200}' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:01Z', rss_mib: 100, peak_rss_mib: 140, warn_threshold_mib: 512, memory_warn: false }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:02Z', status: 'healthy', model_count: 1, unhealthy_count: 0, structurally_unhealthy_count: 0, models: [{ provider_id: 'synthetic', model_id: 'owl', label: 'Owl', endpoint_health: 'healthy', format_health: 'healthy', visible_output_health: 'healthy', reasoning_budget_health: 'ok', latest_finish_reason: 'stop', latest_visible_chars: 12, success_rate: 1, format_success_rate: 1, operator_action: 'model is currently usable for measured structured automation', latest_preview: 'ok' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:00:03Z', status: 'healthy', event_count: 0, failure_count: 0, estimated_cost_usd: 0, recent_events: [] }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:00Z', route_observability_enabled: false, route_observability_log_configured: true, latest_route_observation: '{"route":"/fresh","status":503}' }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:01Z', rss_mib: 333.3, peak_rss_mib: 444.4, warn_threshold_mib: 512, memory_warn: true }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:02Z', status: 'needs_attention', model_count: 1, unhealthy_count: 1, structurally_unhealthy_count: 0, models: [{ provider_id: 'synthetic', model_id: 'owl', label: 'Owl', endpoint_health: 'unhealthy', format_health: 'unmeasured', visible_output_health: 'unknown', reasoning_budget_health: 'unknown', latest_failure_kind: 'rate_limited', latest_status_code: 429, success_rate: 0, format_success_rate: 0, operator_action: 'fix provider endpoint health (rate_limited) before using this model', latest_preview: '' }] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T09:04:03Z', status: 'healthy', event_count: 1, failure_count: 0, estimated_cost_usd: 0.001, recent_events: [{ event_id: 1, event_type: 'llm_harness.route_decision', workflow_id: 'idea_generation_enrichment', selected_provider_id: 'openrouter', selected_model_id: 'glm', selection_reason: 'fresh route', status: 'ok' }] }), { status: 200 }))
 
   renderWithClient(<ObservabilityPage />)
   await screen.findByRole('heading', { name: 'Memory is inside configured threshold' })
@@ -633,10 +661,11 @@ it('refreshes observability samples explicitly from the V2 page', async () => {
 
   expect(await screen.findByRole('heading', { name: 'Memory warning active' })).toBeInTheDocument()
   expect(screen.getByText('333.3 MiB')).toBeInTheDocument()
-  expect(screen.getByText('Last loaded health 2026-05-21T09:04:00Z · memory 2026-05-21T09:04:01Z · models 2026-05-21T09:04:02Z')).toBeInTheDocument()
+  expect(screen.getByText('Last loaded health 2026-05-21T09:04:00Z · memory 2026-05-21T09:04:01Z · models 2026-05-21T09:04:02Z · harness 2026-05-21T09:04:03Z')).toBeInTheDocument()
   expect(screen.getByText((content) => content.includes('/fresh'))).toBeInTheDocument()
   expect(screen.getByText('fix provider endpoint health (rate_limited) before using this model')).toBeInTheDocument()
-  expect(fetchMock).toHaveBeenCalledTimes(6)
+  expect(screen.getByText('fresh route')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(8)
 })
 
 it('refreshes intake workbench rows explicitly from the V2 page', async () => {

@@ -46,4 +46,12 @@ describe('resourceStatePresentation', () => {
     expect(copy.title).toBe('Events could not load')
     expect(copy.nextSteps.length).toBeGreaterThan(0)
   })
+
+  it('maps LLM harness observability errors to harness guidance', () => {
+    const copy = deriveResourceErrorCopy('observability-llm-harness', new Error('server error'))
+
+    expect(copy.title).toBe('LLM harness telemetry could not load')
+    expect(copy.summary).toContain('route, tool, contract, and cost')
+    expect(copy.dispatchImpact).toContain('Harness visibility')
+  })
 })
