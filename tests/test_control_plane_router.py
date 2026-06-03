@@ -2291,38 +2291,83 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(args[0], "https://synthetic.int.exe.xyz/v2/quotas")
             self.assertEqual(kwargs["api_key"], "")
 
-    def test_synthetic_budget_check_fails_closed_for_non_synthetic_provider(
+    def test_research_budget_check_supports_openrouter_key_limits(
         self,
     ) -> None:
-        calls: list[str] = []
-
         class ProviderBudget:
             @staticmethod
             def fetch_json(*args, **kwargs):
-                calls.append("fetch")
-                raise AssertionError("non-synthetic providers must not hit quota")
+                raise AssertionError("OpenRouter must use its own key endpoint")
 
             @staticmethod
             def synthetic_budget_status(*args, **kwargs):
-                raise AssertionError("non-synthetic providers must not parse quota")
+                raise AssertionError("OpenRouter must not parse Synthetic quota")
 
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            @staticmethod
+            def read():
+                return json.dumps(
+                    {
+                        "data": {
+                            "label": "test-key",
+                            "limit": 100.0,
+                            "limit_remaining": 42.5,
+                            "usage_daily": 1.5,
+                            "usage_weekly": 2.5,
+                            "usage_monthly": 3.5,
+                            "is_free_tier": False,
+                        }
+                    }
+                ).encode("utf-8")
+
+        with patch(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            return_value=Response(),
+        ) as urlopen:
+            budget = _fetch_synthetic_research_budget(
+                provider_id="openrouter",
+                provider_base_url="https://openrouter.ai/api/v1",
+                provider_api_key="openrouter-key",
+                estimated_requests=1,
+                bounded_int=lambda *_args: 2,
+                bounded_float=lambda *_args: 5.0,
+                research_provider_budget=ProviderBudget,
+            )
+
+        self.assertTrue(budget["ok"])
+        self.assertEqual(budget["provider"], "openrouter")
+        self.assertEqual(budget["provider_id"], "openrouter")
+        self.assertEqual(budget["remaining_credits"], 42.5)
+        self.assertEqual(budget["budget_endpoint_host"], "openrouter.ai")
+        self.assertEqual(budget["budget_endpoint_path"], "/api/v1/key")
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/key")
+        self.assertEqual(request.headers["Authorization"], "Bearer openrouter-key")
+
+    def test_research_budget_check_fails_closed_for_unsupported_provider(
+        self,
+    ) -> None:
         budget = _fetch_synthetic_research_budget(
-            provider_id="openrouter",
-            provider_base_url="https://openrouter.ai/api/v1",
-            provider_api_key="openrouter-key",
+            provider_id="anthropic",
+            provider_base_url="https://api.anthropic.com/v1",
+            provider_api_key="anthropic-key",
             estimated_requests=1,
             bounded_int=lambda *_args: 2,
             bounded_float=lambda *_args: 5.0,
-            research_provider_budget=ProviderBudget,
+            research_provider_budget=SimpleNamespace(),
         )
 
-        self.assertEqual(calls, [])
         self.assertFalse(budget["ok"])
         self.assertFalse(budget["budget_check_skipped"])
-        self.assertEqual(budget["provider_id"], "openrouter")
+        self.assertEqual(budget["provider_id"], "anthropic")
         self.assertIn("provider budget check unavailable", budget["failures"][0])
-        self.assertEqual(budget["budget_endpoint_host"], "openrouter.ai")
-        self.assertEqual(budget["budget_endpoint_path"], "/api/v1/v2/quotas")
+        self.assertEqual(budget["budget_endpoint_host"], "api.anthropic.com")
 
     def test_automation_readiness_blocks_stale_active_worker_lane(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -620,6 +620,85 @@ def _synthetic_budget_auth_mode(base_url: str, api_key: str) -> str:
     return "none"
 
 
+def _openrouter_key_endpoint(openai_base_url: str) -> str:
+    parsed = urlparse(str(openai_base_url or "").rstrip("/"))
+    hostname = (parsed.hostname or "").rstrip(".").lower()
+    if hostname != "openrouter.ai":
+        raise ValueError(f"OpenRouter budget host is not allowed: {hostname or 'unknown'}")
+    path = parsed.path.rstrip("/")
+    if path.endswith("/api/v1"):
+        key_path = f"{path}/key"
+    else:
+        key_path = "/api/v1/key"
+    return parsed._replace(path=key_path, params="", query="", fragment="").geturl()
+
+
+def _fetch_openrouter_key_payload(
+    endpoint: str, *, api_key: str, timeout: int
+) -> dict[str, Any]:
+    if not api_key:
+        raise ValueError("OpenRouter API key is not configured")
+    request = urllib.request.Request(
+        endpoint,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": "EnochResearchFacility/0.1",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _openrouter_float(data: Mapping[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        raw = data.get(key)
+        if raw is None:
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _openrouter_budget_status(
+    payload: dict[str, Any],
+    *,
+    min_remaining_credits: float,
+    estimated_requests: int,
+    reserve_requests: int,
+) -> dict[str, Any]:
+    data = payload.get("data")
+    failures: list[str] = []
+    if not isinstance(data, dict):
+        data = {}
+        failures.append("malformed OpenRouter key response")
+    remaining = _openrouter_float(data, "limit_remaining", "limitRemaining")
+    credit_limit = _openrouter_float(data, "limit")
+    if remaining is not None and remaining < min_remaining_credits:
+        failures.append(
+            f"OpenRouter remaining credits {remaining:.4g} < required {min_remaining_credits:.4g}"
+        )
+    return {
+        "ok": not failures,
+        "provider": "openrouter",
+        "provider_id": "openrouter",
+        "checked_at": utc_now(),
+        "estimated_requests": estimated_requests,
+        "reserve_requests": reserve_requests,
+        "remaining_credits": remaining,
+        "min_remaining_credits": min_remaining_credits,
+        "credit_limit": credit_limit,
+        "limit_reset": data.get("limit_reset") or data.get("limitReset") or "",
+        "usage": _openrouter_float(data, "usage"),
+        "usage_daily": _openrouter_float(data, "usage_daily", "usageDaily"),
+        "usage_weekly": _openrouter_float(data, "usage_weekly", "usageWeekly"),
+        "usage_monthly": _openrouter_float(data, "usage_monthly", "usageMonthly"),
+        "is_free_tier": bool(data.get("is_free_tier") or data.get("isFreeTier")),
+        "failures": failures,
+    }
+
+
 def _resolve_research_provider_selection(
     config: GateConfig,
     body: dict[str, Any],
@@ -4577,7 +4656,36 @@ def _fetch_synthetic_research_budget(
     budget_endpoint = f"{budget_base_url}/v2/quotas"
     endpoint_diagnostics = _budget_endpoint_diagnostics(budget_endpoint)
     endpoint_host = endpoint_diagnostics["budget_endpoint_host"]
-    if (provider_id or "").strip().lower() not in {"", "env", "synthetic"} and (
+    normalized_provider_id = (provider_id or "").strip().lower()
+    if normalized_provider_id == "openrouter":
+        try:
+            budget_endpoint = _openrouter_key_endpoint(provider_base_url)
+            result = _openrouter_budget_status(
+                _fetch_openrouter_key_payload(
+                    budget_endpoint,
+                    api_key=provider_api_key,
+                    timeout=bounded_int("budget_timeout", 20, 1, 60),
+                ),
+                min_remaining_credits=bounded_float(
+                    "min_remaining_credits", 5.0, 0.0, 1_000_000.0
+                ),
+                estimated_requests=estimated_requests,
+                reserve_requests=bounded_int("reserve_requests", 2, 1, 100),
+            )
+            result.update(_budget_endpoint_diagnostics(budget_endpoint))
+            return result
+        except Exception as exc:  # noqa: BLE001 - fail closed if budget cannot be checked
+            return {
+                "ok": False,
+                "provider": "openrouter",
+                "provider_id": "openrouter",
+                "checked_at": utc_now(),
+                "estimated_requests": estimated_requests,
+                "reserve_requests": bounded_int("reserve_requests", 2, 1, 100),
+                "failures": [f"provider budget check failed: {exc}"],
+                **_budget_endpoint_diagnostics(budget_endpoint),
+            }
+    if normalized_provider_id not in {"", "env", "synthetic"} and (
         endpoint_host != "api.synthetic.new"
     ):
         return {
