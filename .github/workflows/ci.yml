@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 0
       - name: Validate runtime snapshot links
         run: python3 scripts/validate_runtime_snapshot_links.py
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
         with:
           enable-cache: true
       - name: Install dependencies
