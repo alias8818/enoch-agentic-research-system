@@ -18,4 +18,5 @@ Environment=ENOCH_RESEARCH_QUALITY_REPORT_PATH=/var/lib/enoch-control-plane/rese
 Environment=ENOCH_RESEARCH_QUALITY_WINDOW_REPORT_PATH=/var/lib/enoch-control-plane/research-quality/latest-window-comparison.json
 Environment=ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH=/var/lib/enoch-control-plane/research-quality/autopilot-history.jsonl
 Environment=ENOCH_RESEARCH_QUALITY_LIMIT=100
+TimeoutStartSec=1800
 ExecStart=/opt/enoch-control-plane/.venv/bin/python /opt/enoch-control-plane/deploy/enoch_research_autopilot.py

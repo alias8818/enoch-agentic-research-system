@@ -121,6 +121,39 @@ def test_finalize_autopilot_tick_exits_zero_for_controlled_research_cycle_block(
     )
 
 
+def test_finalize_autopilot_tick_prints_compact_summary_not_full_payload(
+    capsys,
+    monkeypatch,
+):
+    monkeypatch.setattr(autopilot, "_attach_autopilot_sidecars", lambda *_args: None)
+
+    assert (
+        autopilot._finalize_autopilot_tick(
+            {
+                "ok": True,
+                "action": "research_cycle",
+                "reason": "bounded research cycle completed",
+                "generated_count": 5,
+                "promoted_count": 3,
+                "dispatched_count": 2,
+                "provider_model": "moonshotai/kimi-k2.6",
+                "huge_nested_payload": "x" * 50000,
+                "dispatches": [
+                    {"candidate": {"idea_source_payload_json": {"blob": "y" * 50000}}}
+                ],
+            }
+        )
+        == 0
+    )
+
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["ok"] is True
+    assert printed["generated_count"] == 5
+    assert "huge_nested_payload" not in printed
+    assert "dispatches" not in printed
+    assert len(json.dumps(printed)) < 4000
+
+
 def test_remote_disconnect_is_success_when_control_plane_recovers(
     tmp_path, capsys, monkeypatch
 ):
@@ -961,6 +994,50 @@ def test_janitor_llm_review_disabled_by_default(monkeypatch):
         "action": "research_janitor_llm_review_skipped",
         "reason": "disabled",
     }
+
+
+def test_janitor_llm_review_uses_dedicated_model_not_provider_rotation(
+    tmp_path, monkeypatch
+):
+    output = tmp_path / "janitor-llm.json"
+    config_path = tmp_path / "config.json"
+    state_dir = tmp_path / "state"
+    secret_dir = state_dir / "llm-provider-secrets"
+    secret_dir.mkdir(parents=True)
+    (secret_dir / "synthetic.token").write_text("synthetic-secret", encoding="utf-8")
+    (state_dir / "llm-provider-settings.json").write_text(
+        json.dumps(
+            {
+                "providers": [
+                    {
+                        "provider_id": "synthetic",
+                        "base_url": "https://api.synthetic.new/openai/v1",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config_path.write_text(json.dumps({"state_dir": str(state_dir)}), encoding="utf-8")
+    calls: list[dict] = []
+
+    def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
+        calls.append({"cmd": cmd})
+        output.write_text(json.dumps({"ok": True, "action": "reviewed"}), encoding="utf-8")
+        return Mock(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED", "1")
+    monkeypatch.setenv("ENOCH_CONFIG", str(config_path))
+    monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:***@host/db")
+    monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REPORT_PATH", str(output))
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION", "hf:zai-org/GLM-5.1")
+    monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
+
+    result = autopilot.run_quota_gated_janitor_llm_review()
+
+    assert result["ok"] is True
+    cmd = calls[0]["cmd"]
+    assert cmd[cmd.index("--model") + 1] == "openrouter/owl-alpha"
 
 
 def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):

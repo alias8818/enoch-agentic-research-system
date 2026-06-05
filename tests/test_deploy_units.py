@@ -116,6 +116,7 @@ def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None
     )
     assert "Environment=ENOCH_RESEARCH_QUALITY_LIMIT=100" in service
     assert "Environment=ENOCH_RESEARCH_AUTOPILOT_WAIT=0" in service
+    assert "TimeoutStartSec=1800" in service
     assert "ENOCH_ENABLE_RESEARCH_AUTOPILOT" in script
     assert "/control/api/research/run-cycle" in script
     assert "scripts" in script and "dspy_research_quality.py" in script

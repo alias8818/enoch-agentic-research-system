@@ -29,6 +29,7 @@ from enoch_control_plane.url_safety import secure_default_service_url
 # Centralized reason constant for the top remaining S1192 duplication
 # in this autopilot script.
 MISSING_DATABASE_URL_REASON = "missing database URL"
+DEFAULT_JANITOR_LLM_REVIEW_MODEL = "openrouter/owl-alpha"
 
 
 def _load_config() -> dict:
@@ -491,6 +492,13 @@ def _janitor_llm_review_output_path() -> Path:
     return output
 
 
+def _janitor_llm_review_model() -> str:
+    return (
+        os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_MODEL")
+        or DEFAULT_JANITOR_LLM_REVIEW_MODEL
+    )
+
+
 def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
     cmd = [
         sys.executable,
@@ -500,7 +508,7 @@ def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
         "--openai-base-url",
         _synthetic_provider_openai_base_url(),
         "--model",
-        _provider_model(),
+        _janitor_llm_review_model(),
         "--batch-size",
         str(_bounded_int("ENOCH_RESEARCH_JANITOR_LLM_BATCH_SIZE", 15, 1, 50)),
         "--janitor-limit",
@@ -1483,6 +1491,143 @@ def _attach_autopilot_sidecars(result: dict, base_url: str, token: str) -> None:
     result["llm_model_format_probes"] = run_llm_model_format_probes(base_url, token)
 
 
+def _compact_autopilot_stage(stage: object) -> object:
+    if not isinstance(stage, dict):
+        return stage
+    return {
+        key: stage.get(key)
+        for key in (
+            "stage",
+            "ok",
+            "action",
+            "reason",
+            "provider_attempt_status",
+            "candidate_count",
+            "generation_target_lane",
+            "promoted_count",
+            "queued_count",
+            "project_id",
+            "event_id",
+        )
+        if key in stage
+    }
+
+
+def _compact_sidecar_result(result: object) -> object:
+    if not isinstance(result, dict):
+        return result
+    compact = {
+        key: result.get(key)
+        for key in (
+            "ok",
+            "action",
+            "reason",
+            "returncode",
+            "output",
+            "limit",
+            "checked_count",
+            "failure_count",
+            "candidate_count",
+            "enabled_model_count",
+        )
+        if key in result
+    }
+    summary = result.get("summary")
+    if isinstance(summary, dict):
+        compact["summary"] = {
+            key: summary.get(key)
+            for key in (
+                "reason",
+                "batch_count",
+                "decision_count",
+                "decision_counts",
+            )
+            if key in summary
+        }
+    return compact
+
+
+def _autopilot_stdout_summary(result: dict) -> dict:
+    """Return bounded stdout for systemd journals.
+
+    Full run-cycle payloads include nested candidates, prompts, dispatch records,
+    and janitor decisions.  Writing all of that to journald can leave a oneshot
+    tick appearing to hang after useful work has already completed.  Keep stdout
+    as deterministic operator evidence; detailed artifacts remain in the DB and
+    sidecar JSON files.
+    """
+
+    compact = {
+        key: result.get(key)
+        for key in (
+            "ok",
+            "action",
+            "reason",
+            "trace_id",
+            "run_cycle_id",
+            "provider_model",
+            "generated_count",
+            "promoted_count",
+            "queued_count",
+            "dispatched_count",
+            "paper_drafted_count",
+            "publication_finalized_count",
+            "fresh_generation_skipped",
+            "fresh_promotion_skipped",
+            "fresh_generation_skip_reason",
+        )
+        if key in result
+    }
+    if isinstance(result.get("generation_target_lane"), dict):
+        target = result["generation_target_lane"]
+        compact["generation_target_lane"] = {
+            key: target.get(key)
+            for key in (
+                "machine_target",
+                "worker_role",
+                "lane_key",
+                "queued_count",
+                "queue_deficit",
+                "promotable_count",
+                "next_autopilot_action",
+            )
+            if key in target
+        }
+    if isinstance(result.get("provider_generation_attempt"), dict):
+        attempt = result["provider_generation_attempt"]
+        compact["provider_generation_attempt"] = {
+            key: attempt.get(key)
+            for key in (
+                "status",
+                "provider_model",
+                "candidate_count",
+                "machine_target",
+                "worker_role",
+                "latency_ms",
+                "reason",
+                "failure_kind",
+                "error_type",
+            )
+            if key in attempt
+        }
+    if isinstance(result.get("stages"), list):
+        compact["stages"] = [_compact_autopilot_stage(stage) for stage in result["stages"]]
+    for key in (
+        "research_autopilot_history",
+        "research_quality_refresh",
+        "research_quality_window_comparison",
+        "research_janitor_llm_review",
+        "llm_model_health_checks",
+        "llm_model_format_probes",
+    ):
+        if key in result:
+            compact[key] = _compact_sidecar_result(result[key])
+    warnings = result.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        compact["warnings"] = [str(item)[:500] for item in warnings[:5]]
+    return compact
+
+
 def _finalize_autopilot_tick(
     result: object, base_url: str = "", token: str = ""
 ) -> int:
@@ -1490,7 +1635,7 @@ def _finalize_autopilot_tick(
         print(json.dumps(result, sort_keys=True))
         return 1
     _attach_autopilot_sidecars(result, base_url, token)
-    print(json.dumps(result, sort_keys=True))
+    print(json.dumps(_autopilot_stdout_summary(result), sort_keys=True))
     tick_ok = result.get("ok") or _is_benign_skip_result(result)
     return 0 if tick_ok else 1
 
