@@ -34,12 +34,14 @@ from enoch_control_plane.control_plane.llm_harness_telemetry import (
     record_llm_harness_event,
 )
 from enoch_control_plane.control_plane.store import ControlPlaneStore
+from enoch_control_plane.control_plane.alerts import _suppress_dispatch_race_findings
 from enoch_control_plane.control_plane.models import (
     ImportSnapshotRequest,
     PaperRecord,
     PaperReviewBackfillRequest,
     WorkerPreflightCheck,
     WorkerPreflightResponse,
+    DashboardFinding,
     DashboardObservationRecord,
 )
 from enoch_control_plane.control_plane.worker_adapter import HttpResult
@@ -10067,6 +10069,60 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(
                 any(item["source"] == "worker_settling" for item in alert["findings"])
             )
+
+    def test_queue_alert_suppresses_gb10_conflict_when_lane_is_settling_with_other_active_lane(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            status = SimpleNamespace(
+                active_items=[{"project_id": "active-cpu"}],
+                dispatch_blockers=[
+                    "worker_preflight not ok",
+                    "GB10/VM active-lane conflict",
+                    "worker settling completed run: gpu_worker",
+                ],
+            )
+            findings = [
+                DashboardFinding(
+                    severity="critical",
+                    source="control_plane_db+worker_preflight",
+                    authority="single active GB10 lane safety",
+                    message=(
+                        "GB10 reports live/active work but VM control plane has "
+                        "no active row"
+                    ),
+                    suggested_action=(
+                        "pause dispatch to the affected worker lane and reconcile "
+                        "before starting another job"
+                    ),
+                    data={
+                        "worker_check": {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        }
+                    },
+                ),
+                DashboardFinding(
+                    severity="warn",
+                    source="worker_preflight",
+                    authority="cached explicit worker preflight evidence",
+                    message="worker_preflight status is warn",
+                    suggested_action=(
+                        "run /control/api/preflight and verify GB10 health before "
+                        "dispatch"
+                    ),
+                ),
+            ]
+
+            kept, suppressed = _suppress_dispatch_race_findings(
+                store=store, status=status, findings=findings
+            )
+
+            self.assertEqual(kept, [])
+            self.assertEqual(suppressed, findings)
 
     def test_dashboard_status_does_not_treat_future_worker_settling_without_vm_match_as_backpressure(
         self,

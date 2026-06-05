@@ -783,6 +783,37 @@ def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
     )
 
 
+def _is_worker_live_without_vm_active_row(finding: DashboardFinding) -> bool:
+    if finding.source != "control_plane_db+worker_preflight":
+        return False
+    message = finding.message.lower()
+    return "live" in message and "control plane has no active row" in message
+
+
+def _is_cached_worker_preflight_warning(finding: DashboardFinding) -> bool:
+    return finding.source == "worker_preflight" and finding.message.lower().startswith(
+        "worker_preflight status is "
+    )
+
+
+def _worker_settling_backpressure_matches_finding(
+    status: DashboardStatusResponse, finding: DashboardFinding
+) -> bool:
+    message = finding.message.lower()
+    blockers = [
+        str(blocker).lower()
+        for blocker in status.dispatch_blockers
+        if "worker settling" in str(blocker).lower()
+    ]
+    if not blockers:
+        return False
+    if "gb10" in message or "gpu" in message:
+        return any("gb10" in blocker or "gpu_worker" in blocker for blocker in blockers)
+    if "cpu_worker" in message or "cpu" in message:
+        return any("cpu_worker" in blocker or "cpu" in blocker for blocker in blockers)
+    return True
+
+
 def _active_project_ids(status: DashboardStatusResponse) -> set[str]:
     return {str(row.get("project_id") or "") for row in status.active_items}
 
@@ -803,14 +834,26 @@ def _should_apply_dispatch_race_suppression(
 
 def _partition_dispatch_race_findings(
     findings: list[DashboardFinding],
+    *,
+    status: DashboardStatusResponse,
+    suppress_settling_backpressure: bool = False,
 ) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
     kept: list[DashboardFinding] = []
     suppressed: list[DashboardFinding] = []
     for finding in findings:
         if _is_active_row_worker_preflight_race(finding):
             suppressed.append(finding)
-        else:
-            kept.append(finding)
+            continue
+        if suppress_settling_backpressure and (
+            _is_cached_worker_preflight_warning(finding)
+            or (
+                _is_worker_live_without_vm_active_row(finding)
+                and _worker_settling_backpressure_matches_finding(status, finding)
+            )
+        ):
+            suppressed.append(finding)
+            continue
+        kept.append(finding)
     return kept, suppressed
 
 
@@ -820,11 +863,25 @@ def _suppress_dispatch_race_findings(
     status: DashboardStatusResponse,
     findings: list[DashboardFinding],
 ) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
-    if not _should_apply_dispatch_race_suppression(
+    suppress_settling_backpressure = any(
+        "worker settling" in str(blocker).lower()
+        for blocker in status.dispatch_blockers
+    )
+    if _should_apply_dispatch_race_suppression(
         store=store, status=status, findings=findings
     ):
-        return findings, []
-    return _partition_dispatch_race_findings(findings)
+        return _partition_dispatch_race_findings(
+            findings,
+            status=status,
+            suppress_settling_backpressure=suppress_settling_backpressure,
+        )
+    if suppress_settling_backpressure:
+        return _partition_dispatch_race_findings(
+            findings,
+            status=status,
+            suppress_settling_backpressure=True,
+        )
+    return findings, []
 
 
 def send_pushover(
