@@ -220,13 +220,19 @@ def _client_with_config(config: GateConfig) -> TestClient:
     return TestClient(app)
 
 
-def test_operator_pause_resume_openapi_documents_readonly_store_501() -> None:
+def test_writable_store_routes_openapi_documents_readonly_store_501() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         openapi = _client(tmp).get("/openapi.json").json()
 
-    for path in ("/control/pause", "/control/resume"):
+    writable_post_paths = (
+        "/control/pause",
+        "/control/resume",
+        "/control/api/maintenance/resume",
+        "/control/api/settings/llm",
+    )
+    for path in writable_post_paths:
         responses = openapi["paths"][path]["post"]["responses"]
-        assert "501" in responses
+        assert "501" in responses, path
         assert "writable control-plane store" in responses["501"]["description"]
 
 

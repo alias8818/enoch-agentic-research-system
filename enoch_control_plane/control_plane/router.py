@@ -8244,7 +8244,7 @@ def _register_control_plane_maintenance_routes(
     store: Any,
     require_bearer: RequireBearer,
 ) -> None:
-    @router.post("/api/maintenance/resume")
+    @router.post("/api/maintenance/resume", responses=_HTTP_501_WRITABLE_STORE)
     def dashboard_maintenance_resume(
         payload: ResumeRequest,
         authorization: Annotated[str | None, Header()] = None,
