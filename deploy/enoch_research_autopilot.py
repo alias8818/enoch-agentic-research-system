@@ -869,6 +869,58 @@ def _main_control_hold_exit(base_url: str, token: str) -> int | None:
     return 0
 
 
+def _http_error_detail(exc: error.HTTPError) -> str:
+    try:
+        raw = exc.read(4096)
+    except Exception:
+        return ""
+    try:
+        body = raw.decode("utf-8", errors="replace")
+    except AttributeError:
+        body = str(raw)
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        return body
+    if isinstance(parsed, dict):
+        detail = parsed.get("detail")
+        if isinstance(detail, dict):
+            return json.dumps(detail, sort_keys=True)
+        if detail is not None:
+            return str(detail)
+    return body
+
+
+def _hold_related_conflict_detail(detail: str) -> bool:
+    lowered = detail.lower()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "maintenance mode blocks live dispatch",
+            "queue pause blocks live dispatch",
+            "control plane must be resumed before live dispatch",
+        )
+    )
+
+
+def _hold_related_conflict_exit(exc: error.HTTPError) -> tuple[int | None, None]:
+    if exc.code != 409:
+        return None, None
+    detail = _http_error_detail(exc)
+    if not _hold_related_conflict_detail(detail):
+        return None, None
+    result: dict[str, object] = {
+        "ok": True,
+        "action": "skipped",
+        "reason": "research autopilot skipped after hold-related 409",
+        "http_status": exc.code,
+        "detail": detail,
+    }
+    result["research_autopilot_history"] = append_research_autopilot_history(result)
+    print(json.dumps(result, sort_keys=True))
+    return 0, None
+
+
 def _main_missing_token_exit(token: str) -> int | None:
     if token:
         return None
@@ -1044,6 +1096,9 @@ def _post_research_run_cycle(
             return exit_code, None
         return _research_autopilot_request_failure_exit(exc)
     except error.HTTPError as exc:
+        exit_code, result = _hold_related_conflict_exit(exc)
+        if exit_code is not None:
+            return exit_code, result
         return _research_autopilot_request_failure_exit(exc)
     except error.URLError as exc:
         exit_code = _transient_disconnect_exit(exc, base_url, phase="unavailable")

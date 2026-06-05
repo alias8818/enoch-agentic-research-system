@@ -242,6 +242,64 @@ def test_http_error_is_not_masked_by_recovery_probe(tmp_path, capsys, monkeypatc
     assert "HTTPError" in result["reason"]
 
 
+def test_hold_conflict_after_preflight_exits_zero_as_skipped(
+    tmp_path, capsys, monkeypatch
+):
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
+    history = tmp_path / "history.jsonl"
+    monkeypatch.setenv("ENOCH_CONFIG", str(config))
+    monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(history))
+
+    class _HTTP409(error.HTTPError):
+        def read(self, n=-1):
+            return json.dumps(
+                {
+                    "detail": (
+                        "maintenance mode blocks live dispatch; set "
+                        "override_hold_action=dispatch-one-while-held for an "
+                        "explicit operator override"
+                    )
+                }
+            ).encode("utf-8")
+
+    hold_conflict = _HTTP409(
+        url="http://127.0.0.1:8787/control/api/research/run-cycle",
+        code=409,
+        msg="Conflict",
+        hdrs={},
+        fp=None,
+    )
+
+    with (
+        patch.object(
+            autopilot,
+            "_get_json",
+            return_value={"flags": {"queue_paused": False, "maintenance_mode": False}},
+        ),
+        patch.object(autopilot, "_post_json", side_effect=hold_conflict),
+        patch.object(autopilot, "refresh_research_quality_report") as refresh,
+        patch.object(autopilot, "run_quota_gated_janitor_llm_review") as janitor,
+    ):
+        assert autopilot.main() == 0
+
+    refresh.assert_not_called()
+    janitor.assert_not_called()
+    result = json.loads(capsys.readouterr().out)
+    assert result["ok"] is True
+    assert result["action"] == "skipped"
+    assert result["reason"] == "research autopilot skipped after hold-related 409"
+    assert result["http_status"] == 409
+    rows = [
+        json.loads(line) for line in history.read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[-1]["ok"] is True
+    assert rows[-1]["reason"] == result["reason"]
+
+
 def test_research_autopilot_skips_run_cycle_during_control_hold(
     tmp_path, capsys, monkeypatch
 ):
