@@ -460,6 +460,22 @@ _DEFAULT_RESEARCH_MODEL = "gpt-5.5"
 _ROUTER_GATE_CONFIG: GateConfig | None = None
 
 
+def _codex_dispatch_model(candidate: dict[str, Any]) -> str:
+    """Return a Codex CLI model id, not an upstream idea-provider route id.
+
+    Research-provider model identifiers with provider prefixes describe where
+    an idea was generated. They are not valid ``codex --model`` values for a
+    ChatGPT-account Codex worker. Sending
+    them through the worker dispatch boundary causes immediate API 400 failures
+    before any project work begins.
+    """
+
+    model = str(candidate.get("model") or "").strip()
+    if not model or "/" in model or ":" in model:
+        return _DEFAULT_RESEARCH_MODEL
+    return model
+
+
 @dataclass(frozen=True)
 class _ResearchProviderSelection:
     provider_model: str
@@ -2292,7 +2308,7 @@ def _post_live_dispatch_run(
         "project_dir": project_dir,
         "prompt_file": prompt_file,
         "mode": "exec",
-        "model": str(candidate.get("model") or _DEFAULT_RESEARCH_MODEL),
+        "model": _codex_dispatch_model(candidate),
         "reasoning_effort": "medium",
         "sandbox": str(candidate.get("sandbox") or "danger-full-access"),
     }
@@ -3361,14 +3377,22 @@ def _select_generation_target_lane(lane_feed_pressure: dict) -> str | None:
     if not lane_feed_pressure:
         return None
 
-    generation_target_actions = {"dispatch_queued", "generate_candidate"}
+    generation_target_actions = {
+        "dispatch_queued",
+        "generate_candidate",
+        "promote_candidate",
+    }
 
     generation_target_candidates = [
         item
         for item in lane_feed_pressure.values()
-        if item.get("queue_deficit")
+        if (
+            item.get("machine_target")
+            or not int(item.get("promotable_count") or 0)
+        )
+        and int(item.get("queue_deficit") or 0)
+        > int(item.get("promotable_count") or 0)
         and item.get("next_autopilot_action") in generation_target_actions
-        and not item.get("promotable_count")
     ]
 
     if not generation_target_candidates:

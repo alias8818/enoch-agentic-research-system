@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import (
     _active_lane_worker_confirmation,
+    _codex_dispatch_model,
     _fetch_synthetic_research_budget,
     _handle_followup_and_early_skips,
     _project_prompt,
@@ -44,6 +45,13 @@ from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
 TOKEN = "test-token"
+
+
+def test_codex_dispatch_model_falls_back_for_provider_route_ids() -> None:
+    assert _codex_dispatch_model({"model": "minimax/minimax-m2.7"}) == "gpt-5.5"
+    assert _codex_dispatch_model({"model": "hf:zai-org/GLM-5.1"}) == "gpt-5.5"
+    assert _codex_dispatch_model({"model": "gpt-5.5"}) == "gpt-5.5"
+    assert _codex_dispatch_model({}) == "gpt-5.5"
 
 
 def _config(tmp: str) -> GateConfig:
@@ -17398,6 +17406,41 @@ def test_generation_target_lane_fills_under_depth_idle_queue_before_defaulting()
 
     assert target is not None
     assert target["machine_target"] == "cpu-proxmox-1"
+
+
+def test_generation_target_lane_targets_under_depth_lane_with_tiny_promotable_backlog():
+    """A tiny admitted backlog must not suppress lane-targeted generation.
+
+    Live regression: CPU and GB10 were both 17 items below target, but each had
+    1-2 promotable candidates.  The selector treated that as backlog-satisfied,
+    which let bounded follow-ups skip both fresh generation and promotion for
+    many consecutive timer ticks while dispatch continued draining the queues.
+    """
+    from enoch_control_plane.control_plane.router import _select_generation_target_lane
+
+    target = _select_generation_target_lane(
+        {
+            "cpu-proxmox-1": {
+                "machine_target": "cpu-proxmox-1",
+                "lane_key": "http://cpu-worker:8787",
+                "queued_count": 8,
+                "queue_deficit": 17,
+                "promotable_count": 2,
+                "next_autopilot_action": "dispatch_queued",
+            },
+            "gb10": {
+                "machine_target": "gb10",
+                "lane_key": "http://gb10-worker:8787",
+                "queued_count": 8,
+                "queue_deficit": 17,
+                "promotable_count": 1,
+                "next_autopilot_action": "promote_candidate",
+            },
+        },
+    )
+
+    assert target is not None
+    assert int(target["queue_deficit"]) > int(target["promotable_count"])
 
 
 def test_generation_target_lane_skips_when_all_lanes_are_depth_satisfied():
