@@ -570,7 +570,7 @@ def test_research_quality_finding_explains_review_required_signal_during_hold(
                     "quality floor satisfied across 45 candidates and 50 decisions"
                 ),
             },
-            "report_mtime": "2026-06-02T09:45:15Z",
+            "report_mtime": datetime.now(timezone.utc).isoformat(),
             "report_path": str(report_path),
             "post_prompt_monitor": {
                 "window_comparison": {
@@ -1963,6 +1963,269 @@ def test_queue_alert_notify_suppresses_cooldown_duplicate(
     assert result["sent"] is False
     assert result["suppressed_by_cooldown"] is True
     assert result["notification"]["detail"] == "cooldown duplicate suppressed"
+
+
+def test_queue_alert_forwards_inserted_alert_to_hermes_webhook(
+    monkeypatch, tmp_path
+) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import alerts
+    from enoch_control_plane.control_plane.alerts import (
+        PushoverResult,
+        WebhookResult,
+        evaluate_and_notify_queue_alerts,
+    )
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        live_dispatch_enabled=True,
+        queue_alert_hang_after_sec=300,
+        queue_alert_cooldown_sec=3600,
+        pushover_alerts_enabled=True,
+        pushover_app_token="app",
+        pushover_user_key="user",
+        hermes_alert_webhook_enabled=True,
+        hermes_alert_webhook_url="http://127.0.0.1:8644/webhooks/enoch-alert",
+    )
+    updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
+        warnings=[],
+        source_freshness={},
+        dispatch_safe=False,
+        dispatch_blockers=["active row stale"],
+    )
+
+    class Store:
+        def event_rows(self, limit=100):  # noqa: ANN001 - alert store fake
+            return []
+
+        def append_event(self, **_kwargs):  # noqa: ANN003 - alert store fake
+            return ("evt-1", True)
+
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        alerts,
+        "send_pushover",
+        lambda *args, **kwargs: PushoverResult(attempted=True, ok=True, detail="sent"),
+    )
+
+    def fake_webhook(*_args, **kwargs):  # noqa: ANN001 - test guard
+        seen.update(kwargs)
+        return WebhookResult(attempted=True, ok=True, status_code=202, detail="accepted")
+
+    monkeypatch.setattr(alerts, "send_hermes_alert_webhook", fake_webhook)
+
+    result = evaluate_and_notify_queue_alerts(
+        config=config,
+        store=Store(),
+        status=status,
+        dry_run=False,
+        force_notify=False,
+        requested_by="test",
+    )  # type: ignore[arg-type]
+
+    assert result["should_alert"] is True
+    assert result["sent"] is True
+    assert result["hermes_webhook"] == {
+        "attempted": True,
+        "ok": True,
+        "status_code": 202,
+        "detail": "accepted",
+    }
+    assert seen["fingerprint"] == result["fingerprint"]
+    assert seen["event_id"] == "evt-1"
+    assert seen["payload"]["fingerprint"] == result["fingerprint"]
+
+
+def test_queue_alert_does_not_forward_cooldown_duplicate_to_hermes_webhook(
+    monkeypatch, tmp_path
+) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import alerts
+    from enoch_control_plane.control_plane.alerts import evaluate_and_notify_queue_alerts
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        live_dispatch_enabled=True,
+        queue_alert_hang_after_sec=300,
+        queue_alert_cooldown_sec=3600,
+        pushover_alerts_enabled=True,
+        pushover_app_token="app",
+        pushover_user_key="user",
+        hermes_alert_webhook_enabled=True,
+        hermes_alert_webhook_url="http://127.0.0.1:8644/webhooks/enoch-alert",
+    )
+    updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
+        warnings=[],
+        source_freshness={},
+        dispatch_safe=False,
+        dispatch_blockers=["active row stale"],
+    )
+
+    class Store:
+        def event_rows(self, limit=100):  # noqa: ANN001 - alert store fake
+            return []
+
+        def append_event(self, **_kwargs):  # noqa: ANN003 - alert store fake
+            return ("evt-1", False)
+
+    def fail_webhook(*_args, **_kwargs):  # noqa: ANN001 - test guard
+        raise AssertionError("Hermes webhook should not run for cooldown duplicate")
+
+    monkeypatch.setattr(alerts, "send_hermes_alert_webhook", fail_webhook)
+
+    result = evaluate_and_notify_queue_alerts(
+        config=config,
+        store=Store(),
+        status=status,
+        dry_run=False,
+        force_notify=False,
+        requested_by="test",
+    )  # type: ignore[arg-type]
+
+    assert result["should_alert"] is True
+    assert result["suppressed_by_cooldown"] is True
+    assert result["hermes_webhook"]["attempted"] is False
+    assert result["hermes_webhook"]["ok"] is True
+    assert result["hermes_webhook"]["detail"] == "cooldown duplicate suppressed"
+
+
+def test_send_hermes_alert_webhook_uses_hmac_signature_header(
+    monkeypatch, tmp_path
+) -> None:
+    import hashlib
+    import hmac
+    import json
+
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import alerts
+    from enoch_control_plane.control_plane.models import DashboardFinding
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        hermes_alert_webhook_url="http://127.0.0.1:8644/webhooks/enoch-alert",
+        hermes_alert_webhook_secret="route-secret",
+    )
+    seen: dict[str, object] = {}
+
+    class FakeResponse:
+        status = 202
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit=2048):
+            return b"accepted"
+
+    def fake_urlopen(req, timeout=0):  # noqa: ANN001 - urllib request fake
+        seen["timeout"] = timeout
+        seen["data"] = req.data
+        seen["headers"] = dict(req.header_items())
+        return FakeResponse()
+
+    monkeypatch.setattr(alerts.request, "urlopen", fake_urlopen)
+    result = alerts.send_hermes_alert_webhook(
+        config,
+        fingerprint="fp",
+        event_id="evt",
+        message="message",
+        findings=[
+            DashboardFinding(
+                severity="critical",
+                source="test",
+                authority="test",
+                message="critical test",
+                suggested_action="inspect",
+            )
+        ],
+        payload={"fingerprint": "fp"},
+    )
+
+    headers = seen["headers"]
+    data = seen["data"]
+    assert result.ok is True
+    assert headers["X-hub-signature-256"] == "sha256=" + hmac.new(
+        b"route-secret", data, hashlib.sha256
+    ).hexdigest()
+    assert "Authorization" not in headers
+    body = json.loads(data.decode())
+    assert body["fingerprint"] == "fp"
+    assert body["queue_alert"]["fingerprint"] == "fp"
+
+
+def test_send_hermes_alert_webhook_rejects_non_http_url_before_urlopen(
+    monkeypatch, tmp_path
+) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import alerts
+    from enoch_control_plane.control_plane.models import DashboardFinding
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        hermes_alert_webhook_url="file:///etc/passwd",
+    )
+
+    def fake_urlopen(*_args, **_kwargs):  # noqa: ANN001 - test guard
+        raise AssertionError("urlopen should not run for unsafe Hermes webhook URL")
+
+    monkeypatch.setattr(alerts.request, "urlopen", fake_urlopen)
+    result = alerts.send_hermes_alert_webhook(
+        config,
+        fingerprint="fp",
+        event_id="evt",
+        message="message",
+        findings=[
+            DashboardFinding(
+                severity="critical",
+                source="test",
+                authority="test",
+                message="critical test",
+                suggested_action="inspect",
+            )
+        ],
+        payload={"fingerprint": "fp"},
+    )
+
+    assert result.attempted is True
+    assert result.ok is False
+    assert "hermes alert webhook url must use http or https" in result.detail
 
 
 def test_queue_alert_findings_suppresses_worker_settling_warning() -> None:

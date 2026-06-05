@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -39,6 +40,14 @@ DISPATCH_TRANSITION_EVENTS = {
 
 @dataclass(frozen=True)
 class PushoverResult:
+    attempted: bool
+    ok: bool
+    status_code: int | None = None
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class WebhookResult:
     attempted: bool
     ok: bool
     status_code: int | None = None
@@ -855,6 +864,87 @@ def send_pushover(
         )
 
 
+def _hermes_webhook_configured(config: GateConfig) -> bool:
+    return bool(
+        config.hermes_alert_webhook_url or os.environ.get("HERMES_ALERT_WEBHOOK_URL")
+    )
+
+
+def _queue_alert_webhook_payload(
+    *,
+    fingerprint: str,
+    event_id: str | None,
+    message: str,
+    findings: list[DashboardFinding],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "source": "enoch-control-plane",
+        "service": "enoch-queue-alert-check",
+        "severity": "critical" if _findings_include_critical(findings) else "warning",
+        "title": "Enoch queue alert",
+        "fingerprint": fingerprint,
+        "event_id": event_id,
+        "message": message,
+        "queue_alert": payload,
+    }
+
+
+def send_hermes_alert_webhook(
+    config: GateConfig,
+    *,
+    fingerprint: str,
+    event_id: str | None,
+    message: str,
+    findings: list[DashboardFinding],
+    payload: dict[str, Any],
+) -> WebhookResult:
+    webhook_url = config.hermes_alert_webhook_url or os.environ.get(
+        "HERMES_ALERT_WEBHOOK_URL", ""
+    )
+    if not webhook_url:
+        return WebhookResult(
+            attempted=False, ok=False, detail="hermes alert webhook url not configured"
+        )
+    data = json.dumps(
+        _queue_alert_webhook_payload(
+            fingerprint=fingerprint,
+            event_id=event_id,
+            message=message,
+            findings=findings,
+            payload=payload,
+        ),
+        sort_keys=True,
+    ).encode("utf-8")
+    try:
+        safe_url = validate_http_url(webhook_url, field_name="hermes alert webhook url")
+        headers = {
+            "Content-Type": "application/json",
+            "X-Enoch-Alert-Fingerprint": fingerprint,
+        }
+        secret = config.hermes_alert_webhook_secret or os.environ.get(
+            "HERMES_ALERT_WEBHOOK_SECRET", ""
+        )
+        if secret:
+            signature = hmac.new(secret.encode(), data, hashlib.sha256).hexdigest()
+            headers["X-Hub-Signature-256"] = f"sha256={signature}"
+        req = request.Request(safe_url, data=data, method="POST", headers=headers)
+        with request.urlopen(
+            req, timeout=config.hermes_alert_webhook_timeout_sec
+        ) as resp:
+            body = resp.read(2048).decode("utf-8", errors="replace")
+            return WebhookResult(
+                attempted=True,
+                ok=200 <= resp.status < 300,
+                status_code=resp.status,
+                detail=body,
+            )
+    except Exception as exc:  # pragma: no cover - exercised by integration/runtime
+        return WebhookResult(
+            attempted=True, ok=False, detail=f"{type(exc).__name__}: {exc}"
+        )
+
+
 def _findings_include_critical(findings: list[DashboardFinding]) -> bool:
     return any(f.severity == "critical" for f in findings)
 
@@ -1017,6 +1107,35 @@ def _dispatch_queue_alert_notification(
     return notification.ok, False, notification
 
 
+def _dispatch_queue_alert_webhook(
+    config: GateConfig,
+    *,
+    findings: list[DashboardFinding],
+    message: str,
+    force_notify: bool,
+    inserted: bool,
+    event_id: str | None,
+    fingerprint: str,
+    payload: dict[str, Any],
+) -> WebhookResult:
+    if not (inserted or force_notify):
+        return WebhookResult(
+            attempted=False, ok=True, detail="cooldown duplicate suppressed"
+        )
+    if not (config.hermes_alert_webhook_enabled or force_notify):
+        return WebhookResult(
+            attempted=False, ok=False, detail="hermes alert webhook disabled"
+        )
+    return send_hermes_alert_webhook(
+        config,
+        fingerprint=fingerprint,
+        event_id=event_id,
+        message=message,
+        findings=findings,
+        payload=payload,
+    )
+
+
 def _queue_alert_result_ok(
     *,
     should_alert: bool,
@@ -1040,6 +1159,7 @@ class _QueueAlertDeliveryState:
     sent: bool
     suppressed: bool
     notification: PushoverResult
+    hermes_webhook: WebhookResult
     event_id: str | None
     inserted: bool
     event_append_error: str
@@ -1049,6 +1169,7 @@ _NO_ALERT_DELIVERY = _QueueAlertDeliveryState(
     sent=False,
     suppressed=False,
     notification=PushoverResult(attempted=False, ok=False, detail="no alert findings"),
+    hermes_webhook=WebhookResult(attempted=False, ok=False, detail="no alert findings"),
     event_id=None,
     inserted=False,
     event_append_error="",
@@ -1074,6 +1195,13 @@ def _build_queue_alert_result(
             suppressed=delivery.suppressed,
             config=config,
             force_notify=force_notify,
+        )
+        and (
+            not should_alert
+            or dry_run
+            or delivery.suppressed
+            or not config.hermes_alert_webhook_enabled
+            or delivery.hermes_webhook.ok
         ),
         "source": "control_api_queue_alert_check",
         "generated_at": utc_now(),
@@ -1088,6 +1216,9 @@ def _build_queue_alert_result(
         "alerts_enabled": config.pushover_alerts_enabled,
         "pushover_configured": _pushover_configured(config),
         "notification": delivery.notification.__dict__,
+        "hermes_alert_webhook_enabled": config.hermes_alert_webhook_enabled,
+        "hermes_alert_webhook_configured": _hermes_webhook_configured(config),
+        "hermes_webhook": delivery.hermes_webhook.__dict__,
         "findings": [item.model_dump(mode="json") for item in findings],
         "transient_suppressed_findings": [
             item.model_dump(mode="json") for item in transient_suppressed_findings
@@ -1113,6 +1244,7 @@ def _deliver_queue_alert(
             sent=False,
             suppressed=False,
             notification=PushoverResult(attempted=False, ok=True, detail="dry run"),
+            hermes_webhook=WebhookResult(attempted=False, ok=True, detail="dry run"),
             event_id=None,
             inserted=False,
             event_append_error="",
@@ -1131,10 +1263,21 @@ def _deliver_queue_alert(
         inserted=inserted,
         event_append_error=event_append_error,
     )
+    hermes_webhook = _dispatch_queue_alert_webhook(
+        config,
+        findings=findings,
+        message=message,
+        force_notify=force_notify,
+        inserted=inserted,
+        event_id=event_id,
+        fingerprint=fingerprint,
+        payload=payload,
+    )
     return _QueueAlertDeliveryState(
         sent=sent,
         suppressed=suppressed,
         notification=notification,
+        hermes_webhook=hermes_webhook,
         event_id=event_id,
         inserted=inserted,
         event_append_error=event_append_error,

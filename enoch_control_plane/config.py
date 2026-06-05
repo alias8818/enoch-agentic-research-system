@@ -82,6 +82,10 @@ class GateConfig(BaseModel):
     pushover_app_token: str = ""
     pushover_user_key: str = ""
     pushover_api_url: str = "https://api.pushover.net/1/messages.json"
+    hermes_alert_webhook_enabled: bool = False
+    hermes_alert_webhook_url: str = ""
+    hermes_alert_webhook_secret: str = ""
+    hermes_alert_webhook_timeout_sec: int = Field(default=8, ge=1, le=30)
     queue_alert_cooldown_sec: int = Field(default=1800, ge=60)
     queue_alert_hang_after_sec: int = Field(default=3600, ge=300)
     paper_writer_provider: str = "deterministic"
