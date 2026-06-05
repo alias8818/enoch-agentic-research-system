@@ -51,7 +51,9 @@ def test_min_release_age_main_uses_exit_side_effect_not_status_value(
     assert check_min_release_age.main() is None
 
 
-def test_research_signal_quality_card_delegates_only_actionable_detail_sections() -> None:
+def test_research_signal_quality_card_delegates_only_actionable_detail_sections() -> (
+    None
+):
     source = (
         validate_agents_md.REPO_ROOT / "dashboard/src/overviewPage.tsx"
     ).read_text(encoding="utf-8")

@@ -71,7 +71,9 @@ def test_weak_evidence_on_negative_mixed_result_is_warning_not_blocked() -> None
     assert status["report_mtime"] == "2026-05-11T00:00:01Z"
 
 
-def test_weak_evidence_on_supported_useful_signal_with_bounded_followup_is_warning_not_blocked() -> None:
+def test_weak_evidence_on_supported_useful_signal_with_bounded_followup_is_warning_not_blocked() -> (
+    None
+):
     report = _report_with_decision(
         "weak_or_missing_evidence_strength",
         decision="finalize_negative",

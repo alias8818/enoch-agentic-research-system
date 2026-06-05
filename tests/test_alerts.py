@@ -2023,7 +2023,9 @@ def test_queue_alert_forwards_inserted_alert_to_hermes_webhook(
 
     def fake_webhook(*_args, **kwargs):  # noqa: ANN001 - test guard
         seen.update(kwargs)
-        return WebhookResult(attempted=True, ok=True, status_code=202, detail="accepted")
+        return WebhookResult(
+            attempted=True, ok=True, status_code=202, detail="accepted"
+        )
 
     monkeypatch.setattr(alerts, "send_hermes_alert_webhook", fake_webhook)
 
@@ -2054,7 +2056,9 @@ def test_queue_alert_does_not_forward_cooldown_duplicate_to_hermes_webhook(
 ) -> None:
     from enoch_control_plane.config import GateConfig
     from enoch_control_plane.control_plane import alerts
-    from enoch_control_plane.control_plane.alerts import evaluate_and_notify_queue_alerts
+    from enoch_control_plane.control_plane.alerts import (
+        evaluate_and_notify_queue_alerts,
+    )
 
     config = GateConfig(
         state_dir=str(tmp_path / "state"),
@@ -2176,9 +2180,10 @@ def test_send_hermes_alert_webhook_uses_hmac_signature_header(
     headers = seen["headers"]
     data = seen["data"]
     assert result.ok is True
-    assert headers["X-hub-signature-256"] == "sha256=" + hmac.new(
-        b"route-secret", data, hashlib.sha256
-    ).hexdigest()
+    assert (
+        headers["X-hub-signature-256"]
+        == "sha256=" + hmac.new(b"route-secret", data, hashlib.sha256).hexdigest()
+    )
     assert "Authorization" not in headers
     body = json.loads(data.decode())
     assert body["fingerprint"] == "fp"

@@ -1611,7 +1611,9 @@ def _autopilot_stdout_summary(result: dict) -> dict:
             if key in attempt
         }
     if isinstance(result.get("stages"), list):
-        compact["stages"] = [_compact_autopilot_stage(stage) for stage in result["stages"]]
+        compact["stages"] = [
+            _compact_autopilot_stage(stage) for stage in result["stages"]
+        ]
     for key in (
         "research_autopilot_history",
         "research_quality_refresh",

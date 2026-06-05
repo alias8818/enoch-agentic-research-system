@@ -1023,7 +1023,9 @@ def test_janitor_llm_review_uses_dedicated_model_not_provider_rotation(
 
     def fake_run(cmd, *, cwd, text, stdout, stderr, timeout, check, env):
         calls.append({"cmd": cmd})
-        output.write_text(json.dumps({"ok": True, "action": "reviewed"}), encoding="utf-8")
+        output.write_text(
+            json.dumps({"ok": True, "action": "reviewed"}), encoding="utf-8"
+        )
         return Mock(returncode=0, stdout="", stderr="")
 
     monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REVIEW_ENABLED", "1")
