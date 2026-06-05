@@ -2032,7 +2032,6 @@ def movement_diagnosis(
     flags: Mapping[str, Any] | None,
     worker_lanes: Sequence[Mapping[str, Any]] | None,
     paper_pipeline: Mapping[str, Any],
-    investigation_pipeline: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Explain, deterministically, why work is or is not moving.
 
@@ -5369,7 +5368,6 @@ def overview(
         flags=flags,
         worker_lanes=worker_lanes,
         paper_pipeline=paper_pipeline,
-        investigation_pipeline=investigation_pipeline,
     )
     primary_action = primary_operator_action(
         worker_lanes=worker_lanes, movement=movement

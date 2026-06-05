@@ -431,7 +431,6 @@ class MovementDiagnosisTests(unittest.TestCase):
                 },
             ],
             paper_pipeline={},
-            investigation_pipeline={},
         )
 
         self.assertEqual(diagnosis["status"], "blocked")
@@ -458,7 +457,6 @@ class MovementDiagnosisTests(unittest.TestCase):
                 },
             ],
             paper_pipeline={"not_writable_by_decision_gate": 10},
-            investigation_pipeline={"ranked_followup_ready": 1},
         )
 
         self.assertEqual(diagnosis["status"], "blocked")
@@ -488,7 +486,6 @@ class MovementDiagnosisTests(unittest.TestCase):
                 },
             ],
             paper_pipeline={},
-            investigation_pipeline={},
         )
 
         self.assertEqual(diagnosis["status"], "actionable")
@@ -517,7 +514,6 @@ class MovementDiagnosisTests(unittest.TestCase):
                 }
             ],
             paper_pipeline={"paper_write_blocked": 0, "finalize_needed": 0},
-            investigation_pipeline={"ranked_followup_ready": 2},
         )
 
         blocker_text = " ".join(
@@ -543,7 +539,6 @@ class MovementDiagnosisTests(unittest.TestCase):
                 },
             ],
             paper_pipeline={},
-            investigation_pipeline={},
         )
 
         self.assertEqual(diagnosis["status"], "blocked")
@@ -560,7 +555,6 @@ class MovementDiagnosisTests(unittest.TestCase):
                 "paper_write_blocked": 0,
                 "finalize_needed": 2,
             },
-            investigation_pipeline={},
         )
 
         kinds = [item["kind"] for item in diagnosis["blockers"]]
@@ -573,7 +567,6 @@ class MovementDiagnosisTests(unittest.TestCase):
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=[],
             paper_pipeline={"paper_write_blocked": 2, "finalize_needed": 0},
-            investigation_pipeline={},
         )
 
         kinds = [item["kind"] for item in diagnosis["blockers"]]
@@ -601,7 +594,6 @@ class MovementDiagnosisTests(unittest.TestCase):
                 },
             ],
             paper_pipeline={},
-            investigation_pipeline={},
         )
 
         self.assertEqual(diagnosis["status"], "blocked")
@@ -631,7 +623,6 @@ class PrimaryOperatorActionTests(unittest.TestCase):
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=lanes,
             paper_pipeline={},
-            investigation_pipeline={},
         )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
@@ -657,7 +648,6 @@ class PrimaryOperatorActionTests(unittest.TestCase):
             flags={"queue_paused": True, "maintenance_mode": False},
             worker_lanes=lanes,
             paper_pipeline={},
-            investigation_pipeline={},
         )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
@@ -683,7 +673,6 @@ class PrimaryOperatorActionTests(unittest.TestCase):
             flags={"queue_paused": False, "maintenance_mode": True},
             worker_lanes=lanes,
             paper_pipeline={},
-            investigation_pipeline={},
         )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
@@ -726,7 +715,6 @@ class PrimaryOperatorActionTests(unittest.TestCase):
             flags={"queue_paused": True, "maintenance_mode": False},
             worker_lanes=lanes,
             paper_pipeline={},
-            investigation_pipeline={},
         )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
@@ -748,7 +736,6 @@ class PrimaryOperatorActionTests(unittest.TestCase):
             flags={"queue_paused": True, "maintenance_mode": False},
             worker_lanes=lanes,
             paper_pipeline={},
-            investigation_pipeline={},
         )
         action = primary_operator_action(worker_lanes=lanes, movement=movement)
         self.assertIsNotNone(action)
@@ -770,7 +757,6 @@ class PrimaryOperatorActionTests(unittest.TestCase):
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=lanes,
             paper_pipeline={},
-            investigation_pipeline={},
         )
         self.assertIsNone(
             primary_operator_action(worker_lanes=lanes, movement=movement)

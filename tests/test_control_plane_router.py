@@ -9604,7 +9604,6 @@ class ControlPlaneRouterTests(unittest.TestCase):
             flags={"queue_paused": False, "maintenance_mode": False},
             worker_lanes=[],
             paper_pipeline={"not_writable_by_decision_gate": 3, "finalize_needed": 0},
-            investigation_pipeline={},
         )
 
         self.assertEqual(paper_gate_only["status"], "ready")
@@ -9622,7 +9621,6 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "paper_write_blocked": 0,
                 "finalize_needed": 1,
             },
-            investigation_pipeline={},
         )
 
         self.assertEqual(evidence_missing["status"], "blocked")
@@ -9642,7 +9640,6 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 "paper_write_blocked": 1,
                 "finalize_needed": 0,
             },
-            investigation_pipeline={},
         )
         self.assertEqual(positive_anomaly["status"], "blocked")
         self.assertTrue(
