@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import inspect
 import os
 import sqlite3
 import tempfile
@@ -23,6 +24,7 @@ from enoch_control_plane.control_plane.router import (
     _fetch_synthetic_research_budget,
     _handle_followup_and_early_skips,
     _project_prompt,
+    _register_control_plane_maintenance_routes,
     _run_resume_systemctl,
     _write_deterministic_paper,
     create_control_plane_router,
@@ -52,6 +54,13 @@ def test_codex_dispatch_model_falls_back_for_provider_route_ids() -> None:
     assert _codex_dispatch_model({"model": "hf:zai-org/GLM-5.1"}) == "gpt-5.5"
     assert _codex_dispatch_model({"model": "gpt-5.5"}) == "gpt-5.5"
     assert _codex_dispatch_model({}) == "gpt-5.5"
+
+
+def test_maintenance_route_registrar_does_not_require_unused_config() -> None:
+    assert (
+        "config"
+        not in inspect.signature(_register_control_plane_maintenance_routes).parameters
+    )
 
 
 def _config(tmp: str) -> GateConfig:
@@ -209,6 +218,16 @@ def _client_with_config(config: GateConfig) -> TestClient:
 
     app.include_router(create_control_plane_router(config, require))
     return TestClient(app)
+
+
+def test_operator_pause_resume_openapi_documents_readonly_store_501() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        openapi = _client(tmp).get("/openapi.json").json()
+
+    for path in ("/control/pause", "/control/resume"):
+        responses = openapi["paths"][path]["post"]["responses"]
+        assert "501" in responses
+        assert "writable control-plane store" in responses["501"]["description"]
 
 
 def test_dashboard_maintenance_resume_rearms_systemd_and_records_observation() -> None:

@@ -1111,7 +1111,6 @@ function ResearchSignalQualityCard({ quality }: Readonly<{ quality: OverviewResp
       <ResearchQualityFloor qualityFloor={quality.quality_floor} />
       <ResearchQualityDecisionPosture decisionPosture={decisionPosture} />
       <ResearchQualityPaperBlockers paperReadinessBlockers={decisionPosture?.paper_readiness_blockers} />
-      <ResearchQualityFollowupReadiness followupReadiness={quality.followup_readiness} />
       <ResearchQualityFollowupScope followupScopeAlignment={quality.followup_scope_alignment} />
       <ResearchQualityWindowComparison windowComparison={quality.window_comparison} />
       <ResearchQualityReportFreshness freshnessSummary={quality.freshness_summary} />
