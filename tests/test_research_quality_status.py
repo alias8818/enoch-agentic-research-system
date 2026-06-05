@@ -71,6 +71,48 @@ def test_weak_evidence_on_negative_mixed_result_is_warning_not_blocked() -> None
     assert status["report_mtime"] == "2026-05-11T00:00:01Z"
 
 
+def test_weak_evidence_on_supported_useful_signal_with_bounded_followup_is_warning_not_blocked() -> None:
+    report = _report_with_decision(
+        "weak_or_missing_evidence_strength",
+        decision="finalize_negative",
+        hypothesis_status="supported",
+    )
+    report["decision_scores"][0].update(
+        {
+            "research_outcome": "useful_signal",
+            "bounded_paper_ready": False,
+            "followup_recommended": True,
+            "followup_success_threshold": "acceptance improves by at least 10 percentage points",
+            "followup_stop_condition": "stop if the exact acceptance improvement does not replicate",
+            "scale_limits": "synthetic proxy only; real-corpus neural draft follow-up required",
+        }
+    )
+
+    status = classify_quality_report(
+        report,
+        report_path="/tmp/report.json",
+        report_mtime="2026-06-04T18:02:57Z",
+    )
+
+    assert status["ok"] is True
+    assert status["status"] == "warnings"
+    assert status["problem_counts"] == {"weak_or_missing_evidence_strength": 1}
+    assert status["severity_counts"] == {"warning": 1}
+    assert status["problem_details"] == [
+        {
+            "section": "decision_scores",
+            "severity": "warning",
+            "problem": "weak_or_missing_evidence_strength",
+            "project_id": "p1",
+            "candidate_id": None,
+            "run_id": "r1",
+            "title": "Project 1",
+            "decision": "finalize_negative",
+            "hypothesis_status": "supported",
+        }
+    ]
+
+
 def test_quality_report_recommendations_survive_classification() -> None:
     report = _report_with_decision("weak_or_missing_evidence_strength")
     report["recommendations"] = [

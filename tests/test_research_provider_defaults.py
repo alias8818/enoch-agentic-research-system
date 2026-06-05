@@ -24,7 +24,6 @@ CENTRALIZED_DEFAULT_LITERALS = [
     "https://synthetic.int.exe.xyz",
     "https://synthetic.int.exe.xyz/openai/v1",
     "hf:zai-org/GLM-5.1",
-    "hf:moonshotai/Kimi-K2.6",
 ]
 
 
@@ -36,12 +35,17 @@ def test_research_provider_defaults_are_centralized() -> None:
     assert DEFAULT_RESEARCH_PROVIDER_MODEL == "hf:zai-org/GLM-5.1"
     assert DEFAULT_RESEARCH_PROVIDER_MODEL_ROTATION == (
         "hf:zai-org/GLM-5.1",
-        "hf:moonshotai/Kimi-K2.6",
     )
     assert DEFAULT_ALLOWED_RESEARCH_MODELS == (
-        "hf:moonshotai/Kimi-K2.6",
         "hf:zai-org/GLM-5.1",
     )
+
+
+def test_research_provider_defaults_exclude_kimi_for_structured_output() -> None:
+    forbidden = "moonshotai/kimi"
+
+    assert all(forbidden not in model.lower() for model in DEFAULT_RESEARCH_PROVIDER_MODEL_ROTATION)
+    assert all(forbidden not in model.lower() for model in DEFAULT_ALLOWED_RESEARCH_MODELS)
 
 
 def test_runtime_files_do_not_duplicate_provider_default_literals() -> None:

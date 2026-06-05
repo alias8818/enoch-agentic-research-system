@@ -42,6 +42,7 @@ def _weak_evidence_problem_severity(
     *,
     decision: str,
     hypothesis_status: str,
+    research_outcome: str = "",
     followup_recommended: bool = False,
     bounded_followup: bool = False,
     bounded_paper_ready: bool = False,
@@ -64,7 +65,19 @@ def _weak_evidence_problem_severity(
         and bounded_followup
         and not bounded_paper_ready
     )
-    if (demote_decision or needs_external_review) and problem in weak_evidence_problems:
+    supported_useful_signal_needs_bounded_followup = (
+        decision == "finalize_negative"
+        and hypothesis_status == "supported"
+        and research_outcome == "useful_signal"
+        and followup_recommended
+        and bounded_followup
+        and not bounded_paper_ready
+    )
+    if (
+        demote_decision
+        or needs_external_review
+        or supported_useful_signal_needs_bounded_followup
+    ) and problem in weak_evidence_problems:
         return "warning"
     return None
 
@@ -82,6 +95,7 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         problem,
         decision=decision,
         hypothesis_status=hypothesis_status,
+        research_outcome=str(item.get("research_outcome") or "").strip(),
         followup_recommended=followup_recommended,
         bounded_followup=bounded_followup,
         bounded_paper_ready=as_bool(item.get("bounded_paper_ready")),
