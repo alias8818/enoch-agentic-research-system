@@ -1980,19 +1980,6 @@ def _movement_pipeline_blockers(
                 "action_hash": "#automation",
             }
         )
-    if not suppress_actionable and _safe_count(
-        investigation_pipeline.get("ranked_followup_ready")
-    ):
-        blockers.append(
-            {
-                "kind": "followup_ready",
-                "tone": "info",
-                "title": "Bounded follow-up is ready",
-                "summary": "A preserved signal has enough bounded evidence to queue the next investigation.",
-                "action_label": "Queue follow-up",
-                "action_hash": ACTION_HASH_RESEARCH,
-            }
-        )
     return blockers
 
 

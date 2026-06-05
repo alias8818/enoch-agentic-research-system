@@ -499,6 +499,35 @@ class MovementDiagnosisTests(unittest.TestCase):
         self.assertIn("lane_active", kinds)
         self.assertIn("dispatch_available", kinds)
 
+    def test_followup_ready_is_not_command_hero_blocker(self) -> None:
+        # ALI-148 regression: "Bounded follow-up is ready" is useful
+        # research-pipeline detail, but it is confusing as a main-page command
+        # hero blocker/action while autopilot can handle it. Keep it out of
+        # movement diagnosis blockers so the first viewport stays operational.
+        diagnosis = movement_diagnosis(
+            flags={"queue_paused": False, "maintenance_mode": False},
+            worker_lanes=[
+                {
+                    "machine_target": "cpu-proxmox-1",
+                    "worker_role": "cpu_worker",
+                    "status": "active",
+                    "queued_count": 1,
+                    "dispatch_available": False,
+                    "dispatch_blocker": "lane active",
+                }
+            ],
+            paper_pipeline={"paper_write_blocked": 0, "finalize_needed": 0},
+            investigation_pipeline={"ranked_followup_ready": 2},
+        )
+
+        blocker_text = " ".join(
+            f"{item.get('title', '')} {item.get('summary', '')}"
+            for item in diagnosis["blockers"]
+        )
+        kinds = [item["kind"] for item in diagnosis["blockers"]]
+        self.assertNotIn("followup_ready", kinds)
+        self.assertNotIn("Bounded follow-up is ready", blocker_text)
+
     def test_idle_empty_lane_reports_no_admitted_candidates(self) -> None:
         diagnosis = movement_diagnosis(
             flags={"queue_paused": False, "maintenance_mode": False},

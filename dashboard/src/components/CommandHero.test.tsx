@@ -97,7 +97,6 @@ describe('CommandHero readiness × movement matrix', () => {
         blockers: [
           { kind: 'lane_active', title: 'CPU lane is running', summary: 'CPU lane is occupied by Active CPU.' },
           { kind: 'lane_active', title: 'GB10 lane is running', summary: 'GB10 lane is occupied by Active GB10.' },
-          { kind: 'followup_ready', title: 'Bounded follow-up is ready', summary: 'A preserved signal has enough bounded evidence to queue the next investigation.' },
         ],
       },
       { readiness: readyReadiness, readinessRequested: true },
