@@ -1952,8 +1952,6 @@ def _movement_lane_blocker(
 def _movement_pipeline_blockers(
     *,
     paper_pipeline: Mapping[str, Any],
-    investigation_pipeline: Mapping[str, Any],
-    suppress_actionable: bool = False,
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
     gate_attention = _safe_count(paper_pipeline.get("paper_write_blocked"))
@@ -2058,13 +2056,7 @@ def movement_diagnosis(
         ):
             continue
         blockers.append(lane_blocker)
-    blockers.extend(
-        _movement_pipeline_blockers(
-            paper_pipeline=paper_pipeline,
-            investigation_pipeline=investigation_pipeline,
-            suppress_actionable=global_dispatch_blocked,
-        )
-    )
+    blockers.extend(_movement_pipeline_blockers(paper_pipeline=paper_pipeline))
     status, primary_reason = _movement_status_and_reason(flags=flags, blockers=blockers)
     return {
         "status": status,
