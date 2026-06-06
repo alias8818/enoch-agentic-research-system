@@ -15,36 +15,36 @@ jobs:
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || 'self-hosted' }}
     steps:
       - name: Checkout system repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           path: enoch-agentic-research-system
       - name: Checkout corpus repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: alias8818/enoch-ai-research-corpus
           path: enoch-ai-research-corpus
       - name: Checkout promising signals repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: alias8818/enoch-promising-signals
           path: enoch-promising-signals
       - name: Checkout docs repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: alias8818/enoch-docs
           path: enoch-docs
       - name: Checkout profile site repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: alias8818/alias8818.github.io
           path: alias8818.github.io
       - name: Checkout owner profile repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: alias8818/alias8818
           path: alias8818
       - name: Checkout personal site repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: alias8818/jeremyblankenship.dev
           path: jeremyblankenship.dev
