@@ -1,6 +1,6 @@
 # Enoch Paper Material Graph
 
-Generated: `2026-06-07T02:11:45.549314+00:00`
+Generated: `2026-06-07T02:22:36.234868+00:00`
 
 ## Summary
 
@@ -210,3 +210,5 @@ Generated: `2026-06-07T02:11:45.549314+00:00`
 ## How to use this
 
 Use high-signal mixed components as paper-material candidates: a good component links prior public papers, useful/scale-blocked signals, source lineage, and repeated methods. The next layer should score these components for synthesis and queue bounded follow-up experiments that can turn weak individual runs into stronger paper-positive material.
+
+For live operations, timer checks, and artifact locations, see [Paper Material Graph Operations](operations.md).

@@ -226,3 +226,32 @@ def test_graph_output_redacts_private_paths_and_writes_json_and_markdown(
     markdown = out_md.read_text(encoding="utf-8")
     assert "# Enoch Paper Material Graph" in markdown
     assert "Trace Derived Memory" in markdown
+    assert "operations.md" in markdown
+
+
+def test_log_summary_is_compact_and_operator_focused(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    promising = tmp_path / "promising"
+    _write_corpus_paper(
+        corpus,
+        "memory-paper",
+        "Trace Derived Memory for Paper Material",
+        "Trace memory evidence ledger for agent replay.",
+    )
+    _write_promising_signal(
+        promising,
+        project_id="trace-memory-signal",
+        title="Trace derived memory for long running agents",
+    )
+
+    graph = builder.build_graph(corpus_repo=corpus, promising_repo=promising)
+    summary = builder._log_summary(graph)
+
+    assert summary["ok"] is True
+    assert summary["paper_count"] == 1
+    assert summary["synthesis_candidate_count"] == 1
+    assert "largest_components" not in summary
+    assert "synthesis_candidates" not in summary
+    assert summary["top_synthesis_titles"] == [
+        "Trace derived memory for long running agents"
+    ]

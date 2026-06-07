@@ -671,9 +671,37 @@ def _markdown(graph: dict[str, Any]) -> str:
             "",
             "Use high-signal mixed components as paper-material candidates: a good component links prior public papers, useful/scale-blocked signals, source lineage, and repeated methods. The next layer should score these components for synthesis and queue bounded follow-up experiments that can turn weak individual runs into stronger paper-positive material.",
             "",
+            "For live operations, timer checks, and artifact locations, see [Paper Material Graph Operations](operations.md).",
+            "",
         ]
     )
     return "\n".join(lines)
+
+
+def _log_summary(graph: dict[str, Any]) -> dict[str, Any]:
+    summary = graph["summary"]
+    return {
+        "ok": True,
+        "paper_count": summary.get("paper_count", 0),
+        "signal_count": summary.get("signal_count", 0),
+        "source_count": summary.get("source_count", 0),
+        "edge_count": summary.get("edge_count", 0),
+        "similar_topic_edges": summary.get("similar_topic_edges", 0),
+        "connected_component_count": summary.get("connected_component_count", 0),
+        "signal_status_counts": summary.get("signal_status_counts", {}),
+        "synthesis_candidate_count": len(summary.get("synthesis_candidates") or []),
+        "negative_result_candidate_count": len(
+            summary.get("negative_result_candidates") or []
+        ),
+        "top_synthesis_titles": [
+            candidate.get("title", "")
+            for candidate in (summary.get("synthesis_candidates") or [])[:5]
+        ],
+        "top_negative_titles": [
+            candidate.get("title", "")
+            for candidate in (summary.get("negative_result_candidates") or [])[:5]
+        ],
+    }
 
 
 def write_outputs(
@@ -710,7 +738,7 @@ def main(argv: list[str] | None = None) -> int:
     write_outputs(
         graph, json_output=args.json_output, markdown_output=args.markdown_output
     )
-    print(json.dumps({"ok": True, **graph["summary"]}, indent=2, sort_keys=True))
+    print(json.dumps(_log_summary(graph), indent=2, sort_keys=True))
     return 0
 
 
