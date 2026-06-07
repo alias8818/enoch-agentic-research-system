@@ -14,7 +14,7 @@ test('overview hero renders after token is present', async ({ page }) => {
 
 test('hash navigation opens queue list', async ({ page }) => {
   await openDashboardWithToken(page, '#queue:queued')
-  await expect(page.getByRole('heading', { name: 'Queue' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Queue', exact: true })).toBeVisible()
 })
 
 test('detail hash opens structured run detail', async ({ page }) => {
