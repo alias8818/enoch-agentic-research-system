@@ -89,12 +89,14 @@ it('shows the read-only paper material graph panel on overview', async () => {
 
   render(<App />)
 
-  expect(await screen.findByRole('heading', { name: 'Graph intelligence' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Graph briefing' })).toBeInTheDocument()
   expect(screen.getByText('Paper material graph')).toBeInTheDocument()
+  expect(screen.getByText('Best synthesis lead')).toBeInTheDocument()
+  expect(screen.getByText('Most useful negative')).toBeInTheDocument()
   expect(screen.getByText('Entropy-Coded Anchor Preprocessing Against Standard Compressors')).toBeInTheDocument()
   expect(screen.getByText('Medium-scale commit-reveal replay auditing on a larger optimizer trace')).toBeInTheDocument()
-  expect(screen.getByText('389')).toBeInTheDocument()
-  expect(screen.getByText('4140')).toBeInTheDocument()
+  expect(screen.getAllByText('389').length).toBeGreaterThan(0)
+  expect(screen.getAllByText('4140').length).toBeGreaterThan(0)
   expect(fetchMockCallUrl(vi.mocked(globalThis.fetch), 2)).toBe('/control/api/v1/paper-material-graph')
 })
 

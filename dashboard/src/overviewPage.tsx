@@ -1186,46 +1186,43 @@ function paperGraphGeneratedLabel(value?: string): string {
 function paperGraphCandidateMeta(candidate: PaperMaterialGraphCandidate, kind: 'synthesis' | 'negative'): string {
   const parts: string[] = []
   if (typeof candidate.score === 'number') parts.push(`score ${candidate.score}`)
-  if (candidate.status) parts.push(candidate.status.replaceAll('_', ' '))
   if (kind === 'synthesis') {
-    parts.push(`${candidate.related_paper_count || 0} papers`)
+    parts.push(`${candidate.related_paper_count || 0} linked paper${candidate.related_paper_count === 1 ? '' : 's'}`)
   } else if (candidate.evidence_strength) {
     parts.push(candidate.evidence_strength)
   }
+  if (candidate.packet_path) parts.push('packet ready')
   return parts.join(' · ')
 }
 
-function paperGraphPacketLabel(candidate: PaperMaterialGraphCandidate): string {
-  if (!candidate.packet_path) return 'packet pending'
-  const parts = candidate.packet_path.split('/')
-  const file = parts[parts.length - 1] || candidate.packet_path
-  return file.replace(/\.md$/, '').slice(0, 46)
+function paperGraphBrief(value?: string): string {
+  const text = displayText(value, '')
+  if (!text) return 'Open packet and choose the next operator action.'
+  return text.length > 124 ? `${text.slice(0, 121).trim()}…` : text
 }
 
-function PaperGraphCandidateList({
-  candidates,
+function PaperGraphFeatureCard({
+  candidate,
   kind,
 }: Readonly<{
-  candidates: PaperMaterialGraphCandidate[]
+  candidate?: PaperMaterialGraphCandidate
   kind: 'synthesis' | 'negative'
 }>) {
-  if (candidates.length === 0) return <p className="paper-graph-empty">No {kind === 'synthesis' ? 'synthesis' : 'negative-result'} candidates in the current graph.</p>
+  const title = kind === 'synthesis' ? 'Best synthesis lead' : 'Most useful negative'
+  const empty = kind === 'synthesis' ? 'No synthesis lead in the current graph.' : 'No negative-result lead in the current graph.'
   return (
-    <ol className="paper-graph-candidate-list">
-      {candidates.slice(0, 3).map((candidate, index) => (
-        <li key={`${kind}-${candidate.signal_id || candidate.title || index}`}>
-          <div className="paper-graph-rank">{index + 1}</div>
-          <div className="paper-graph-candidate-body">
-            <div className="paper-graph-candidate-title-row">
-              <strong>{displayText(candidate.title, 'Untitled candidate')}</strong>
-              <span>{paperGraphCandidateMeta(candidate, kind)}</span>
-            </div>
-            <p>{displayText(candidate.recommended_next_action || candidate.scale_limits || candidate.claim_scope, 'No next action recorded.')}</p>
-            <small>{paperGraphPacketLabel(candidate)}</small>
-          </div>
-        </li>
-      ))}
-    </ol>
+    <article className={`paper-graph-feature paper-graph-feature--${kind}`}>
+      <p className="paper-graph-feature-label">{title}</p>
+      {candidate ? (
+        <>
+          <h3>{displayText(candidate.title, 'Untitled candidate')}</h3>
+          <p>{paperGraphBrief(candidate.recommended_next_action || candidate.scale_limits || candidate.claim_scope)}</p>
+          <span>{paperGraphCandidateMeta(candidate, kind)}</span>
+        </>
+      ) : (
+        <p className="paper-graph-empty">{empty}</p>
+      )}
+    </article>
   )
 }
 
@@ -1247,26 +1244,27 @@ function PaperMaterialGraphPanel({
       <div className="paper-graph-panel-header">
         <div>
           <p className="eyebrow">Paper material graph</p>
-          <h2>{graph?.ok ? 'Graph intelligence' : 'Graph artifact unavailable'}</h2>
+          <h2>{graph?.ok ? 'Graph briefing' : 'Graph artifact unavailable'}</h2>
         </div>
         <span className="quality-pill quality-pill--info">{loading ? 'Refreshing…' : paperGraphGeneratedLabel(graph?.graph_generated_at)}</span>
       </div>
       {unavailable ? <p className="paper-graph-warning">{unavailable}</p> : null}
+      <div className="paper-graph-orbit" aria-hidden="true">
+        <span className="paper-graph-orbit-node paper-graph-orbit-node--papers">{paperGraphMetric(counts, 'paper_count')}</span>
+        <span className="paper-graph-orbit-line" />
+        <span className="paper-graph-orbit-node paper-graph-orbit-node--signals">{paperGraphMetric(counts, 'signal_count')}</span>
+        <span className="paper-graph-orbit-line paper-graph-orbit-line--second" />
+        <span className="paper-graph-orbit-node paper-graph-orbit-node--edges">{paperGraphMetric(counts, 'edge_count')}</span>
+      </div>
       <dl className="paper-graph-counts" aria-label="Paper graph counts">
         <div><dt>Papers</dt><dd>{paperGraphMetric(counts, 'paper_count')}</dd></div>
         <div><dt>Signals</dt><dd>{paperGraphMetric(counts, 'signal_count')}</dd></div>
-        <div><dt>Edges</dt><dd>{paperGraphMetric(counts, 'edge_count')}</dd></div>
+        <div><dt>Links</dt><dd>{paperGraphMetric(counts, 'edge_count')}</dd></div>
         <div><dt>Packets</dt><dd>{paperGraphMetric(counts, 'synthesis_candidate_count') + paperGraphMetric(counts, 'negative_result_candidate_count')}</dd></div>
       </dl>
-      <div className="paper-graph-candidate-columns">
-        <section>
-          <h3><span>Synthesis</span><strong>{paperGraphMetric(counts, 'synthesis_candidate_count')}</strong></h3>
-          <PaperGraphCandidateList candidates={synthesis} kind="synthesis" />
-        </section>
-        <section>
-          <h3><span>Blocked / negative</span><strong>{paperGraphMetric(counts, 'negative_result_candidate_count')}</strong></h3>
-          <PaperGraphCandidateList candidates={negative} kind="negative" />
-        </section>
+      <div className="paper-graph-briefing">
+        <PaperGraphFeatureCard candidate={synthesis[0]} kind="synthesis" />
+        <PaperGraphFeatureCard candidate={negative[0]} kind="negative" />
       </div>
     </section>
   )
