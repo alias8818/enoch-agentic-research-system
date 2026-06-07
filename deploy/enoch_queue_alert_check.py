@@ -402,7 +402,7 @@ def main() -> int:
             "ok": False,
             "error": f"preflight request failed: {type(exc).__name__}: {exc}",
         }
-    status = _get_json(base_url, "/control/api/status", token)
+    status = _get_json(base_url, "/control/api/status?refresh_worker=true", token)
     if _control_hold_state(status)["held"]:
         alert = {
             "should_alert": False,
@@ -417,7 +417,11 @@ def main() -> int:
             base_url,
             "/control/api/alerts/queue-check",
             token,
-            {"dry_run": False, "requested_by": "systemd:enoch-queue-alert-check"},
+            {
+                "dry_run": False,
+                "refresh_worker": True,
+                "requested_by": "systemd:enoch-queue-alert-check",
+            },
         )
     queue_pump_enabled = bool(
         config.get("queue_pump_enabled", config.get("live_dispatch_enabled", False))

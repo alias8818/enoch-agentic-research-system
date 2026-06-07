@@ -10,6 +10,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -10174,6 +10175,136 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     for item in alert["findings"]
                 )
             )
+
+    def test_live_queue_alert_refreshes_worker_observations_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-worker:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                scope="lane:http://cpu-worker:8787",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "target": "http://cpu-worker:8787",
+                    "checks": [
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "totals": {"active_or_waiting": 1, "live": 1},
+                                    "runs": [
+                                        {
+                                            "run_id": "stale-cpu-orphan",
+                                            "project_id": "stale-cpu-orphan",
+                                            "gate_state": "active",
+                                            "lifecycle_state": "active",
+                                            "is_live": True,
+                                            "active_process_count": 1,
+                                            "updated_at": datetime.now(
+                                                timezone.utc
+                                            ).isoformat(),
+                                        }
+                                    ],
+                                }
+                            },
+                        },
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                    ],
+                },
+            )
+
+            stale = client.post(
+                "/control/api/alerts/queue-check",
+                headers=headers,
+                json={"dry_run": True},
+            ).json()
+            self.assertTrue(stale["should_alert"])
+            self.assertTrue(
+                any(
+                    item["source"] == "control_plane_db+worker_preflight"
+                    for item in stale["findings"]
+                )
+            )
+
+            def clean_preflight(request: Any, _flags: Any) -> WorkerPreflightResponse:
+                target = request.wake_gate_url
+                return WorkerPreflightResponse(
+                    ok=True,
+                    target=target,
+                    summary="worker preflight passed",
+                    checks=[
+                        WorkerPreflightCheck(
+                            name="wake_gate_healthz", ok=True, detail="ok", data={}
+                        ),
+                        WorkerPreflightCheck(
+                            name="wake_gate_dashboard_api",
+                            ok=True,
+                            detail="dashboard API reachable",
+                            data={
+                                "body": {
+                                    "totals": {"active_or_waiting": 0, "live": 0},
+                                    "runs": [],
+                                }
+                            },
+                        ),
+                        WorkerPreflightCheck(
+                            name="worker_no_live_runs",
+                            ok=True,
+                            detail="active_or_waiting=0, live=0",
+                            data={"active_or_waiting": 0, "live": 0},
+                        ),
+                    ],
+                )
+
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight",
+                side_effect=clean_preflight,
+            ) as preflight:
+                live = client.post(
+                    "/control/api/alerts/queue-check",
+                    headers=headers,
+                    json={
+                        "dry_run": False,
+                        "requested_by": "test-live-queue-alert-refresh",
+                    },
+                ).json()
+
+            self.assertEqual(preflight.call_count, 2)
+            self.assertFalse(live["should_alert"])
+            self.assertEqual(live["fingerprint"], "none")
+            self.assertFalse(live["findings"])
 
     def test_dashboard_status_treats_recent_lane_completed_worker_run_as_backpressure(
         self,
