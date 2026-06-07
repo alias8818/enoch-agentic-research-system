@@ -359,7 +359,7 @@ function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, 
   const missingEvidence = evidenceMissingRows(rows)
   const ready = publicationReadyRows(rows)
   const closestTitle = firstHumanTitle(rows, ['title', 'paper_title', 'paper_id'], 'No paper rows returned')
-  const title = missingEvidence > 0 ? `${missingEvidence} draft(s) need evidence review` : drafts > 0 ? `${drafts} draft(s) need evidence review` : ready > 0 ? `${ready} paper(s) look publication-ready` : 'Publication artifacts need triage'
+  const title = missingEvidence > 0 ? `${missingEvidence} visible paper row(s) need evidence review` : drafts > 0 ? `${drafts} draft(s) need evidence review` : ready > 0 ? `${ready} paper(s) look publication-ready` : 'Publication artifacts need triage'
   return (
     <BriefingGrid>
       <BriefingCard eyebrow="Publication briefing" title={title} detail="Paper rows should lead with artifact readiness and next workflow action; raw composite draft IDs belong in artifact/debug detail." tone={missingEvidence > 0 || drafts > 0 ? 'warn' : ready > 0 ? 'good' : 'neutral'}>

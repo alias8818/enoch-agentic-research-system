@@ -75,7 +75,7 @@ it('adds human-first briefing vocabulary above resource page drilldown tables', 
   )
 
   expect(await screen.findByText('Publication briefing')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '1 draft(s) need evidence review' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 visible paper row(s) need evidence review' })).toBeInTheDocument()
   expect(screen.getByText('Draft paper story')).toBeInTheDocument()
 })
 
