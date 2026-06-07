@@ -49,7 +49,7 @@ it('adds human-first briefing vocabulary above resource page drilldown tables', 
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ counts: { active: 1 }, rows: [{ project_id: 'queue-1', status: 'queued', title: 'Queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ run_id: 'run-1', state: 'running', project_name: 'Active run story' }], page: { returned: 1, has_more: false } }), { status: 200 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-1', status: 'publication_draft', title: 'Draft paper story', evidence: 'missing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-1', paper_status: 'publication_draft', title: 'Draft paper story', evidence_status: 'missing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
   const { rerender } = renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
 

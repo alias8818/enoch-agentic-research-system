@@ -272,8 +272,16 @@ function rowsWithStatus(rows: ReadonlyArray<Record<string, unknown>>, status: st
   return rows.filter((row) => displayText(row.status).toLowerCase() === status).length
 }
 
-function rowsWithValue(rows: ReadonlyArray<Record<string, unknown>>, key: string, value: string): number {
-  return rows.filter((row) => displayText(row[key]).toLowerCase() === value).length
+function rowFieldText(row: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const value = displayText(row[key], '')
+    if (value) return value
+  }
+  return ''
+}
+
+function rowsWithAnyValue(rows: ReadonlyArray<Record<string, unknown>>, keys: string[], value: string): number {
+  return rows.filter((row) => rowFieldText(row, keys).toLowerCase() === value).length
 }
 
 function activeOrWaitingRuns(rows: ReadonlyArray<Record<string, unknown>>): number {
@@ -281,11 +289,11 @@ function activeOrWaitingRuns(rows: ReadonlyArray<Record<string, unknown>>): numb
 }
 
 function publicationReadyRows(rows: ReadonlyArray<Record<string, unknown>>): number {
-  return rows.filter((row) => ['ready', 'publish_ready', 'publication_ready'].includes(displayText(row.status).toLowerCase())).length
+  return rows.filter((row) => ['ready', 'publish_ready', 'publication_ready'].includes(rowFieldText(row, ['paper_status', 'status']).toLowerCase())).length
 }
 
 function evidenceMissingRows(rows: ReadonlyArray<Record<string, unknown>>): number {
-  return rows.filter((row) => displayText(row.evidence).toLowerCase() === 'missing').length
+  return rows.filter((row) => rowFieldText(row, ['evidence', 'evidence_status']).toLowerCase() === 'missing').length
 }
 
 function firstHumanTitle(rows: ReadonlyArray<Record<string, unknown>>, keys: string[], fallback: string): string {
@@ -344,7 +352,7 @@ function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, un
 }
 
 function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
-  const drafts = rowsWithValue(rows, 'status', 'publication_draft')
+  const drafts = rowsWithAnyValue(rows, ['paper_status', 'status'], 'publication_draft')
   const missingEvidence = evidenceMissingRows(rows)
   const ready = publicationReadyRows(rows)
   const closestTitle = firstHumanTitle(rows, ['title', 'paper_title', 'paper_id'], 'No paper rows returned')
