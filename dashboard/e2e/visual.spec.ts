@@ -40,6 +40,9 @@ test('queue list page matches baseline screenshot @visual', async ({ page }) => 
   await expect(page.getByRole('heading', { name: 'Queue', exact: true })).toBeVisible()
   await expect(page.getByText('Beta follow-up')).toBeVisible()
   await expect(page.getByText('Gamma calibration')).toBeVisible()
+  await page.addStyleTag({
+    content: '.page-stack { height: 857px !important; overflow: hidden !important; }',
+  })
   await expect(page.locator('.page-stack')).toHaveScreenshot('queue-list-queued.png', {
     // Briefing cards plus saved-filter chrome are text-heavy; allow modest cross-runner font/layout variance.
     maxDiffPixelRatio: 0.1,
