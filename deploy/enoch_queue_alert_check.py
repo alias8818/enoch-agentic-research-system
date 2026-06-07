@@ -238,19 +238,40 @@ def _pump_when_no_next_candidate(
     return _run_followup_launch_chain(base_url, token)
 
 
+def _http_error_body(exc: error.HTTPError) -> str:
+    try:
+        return exc.read().decode("utf-8", errors="replace")[:500]
+    except (OSError, ValueError):
+        return ""
+
+
+def _dispatch_error_summary(exc: error.HTTPError) -> dict[str, object]:
+    body = _http_error_body(exc)
+    return _skipped(
+        DISPATCH_NOT_SAFE_REASON,
+        http_status=exc.code,
+        error_type=type(exc).__name__,
+        detail=str(exc),
+        response_body=body,
+    )
+
+
 def _pump_when_candidate_present(base_url: str, token: str) -> tuple[dict, dict, dict]:
     followup_dry_run = _skipped("queued candidate already present")
     followup_launch = _skipped("queued candidate already present")
-    dispatch = _post_json(
-        base_url,
-        "/control/dispatch-next",
-        token,
-        {
-            "dry_run": False,
-            "requested_by": "systemd:queue-pump",
-            "force_preflight": True,
-        },
-    )
+    try:
+        dispatch = _post_json(
+            base_url,
+            "/control/dispatch-next",
+            token,
+            {
+                "dry_run": False,
+                "requested_by": "systemd:queue-pump",
+                "force_preflight": True,
+            },
+        )
+    except error.HTTPError as exc:
+        dispatch = _dispatch_error_summary(exc)
     return dispatch, followup_dry_run, followup_launch
 
 

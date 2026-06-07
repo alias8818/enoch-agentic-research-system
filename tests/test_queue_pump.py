@@ -122,6 +122,69 @@ class QueuePumpTests(unittest.TestCase):
         self.assertNotIn("checks", output["preflight"])
         self.assertLess(len(json.dumps(output)), 1000)
 
+    def test_queue_pump_reports_dispatch_conflict_without_crashing(self) -> None:
+        calls: list[str] = []
+        status = {
+            "flags": {"queue_paused": False, "maintenance_mode": False},
+            "dispatch_safe": True,
+            "dispatch_blockers": [],
+            "active_items": [],
+            "next_candidate": {"project_id": "queued-idea"},
+            "conflicts": [],
+        }
+
+        def fake_post(
+            base_url: str,
+            path: str,
+            token: str,
+            payload: dict[str, object],
+            *,
+            timeout: int = 30,
+        ) -> dict[str, object]:
+            calls.append(path)
+            if path == "/control/api/preflight":
+                return {"ok": True, "checks": []}
+            if path == "/control/api/alerts/queue-check":
+                return {"should_alert": False, "sent": False, "alerts_enabled": True}
+            if path == "/control/papers/draft-next":
+                return {"action": "noop"}
+            if path == "/control/dispatch-next":
+                raise queue_pump.error.HTTPError(
+                    f"{base_url}{path}",
+                    409,
+                    "Conflict",
+                    {},
+                    io.BytesIO(b'{"detail":"worker_preflight not ok"}'),
+                )
+            raise AssertionError(path)
+
+        with (
+            patch.object(
+                queue_pump,
+                "_load_config",
+                return_value={
+                    "listen_host": "127.0.0.1",
+                    "listen_port": 8787,
+                    "control_api_bearer_token": "t",
+                    "queue_pump_enabled": True,
+                },
+            ),
+            patch.object(queue_pump, "_post_json", side_effect=fake_post),
+            patch.object(queue_pump, "_get_json", return_value=status),
+        ):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = queue_pump.main()
+
+        output = json.loads(out.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(calls[-1], "/control/dispatch-next")
+        self.assertEqual(output["dispatch"]["action"], "skipped")
+        self.assertEqual(output["dispatch"]["reason"], "dispatch not safe")
+        self.assertEqual(output["dispatch"]["http_status"], 409)
+        self.assertEqual(output["dispatch"]["error_type"], "HTTPError")
+        self.assertIn("worker_preflight not ok", output["dispatch"]["response_body"])
+
     def test_queue_pump_skips_alert_and_mutations_while_control_plane_held(
         self,
     ) -> None:
@@ -164,8 +227,13 @@ class QueuePumpTests(unittest.TestCase):
         }
 
         def fake_post(
-            base_url: str, path: str, token: str, payload: dict, *, timeout: int = 30
-        ) -> dict:
+            base_url: str,
+            path: str,
+            token: str,
+            payload: dict[str, object],
+            *,
+            timeout: int = 30,
+        ) -> dict[str, object]:
             calls.append(path)
             if path == "/control/api/preflight":
                 return {"ok": True, "checks": []}
