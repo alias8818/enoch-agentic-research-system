@@ -1,5 +1,8 @@
 # Enoch Paper Material Graph
 
+Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for the live topology referenced by GB10/control-plane language.
+
+
 Generated: `2026-06-07T02:22:36.234868+00:00`
 
 ## Summary

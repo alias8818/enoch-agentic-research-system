@@ -1,5 +1,8 @@
 # Enoch Research Radar Comparison Matrix
 
+Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for the current GB10/control-plane topology referenced by this radar.
+
+
 | Project/paper | Category | Key idea | What Enoch can borrow | What Enoch should avoid | Difficulty | Research value | Paper potential | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | SWE-agent | Coding-agent research harness | Agent-Computer Interface; minimal hackable config; SWE-bench focus | Adopt narrow ACI and benchmark-first discipline | Avoid overfitting to SWE-bench only | Medium | High | High | https://github.com/swe-agent/swe-agent |

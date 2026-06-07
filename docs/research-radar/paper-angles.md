@@ -1,5 +1,8 @@
 # Top Paper-Worthy Experiment Candidates
 
+Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for current GB10 and worker-gate topology referenced by these paper angles.
+
+
 1. **ReplayBench for local autonomous research agents**
    - Claim: a bounded trace/replay schema can predict and reduce failure modes in local agentic systems.
    - Artifacts: trace schema, replay harness, failure-derived eval set, before/after metrics.

@@ -1,5 +1,8 @@
 # Prioritized Idea Backlog
 
+Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for current GB10/control-plane topology referenced by this backlog.
+
+
 ## Immediate instrumentation
 
 1. Unified trajectory schema for research cycles: trace_id, run_cycle_id, source/admission lineage, model/provider, prompt hash, tool calls, worker lane, action, artifact paths, decision, paper gate, cost, latency, failure_kind.

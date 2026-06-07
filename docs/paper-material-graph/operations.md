@@ -1,5 +1,8 @@
 # Paper Material Graph Operations
 
+Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for the live topology and host-layout assumptions referenced below.
+
+
 The paper material graph is a read-only export that turns Enoch's public paper corpus and promising-signal backlog into an inspectable graph for paper synthesis and negative-result mining.
 
 ## Live host layout
