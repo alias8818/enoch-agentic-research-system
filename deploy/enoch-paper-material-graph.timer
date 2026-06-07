@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Enoch paper material graph export periodically
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+RandomizedDelaySec=10min
+Persistent=false
+Unit=enoch-paper-material-graph.service
+
+[Install]
+WantedBy=timers.target

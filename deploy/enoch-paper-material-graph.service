@@ -1,0 +1,15 @@
+[Unit]
+Description=Enoch paper material graph export tick
+After=enoch-control-plane.service
+Wants=enoch-control-plane.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/enoch-control-plane
+Environment=HOME=/root
+Environment=ENOCH_RELEASE_ROOT=/opt/enoch-release
+Environment=ENOCH_CONTROL_PLANE_ROOT=/opt/enoch-control-plane
+Environment=ENOCH_ENABLE_PAPER_MATERIAL_GRAPH=0
+Environment=ENOCH_PAPER_MATERIAL_GRAPH_MIN_SHARED_TERMS=2
+Environment=ENOCH_PAPER_MATERIAL_GRAPH_MAX_SIMILAR_PER_NODE=8
+ExecStart=/opt/enoch-control-plane/deploy/enoch_paper_material_graph.sh
