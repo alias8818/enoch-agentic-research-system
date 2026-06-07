@@ -10838,7 +10838,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             alert = client.post(
                 "/control/api/alerts/queue-check",
                 headers=headers,
-                json={"dry_run": False},
+                json={"dry_run": False, "refresh_worker": False},
             ).json()
 
             self.assertFalse(alert["should_alert"])

@@ -6430,6 +6430,26 @@ def _status_has_no_live_worker_conflict(status: DashboardStatusResponse) -> bool
     )
 
 
+def _active_row_has_no_live_worker_confirmation(
+    status: DashboardStatusResponse, row: dict[str, Any]
+) -> bool:
+    row_key = _active_row_identity_key(row)
+    for lane in status.worker_lanes:
+        active_item = lane.get("active_item")
+        if not isinstance(active_item, dict):
+            continue
+        if not _active_row_matches_identity(active_item, row_key):
+            continue
+        confirmation = lane.get("active_confirmation")
+        if not isinstance(confirmation, dict):
+            return False
+        if confirmation.get("state") == "stale_active":
+            return True
+        worker_check = confirmation.get("worker_check")
+        return isinstance(worker_check, dict) and worker_check.get("ok") is True
+    return False
+
+
 def _worker_lane_label(lane: dict[str, Any]) -> str:
     return str(
         lane.get("worker_role")
@@ -6767,8 +6787,13 @@ def _auto_reconcile_stale_callback_ready(
 ) -> list[dict[str, Any]]:
     if not status.active_items or not _status_has_no_live_worker_conflict(status):
         return []
-    stale_rows = _status_stale_active_rows(status)
-    rows_to_reconcile = stale_rows if stale_rows else status.active_items
+    rows_to_reconcile = [
+        row
+        for row in status.active_items
+        if _active_row_has_no_live_worker_confirmation(status, row)
+    ]
+    if not rows_to_reconcile:
+        return []
     reconciled: list[dict[str, Any]] = []
     for row in rows_to_reconcile:
         if _queue_row_recent_callback(row):
@@ -6777,6 +6802,8 @@ def _auto_reconcile_stale_callback_ready(
             _auto_reconcile_evidence_gate_for_row(config, row)
         )
         if not project_id or not run_id:
+            continue
+        if not gate.get("values") and not config.paper_evidence_sync_enabled:
             continue
         missing_evidence = _auto_reconcile_missing_evidence_failure(
             config,

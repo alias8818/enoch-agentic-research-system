@@ -11,7 +11,7 @@ from enoch_control_plane.control_plane.resource_utilization import (
 )
 from enoch_control_plane.control_plane.router import _project_prompt
 
-from tests.test_longhaul_readiness import NOW, _ready_payload
+from test_longhaul_readiness import NOW, _ready_payload
 
 
 def _cpu_only_worker_body() -> dict:

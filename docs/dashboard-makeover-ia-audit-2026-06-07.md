@@ -1,6 +1,6 @@
 # Dashboard makeover rendered IA audit — 2026-06-07
 
-Source: rendered browser QA through local bearer-injecting proxy + SSH tunnel to `enoch-core.exe.xyz`.
+Source: rendered browser QA through local bearer-injecting proxy + SSH tunnel to `enoch-core.exe.xyz`; runtime topology reference: [current runtime snapshot](current-runtime-snapshot.md).
 
 Access path:
 
