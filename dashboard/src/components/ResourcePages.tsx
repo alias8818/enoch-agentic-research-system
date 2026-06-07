@@ -293,7 +293,10 @@ function publicationReadyRows(rows: ReadonlyArray<Record<string, unknown>>): num
 }
 
 function evidenceMissingRows(rows: ReadonlyArray<Record<string, unknown>>): number {
-  return rows.filter((row) => rowFieldText(row, ['evidence', 'evidence_status']).toLowerCase() === 'missing').length
+  return rows.filter((row) => {
+    const evidence = rowFieldText(row, ['evidence', 'evidence_status']).toLowerCase()
+    return evidence === '' || evidence === 'missing'
+  }).length
 }
 
 function firstHumanTitle(rows: ReadonlyArray<Record<string, unknown>>, keys: string[], fallback: string): string {
