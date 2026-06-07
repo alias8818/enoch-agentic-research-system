@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { ActiveWorkList } from './activeWorkDisplay'
 import { AutomationReadinessSummary } from './automationReadinessPanel'
 import { apiGet } from './api/client'
-import { parseAutomationReadiness, parseOverviewResponse, parseStatusResponse } from './api/readModelSchemas'
+import { parseAutomationReadiness, parseOverviewResponse, parsePaperMaterialGraphResponse, parseStatusResponse } from './api/readModelSchemas'
 import { CommandHero } from './components/CommandHero'
 import { MovementDiagnosis } from './components/MovementDiagnosis'
 import { OverviewFreshness } from './components/OverviewFreshness'
@@ -18,7 +18,7 @@ import { displayText } from './displayText'
 import { OperatorQueueSnapshot } from './operatorQueueSnapshot'
 import { formatReadinessErrorMessage } from './readinessErrors'
 import { dashboardV2Href } from './routes'
-import type { AutomationReadiness, OverviewResponse, StatusResponse, TopAction } from './types'
+import type { AutomationReadiness, OverviewResponse, PaperMaterialGraphCandidate, PaperMaterialGraphResponse, StatusResponse, TopAction } from './types'
 
 export function OverviewPage() {
   const queryClient = useQueryClient()
@@ -26,6 +26,11 @@ export function OverviewPage() {
   const [readinessRequested, setReadinessRequested] = useState(false)
   const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<unknown>('/control/api/v1/overview?active_limit=8&event_limit=6').then(parseOverviewResponse), refetchInterval: 30_000 })
   const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<unknown>('/control/api/status?refresh_worker=true').then(parseStatusResponse), refetchInterval: 30_000 })
+  const paperMaterialGraph = useQuery({
+    queryKey: ['paper-material-graph'],
+    queryFn: () => apiGet<unknown>('/control/api/v1/paper-material-graph').then(parsePaperMaterialGraphResponse),
+    refetchInterval: 60_000,
+  })
   const readiness = useQuery({
     queryKey: ['automation-readiness'],
     queryFn: () => apiGet<unknown>('/control/api/v1/automation-readiness').then(parseAutomationReadiness),
@@ -35,10 +40,11 @@ export function OverviewPage() {
   const refresh = () => {
     overview.refetch().catch(() => undefined)
     status.refetch().catch(() => undefined)
+    paperMaterialGraph.refetch().catch(() => undefined)
     queryClient
       .invalidateQueries({
         predicate: (query) =>
-          query.queryKey[0] !== 'overview' && query.queryKey[0] !== 'status',
+          query.queryKey[0] !== 'overview' && query.queryKey[0] !== 'status' && query.queryKey[0] !== 'paper-material-graph',
       })
       .catch(() => undefined)
   }
@@ -60,6 +66,9 @@ export function OverviewPage() {
       readinessLoading={readiness.isLoading}
       readinessFetching={readiness.isFetching}
       readinessError={readiness.error}
+      paperMaterialGraph={paperMaterialGraph.data}
+      paperMaterialGraphLoading={paperMaterialGraph.isLoading || paperMaterialGraph.isFetching}
+      paperMaterialGraphError={paperMaterialGraph.error}
       onReadinessRefetch={() => readiness.refetch()}
       readinessRequested={readinessRequested}
       isFetching={overview.isFetching || status.isFetching}
@@ -123,6 +132,9 @@ function OverviewPageBody({
   readinessLoading,
   readinessFetching,
   readinessError,
+  paperMaterialGraph,
+  paperMaterialGraphLoading,
+  paperMaterialGraphError,
   onReadinessRefetch,
   readinessRequested,
   isFetching,
@@ -138,6 +150,9 @@ function OverviewPageBody({
   readinessLoading: boolean
   readinessFetching: boolean
   readinessError: unknown
+  paperMaterialGraph?: PaperMaterialGraphResponse
+  paperMaterialGraphLoading: boolean
+  paperMaterialGraphError: unknown
   onReadinessRefetch: () => void
   readinessRequested: boolean
   isFetching: boolean
@@ -177,6 +192,11 @@ function OverviewPageBody({
             onCheckReadiness={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
           />
           <PaperMiniStrip pipeline={data.paper_pipeline} onRefresh={refresh} />
+          <PaperMaterialGraphPanel
+            graph={paperMaterialGraph}
+            loading={paperMaterialGraphLoading}
+            error={paperMaterialGraphError}
+          />
         </div>
       </div>
       <OverviewSecondaryFold
@@ -1150,6 +1170,92 @@ function RecentActivityStream({ events }: Readonly<{ events: OverviewResponse['r
         <RecentActivityItem key={recentActivityListKey(event, index)} event={event} />
       ))}
     </ol>
+  )
+}
+
+function paperGraphMetric(counts: PaperMaterialGraphResponse['counts'], key: string): number {
+  const value = counts?.[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function paperGraphGeneratedLabel(value?: string): string {
+  if (!value) return 'unknown freshness'
+  return value.replace('T', ' ').replace(/\.\d+/, '').replace('+00:00', 'Z')
+}
+
+function paperGraphCandidateMeta(candidate: PaperMaterialGraphCandidate, kind: 'synthesis' | 'negative'): string {
+  const parts: string[] = []
+  if (typeof candidate.score === 'number') parts.push(`score ${candidate.score}`)
+  if (typeof candidate.curation_score === 'number') parts.push(`curation ${candidate.curation_score}`)
+  if (candidate.status) parts.push(candidate.status.replaceAll('_', ' '))
+  if (kind === 'synthesis') {
+    parts.push(`${candidate.related_paper_count || 0} papers`)
+    parts.push(`${candidate.related_source_count || 0} sources`)
+  }
+  return parts.join(' · ')
+}
+
+function PaperGraphCandidateList({
+  candidates,
+  kind,
+}: Readonly<{
+  candidates: PaperMaterialGraphCandidate[]
+  kind: 'synthesis' | 'negative'
+}>) {
+  if (candidates.length === 0) return <p>No {kind === 'synthesis' ? 'synthesis' : 'negative-result'} candidates in the current graph.</p>
+  return (
+    <ol className="paper-graph-candidate-list">
+      {candidates.slice(0, 4).map((candidate, index) => (
+        <li key={`${kind}-${candidate.signal_id || candidate.title || index}`}>
+          <strong>{displayText(candidate.title, 'Untitled candidate')}</strong>
+          <span>{paperGraphCandidateMeta(candidate, kind)}</span>
+          <p>{displayText(candidate.recommended_next_action || candidate.scale_limits || candidate.claim_scope, 'No next action recorded.')}</p>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function PaperMaterialGraphPanel({
+  graph,
+  loading,
+  error,
+}: Readonly<{
+  graph?: PaperMaterialGraphResponse
+  loading: boolean
+  error: unknown
+}>) {
+  const counts = graph?.counts || {}
+  const synthesis = graph?.candidates?.synthesis || []
+  const negative = graph?.candidates?.negative || []
+  const unavailable = error ? formatReadinessErrorMessage(error) : graph?.message
+  return (
+    <section className="paper-graph-panel" aria-label="Paper material graph">
+      <div className="paper-graph-panel-header">
+        <div>
+          <p className="eyebrow">Paper material graph</p>
+          <h2>{graph?.ok ? 'Candidate graph is fresh' : 'Graph artifact unavailable'}</h2>
+        </div>
+        <span className="quality-pill quality-pill--info">{loading ? 'Refreshing…' : paperGraphGeneratedLabel(graph?.graph_generated_at)}</span>
+      </div>
+      {unavailable ? <p className="paper-graph-warning">{unavailable}</p> : null}
+      <dl className="paper-graph-counts">
+        <div><dt>Papers</dt><dd>{paperGraphMetric(counts, 'paper_count')}</dd></div>
+        <div><dt>Signals</dt><dd>{paperGraphMetric(counts, 'signal_count')}</dd></div>
+        <div><dt>Sources</dt><dd>{paperGraphMetric(counts, 'source_count')}</dd></div>
+        <div><dt>Edges</dt><dd>{paperGraphMetric(counts, 'edge_count')}</dd></div>
+      </dl>
+      <div className="paper-graph-candidate-columns">
+        <section>
+          <h3>Synthesis candidates <span>{paperGraphMetric(counts, 'synthesis_candidate_count')}</span></h3>
+          <PaperGraphCandidateList candidates={synthesis} kind="synthesis" />
+        </section>
+        <section>
+          <h3>Negative / blocked <span>{paperGraphMetric(counts, 'negative_result_candidate_count')}</span></h3>
+          <PaperGraphCandidateList candidates={negative} kind="negative" />
+        </section>
+      </div>
+    </section>
   )
 }
 

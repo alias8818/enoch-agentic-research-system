@@ -11,6 +11,13 @@ afterEach(() => {
   globalThis.location.hash = ''
 })
 
+const emptyPaperMaterialGraphResponse = {
+  ok: false,
+  message: 'paper material graph fixture omitted',
+  counts: {},
+  candidates: { synthesis: [], negative: [] },
+}
+
 it('keeps overview secondary links in V2 and exposes data freshness', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, generated_at: '2026-05-20T12:00:00Z', counts: { active: 0, queued: 0 }, paper_counts: {}, movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] }, flags: {} }), { status: 200 }))
@@ -40,7 +47,55 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   expect(screen.getByRole('link', { name: 'Recent activity' })).toHaveAttribute('href', '/control/dashboard-v2#events')
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(5))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(6))
+})
+
+it('shows the read-only paper material graph panel on overview', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, generated_at: '2026-05-20T12:00:00Z', counts: { active: 0, queued: 0 }, paper_counts: {}, movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] }, flags: {} }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      graph_generated_at: '2026-06-07T02:22:36Z',
+      counts: {
+        paper_count: 389,
+        signal_count: 519,
+        source_count: 370,
+        edge_count: 4140,
+        synthesis_candidate_count: 4,
+        negative_result_candidate_count: 25,
+      },
+      candidates: {
+        synthesis: [{
+          signal_id: 'signal:synthesis',
+          title: 'Entropy-Coded Anchor Preprocessing Against Standard Compressors',
+          status: 'useful_signal',
+          score: 95,
+          curation_score: 88,
+          related_paper_count: 1,
+          related_source_count: 1,
+          recommended_next_action: 'Gated Anchor Preprocessing for Fast Compression Only',
+        }],
+        negative: [{
+          signal_id: 'signal:blocked',
+          title: 'Medium-scale commit-reveal replay auditing on a larger optimizer trace',
+          status: 'compute_scale_blocked',
+          score: 100,
+          scale_limits: 'park unless a cheaper bounded test is defined',
+        }],
+      },
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Candidate graph is fresh' })).toBeInTheDocument()
+  expect(screen.getByText('Paper material graph')).toBeInTheDocument()
+  expect(screen.getByText('Entropy-Coded Anchor Preprocessing Against Standard Compressors')).toBeInTheDocument()
+  expect(screen.getByText('Medium-scale commit-reveal replay auditing on a larger optimizer trace')).toBeInTheDocument()
+  expect(screen.getByText('389')).toBeInTheDocument()
+  expect(screen.getByText('4140')).toBeInTheDocument()
+  expect(fetchMockCallUrl(vi.mocked(globalThis.fetch), 2)).toBe('/control/api/v1/paper-material-graph')
 })
 
 it('keeps paper sub-workflow compatibility hashes owned by the Papers nav', async () => {
@@ -136,7 +191,7 @@ it('requests live worker refresh for overview lane status', async () => {
   render(<App />)
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
   expect(fetchMockCallUrl(vi.mocked(globalThis.fetch), 1)).toBe('/control/api/status?refresh_worker=true')
   expect(screen.getByText('Worker confirmed active run.')).toBeInTheDocument()
   expect(screen.queryByText('Stale active: worker reports no matching live run.')).not.toBeInTheDocument()
@@ -988,6 +1043,7 @@ it('keeps overview command result raw JSON inside collapsed details', async () =
       recent_events: [],
     }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(emptyPaperMaterialGraphResponse), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({
       ok: true,
       label: 'Long-haul mode: READY',
@@ -1098,6 +1154,7 @@ it('does not answer leave-running as ready before readiness is checked', async (
       recent_events: [],
     }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(emptyPaperMaterialGraphResponse), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({
       ok: false,
       label: 'Long-haul mode: BLOCKED — queued/active state inconsistent',
@@ -1131,6 +1188,7 @@ it('checks automation readiness above the fold on demand', async () => {
       recent_events: [],
     }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(emptyPaperMaterialGraphResponse), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({
       ok: true,
       label: 'Long-haul mode: READY',
@@ -1143,7 +1201,7 @@ it('checks automation readiness above the fold on demand', async () => {
   render(<App />)
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
   const readinessCard = screen.getByLabelText('Readiness check')
   expect(readinessCard).toHaveTextContent('Not checked')
   expect(globalThis.fetch).not.toHaveBeenCalledWith('/control/api/v1/automation-readiness', expect.any(Object))
@@ -1151,7 +1209,7 @@ it('checks automation readiness above the fold on demand', async () => {
   fireEvent.click(within(readinessCard).getByRole('button', { name: 'Check readiness' }))
 
   expect(await within(readinessCard).findByText('Long-haul mode: READY')).toBeInTheDocument()
-  expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/v1/automation-readiness', expect.any(Object))
+  expect(globalThis.fetch).toHaveBeenNthCalledWith(4, '/control/api/v1/automation-readiness', expect.any(Object))
 })
 
 it('shows automation readiness in the collapsed overview secondary fold', async () => {
@@ -1166,6 +1224,7 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
       recent_events: [],
     }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(emptyPaperMaterialGraphResponse), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({
       ok: false,
       label: 'Long-haul mode: BLOCKED — queued/active state inconsistent',
@@ -1189,7 +1248,7 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
   render(<App />)
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
   expect(globalThis.fetch).not.toHaveBeenCalledWith('/control/api/v1/automation-readiness', expect.any(Object))
 
   fireEvent.click(screen.getByText('Show secondary details'))
@@ -1199,7 +1258,7 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
   expect(await within(secondaryReadiness).findByText('Long-haul mode: BLOCKED — queued/active state inconsistent')).toBeInTheDocument()
   expect(within(secondaryReadiness).getAllByText('queue_counts_consistent: blocked')).toHaveLength(2)
   expect(within(secondaryReadiness).getByText('provider_generation_attempts_ok: blocked')).toBeInTheDocument()
-  expect(globalThis.fetch).toHaveBeenNthCalledWith(3, '/control/api/v1/automation-readiness', expect.any(Object))
+  expect(globalThis.fetch).toHaveBeenNthCalledWith(4, '/control/api/v1/automation-readiness', expect.any(Object))
 })
 
 it('shows active work inside the collapsed overview secondary fold', async () => {

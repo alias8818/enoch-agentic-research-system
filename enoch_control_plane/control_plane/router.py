@@ -955,6 +955,10 @@ def _active_lane_signature(active_items: list[dict[str, Any]]) -> str:
 
 
 DASHBOARD_V2_DIST_PATH = Path(__file__).with_name("dashboard_v2")
+REPO_ROOT_PATH = Path(__file__).resolve().parents[2]
+PAPER_MATERIAL_GRAPH_PATH = (
+    REPO_ROOT_PATH / "docs" / "paper-material-graph" / "paper-material-graph.json"
+)
 
 # Centralized reason constant for the top remaining S1192 duplication
 # (worker preflight error paths and messages in router.py).
@@ -7375,6 +7379,86 @@ def _register_control_plane_sentry_smoke_route(
         }
 
 
+def _paper_material_candidate(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "signal_id": str(candidate.get("signal_id") or ""),
+        "title": str(candidate.get("title") or "Untitled candidate"),
+        "status": str(candidate.get("status") or ""),
+        "score": candidate.get("score"),
+        "curation_score": candidate.get("curation_score"),
+        "recommended_next_action": str(candidate.get("recommended_next_action") or ""),
+        "evidence_strength": str(candidate.get("evidence_strength") or ""),
+        "hypothesis_status": str(candidate.get("hypothesis_status") or ""),
+        "claim_scope": str(candidate.get("claim_scope") or ""),
+        "scale_limits": str(candidate.get("scale_limits") or ""),
+        "related_paper_count": int(candidate.get("related_paper_count") or 0),
+        "related_source_count": int(candidate.get("related_source_count") or 0),
+        "related_papers": list(candidate.get("related_papers") or [])[:5],
+        "sources": list(candidate.get("sources") or [])[:5],
+    }
+
+
+def _paper_material_graph_response(
+    graph_path: Path | None = None,
+) -> dict[str, Any]:
+    graph_path = graph_path or PAPER_MATERIAL_GRAPH_PATH
+    if not graph_path.is_file():
+        return {
+            "ok": False,
+            "source": "paper_material_graph_json",
+            "generated_at": utc_now(),
+            "graph_generated_at": "",
+            "graph_path": str(graph_path),
+            "counts": {},
+            "candidates": {"synthesis": [], "negative": []},
+            "message": "paper material graph artifact is missing; run enoch-paper-material-graph.service",
+        }
+    try:
+        graph = json.loads(graph_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"paper material graph artifact is not valid JSON: {exc.msg}",
+        ) from exc
+    summary = graph.get("summary") if isinstance(graph, dict) else {}
+    if not isinstance(summary, dict):
+        summary = {}
+    synthesis = [
+        _paper_material_candidate(candidate)
+        for candidate in list(summary.get("synthesis_candidates") or [])[:8]
+        if isinstance(candidate, Mapping)
+    ]
+    negative = [
+        _paper_material_candidate(candidate)
+        for candidate in list(summary.get("negative_result_candidates") or [])[:8]
+        if isinstance(candidate, Mapping)
+    ]
+    counts = {
+        "paper_count": int(summary.get("paper_count") or 0),
+        "signal_count": int(summary.get("signal_count") or 0),
+        "source_count": int(summary.get("source_count") or 0),
+        "edge_count": int(summary.get("edge_count") or 0),
+        "similar_topic_edges": int(summary.get("similar_topic_edges") or 0),
+        "connected_component_count": int(summary.get("connected_component_count") or 0),
+        "synthesis_candidate_count": len(summary.get("synthesis_candidates") or []),
+        "negative_result_candidate_count": len(
+            summary.get("negative_result_candidates") or []
+        ),
+    }
+    return {
+        "ok": True,
+        "source": "paper_material_graph_json",
+        "generated_at": utc_now(),
+        "graph_generated_at": str(graph.get("generated_at") or ""),
+        "schema_version": str(graph.get("schema_version") or ""),
+        "graph_path": str(graph_path),
+        "counts": counts,
+        "edge_counts": summary.get("edge_counts") or {},
+        "signal_status_counts": summary.get("signal_status_counts") or {},
+        "candidates": {"synthesis": synthesis, "negative": negative},
+    }
+
+
 def _llm_provider_by_id(settings: LLMSettings, provider_id: str) -> Any:
     for provider in settings.providers:
         if provider.provider_id == provider_id:
@@ -8431,6 +8515,17 @@ def _exec_route_block(
     exec(_HTTP_ROUTE_REGISTRAR_SRC[registrar], ns, ns)
 
 
+def _register_control_plane_paper_material_graph_route(
+    router: APIRouter, require_bearer: RequireBearer
+) -> None:
+    @router.get("/api/v1/paper-material-graph")
+    def dashboard_paper_material_graph(
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> dict[str, Any]:
+        require_bearer(authorization)
+        return _paper_material_graph_response()
+
+
 def _register_control_plane_http_route_handlers(
     router: APIRouter,
     config: GateConfig,
@@ -8450,6 +8545,7 @@ def _register_control_plane_http_route_handlers(
     _register_control_plane_papers_events_routes(ns)
     _register_control_plane_research_routes(ns)
     _register_control_plane_operator_legacy_routes(ns)
+    _register_control_plane_paper_material_graph_route(router, require_bearer)
     _register_control_plane_maintenance_routes(router, store, require_bearer)
     _register_control_plane_llm_settings_routes(router, config, store, require_bearer)
 

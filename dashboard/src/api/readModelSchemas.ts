@@ -14,7 +14,7 @@ import type {
   QueueListRow,
   RunListRow,
 } from './readModels'
-import type { AutomationReadiness, OverviewResponse, StatusResponse } from '../types'
+import type { AutomationReadiness, OverviewResponse, PaperMaterialGraphResponse, StatusResponse } from '../types'
 
 const pageMetaSchema = z.object({
   returned: z.number().optional(),
@@ -614,6 +614,40 @@ export const automationReadinessSchema = z.object({
   summary: z.record(z.unknown()).optional(),
 }).passthrough()
 
+const paperMaterialGraphCandidateSchema = z.object({
+  signal_id: z.string().optional(),
+  title: z.string().optional(),
+  status: z.string().optional(),
+  score: z.number().nullable().optional(),
+  curation_score: z.number().nullable().optional(),
+  recommended_next_action: z.string().optional(),
+  evidence_strength: z.string().optional(),
+  hypothesis_status: z.string().optional(),
+  claim_scope: z.string().optional(),
+  scale_limits: z.string().optional(),
+  related_paper_count: z.number().optional(),
+  related_source_count: z.number().optional(),
+  related_papers: z.array(z.record(z.unknown())).optional(),
+  sources: z.array(z.record(z.unknown())).optional(),
+}).passthrough()
+
+export const paperMaterialGraphResponseSchema = z.object({
+  ok: z.boolean().optional(),
+  source: z.string().optional(),
+  generated_at: z.string().optional(),
+  graph_generated_at: z.string().optional(),
+  schema_version: z.string().optional(),
+  graph_path: z.string().optional(),
+  message: z.string().optional(),
+  counts: z.record(z.number()).optional(),
+  edge_counts: z.record(z.number()).optional(),
+  signal_status_counts: z.record(z.number()).optional(),
+  candidates: z.object({
+    synthesis: z.array(paperMaterialGraphCandidateSchema).optional(),
+    negative: z.array(paperMaterialGraphCandidateSchema).optional(),
+  }).optional(),
+}).passthrough()
+
 export const queueListResponseSchema = pagedRowsSchema(queueListRowSchema)
 export const projectListResponseSchema = pagedRowsSchema(projectListRowSchema)
 export const runListResponseSchema = pagedRowsSchema(runListRowSchema)
@@ -700,6 +734,11 @@ export function parseStatusResponse(payload: unknown): StatusResponse {
 
 export function parseAutomationReadiness(payload: unknown): AutomationReadiness {
   return automationReadinessSchema.parse(payload) as AutomationReadiness
+}
+
+export function parsePaperMaterialGraphResponse(payload: unknown): PaperMaterialGraphResponse {
+  const parsed = paperMaterialGraphResponseSchema.parse(payload) as PaperMaterialGraphResponse
+  return { ...parsed, ok: parsed.ok ?? false }
 }
 
 export function parseIntakeIdeasResponse(payload: unknown): IntakeIdeasResponse {

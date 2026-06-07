@@ -24,6 +24,7 @@ from enoch_control_plane.control_plane.router import (
     _fetch_synthetic_research_budget,
     _handle_followup_and_early_skips,
     _project_prompt,
+    _paper_material_graph_response,
     _register_control_plane_maintenance_routes,
     _run_resume_systemctl,
     _write_deterministic_paper,
@@ -220,6 +221,124 @@ def _client_with_config(config: GateConfig) -> TestClient:
 
     app.include_router(create_control_plane_router(config, require))
     return TestClient(app)
+
+
+def test_paper_material_graph_response_is_bounded_read_only(tmp_path: Path) -> None:
+    graph_path = tmp_path / "paper-material-graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "paper_material_graph_v1",
+                "generated_at": "2026-06-07T02:22:36Z",
+                "summary": {
+                    "paper_count": 2,
+                    "signal_count": 3,
+                    "source_count": 4,
+                    "edge_count": 5,
+                    "similar_topic_edges": 1,
+                    "connected_component_count": 1,
+                    "edge_counts": {"similar_topic": 1, "cites_source": 4},
+                    "signal_status_counts": {"useful_signal": 2},
+                    "synthesis_candidates": [
+                        {
+                            "signal_id": "signal:one",
+                            "title": "Candidate one",
+                            "status": "useful_signal",
+                            "score": 95,
+                            "curation_score": 88,
+                            "recommended_next_action": "Write a packet",
+                            "related_paper_count": 9,
+                            "related_source_count": 2,
+                            "related_papers": [{"title": "Paper A"}] * 9,
+                            "sources": [{"title": "Source A"}] * 9,
+                        }
+                    ]
+                    * 10,
+                    "negative_result_candidates": [
+                        {
+                            "signal_id": "signal:blocked",
+                            "title": "Blocked candidate",
+                            "status": "compute_scale_blocked",
+                            "score": 100,
+                            "evidence_strength": "strong",
+                            "hypothesis_status": "supported",
+                            "claim_scope": "bounded rejudge",
+                            "scale_limits": "park unless cheaper bounded test exists",
+                        }
+                    ]
+                    * 10,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = _paper_material_graph_response(graph_path)
+
+    assert response["ok"] is True
+    assert response["graph_generated_at"] == "2026-06-07T02:22:36Z"
+    assert response["counts"] == {
+        "paper_count": 2,
+        "signal_count": 3,
+        "source_count": 4,
+        "edge_count": 5,
+        "similar_topic_edges": 1,
+        "connected_component_count": 1,
+        "synthesis_candidate_count": 10,
+        "negative_result_candidate_count": 10,
+    }
+    assert len(response["candidates"]["synthesis"]) == 8
+    assert len(response["candidates"]["negative"]) == 8
+    assert len(response["candidates"]["synthesis"][0]["related_papers"]) == 5
+    assert len(response["candidates"]["synthesis"][0]["sources"]) == 5
+
+
+def test_paper_material_graph_endpoint_requires_auth_and_reads_artifact(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    graph_path = tmp_path / "paper-material-graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "paper_material_graph_v1",
+                "generated_at": "2026-06-07T02:22:36Z",
+                "summary": {
+                    "paper_count": 1,
+                    "signal_count": 1,
+                    "source_count": 1,
+                    "edge_count": 2,
+                    "similar_topic_edges": 1,
+                    "connected_component_count": 1,
+                    "synthesis_candidates": [
+                        {"signal_id": "signal:one", "title": "Candidate one"}
+                    ],
+                    "negative_result_candidates": [
+                        {"signal_id": "signal:blocked", "title": "Blocked candidate"}
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.router.PAPER_MATERIAL_GRAPH_PATH",
+        graph_path,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        with pytest.raises(AssertionError, match="bad token"):
+            client.get("/control/api/v1/paper-material-graph")
+        response = client.get(
+            "/control/api/v1/paper-material-graph",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["counts"]["paper_count"] == 1
+    assert body["candidates"]["synthesis"][0]["title"] == "Candidate one"
+    assert body["candidates"]["negative"][0]["title"] == "Blocked candidate"
 
 
 def test_writable_store_routes_openapi_documents_readonly_store_501() -> None:

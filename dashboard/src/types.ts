@@ -71,6 +71,40 @@ export interface AutomationReadiness {
   summary?: { queued?: number; active?: number; queue_paused?: boolean; maintenance_mode?: boolean; [key: string]: unknown }
 }
 
+export interface PaperMaterialGraphCandidate {
+  signal_id?: string
+  title?: string
+  status?: string
+  score?: number | null
+  curation_score?: number | null
+  recommended_next_action?: string
+  evidence_strength?: string
+  hypothesis_status?: string
+  claim_scope?: string
+  scale_limits?: string
+  related_paper_count?: number
+  related_source_count?: number
+  related_papers?: Record<string, unknown>[]
+  sources?: Record<string, unknown>[]
+}
+
+export interface PaperMaterialGraphResponse {
+  ok: boolean
+  source?: string
+  generated_at?: string
+  graph_generated_at?: string
+  schema_version?: string
+  graph_path?: string
+  message?: string
+  counts?: Record<string, number>
+  edge_counts?: Record<string, number>
+  signal_status_counts?: Record<string, number>
+  candidates?: {
+    synthesis?: PaperMaterialGraphCandidate[]
+    negative?: PaperMaterialGraphCandidate[]
+  }
+}
+
 type ResearchQualitySampleLinks = Record<string, string>
 
 export interface OverviewResponse {
