@@ -89,7 +89,7 @@ it('shows the read-only paper material graph panel on overview', async () => {
 
   render(<App />)
 
-  expect(await screen.findByRole('heading', { name: 'Candidate graph is fresh' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Graph intelligence' })).toBeInTheDocument()
   expect(screen.getByText('Paper material graph')).toBeInTheDocument()
   expect(screen.getByText('Entropy-Coded Anchor Preprocessing Against Standard Compressors')).toBeInTheDocument()
   expect(screen.getByText('Medium-scale commit-reveal replay auditing on a larger optimizer trace')).toBeInTheDocument()
