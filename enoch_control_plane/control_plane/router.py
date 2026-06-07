@@ -6510,18 +6510,28 @@ def _append_worker_settling_finding(
     warnings: list[DashboardFinding],
     blockers: list[str],
 ) -> None:
+    settling_without_match = (
+        worker_settling.get("match_type")
+        == "recent_worker_settling_without_vm_active_row"
+    )
+    if settling_without_match:
+        message = f"{lane_label} worker is settling a recent worker run with no active process"
+        blocker = f"worker settling recent run: {lane_label}"
+    else:
+        message = f"{lane_label} worker is reconciling a recently completed VM run"
+        blocker = f"worker settling completed run: {lane_label}"
     warnings.append(
         DashboardFinding(
             severity="warn",
             source="worker_settling",
             authority=CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY,
-            message=f"{lane_label} worker is reconciling a recently completed VM run",
+            message=message,
             observed_at=lane_preflight.observed_at if lane_preflight else None,
             suggested_action="wait for the worker quiet-window to clear before dispatch",
             data=worker_settling,
         )
     )
-    blockers.append(f"worker settling completed run: {lane_label}")
+    blockers.append(blocker)
 
 
 def _append_worker_no_live_findings(
@@ -7096,6 +7106,12 @@ def _cp_mount_worker_lane_capacity_entry(
             queue_rows=list(queue_rows or []),
             run_rows=list(run_rows or []),
         )
+        if worker_settling_after_vm_completion is None:
+            worker_settling_after_vm_completion = (
+                _recent_worker_settling_without_vm_match(
+                    preflight=lane_worker_preflight
+                )
+            )
     return {
         **lane,
         "status": "active" if lane_active else "idle",

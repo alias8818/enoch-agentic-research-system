@@ -10072,6 +10072,109 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 any(item["source"] == "worker_settling" for item in alert["findings"])
             )
 
+    def test_dashboard_status_suppresses_recent_cpu_worker_settling_without_vm_match(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={
+                    "worker_wake_gate_url": "http://gb10-worker:8787",
+                    "worker_wake_gate_bearer_token": "gb10-token",
+                    "worker_targets": {
+                        "cpu-proxmox-1": {
+                            "wake_gate_url": "http://cpu-worker:8787",
+                            "bearer_token": "cpu-token",
+                            "role": "cpu_worker",
+                        },
+                        "gb10": {
+                            "wake_gate_url": "http://gb10-worker:8787",
+                            "bearer_token": "gb10-token",
+                            "role": "gpu_worker",
+                        },
+                    },
+                }
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/resume",
+                headers=headers,
+                json={"resumed_by": "test", "maintenance_mode": False},
+            )
+            now = datetime.now(timezone.utc).isoformat()
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                scope="lane:http://cpu-worker:8787",
+                status="warn",
+                payload={
+                    "ok": False,
+                    "target": "http://cpu-worker:8787",
+                    "checks": [
+                        {
+                            "name": "wake_gate_dashboard_api",
+                            "ok": True,
+                            "detail": "dashboard API reachable",
+                            "data": {
+                                "body": {
+                                    "totals": {"active_or_waiting": 1, "live": 1},
+                                    "runs": [
+                                        {
+                                            "run_id": "run-recent-cpu-settling-orphan",
+                                            "project_id": "idea-recent-cpu-settling-orphan",
+                                            "gate_state": "waiting_for_quiet_window",
+                                            "lifecycle_state": "settling",
+                                            "callback_delivered": False,
+                                            "is_live": True,
+                                            "active_process_count": 0,
+                                            "updated_at": now,
+                                        }
+                                    ],
+                                }
+                            },
+                        },
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                    ],
+                },
+            )
+
+            status = client.get("/control/api/status", headers=headers).json()
+
+            self.assertNotIn(
+                "worker live run without active control-plane row: cpu_worker",
+                status["dispatch_blockers"],
+            )
+            self.assertIn(
+                "worker settling recent run: cpu_worker", status["dispatch_blockers"]
+            )
+            self.assertFalse(
+                any(item["severity"] == "critical" for item in status["conflicts"])
+            )
+            self.assertTrue(
+                any(
+                    item["source"] == "worker_settling"
+                    and "recent worker run" in item["message"]
+                    for item in status["warnings"]
+                )
+            )
+
+            alert = client.post(
+                "/control/api/alerts/queue-check",
+                headers=headers,
+                json={"dry_run": True},
+            ).json()
+            self.assertFalse(
+                any(
+                    item["source"] == "control_plane_db+worker_preflight"
+                    for item in alert["findings"]
+                )
+            )
+
     def test_dashboard_status_treats_recent_lane_completed_worker_run_as_backpressure(
         self,
     ) -> None:
