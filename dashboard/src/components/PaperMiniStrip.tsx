@@ -43,6 +43,7 @@ export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: Ove
   const pipelineSignature = [writeNeeded, finalizeNeeded, publishReady].join(':')
   const canLiveFinalize = finalizeReady && finalizeSignature === pipelineSignature
   const finalizeDisabledReason = finalizationDisabledReason(finalizeNeeded, finalizeReady, canLiveFinalize, isPending)
+  const closestAction = finalizeNeeded > 0 ? 'Finalize drafts' : writeNeeded > 0 ? 'Open draft queue' : publishReady > 0 ? 'Publish ready corpus' : 'Monitor paper flow'
 
   async function dryRunFinalize() {
     setIsPending(true)
@@ -102,10 +103,18 @@ export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: Ove
 
   return (
     <section className="paper-strip">
-      <div>
-        <p className="eyebrow">Paper pipeline</p>
-        <h2>Write → Finalize → Publish</h2>
+      <div className="paper-strip-head">
+        <div>
+          <p className="eyebrow">Paper pipeline</p>
+          <h2>Publication briefing</h2>
+        </div>
+        <span>{closestAction}</span>
       </div>
+      <dl className="paper-pipeline-briefing" aria-label="Paper pipeline briefing">
+        <div><dt>Write</dt><dd>{writeNeeded}</dd></div>
+        <div><dt>Finalize</dt><dd>{finalizeNeeded}</dd></div>
+        <div><dt>Publish</dt><dd>{publishReady}</dd></div>
+      </dl>
       <div className="paper-steps">
         <a href={dashboardV2Href('#papers?status=publication_draft')}>
           <span>Write</span>

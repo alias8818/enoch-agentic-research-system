@@ -47,7 +47,7 @@ it('keeps overview secondary links in V2 and exposes data freshness', async () =
   expect(screen.getByRole('link', { name: 'Recent activity' })).toHaveAttribute('href', '/control/dashboard-v2#events')
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(6))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(8))
 })
 
 it('shows the read-only paper material graph panel on overview', async () => {
@@ -193,10 +193,69 @@ it('requests live worker refresh for overview lane status', async () => {
   render(<App />)
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(4))
   expect(fetchMockCallUrl(vi.mocked(globalThis.fetch), 1)).toBe('/control/api/status?refresh_worker=true')
   expect(screen.getByText('Worker confirmed active run.')).toBeInTheDocument()
   expect(screen.queryByText('Stale active: worker reports no matching live run.')).not.toBeInTheDocument()
+})
+
+it('uses one dominant Overview readiness answer with compact worker and paper briefings', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+    const rawUrl = input instanceof Request ? input.url : String(input)
+    const url = rawUrl.startsWith('http') ? new URL(rawUrl).pathname : rawUrl
+    if (url.startsWith('/control/api/v1/overview')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        ok: true,
+        generated_at: '2026-05-20T12:00:00Z',
+        counts: { active: 1, queued: 9 },
+        paper_counts: {},
+        movement_diagnosis: { status: 'ready', primary_reason: 'Long-haul work is moving.', blockers: [{ kind: 'lane_active', lane: 'gb10', tone: 'good', title: 'GB10 lane active', summary: 'Worker is confirmed active.', action_label: 'Observe', action_hash: '#runs' }] },
+        flags: { queue_paused: false, maintenance_mode: false },
+        paper_pipeline: { write_needed: 2, finalize_needed: 1, publish_ready: 3 },
+        recent_events: [],
+      }), { status: 200 }))
+    }
+    if (url.startsWith('/control/api/status')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        generated_at: '2026-05-20T12:00:05Z',
+        worker_lanes: [{
+          lane_key: 'gb10',
+          label: 'GB10 lane',
+          machine_target: 'gb10',
+          status: 'active',
+          queued_count: 9,
+          dispatch_available: false,
+          feed_pressure: { next_autopilot_action: 'observe', desired_queue_depth: 25 },
+          active_confirmation: { state: 'active_confirmed', matched: true },
+        }],
+      }), { status: 200 }))
+    }
+    if (url.startsWith('/control/api/v1/paper-material-graph')) {
+      return Promise.resolve(new Response(JSON.stringify(emptyPaperMaterialGraphResponse), { status: 200 }))
+    }
+    if (url.startsWith('/control/api/v1/automation-readiness')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        ok: true,
+        label: 'Long-haul mode: READY',
+        blockers: [],
+        checks: [{ name: 'queue_unpaused', ok: true }],
+        summary: { queued: 9, active: 1, queue_paused: false, maintenance_mode: false },
+      }), { status: 200 }))
+    }
+    return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+  })
+  saveToken('test-token')
+
+  render(<App />)
+
+  const hero = (await screen.findByText('Can I leave this running?')).closest('section') as HTMLElement
+  expect(within(hero).getByRole('heading', { level: 1, name: 'Yes — active work is running' })).toBeInTheDocument()
+  expect(screen.getByLabelText('Readiness check')).toHaveTextContent('Readiness evidence')
+  expect(screen.getByLabelText('Readiness check')).toHaveTextContent('Control flags')
+  expect(screen.getByLabelText('Worker lane briefing')).toHaveTextContent('Lane posture')
+  expect(screen.getByLabelText('Worker lane briefing')).toHaveTextContent('Workers are busy')
+  expect(screen.getByRole('heading', { name: 'Publication briefing' })).toBeInTheDocument()
+  expect(screen.getByLabelText('Paper pipeline briefing')).toHaveTextContent('Finalize')
 })
 
 it('shows research signal quality below the command-center secondary fold', async () => {
@@ -1086,7 +1145,6 @@ it('keeps overview command result raw JSON inside collapsed details', async () =
   render(<App />)
 
   await screen.findByText('Can I leave this running?')
-  fireEvent.click(within(screen.getByLabelText('Primary action')).getByRole('button', { name: 'Check readiness' }))
   await within(screen.getByLabelText('Readiness check')).findByText('Long-haul mode: READY')
   fireEvent.click(screen.getByRole('button', { name: 'Check dispatch' }))
   await screen.findByText('dry-run dispatch selected candidate')
@@ -1140,7 +1198,7 @@ it('does not claim secondary readiness passed before readiness data loads', asyn
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
   const secondaryReadiness = screen.getByLabelText('Automation readiness')
-  expect(within(secondaryReadiness).getByText('Automation readiness unavailable')).toBeInTheDocument()
+  expect(within(secondaryReadiness).getByText('Checking automation readiness…')).toBeInTheDocument()
   expect(within(secondaryReadiness).queryByText('All reported long-haul readiness checks passed.')).not.toBeInTheDocument()
 })
 
@@ -1169,16 +1227,11 @@ it('does not answer leave-running as ready before readiness is checked', async (
   render(<App />)
 
   const leaveRunningHero = (await screen.findByText('Can I leave this running?')).closest('section') as HTMLElement
-  expect(within(leaveRunningHero).getByRole('heading', { level: 1, name: 'Check readiness first' })).toBeInTheDocument()
-  expect(within(leaveRunningHero).getByText('Run the readiness check before leaving automation unattended.')).toBeInTheDocument()
-
-  fireEvent.click(within(screen.getByLabelText('Readiness check')).getByRole('button', { name: 'Check readiness' }))
-
   expect(await within(leaveRunningHero).findByText('Not yet')).toBeInTheDocument()
   expect(screen.getAllByText('queue_counts_consistent: blocked').length).toBeGreaterThan(0)
 })
 
-it('checks automation readiness above the fold on demand', async () => {
+it('loads automation readiness above the fold by default', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
       ok: true,
@@ -1203,13 +1256,8 @@ it('checks automation readiness above the fold on demand', async () => {
   render(<App />)
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(4))
   const readinessCard = screen.getByLabelText('Readiness check')
-  expect(readinessCard).toHaveTextContent('Not checked')
-  expect(globalThis.fetch).not.toHaveBeenCalledWith('/control/api/v1/automation-readiness', expect.any(Object))
-
-  fireEvent.click(within(readinessCard).getByRole('button', { name: 'Check readiness' }))
-
   expect(await within(readinessCard).findByText('Long-haul mode: READY')).toBeInTheDocument()
   expect(globalThis.fetch).toHaveBeenNthCalledWith(4, '/control/api/v1/automation-readiness', expect.any(Object))
 })
@@ -1250,8 +1298,8 @@ it('shows automation readiness in the collapsed overview secondary fold', async 
   render(<App />)
 
   expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
-  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3))
-  expect(globalThis.fetch).not.toHaveBeenCalledWith('/control/api/v1/automation-readiness', expect.any(Object))
+  await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(4))
+  expect(globalThis.fetch).toHaveBeenNthCalledWith(4, '/control/api/v1/automation-readiness', expect.any(Object))
 
   fireEvent.click(screen.getByText('Show secondary details'))
 

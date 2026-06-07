@@ -37,7 +37,6 @@ test('detail hash opens structured run detail', async ({ page }) => {
 
 test('dispatch dry-run keeps raw JSON collapsed', async ({ page }) => {
   await openDashboardWithToken(page, '#overview')
-  await page.getByLabel('Primary action').getByRole('button', { name: 'Check readiness' }).click()
   await expect(page.getByRole('region', { name: 'Readiness check' })).toContainText('Long-haul mode: READY')
   await page.getByRole('button', { name: 'Check dispatch' }).click()
   await expect(page.getByRole('heading', { name: 'Dispatch dry-run passed' })).toBeVisible()

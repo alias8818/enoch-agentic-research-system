@@ -18,7 +18,7 @@ import { displayText } from './displayText'
 import { OperatorQueueSnapshot } from './operatorQueueSnapshot'
 import { formatReadinessErrorMessage } from './readinessErrors'
 import { dashboardV2Href } from './routes'
-import type { AutomationReadiness, OverviewResponse, PaperMaterialGraphCandidate, PaperMaterialGraphResponse, StatusResponse, TopAction } from './types'
+import type { AutomationReadiness, MovementDiagnosis as MovementDiagnosisModel, OverviewResponse, PaperMaterialGraphCandidate, PaperMaterialGraphResponse, StatusResponse, TopAction } from './types'
 
 export function OverviewPage() {
   const queryClient = useQueryClient()
@@ -35,7 +35,6 @@ export function OverviewPage() {
     queryKey: ['automation-readiness'],
     queryFn: () => apiGet<unknown>('/control/api/v1/automation-readiness').then(parseAutomationReadiness),
     refetchInterval: 60_000,
-    enabled: secondaryOpen || readinessRequested,
   })
   const refresh = () => {
     overview.refetch().catch(() => undefined)
@@ -88,6 +87,20 @@ function readinessCheckCardDetail(blockers: string[], readiness?: AutomationRead
 function readinessCheckButtonLabel(hasReadiness: boolean): string {
   if (hasReadiness) return 'Refresh readiness'
   return 'Check readiness'
+}
+
+function movementStatusLabel(status?: string): string {
+  if (status === 'ready') return 'Movement ready'
+  if (status === 'actionable') return 'Action available'
+  if (status === 'blocked') return 'Movement blocked'
+  return 'Movement unknown'
+}
+
+function readinessToneClass(readiness?: AutomationReadiness, error?: unknown): string {
+  if (error) return 'overview-briefing-pill overview-briefing-pill--warn'
+  if (readiness?.ok) return 'overview-briefing-pill overview-briefing-pill--good'
+  if (readiness?.ok === false) return 'overview-briefing-pill overview-briefing-pill--risk'
+  return 'overview-briefing-pill overview-briefing-pill--warn'
 }
 
 function controlHoldReason(flags?: OverviewResponse['flags']): string {
@@ -173,12 +186,14 @@ function OverviewPageBody({
         <OverviewFreshness generatedAt={data.generated_at} laneGeneratedAt={statusData?.generated_at} isFetching={isFetching} onRefresh={refresh} />
         <SafetyBar flags={data.flags} onRefresh={refresh} />
       </div>
-      <CommandHero overview={data} diagnosis={diagnosis} readiness={readinessData} readinessRequested={readinessRequested} readinessLoading={readinessLoading || readinessFetching} requiresReadinessCheck />
-      <ReadinessCheckCard
+      <CommandHero overview={data} diagnosis={diagnosis} readiness={readinessData} readinessRequested={readinessRequested || Boolean(readinessData)} readinessLoading={readinessLoading || readinessFetching} requiresReadinessCheck />
+      <OverviewBriefingStrip
+        data={data}
+        diagnosis={diagnosis}
         readiness={readinessData}
-        isLoading={readinessLoading || readinessFetching}
-        error={readinessError}
-        requested={readinessRequested}
+        readinessLoading={readinessLoading || readinessFetching}
+        readinessError={readinessError}
+        requested={readinessRequested || Boolean(readinessData)}
         onCheck={() => triggerReadinessCheck(readinessRequested, onReadinessRequested, onReadinessRefetch)}
       />
       <MovementDiagnosis diagnosis={diagnosis} />
@@ -1322,29 +1337,45 @@ function OverviewSecondaryFold({
   )
 }
 
-function ReadinessCheckCard({
+function OverviewBriefingStrip({
+  data,
+  diagnosis,
   readiness,
-  isLoading,
-  error,
+  readinessLoading,
+  readinessError,
   requested,
   onCheck,
 }: Readonly<{
+  data: OverviewResponse
+  diagnosis: MovementDiagnosisModel
   readiness?: AutomationReadiness
-  isLoading: boolean
-  error: unknown
+  readinessLoading: boolean
+  readinessError: unknown
   requested: boolean
   onCheck: () => void
 }>) {
   const blockers = readiness?.blockers || []
-  const label = readinessCheckCardLabel(error, readiness, isLoading, requested)
+  const readinessLabel = readinessCheckCardLabel(readinessError, readiness, readinessLoading, requested)
+  const readinessDetail = readinessCheckCardDetail(blockers, readiness)
+  const flags = data.flags || {}
   return (
-    <section className="readiness-check-card" aria-label="Readiness check">
-      <div>
-        <p className="eyebrow">Automation readiness</p>
-        <h2>{label}</h2>
-        <p>{readinessCheckCardDetail(blockers, readiness)}</p>
+    <section className="overview-briefing-strip" aria-label="Readiness check">
+      <div className={readinessToneClass(readiness, readinessError)}>
+        <span>Readiness evidence</span>
+        <strong>{readinessLabel}</strong>
+        <em>{readinessDetail}</em>
       </div>
-      <button className="secondary-button" type="button" disabled={isLoading} onClick={onCheck}>
+      <div className="overview-briefing-pill">
+        <span>Movement diagnosis</span>
+        <strong>{movementStatusLabel(diagnosis.status)}</strong>
+        <em>{displayText(diagnosis.primary_reason, 'No movement diagnosis returned.')}</em>
+      </div>
+      <div className="overview-briefing-pill">
+        <span>Control flags</span>
+        <strong>{flags.queue_paused || flags.maintenance_mode ? 'Held' : 'Live-safe'}</strong>
+        <em>{controlHoldReason(flags) || 'Queue and maintenance holds are off.'}</em>
+      </div>
+      <button className="secondary-button overview-briefing-action" type="button" disabled={readinessLoading} onClick={onCheck}>
         {readinessCheckButtonLabel(Boolean(readiness))}
       </button>
     </section>

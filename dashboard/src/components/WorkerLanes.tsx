@@ -134,6 +134,45 @@ function laneHasStaleActiveConfirmation(lane: WorkerLane): boolean {
   return displayText(lane.active_confirmation?.state, '') === 'stale_active'
 }
 
+function laneBriefingStatus(rendered: WorkerLane[], canFeedAny: boolean, canDispatchAny: boolean): string {
+  const activeCount = rendered.filter((lane) => lane.status === 'active').length
+  if (rendered.some(laneHasStaleActiveConfirmation)) return 'Lane reconciliation needed'
+  if (canDispatchAny) return 'Dispatch candidate ready'
+  if (canFeedAny) return 'Feed idle capacity'
+  if (activeCount > 0) return 'Workers are busy'
+  return 'Observe lanes'
+}
+
+function LaneBriefingStrip({ rendered, canFeedAny, canDispatchAny }: Readonly<{ rendered: WorkerLane[]; canFeedAny: boolean; canDispatchAny: boolean }>) {
+  const activeCount = rendered.filter((lane) => lane.status === 'active').length
+  const feedRequests = rendered.filter((lane) => ['generate_candidate', 'promote_candidate'].includes(lane.feed_pressure?.next_autopilot_action || '')).length
+  const staleCount = rendered.filter(laneHasStaleActiveConfirmation).length
+  return (
+    <dl className="lane-briefing-strip" aria-label="Worker lane briefing">
+      <div>
+        <dt>Lane posture</dt>
+        <dd>{laneBriefingStatus(rendered, canFeedAny, canDispatchAny)}</dd>
+      </div>
+      <div>
+        <dt>Active lanes</dt>
+        <dd>{activeCount}</dd>
+      </div>
+      <div>
+        <dt>Open dispatch</dt>
+        <dd>{canDispatchAny ? 'yes' : 'no'}</dd>
+      </div>
+      <div className={staleCount > 0 ? 'lane-briefing-risk' : undefined}>
+        <dt>Reconcile</dt>
+        <dd>{staleCount > 0 ? staleCount : 'clear'}</dd>
+      </div>
+      <div>
+        <dt>Feed requests</dt>
+        <dd>{feedRequests}</dd>
+      </div>
+    </dl>
+  )
+}
+
 function ResultCard({ result, stale }: Readonly<{ result: CommandResult | null; stale?: boolean }>) {
   if (!result) return null
   return <CommandResultSummary result={{ payload: result.payload, context: { ...result.context, stale: stale || result.context?.stale } }} />
@@ -640,8 +679,8 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error, contro
         <div className="lane-console-head">
           <div>
             <p className="eyebrow">Worker lanes</p>
-            <h2>CPU / GB10 command surface</h2>
-            <p>Dispatch and feed from each lane card. Bulk lane commands are secondary.</p>
+            <h2>Lane briefing</h2>
+            <p>See capacity first; open dry-run and live controls only after the lane evidence agrees.</p>
           </div>
           <details className="lane-bulk-actions">
             <summary>Bulk lane commands</summary>
@@ -659,6 +698,7 @@ export function WorkerLanes({ lanes, onRefresh, isLoading = false, error, contro
             </div>
           </details>
         </div>
+        {showLaneGrid ? <LaneBriefingStrip rendered={rendered} canFeedAny={canFeedAny} canDispatchAny={canDispatchAny} /> : null}
         <ResultCard result={commandResult} stale={commandResultStale(commandResult, liveFeedReady, liveFeedSignature, feedSignature, liveOpenLaneSignature, openLaneSignature)} />
         <LaneEmptyState error={error} isLoading={isLoading} hasLanes={rendered.length > 0} />
         {showLaneGrid ? (
