@@ -43,6 +43,42 @@ it('loads queue rows from the V1 queue endpoint with the route queue slice', asy
   expect(url.searchParams.get('status')).toBeNull()
 })
 
+it('adds human-first briefing vocabulary above resource page drilldown tables', async () => {
+  saveToken('test-token')
+
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ counts: { active: 1 }, rows: [{ project_id: 'queue-1', status: 'queued', title: 'Queue item' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ run_id: 'run-1', state: 'running', project_name: 'Active run story' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-1', status: 'publication_draft', title: 'Draft paper story', evidence: 'missing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+
+  const { rerender } = renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
+
+  expect(await screen.findByText('Dispatch briefing')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Pick a queued candidate, then dry-run dispatch' })).toBeInTheDocument()
+  expect(screen.getByText('Raw table role')).toBeInTheDocument()
+  expect(screen.getByText('Queue item')).toBeInTheDocument()
+
+  rerender(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <RunsPage route={{ page: 'runs', state: '', search: '', hash: '#runs' }} />
+    </QueryClientProvider>,
+  )
+
+  expect(await screen.findByText('Run story')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 recent run(s) are active or awaiting wake' })).toBeInTheDocument()
+  expect(screen.getByText('Active run story')).toBeInTheDocument()
+
+  rerender(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <PapersPage route={{ page: 'papers', status: '', search: '', hash: '#papers' }} />
+    </QueryClientProvider>,
+  )
+
+  expect(await screen.findByText('Publication briefing')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 draft(s) need evidence review' })).toBeInTheDocument()
+  expect(screen.getByText('Draft paper story')).toBeInTheDocument()
+})
+
 
 
 

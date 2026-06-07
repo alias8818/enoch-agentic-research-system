@@ -47,8 +47,11 @@ import { hashQuery, ListFilterBar } from './ListFilterBar'
 import { PageResourceErrorCard } from './ResourceStateCards'
 import {
   ActionRow,
+  BriefingCard,
+  BriefingGrid,
   EntityLinkChips,
   LoadingStateCard,
+  MetricStrip,
   OperatorDetailSummary,
   OperatorQuestionSections,
   PageShell,
@@ -262,6 +265,97 @@ function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last l
         {isFetching ? 'Refreshing…' : refreshLabel}
       </button>
     </ActionRow>
+  )
+}
+
+function rowsWithStatus(rows: ReadonlyArray<Record<string, unknown>>, status: string): number {
+  return rows.filter((row) => displayText(row.status).toLowerCase() === status).length
+}
+
+function rowsWithValue(rows: ReadonlyArray<Record<string, unknown>>, key: string, value: string): number {
+  return rows.filter((row) => displayText(row[key]).toLowerCase() === value).length
+}
+
+function activeOrWaitingRuns(rows: ReadonlyArray<Record<string, unknown>>): number {
+  return rows.filter((row) => ['running', 'dispatching', 'awaiting_wake', 'wake_ready'].includes(displayText(row.state).toLowerCase())).length
+}
+
+function publicationReadyRows(rows: ReadonlyArray<Record<string, unknown>>): number {
+  return rows.filter((row) => ['ready', 'publish_ready', 'publication_ready'].includes(displayText(row.status).toLowerCase())).length
+}
+
+function evidenceMissingRows(rows: ReadonlyArray<Record<string, unknown>>): number {
+  return rows.filter((row) => displayText(row.evidence).toLowerCase() === 'missing').length
+}
+
+function firstHumanTitle(rows: ReadonlyArray<Record<string, unknown>>, keys: string[], fallback: string): string {
+  for (const row of rows) {
+    for (const key of keys) {
+      const value = displayText(row[key], '')
+      if (value) return value
+    }
+  }
+  return fallback
+}
+
+function ProjectsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
+  const queued = rowsWithStatus(rows, 'queued')
+  const active = rowsWithStatus(rows, 'running') + rowsWithStatus(rows, 'awaiting_wake')
+  const blocked = rowsWithStatus(rows, 'blocked')
+  const nextTitle = firstHumanTitle(rows, ['project_name', 'title'], 'No project rows returned')
+  return (
+    <BriefingGrid>
+      <BriefingCard eyebrow="Workstream briefing" title={blocked > 0 ? `${blocked} workstream(s) need attention` : 'Workstreams are moving through the queue'} detail={blocked > 0 ? 'Blocked rows should be inspected before adding new work.' : 'Recent projects are grouped by operator state below; raw IDs stay in row drilldowns.'} tone={blocked > 0 ? 'risk' : 'neutral'}>
+        <MetricStrip ariaLabel="Project state summary" items={[{ label: 'queued', value: queued }, { label: 'active-ish', value: active }, { label: 'blocked', value: blocked }]} />
+      </BriefingCard>
+      <BriefingCard eyebrow="Next attention" title="Open the top visible workstream" detail={`${nextTitle}. Open a row for exact identifiers, dispatch history, paper state, and debug evidence.`} />
+    </BriefingGrid>
+  )
+}
+
+function QueueBriefing({ rows, activeCount }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>>; activeCount: number }>) {
+  const queued = rowsWithStatus(rows, 'queued')
+  const blocked = rowsWithStatus(rows, 'blocked')
+  const completed = rowsWithStatus(rows, 'completed')
+  const canInspectDispatch = queued > 0
+  return (
+    <BriefingGrid>
+      <BriefingCard eyebrow="Dispatch briefing" title={canInspectDispatch ? 'Pick a queued candidate, then dry-run dispatch' : 'No queued candidate visible in this page'} detail={activeCount > 0 ? 'Configured lanes are currently occupied; selected dispatch checks remain available for exact candidates.' : 'Use selected-row dry-run before any live dispatch.'} tone={blocked > 0 ? 'risk' : 'neutral'}>
+        <MetricStrip ariaLabel="Queue pressure summary" items={[{ label: 'queued here', value: queued }, { label: 'active', value: activeCount }, { label: 'blocked', value: blocked }, { label: 'completed here', value: completed }]} />
+      </BriefingCard>
+      <BriefingCard eyebrow="Raw table role" title="Rows below are drilldown evidence" detail="Internal hints, lane targets, and copy IDs are preserved for operators, but the briefing above should answer safety before row parsing." />
+    </BriefingGrid>
+  )
+}
+
+function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
+  const active = activeOrWaitingRuns(rows)
+  const completed = rowsWithStatus(rows, 'completed')
+  const failed = rowsWithStatus(rows, 'failed') + rowsWithStatus(rows, 'dispatch_error')
+  const latestTitle = firstHumanTitle(rows, ['project_name', 'project_id'], 'No run rows returned')
+  return (
+    <BriefingGrid>
+      <BriefingCard eyebrow="Run story" title={failed > 0 ? `${failed} recent run(s) need investigation` : active > 0 ? `${active} recent run(s) are active or awaiting wake` : 'Recent runs are quiet'} detail="Use row drilldowns for run IDs, callbacks, gates, and logs; top-level view should summarize outcome first." tone={failed > 0 ? 'risk' : active > 0 ? 'neutral' : 'good'}>
+        <MetricStrip ariaLabel="Run state summary" items={[{ label: 'active/wake', value: active }, { label: 'completed', value: completed }, { label: 'failed', value: failed }]} />
+      </BriefingCard>
+      <BriefingCard eyebrow="Latest story" title="Open the newest visible run" detail={`${latestTitle}. Implementation slices should turn this into a timeline of dispatch, callback, evidence, and outcome.`} />
+    </BriefingGrid>
+  )
+}
+
+function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
+  const drafts = rowsWithValue(rows, 'status', 'publication_draft')
+  const missingEvidence = evidenceMissingRows(rows)
+  const ready = publicationReadyRows(rows)
+  const closestTitle = firstHumanTitle(rows, ['title', 'paper_title', 'paper_id'], 'No paper rows returned')
+  const title = missingEvidence > 0 ? `${missingEvidence} draft(s) need evidence review` : drafts > 0 ? `${drafts} draft(s) need evidence review` : ready > 0 ? `${ready} paper(s) look publication-ready` : 'Publication artifacts need triage'
+  return (
+    <BriefingGrid>
+      <BriefingCard eyebrow="Publication briefing" title={title} detail="Paper rows should lead with artifact readiness and next workflow action; raw composite draft IDs belong in artifact/debug detail." tone={missingEvidence > 0 || drafts > 0 ? 'warn' : ready > 0 ? 'good' : 'neutral'}>
+        <MetricStrip ariaLabel="Paper readiness summary" items={[{ label: 'drafts', value: drafts }, { label: 'evidence missing', value: missingEvidence }, { label: 'ready', value: ready }]} />
+      </BriefingCard>
+      <BriefingCard eyebrow="Closest artifact" title="Open the closest visible artifact" detail={`${closestTitle}. Open a row for exact draft ID, corpus import state, and artifact/debug evidence.`} />
+    </BriefingGrid>
   )
 }
 
@@ -542,6 +636,7 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
   if (query.isLoading) return <LoadingStateCard label="queue" />
   if (query.isError) return <ResourceErrorCard endpoint="queue" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry queue" />
   const dispatch = deriveQueueDispatchState(query.data?.rows, selection, liveDispatchProjectId, liveDispatchSignature, dispatchBusy)
+  const rows = query.data?.rows || []
   const dispatchMutators: QueueDispatchMutators = {
     setDispatchBusy,
     setDispatchResult,
@@ -553,6 +648,7 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
   return (
     <>
       <PageShell title="Queue" subtitle="Review queue rows, dry-run dispatch, and start selected work safely." dataSource="/control/api/v1/queue" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
+        <QueueBriefing rows={rows} activeCount={numericCount(query.data?.counts?.active)} />
         <ListFilterBar savedFiltersTableId="queue" state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={(next) => { setFilters(next); replaceRouteHash(queueHash(next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(queueHash(next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
         <QueueDispatchCommandCard
           selection={selection}
@@ -563,7 +659,7 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
           onLive={() => { void runQueueLiveDispatch(dispatch.selectedProjectId, dispatch.canLiveDispatchSelected, confirm, dispatchMutators) }}
         />
         <CommandResultCard result={dispatchResult} stale={dispatch.staleDispatchReady} />
-        <DataTable rows={query.data?.rows || []} columns={queueTableColumns} empty={deriveQueueEmpty({ search: filters.search, status: filters.status, activeCount: numericCount(query.data?.counts?.active) })} cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setLiveDispatchSignature(''); setSelection({ kind: 'project', id: displayText(row.project_id), row }) }} />
+        <DataTable rows={rows} columns={queueTableColumns} empty={deriveQueueEmpty({ search: filters.search, status: filters.status, activeCount: numericCount(query.data?.counts?.active) })} cellHref={detailCellHref} onSelectRow={(row) => { setDispatchResult(null); setLiveDispatchProjectId(''); setLiveDispatchSignature(''); setSelection({ kind: 'project', id: displayText(row.project_id), row }) }} />
         <DetailPanel selection={selection} onClose={() => setSelection(null)} />
       </PageShell>
       {dialog}
@@ -582,10 +678,12 @@ export function ProjectsPage({ route }: Readonly<{ route: Extract<DashboardRoute
   const query = useQuery({ queryKey: ['projects', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/projects?${params}`).then(parseProjectListResponse) })
   if (query.isLoading) return <LoadingStateCard label="projects" />
   if (query.isError) return <ResourceErrorCard endpoint="projects" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry projects" />
+  const rows = query.data?.rows || []
   return (
     <PageShell title="Projects" subtitle="Search projects and open structured detail before dispatch or paper actions." dataSource="/control/api/v1/projects" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
+      <ProjectsBriefing rows={rows} />
       <ListFilterBar state={filters} statusOptions={[{ label: 'all project states', value: '' }, { label: 'testing', value: 'testing' }, { label: 'exploring', value: 'exploring' }, { label: 'queued', value: 'queued' }, { label: 'running', value: 'running' }, { label: 'completed', value: 'completed' }, { label: 'blocked', value: 'blocked' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#projects', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#projects', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={projectsTableColumns} empty={deriveProjectsEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'project', id: displayText(row.project_id), row })} />
+      <DataTable rows={rows} columns={projectsTableColumns} empty={deriveProjectsEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'project', id: displayText(row.project_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
@@ -602,10 +700,12 @@ export function RunsPage({ route }: Readonly<{ route: Extract<DashboardRoute, { 
   const query = useQuery({ queryKey: ['runs', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/runs?${params}`).then(parseRunListResponse) })
   if (query.isLoading) return <LoadingStateCard label="runs" />
   if (query.isError) return <ResourceErrorCard endpoint="runs" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry runs" />
+  const rows = query.data?.rows || []
   return (
     <PageShell title="Runs" subtitle="Inspect run state, gates, activity, and related artifacts." dataSource="/control/api/v1/runs" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
+      <RunsBriefing rows={rows} />
       <ListFilterBar state={filters} statusOptions={[{ label: 'all run states', value: '' }, { label: 'running', value: 'running' }, { label: 'dispatching', value: 'dispatching' }, { label: 'awaiting wake', value: 'awaiting_wake' }, { label: 'dispatch error', value: 'dispatch_error' }, { label: 'completed', value: 'completed' }, { label: 'wake ready', value: 'wake_ready' }]} onApply={(next) => { setFilters(next); replaceRouteHash(runsRouteHash(next)) }} onReset={() => { const next = { search: '', status: route.state, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(runsRouteHash(next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={runsTableColumns} empty={deriveRunsEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'run', id: displayText(row.run_id), row })} />
+      <DataTable rows={rows} columns={runsTableColumns} empty={deriveRunsEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'run', id: displayText(row.run_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )
@@ -622,11 +722,13 @@ export function PapersPage({ route }: Readonly<{ route: Extract<DashboardRoute, 
   const query = useQuery({ queryKey: ['papers', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/papers?${params}`).then(parsePaperListResponse) })
   if (query.isLoading) return <LoadingStateCard label="papers" />
   if (query.isError) return <ResourceErrorCard endpoint="papers" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry papers" />
+  const rows = query.data?.rows || []
   return (
     <PageShell title="Papers" subtitle="Track draft, finalization, and publication readiness." dataSource="/control/api/v1/papers" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
       <PaperWorkflowNav active="papers" />
+      <PapersBriefing rows={rows} />
       <ListFilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
-      <DataTable rows={query.data?.rows || []} columns={papersTableColumns} empty={derivePapersEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: displayText(row.paper_id), row })} />
+      <DataTable rows={rows} columns={papersTableColumns} empty={derivePapersEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: displayText(row.paper_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
   )

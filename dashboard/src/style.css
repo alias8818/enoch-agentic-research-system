@@ -315,6 +315,77 @@ button:disabled { cursor: not-allowed; }
 
 .secondary-analytics { display: grid; gap: 0.85rem; }
 
+.briefing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0.85rem;
+}
+
+.briefing-card {
+  border: 1px solid rgba(244, 241, 234, 0.12);
+  border-radius: 1.35rem;
+  background: linear-gradient(135deg, rgba(18, 18, 15, 0.9), rgba(7, 8, 7, 0.78));
+  padding: 1rem;
+  box-shadow: 0 18px 70px rgba(0, 0, 0, 0.26);
+}
+
+.briefing-card--good { border-color: rgba(70, 180, 124, 0.34); }
+.briefing-card--warn { border-color: rgba(226, 177, 91, 0.38); }
+.briefing-card--risk { border-color: rgba(194, 80, 70, 0.45); }
+
+.briefing-card h2 {
+  margin: 0.28rem 0 0;
+  color: #fff8ea;
+  font-size: 1.08rem;
+  line-height: 1.18;
+  text-wrap: balance;
+}
+
+.briefing-card__detail {
+  margin: 0.48rem 0 0;
+  color: rgba(255, 248, 234, 0.68);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.55rem;
+  margin: 0.85rem 0 0;
+}
+
+.metric-strip div {
+  border: 1px solid rgba(255, 248, 234, 0.1);
+  border-radius: 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.72rem;
+}
+
+.metric-strip dt {
+  color: rgba(255, 248, 234, 0.48);
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.metric-strip dd {
+  margin: 0.22rem 0 0;
+  color: #fff8ea;
+  font-size: 1.35rem;
+  line-height: 1;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-strip p {
+  margin: 0.25rem 0 0;
+  color: rgba(255, 248, 234, 0.56);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .eyebrow {
   margin: 0;
   color: #d6a957;
