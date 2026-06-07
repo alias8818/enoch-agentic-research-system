@@ -1210,6 +1210,7 @@ function PaperGraphCandidateList({
           <strong>{displayText(candidate.title, 'Untitled candidate')}</strong>
           <span>{paperGraphCandidateMeta(candidate, kind)}</span>
           <p>{displayText(candidate.recommended_next_action || candidate.scale_limits || candidate.claim_scope, 'No next action recorded.')}</p>
+          {candidate.packet_path ? <code>{candidate.packet_path}</code> : null}
         </li>
       ))}
     </ol>

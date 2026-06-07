@@ -73,6 +73,7 @@ export interface AutomationReadiness {
 
 export interface PaperMaterialGraphCandidate {
   signal_id?: string
+  packet_path?: string
   title?: string
   status?: string
   score?: number | null

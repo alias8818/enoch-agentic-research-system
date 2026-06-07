@@ -106,6 +106,12 @@ def _safe_text(value: Any) -> str:
     return text
 
 
+def _candidate_slug(signal_id: Any, title: Any) -> str:
+    seed = _text(signal_id).removeprefix("signal:") or _text(title) or "candidate"
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", seed.lower()).strip("-")
+    return slug[:96] or "candidate"
+
+
 def _read_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -467,6 +473,7 @@ def _synthesis_candidates(
         candidates.append(
             {
                 "signal_id": signal_id,
+                "packet_path": f"candidates/synthesis/{_candidate_slug(signal_id, signal.get('title', ''))}.md",
                 "title": signal.get("title", ""),
                 "status": status,
                 "score": score,
@@ -521,6 +528,7 @@ def _negative_result_candidates(
         candidates.append(
             {
                 "signal_id": node["id"],
+                "packet_path": f"candidates/negative/{_candidate_slug(node['id'], node.get('title', ''))}.md",
                 "title": node.get("title", ""),
                 "status": status,
                 "score": int(curation.get("score") or 0),
@@ -614,6 +622,8 @@ def _markdown(graph: dict[str, Any]) -> str:
         "",
         f"Generated: `{graph.get('generated_at')}`",
         "",
+        "Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for live topology referenced by candidate material.",
+        "",
         "## Summary",
         "",
         f"- Papers: {summary.get('paper_count', 0)}",
@@ -635,6 +645,10 @@ def _markdown(graph: dict[str, Any]) -> str:
             f"(`{candidate.get('status')}`)"
         )
         lines.append(f"- Signal: `{candidate.get('signal_id')}`")
+        if candidate.get("packet_path"):
+            lines.append(
+                f"- Packet: [{candidate.get('packet_path')}]({candidate.get('packet_path')})"
+            )
         lines.append(f"- Related papers: {candidate.get('related_paper_count', 0)}")
         if candidate.get("recommended_next_action"):
             lines.append(f"- Next action: {candidate.get('recommended_next_action')}")
@@ -649,6 +663,10 @@ def _markdown(graph: dict[str, Any]) -> str:
             f"(`{candidate.get('status')}`)"
         )
         lines.append(f"- Signal: `{candidate.get('signal_id')}`")
+        if candidate.get("packet_path"):
+            lines.append(
+                f"- Packet: [{candidate.get('packet_path')}]({candidate.get('packet_path')})"
+            )
         if candidate.get("scale_limits"):
             lines.append(f"- Scale limits: {candidate.get('scale_limits')}")
         if candidate.get("claim_scope"):
@@ -704,8 +722,99 @@ def _log_summary(graph: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _candidate_packet_markdown(
+    candidate: dict[str, Any], *, kind: str, graph: dict[str, Any]
+) -> str:
+    lines = [
+        f"# {candidate.get('title') or 'Untitled candidate'}",
+        "",
+        f"Generated from graph: `{graph.get('generated_at')}`",
+        "Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.",
+        f"Candidate kind: `{kind}`",
+        f"Signal: `{candidate.get('signal_id')}`",
+        f"Status: `{candidate.get('status')}`",
+        f"Score: `{candidate.get('score', 0)}`",
+        "",
+        "## Operator next action",
+        "",
+        candidate.get("recommended_next_action") or "No explicit next action recorded.",
+        "",
+    ]
+    if candidate.get("claim_scope") or candidate.get("scale_limits"):
+        lines.extend(["## Scope and limits", ""])
+        if candidate.get("claim_scope"):
+            lines.append(f"- Claim scope: {candidate.get('claim_scope')}")
+        if candidate.get("scale_limits"):
+            lines.append(f"- Scale limits: {candidate.get('scale_limits')}")
+        if candidate.get("hypothesis_status"):
+            lines.append(f"- Hypothesis status: `{candidate.get('hypothesis_status')}`")
+        if candidate.get("evidence_strength"):
+            lines.append(f"- Evidence strength: `{candidate.get('evidence_strength')}`")
+        lines.append("")
+    related_papers = candidate.get("related_papers") or []
+    if related_papers:
+        lines.extend(["## Related paper material", ""])
+        for paper in related_papers:
+            terms = ", ".join(paper.get("shared_terms") or [])
+            lines.append(
+                f"- **{paper.get('title')}** (`{paper.get('id')}`) — shared terms: {terms or 'n/a'}"
+            )
+        lines.append("")
+    sources = candidate.get("sources") or []
+    if sources:
+        lines.extend(["## Source lineage", ""])
+        for source in sources:
+            url = source.get("url") or ""
+            suffix = f" — {url}" if url else ""
+            lines.append(f"- {source.get('title')} (`{source.get('id')}`){suffix}")
+        lines.append("")
+    lines.extend(
+        [
+            "## Dashboard context",
+            "",
+            "This packet is generated from the paper-material graph and is safe to inspect while the queue is running. It is an operator packet, not a dispatch command.",
+            "",
+        ]
+    )
+    return "\n".join(str(line) for line in lines)
+
+
+def write_candidate_packets(graph: dict[str, Any], packet_dir: Path) -> list[Path]:
+    packet_dir.mkdir(parents=True, exist_ok=True)
+    for stale in packet_dir.glob("**/*.md"):
+        stale.unlink()
+    written: list[Path] = []
+    summary = graph.get("summary") or {}
+    for kind, key in (
+        ("synthesis", "synthesis_candidates"),
+        ("negative", "negative_result_candidates"),
+    ):
+        kind_dir = packet_dir / kind
+        kind_dir.mkdir(parents=True, exist_ok=True)
+        for candidate in summary.get(key) or []:
+            if not isinstance(candidate, dict):
+                continue
+            rel_path = _text(candidate.get("packet_path"))
+            filename = (
+                Path(rel_path).name
+                if rel_path
+                else f"{_candidate_slug(candidate.get('signal_id'), candidate.get('title'))}.md"
+            )
+            output = kind_dir / filename
+            output.write_text(
+                _candidate_packet_markdown(candidate, kind=kind, graph=graph),
+                encoding="utf-8",
+            )
+            written.append(output)
+    return written
+
+
 def write_outputs(
-    graph: dict[str, Any], *, json_output: Path, markdown_output: Path | None = None
+    graph: dict[str, Any],
+    *,
+    json_output: Path,
+    markdown_output: Path | None = None,
+    candidate_packet_dir: Path | None = None,
 ) -> None:
     json_output.parent.mkdir(parents=True, exist_ok=True)
     json_output.write_text(
@@ -714,6 +823,8 @@ def write_outputs(
     if markdown_output is not None:
         markdown_output.parent.mkdir(parents=True, exist_ok=True)
         markdown_output.write_text(_markdown(graph), encoding="utf-8")
+    if candidate_packet_dir is not None:
+        write_candidate_packets(graph, candidate_packet_dir)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -722,6 +833,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--promising-repo", required=True, type=Path)
     parser.add_argument("--json-output", required=True, type=Path)
     parser.add_argument("--markdown-output", type=Path)
+    parser.add_argument("--candidate-packet-dir", type=Path)
     parser.add_argument("--min-shared-terms", type=int, default=2)
     parser.add_argument("--max-similar-per-node", type=int, default=12)
     return parser.parse_args(argv)
@@ -736,7 +848,10 @@ def main(argv: list[str] | None = None) -> int:
         max_similar_per_node=args.max_similar_per_node,
     )
     write_outputs(
-        graph, json_output=args.json_output, markdown_output=args.markdown_output
+        graph,
+        json_output=args.json_output,
+        markdown_output=args.markdown_output,
+        candidate_packet_dir=args.candidate_packet_dir,
     )
     print(json.dumps(_log_summary(graph), indent=2, sort_keys=True))
     return 0

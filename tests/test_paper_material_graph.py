@@ -204,6 +204,7 @@ def test_graph_output_redacts_private_paths_and_writes_json_and_markdown(
     promising = tmp_path / "promising"
     out_json = tmp_path / "graph" / "paper-material-graph.json"
     out_md = tmp_path / "graph" / "paper-material-graph.md"
+    packet_dir = tmp_path / "graph" / "candidates"
     _write_corpus_paper(
         corpus,
         "memory-paper",
@@ -218,7 +219,12 @@ def test_graph_output_redacts_private_paths_and_writes_json_and_markdown(
     )
 
     graph = builder.build_graph(corpus_repo=corpus, promising_repo=promising)
-    builder.write_outputs(graph, json_output=out_json, markdown_output=out_md)
+    builder.write_outputs(
+        graph,
+        json_output=out_json,
+        markdown_output=out_md,
+        candidate_packet_dir=packet_dir,
+    )
 
     serialized = out_json.read_text(encoding="utf-8")
     assert "/home/jeremy" not in serialized
@@ -226,7 +232,15 @@ def test_graph_output_redacts_private_paths_and_writes_json_and_markdown(
     markdown = out_md.read_text(encoding="utf-8")
     assert "# Enoch Paper Material Graph" in markdown
     assert "Trace Derived Memory" in markdown
+    assert "candidates/synthesis/trace-memory-signal.md" in markdown
     assert "operations.md" in markdown
+    packets = sorted(packet_dir.glob("**/*.md"))
+    assert [packet.relative_to(packet_dir).as_posix() for packet in packets] == [
+        "synthesis/trace-memory-signal.md"
+    ]
+    packet = packets[0].read_text(encoding="utf-8")
+    assert "# Trace derived memory for long running agents" in packet
+    assert "Operator next action" in packet
 
 
 def test_log_summary_is_compact_and_operator_focused(tmp_path: Path) -> None:

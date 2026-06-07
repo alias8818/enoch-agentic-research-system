@@ -616,6 +616,7 @@ export const automationReadinessSchema = z.object({
 
 const paperMaterialGraphCandidateSchema = z.object({
   signal_id: z.string().optional(),
+  packet_path: z.string().optional(),
   title: z.string().optional(),
   status: z.string().optional(),
   score: z.number().nullable().optional(),

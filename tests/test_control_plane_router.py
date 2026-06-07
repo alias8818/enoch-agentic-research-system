@@ -242,6 +242,7 @@ def test_paper_material_graph_response_is_bounded_read_only(tmp_path: Path) -> N
                     "synthesis_candidates": [
                         {
                             "signal_id": "signal:one",
+                            "packet_path": "candidates/synthesis/one.md",
                             "title": "Candidate one",
                             "status": "useful_signal",
                             "score": 95,
@@ -310,7 +311,11 @@ def test_paper_material_graph_endpoint_requires_auth_and_reads_artifact(
                     "similar_topic_edges": 1,
                     "connected_component_count": 1,
                     "synthesis_candidates": [
-                        {"signal_id": "signal:one", "title": "Candidate one"}
+                        {
+                            "signal_id": "signal:one",
+                            "packet_path": "candidates/synthesis/one.md",
+                            "title": "Candidate one",
+                        }
                     ],
                     "negative_result_candidates": [
                         {"signal_id": "signal:blocked", "title": "Blocked candidate"}
@@ -338,6 +343,10 @@ def test_paper_material_graph_endpoint_requires_auth_and_reads_artifact(
     assert body["ok"] is True
     assert body["counts"]["paper_count"] == 1
     assert body["candidates"]["synthesis"][0]["title"] == "Candidate one"
+    assert (
+        body["candidates"]["synthesis"][0]["packet_path"]
+        == "candidates/synthesis/one.md"
+    )
     assert body["candidates"]["negative"][0]["title"] == "Blocked candidate"
 
 

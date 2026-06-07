@@ -22,5 +22,6 @@ exec "$PYTHON_BIN" "$CONTROL_PLANE_ROOT/scripts/build_paper_material_graph.py" \
   --promising-repo "$PROMISING_REPO" \
   --json-output "$OUTPUT_DIR/paper-material-graph.json" \
   --markdown-output "$OUTPUT_DIR/README.md" \
+  --candidate-packet-dir "$OUTPUT_DIR/candidates" \
   --min-shared-terms "$MIN_SHARED_TERMS" \
   --max-similar-per-node "$MAX_SIMILAR_PER_NODE"

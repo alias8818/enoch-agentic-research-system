@@ -7382,6 +7382,7 @@ def _register_control_plane_sentry_smoke_route(
 def _paper_material_candidate(candidate: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "signal_id": str(candidate.get("signal_id") or ""),
+        "packet_path": str(candidate.get("packet_path") or ""),
         "title": str(candidate.get("title") or "Untitled candidate"),
         "status": str(candidate.get("status") or ""),
         "score": candidate.get("score"),

@@ -15,6 +15,7 @@ On the control-plane host:
 - Timer: `enoch-paper-material-graph.timer`
 - JSON graph: `/opt/enoch-control-plane/docs/paper-material-graph/paper-material-graph.json`
 - Markdown summary: `/opt/enoch-control-plane/docs/paper-material-graph/README.md`
+- Candidate packets: `/opt/enoch-control-plane/docs/paper-material-graph/candidates/{synthesis,negative}/*.md`
 
 ## What it reads
 
@@ -80,6 +81,7 @@ curl -sS -H "Authorization: Bearer $ENOCH_CONTROL_TOKEN" \
 
 - **Top synthesis candidates**: positive/useful signals with nearby public paper material. These are candidates for stronger follow-up papers.
 - **Negative / blocked result candidates**: scale-blocked or failed-ish signals that should not be discarded. These are candidates for negative-result reports, bounded re-runs, or paper sections explaining what did not work.
+- **Candidate packets**: one Markdown packet per ranked candidate with signal id, score/status, next action, related papers, source lineage, and scope/limit notes. Packet paths are also surfaced in the dashboard panel so an operator can jump from counts to concrete paper material.
 - **Graph JSON**: full machine-readable node/edge export for later clustering, visualization, or graph database import.
 
 ## Known current behavior
