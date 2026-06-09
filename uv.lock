@@ -495,7 +495,7 @@ wheels = [
 
 [[package]]
 name = "enoch-control-plane"
-version = "1.41.21"
+version = "1.41.22"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
