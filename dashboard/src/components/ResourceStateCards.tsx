@@ -25,12 +25,15 @@ export function PageResourceErrorCard({
     <section className="state-card state-card--error v2-error-card" aria-live="polite">
       <p className="eyebrow">{copy.eyebrow}</p>
       <h2>{copy.title}</h2>
-      <p>{copy.summary}</p>
-      <p className="v2-error-impact"><strong>Dispatch impact:</strong> {copy.dispatchImpact}</p>
+      <p><strong>What happened?</strong> {copy.summary}</p>
+      <p className="v2-error-impact"><strong>Safety/productivity impact:</strong> {copy.dispatchImpact}</p>
       <ul className="v2-error-steps">
         {copy.nextSteps.map((step) => <li key={step}>{step}</li>)}
       </ul>
-      <p className="error-detail">{errorMessage(error)}</p>
+      <details className="raw-details v2-error-log">
+        <summary>Raw error detail</summary>
+        <pre className="json-block">{errorMessage(error)}</pre>
+      </details>
       <details className="raw-details v2-error-log">
         <summary>Operator log command</summary>
         <pre className="json-block">{copy.logCommand}</pre>

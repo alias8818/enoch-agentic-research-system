@@ -264,10 +264,20 @@ function ResourceErrorCard({ endpoint, error, onRetry, retryLabel }: Readonly<{ 
   return <PageResourceErrorCard copy={deriveResourceErrorCopy(endpoint, error)} error={error} onRetry={onRetry} retryLabel={retryLabel} />
 }
 
+function isGeneratedAtStale(generatedAt?: string): boolean {
+  if (!generatedAt) return false
+  const parsed = Date.parse(generatedAt)
+  if (!Number.isFinite(parsed)) return false
+  const ageMs = Date.now() - parsed
+  return ageMs > 15 * 60 * 1000
+}
+
 function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last loaded', refreshLabel = 'Refresh rows' }: Readonly<{ generatedAt?: string; isFetching: boolean; onRefresh: () => void; label?: string; refreshLabel?: string }>) {
+  const stale = isGeneratedAtStale(generatedAt)
   return (
     <ActionRow ariaLabel={label}>
       <span>{label} {generatedAt || 'unknown'}</span>
+      {stale ? <span className="refresh-stale-note">Data may be stale; refresh before operator action.</span> : null}
       <button className="secondary-button" type="button" disabled={isFetching} onClick={onRefresh}>
         {isFetching ? 'Refreshing…' : refreshLabel}
       </button>
@@ -318,6 +328,34 @@ function firstHumanTitle(rows: ReadonlyArray<Record<string, unknown>>, keys: str
     }
   }
   return fallback
+}
+
+function EmptyBriefingArticle({
+  className,
+  eyebrow = 'Empty slice',
+  title,
+  impact,
+  nextAction,
+  diagnostics,
+}: Readonly<{
+  className: string
+  eyebrow?: string
+  title: string
+  impact: string
+  nextAction: string
+  diagnostics: string
+}>) {
+  return (
+    <article className={className}>
+      <p className="eyebrow">{eyebrow}</p>
+      <h3>{title}</h3>
+      <dl className="operator-state-facts">
+        <div><dt>Impact</dt><dd>{impact}</dd></div>
+        <div><dt>Next action</dt><dd>{nextAction}</dd></div>
+        <div><dt>Diagnostics</dt><dd>{diagnostics}</dd></div>
+      </dl>
+    </article>
+  )
 }
 
 function projectNeedsAttention(row: Record<string, unknown>): boolean {
@@ -431,11 +469,13 @@ function ProjectsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string
             </article>
           )
         }) : (
-          <article className="project-workstream-card">
-            <p className="eyebrow">Empty slice</p>
-            <h3>No project rows match this filter</h3>
-            <p>Change filters or refresh before relying on the project table for workstream decisions.</p>
-          </article>
+          <EmptyBriefingArticle
+            className="project-workstream-card"
+            title="No project rows match this filter"
+            impact="No workstream card can be prioritized from the current slice; dispatch safety is not changed by this empty view."
+            nextAction="Clear filters or refresh before relying on Projects for workstream decisions."
+            diagnostics="Use the table empty state and Data source disclosure for raw query context."
+          />
         )}
       </section>
     </>
@@ -613,11 +653,13 @@ function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, un
             </article>
           )
         }) : (
-          <article className="run-story-card">
-            <p className="eyebrow">Empty slice</p>
-            <h3>No run rows match this filter</h3>
-            <p>Change filters or refresh before relying on the run ledger for timeline decisions.</p>
-          </article>
+          <EmptyBriefingArticle
+            className="run-story-card"
+            title="No run rows match this filter"
+            impact="No run timeline can be summarized from the current slice; this is visibility-only and does not block dispatch by itself."
+            nextAction="Clear filters or refresh before relying on Runs for callback, gate, or evidence timing."
+            diagnostics="Use the table empty state and Data source disclosure for raw query context."
+          />
         )}
       </section>
     </>
@@ -766,11 +808,13 @@ function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, 
             </article>
           )
         }) : (
-          <article className="paper-artifact-card">
-            <p className="eyebrow">Empty slice</p>
-            <h3>No paper rows match this filter</h3>
-            <p>Change filters or refresh before relying on the publication ledger for readiness decisions.</p>
-          </article>
+          <EmptyBriefingArticle
+            className="paper-artifact-card"
+            title="No paper rows match this filter"
+            impact="No publication artifact card can be prioritized from the current slice; research and dispatch lanes are unaffected."
+            nextAction="Clear filters or refresh before relying on Papers for publication readiness decisions."
+            diagnostics="Use the table empty state and Data source disclosure for raw query context."
+          />
         )}
       </section>
     </>

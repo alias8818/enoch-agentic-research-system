@@ -367,18 +367,21 @@ button:disabled { cursor: not-allowed; }
   line-height: 1.42;
 }
 
-.project-workstream-card__facts {
+.project-workstream-card__facts,
+.operator-state-facts {
   display: grid;
   gap: 0.5rem;
   margin: 0.85rem 0 0;
 }
 
-.project-workstream-card__facts div {
+.project-workstream-card__facts div,
+.operator-state-facts div {
   border-top: 1px solid rgba(255, 248, 234, 0.09);
   padding-top: 0.5rem;
 }
 
-.project-workstream-card__facts dt {
+.project-workstream-card__facts dt,
+.operator-state-facts dt {
   color: rgba(255, 248, 234, 0.46);
   font-size: 0.62rem;
   font-weight: 850;
@@ -386,7 +389,8 @@ button:disabled { cursor: not-allowed; }
   text-transform: uppercase;
 }
 
-.project-workstream-card__facts dd {
+.project-workstream-card__facts dd,
+.operator-state-facts dd {
   margin: 0.18rem 0 0;
   color: #eee7da;
   font-size: 0.84rem;
@@ -1936,6 +1940,16 @@ button:disabled { cursor: not-allowed; }
 .composed-empty-state--idle { border-color: rgba(89, 205, 135, 0.22); }
 .composed-empty-state--filtered { border-color: rgba(244,241,234,0.14); }
 .composed-empty-state--blocked { border-color: rgba(252, 211, 77, 0.28); background: rgba(88, 62, 12, 0.12); }
+.state-card__hint {
+  margin: 0.45rem 0 0;
+  color: #837d75;
+  font-size: 0.82rem;
+}
+.refresh-stale-note {
+  color: #e2b15b;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
 .muted-value { color: #6f6860; }
 .json-inline { color: #9f988f; font-size: 0.74rem; }
 .cell-truncate { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

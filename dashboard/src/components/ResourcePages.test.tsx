@@ -21,6 +21,7 @@ function expectParam(url: URL, name: string, value: string) {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   saveToken('')
   globalThis.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
@@ -259,6 +260,66 @@ it('opens papers with publication artifact cards before raw draft ids and paths'
   expect(within(artifactCards).getByText('not imported to corpus yet')).toBeInTheDocument()
   expect(within(artifactCards).queryByText('raw-missing-evidence-paper-id:needs-review:arxiv_draft')).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Copy id raw-missing-evidence-paper-id:needs-review:arxiv_draft' })).toBeInTheDocument()
+})
+
+it('uses operator-friendly loading copy while resource read models resolve', () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockImplementation(() => new Promise<Response>(() => undefined))
+
+  renderWithClient(<RunsPage route={{ page: 'runs', state: '', search: '', hash: '#runs' }} />)
+
+  expect(screen.getByText('Loading read model')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Loading runs…' })).toBeInTheDocument()
+  expect(screen.getByText('Waiting for the bounded dashboard read model before making an operator decision from this page.')).toBeInTheDocument()
+  expect(screen.getByText('If this does not resolve, refresh once and then inspect the page data-source diagnostics.')).toBeInTheDocument()
+})
+
+it('keeps resource API diagnostics behind human-readable error guidance', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response('upstream exploded with internal stack marker', { status: 503, statusText: 'Service Unavailable' }))
+
+  renderWithClient(<ProjectsPage route={{ page: 'projects', status: '', search: '', hash: '#projects' }} />)
+
+  expect(await screen.findByRole('heading', { name: 'Projects could not load' })).toBeInTheDocument()
+  expect(screen.getByText(/What happened?/)).toBeInTheDocument()
+  expect(screen.getByText(/Project discovery failed before the table could render./)).toBeInTheDocument()
+  expect(screen.getByText(/Safety\/productivity impact:/)).toBeInTheDocument()
+  expect(screen.getByText('Raw error detail')).toBeInTheDocument()
+  expect(screen.getByText('Operator log command')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Retry projects' })).toBeInTheDocument()
+})
+
+it('explains empty briefing-card slices with impact, next action, and diagnostics', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({ rows: [], page: { returned: 0, has_more: false } }), { status: 200 }))
+
+  renderWithClient(<PapersPage route={{ page: 'papers', status: 'draft_review', search: 'missing subject', hash: '#papers?status=draft_review' }} />)
+
+  expect(await screen.findByText('Publication briefing')).toBeInTheDocument()
+  const artifactCards = screen.getByLabelText('Prioritized publication artifacts')
+  expect(within(artifactCards).getByRole('heading', { name: 'No paper rows match this filter' })).toBeInTheDocument()
+  expect(within(artifactCards).getByText('Impact')).toBeInTheDocument()
+  expect(within(artifactCards).getByText('No publication artifact card can be prioritized from the current slice; research and dispatch lanes are unaffected.')).toBeInTheDocument()
+  expect(within(artifactCards).getByText('Next action')).toBeInTheDocument()
+  expect(within(artifactCards).getByText('Clear filters or refresh before relying on Papers for publication readiness decisions.')).toBeInTheDocument()
+  expect(within(artifactCards).getByText('Diagnostics')).toBeInTheDocument()
+  expect(within(artifactCards).getByText('Use the table empty state and Data source disclosure for raw query context.')).toBeInTheDocument()
+})
+
+it('marks loaded resource data as stale before operator action when generated_at is old', async () => {
+  saveToken('test-token')
+  vi.setSystemTime(new Date('2026-06-09T02:00:00Z'))
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    generated_at: '2026-06-09T01:00:00Z',
+    rows: [{ project_id: 'stale-project', project_name: 'Stale project', status: 'queued' }],
+    page: { returned: 1, has_more: false },
+  }), { status: 200 }))
+
+  renderWithClient(<ProjectsPage route={{ page: 'projects', status: '', search: '', hash: '#projects' }} />)
+
+  expect(await screen.findAllByText('Stale project')).not.toHaveLength(0)
+  expect(screen.getByText('Data may be stale; refresh before operator action.')).toBeInTheDocument()
+  vi.useRealTimers()
 })
 
 it('adds human-first briefing vocabulary above resource page drilldown tables', async () => {
@@ -515,7 +576,7 @@ it('explains event read-model failures without dumping a generic 500 card', asyn
   renderWithClient(<EventsPage route={{ page: 'events', eventType: '', search: '', hash: '#events' }} />)
 
   expect(await screen.findByText('Events could not load')).toBeInTheDocument()
-  expect(screen.getByText(/Dispatch impact:/)).toBeInTheDocument()
+  expect(screen.getByText(/Safety\/productivity impact:/)).toBeInTheDocument()
   expect(screen.getByText('Retry events')).toBeInTheDocument()
   expect(screen.queryByText('Open legacy events')).not.toBeInTheDocument()
   expect(screen.queryByText(/V2 data unavailable/)).not.toBeInTheDocument()
@@ -538,7 +599,7 @@ it('explains queue endpoint failures with retry guidance', async () => {
   renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
 
   expect(await screen.findByText('Queue could not load')).toBeInTheDocument()
-  expect(screen.getByText(/Dispatch impact:/)).toBeInTheDocument()
+  expect(screen.getByText(/Safety\/productivity impact:/)).toBeInTheDocument()
   expect(screen.getByText('Retry queue')).toBeInTheDocument()
   expect(screen.queryByText(/V2 data unavailable/)).not.toBeInTheDocument()
 })
