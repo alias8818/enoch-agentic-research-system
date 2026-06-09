@@ -794,7 +794,7 @@ button:disabled { cursor: not-allowed; }
   cursor: not-allowed;
   border-color: rgba(244, 241, 234, 0.1);
   background: rgba(244, 241, 234, 0.055);
-  color: rgba(244, 241, 234, 0.56);
+  color: rgba(244, 241, 234, 0.72);
   opacity: 1;
 }
 .primary-button--link { display: inline-block; margin-top: 1.1rem; text-decoration: none; }
@@ -2038,7 +2038,7 @@ span.cell-primary.cell-truncate {
 .queue-action-steps__item--ready {
   border-color: rgba(134,239,172,0.35);
   color: #86efac;
-  background: rgba(34,197,94,0.1);
+  background: rgba(0,0,0,0.24);
 }
 .cell-link { color: #e2b15b; text-decoration: none; }
 .cell-link:focus-visible {
