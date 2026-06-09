@@ -382,6 +382,21 @@ function topActionTargetLinks(action: TopAction): EntityLink[] {
   return links
 }
 
+function isCandidateGenerationHash(hash: string | null | undefined): boolean {
+  if (!hash) return false
+  return hash === '#research' || hash.startsWith('#research:') || hash.startsWith('#candidate:')
+}
+
+function topActionLinkLabel(action: TopAction): string {
+  const label = displayText(action.action_label, '')
+  if (!isCandidateGenerationHash(action.action_hash)) return label || 'Open'
+  const normalized = label.toLowerCase().replaceAll(/[^a-z]+/g, ' ').trim()
+  if (!label || normalized === 'queue follow up' || normalized === 'queue followup' || normalized === 'open research') {
+    return 'Open candidate generation'
+  }
+  return label
+}
+
 function topActionMetaLabel(action: TopAction): string {
   const parts: string[] = []
   if (typeof action.priority === 'number') parts.push(`priority ${action.priority}`)
@@ -1042,7 +1057,7 @@ function TopActions({
             <h4>{action.title}</h4>
             <div className="quality-action-meta">
               {topActionMetaLabel(action) ? <span>{topActionMetaLabel(action)}</span> : null}
-              {action.action_hash ? <a href={dashboardV2Href(action.action_hash)}>{action.action_label || 'Open'}</a> : null}
+              {action.action_hash ? <a href={dashboardV2Href(action.action_hash)}>{topActionLinkLabel(action)}</a> : null}
             </div>
             <p className="quality-action-summary">{displayText(action.summary, 'No action summary returned.')}</p>
             {targetLabel ? <p className="quality-action-target">{targetLabel}</p> : null}
