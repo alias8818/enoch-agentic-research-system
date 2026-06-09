@@ -2741,6 +2741,66 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             mocked_preflight.assert_not_called()
 
+    def test_queue_alert_dry_run_refreshes_worker_preflight_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = _live_config(tmp).model_copy(
+                update={"worker_wake_gate_url": "http://worker.example"}
+            )
+            client = _client_with_config(config)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            stale_observed_at = (
+                datetime.now(timezone.utc) - timedelta(hours=1)
+            ).isoformat()
+            store.upsert_dashboard_observation(
+                source="worker_preflight",
+                status="warn",
+                observed_at=stale_observed_at,
+                ttl_seconds=3600,
+                payload={
+                    "ok": False,
+                    "target": "http://worker.example",
+                    "checks": [
+                        {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        }
+                    ],
+                },
+            )
+            fresh_preflight = WorkerPreflightResponse(
+                ok=True,
+                target="http://worker.example",
+                summary="worker preflight passed",
+                checks=[
+                    WorkerPreflightCheck(
+                        name="worker_no_live_runs",
+                        ok=True,
+                        detail="active_or_waiting=0, live=0",
+                        data={"active_or_waiting": 0, "live": 0},
+                    )
+                ],
+            )
+
+            with patch(
+                "enoch_control_plane.control_plane.router.run_worker_preflight",
+                return_value=fresh_preflight,
+            ) as mocked_preflight:
+                response = client.post(
+                    "/control/api/alerts/queue-check",
+                    headers=headers,
+                    json={"dry_run": True},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            mocked_preflight.assert_called()
+            body = response.json()
+            self.assertFalse(body["should_alert"])
+            self.assertEqual(body["fingerprint"], "none")
+            self.assertEqual(body["findings"], [])
+
     def test_automation_readiness_surfaces_latest_provider_generation_failure(
         self,
     ) -> None:
@@ -10248,7 +10308,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             stale = client.post(
                 "/control/api/alerts/queue-check",
                 headers=headers,
-                json={"dry_run": True},
+                json={"dry_run": True, "refresh_worker": False},
             ).json()
             self.assertTrue(stale["should_alert"])
             self.assertTrue(
@@ -10777,7 +10837,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             alert = client.post(
                 "/control/api/alerts/queue-check",
                 headers=headers,
-                json={"dry_run": True},
+                json={"dry_run": True, "refresh_worker": False},
             ).json()
             self.assertFalse(alert["should_alert"])
             self.assertEqual(alert["findings"], [])
@@ -10905,7 +10965,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             alert = client.post(
                 "/control/api/alerts/queue-check",
                 headers=headers,
-                json={"dry_run": True},
+                json={"dry_run": True, "refresh_worker": False},
             ).json()
             self.assertFalse(alert["should_alert"])
             self.assertEqual(alert["findings"], [])
