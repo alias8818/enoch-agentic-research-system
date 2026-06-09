@@ -7,7 +7,10 @@ import pytest
 
 from enoch_control_plane.control_plane import alerts
 from enoch_control_plane.control_plane.alerts import queue_alert_findings
-from enoch_control_plane.control_plane.models import DashboardObservationRecord
+from enoch_control_plane.control_plane.models import (
+    DashboardFinding,
+    DashboardObservationRecord,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -263,6 +266,98 @@ def test_queue_alert_findings_suppresses_research_quality_warning_when_not_held(
             "title": "Weak Evidence Project",
         }
     ]
+
+
+def test_queue_alert_notify_suppresses_external_delivery_during_maintenance(
+    monkeypatch, tmp_path
+) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import alerts
+    from enoch_control_plane.control_plane.alerts import (
+        evaluate_and_notify_queue_alerts,
+    )
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        live_dispatch_enabled=True,
+        queue_alert_hang_after_sec=300,
+        queue_alert_cooldown_sec=3600,
+        pushover_alerts_enabled=True,
+        pushover_app_token="app",
+        pushover_user_key="user",
+        hermes_alert_webhook_enabled=True,
+        hermes_alert_webhook_url="http://127.0.0.1:9999/webhook",
+    )
+    conflict = DashboardFinding(
+        severity="critical",
+        source="control_plane_db+worker_preflight",
+        authority="cross-source active-lane reconciliation",
+        message="worker reports live work during maintenance",
+        suggested_action="operator will reconcile after maintenance",
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[conflict],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+        dispatch_safe=False,
+        dispatch_blockers=["maintenance_mode"],
+    )
+
+    class Store:
+        def event_rows(self, limit=100):  # noqa: ANN001 - alert store fake
+            return []
+
+        def append_event(self, **kwargs):  # noqa: ANN003 - alert store fake
+            self.appended = kwargs
+            return "event-maintenance", True
+
+    def fail_pushover(*_args, **_kwargs):  # noqa: ANN001 - test guard
+        raise AssertionError("maintenance mode must not page Pushover")
+
+    def fail_webhook(*_args, **_kwargs):  # noqa: ANN001 - test guard
+        raise AssertionError("maintenance mode must not call Hermes webhook")
+
+    monkeypatch.setattr(alerts, "send_pushover", fail_pushover)
+    monkeypatch.setattr(alerts, "send_hermes_alert_webhook", fail_webhook)
+    store = Store()
+
+    result = evaluate_and_notify_queue_alerts(
+        config=config,
+        store=store,
+        status=status,
+        dry_run=False,
+        force_notify=False,
+        requested_by="test",
+    )  # type: ignore[arg-type]
+
+    assert result["ok"] is True
+    assert result["should_alert"] is True
+    assert result["inserted_event"] is True
+    assert result["event_id"] == "event-maintenance"
+    assert result["sent"] is False
+    assert result["suppressed"] is True
+    assert result["suppressed_by_cooldown"] is False
+    assert result["suppression_reason"] == "maintenance_mode"
+    assert result["notification"] == {
+        "attempted": False,
+        "ok": True,
+        "status_code": None,
+        "detail": "maintenance mode suppresses pushover alert delivery",
+    }
+    assert result["hermes_webhook"] == {
+        "attempted": False,
+        "ok": True,
+        "status_code": None,
+        "detail": "maintenance mode suppresses hermes alert webhook delivery",
+    }
 
 
 def test_queue_alert_notify_does_not_page_on_research_quality_warning(

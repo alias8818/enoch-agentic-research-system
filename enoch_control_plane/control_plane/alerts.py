@@ -1007,6 +1007,10 @@ def _findings_include_critical(findings: list[DashboardFinding]) -> bool:
     return any(f.severity == "critical" for f in findings)
 
 
+def _maintenance_mode_active(status: DashboardStatusResponse) -> bool:
+    return bool(getattr(status.flags, "maintenance_mode", False))
+
+
 def _pushover_configured(config: GateConfig) -> bool:
     return bool(
         (config.pushover_app_token or os.environ.get("PUSHOVER_APP_TOKEN"))
@@ -1221,6 +1225,7 @@ class _QueueAlertDeliveryState:
     event_id: str | None
     inserted: bool
     event_append_error: str
+    suppression_reason: str = ""
 
 
 _NO_ALERT_DELIVERY = _QueueAlertDeliveryState(
@@ -1266,7 +1271,9 @@ def _build_queue_alert_result(
         "dry_run": dry_run,
         "should_alert": should_alert,
         "sent": delivery.sent,
-        "suppressed_by_cooldown": delivery.suppressed,
+        "suppressed": delivery.suppressed,
+        "suppressed_by_cooldown": delivery.suppression_reason == "cooldown",
+        "suppression_reason": delivery.suppression_reason,
         "fingerprint": fingerprint,
         "event_id": delivery.event_id,
         "inserted_event": delivery.inserted,
@@ -1313,6 +1320,25 @@ def _deliver_queue_alert(
         fingerprint=fingerprint,
         payload=payload,
     )
+    if _maintenance_mode_active(status):
+        return _QueueAlertDeliveryState(
+            sent=False,
+            suppressed=True,
+            notification=PushoverResult(
+                attempted=False,
+                ok=True,
+                detail="maintenance mode suppresses pushover alert delivery",
+            ),
+            hermes_webhook=WebhookResult(
+                attempted=False,
+                ok=True,
+                detail="maintenance mode suppresses hermes alert webhook delivery",
+            ),
+            event_id=event_id,
+            inserted=inserted,
+            event_append_error=event_append_error,
+            suppression_reason="maintenance_mode",
+        )
     sent, suppressed, notification = _dispatch_queue_alert_notification(
         config,
         findings=findings,
@@ -1335,6 +1361,7 @@ def _deliver_queue_alert(
         sent=sent,
         suppressed=suppressed,
         notification=notification,
+        suppression_reason="cooldown" if suppressed else "",
         hermes_webhook=hermes_webhook,
         event_id=event_id,
         inserted=inserted,
