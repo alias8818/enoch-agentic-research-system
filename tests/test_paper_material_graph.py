@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import ast
+import inspect
 import importlib.util
 import json
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,6 +13,49 @@ spec = importlib.util.spec_from_file_location("build_paper_material_graph", SCRI
 assert spec and spec.loader
 builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
+
+
+def _stopword_source_values() -> list[str]:
+    module = ast.parse(SCRIPT.read_text(encoding="utf-8"))
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            if any(
+                isinstance(target, ast.Name) and target.id == "STOPWORDS"
+                for target in node.targets
+            ):
+                assert isinstance(node.value, ast.Set)
+                return [
+                    element.value
+                    for element in node.value.elts
+                    if isinstance(element, ast.Constant)
+                    and isinstance(element.value, str)
+                ]
+    raise AssertionError("STOPWORDS set assignment not found")
+
+
+def test_stopwords_source_literals_are_unique() -> None:
+    counts = Counter(_stopword_source_values())
+
+    assert {word for word, count in counts.items() if count > 1} == set()
+
+
+def test_material_graph_complex_functions_delegate_to_helpers() -> None:
+    similar_source = inspect.getsource(builder._similar_topic_edges)
+    components_source = inspect.getsource(builder._connected_components)
+    synthesis_source = inspect.getsource(builder._synthesis_candidates)
+    markdown_source = inspect.getsource(builder._markdown)
+    packet_source = inspect.getsource(builder._candidate_packet_markdown)
+
+    assert "_similar_topic_edge_candidates(" in similar_source
+    assert "_bounded_similar_topic_edges(" in similar_source
+    assert "_connected_component_summary(" in components_source
+    assert "_synthesis_related_material(" in synthesis_source
+    assert "_synthesis_candidate_from_related(" in synthesis_source
+    assert "_markdown_synthesis_candidate_lines(" in markdown_source
+    assert "_markdown_negative_candidate_lines(" in markdown_source
+    assert "_candidate_packet_scope_lines(" in packet_source
+    assert "_candidate_packet_related_paper_lines(" in packet_source
+    assert "_candidate_packet_source_lines(" in packet_source
 
 
 def _write_corpus_paper(root: Path, slug: str, title: str, body: str) -> None:

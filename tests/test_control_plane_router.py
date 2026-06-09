@@ -295,6 +295,29 @@ def test_paper_material_graph_response_is_bounded_read_only(tmp_path: Path) -> N
     assert len(response["candidates"]["synthesis"][0]["sources"]) == 5
 
 
+def test_paper_material_graph_response_uses_helper_boundaries() -> None:
+    source = inspect.getsource(_paper_material_graph_response)
+
+    assert "_paper_material_graph_summary(graph)" in source
+    assert "_paper_material_graph_candidates(summary)" in source
+    assert "_paper_material_graph_counts(summary)" in source
+    assert "for candidate in list(summary.get" not in source
+
+
+def test_paper_material_graph_endpoint_documents_invalid_json_503() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        openapi = _client(tmp).get("/openapi.json").json()
+
+    responses = openapi["paths"]["/control/api/v1/paper-material-graph"]["get"][
+        "responses"
+    ]
+    assert "503" in responses
+    assert (
+        "paper material graph artifact is not valid JSON"
+        in responses["503"]["description"]
+    )
+
+
 def test_paper_material_graph_endpoint_requires_auth_and_reads_artifact(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

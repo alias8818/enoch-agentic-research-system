@@ -79,10 +79,7 @@ STOPWORDS = {
     "while",
     "fixed",
     "same",
-    "using",
     "used",
-    "with",
-    "without",
     "within",
     "benchmark",
     "validation",
@@ -292,8 +289,8 @@ def _source_edges_and_nodes(
     return list(source_nodes.values()), edges
 
 
-def _similar_topic_edges(
-    nodes: list[dict[str, Any]], *, min_shared_terms: int, max_similar_per_node: int
+def _similar_topic_edge_candidates(
+    nodes: list[dict[str, Any]], *, min_shared_terms: int
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     comparable = [node for node in nodes if node.get("kind") in {"paper", "signal"}]
@@ -302,49 +299,88 @@ def _similar_topic_edges(
         if not left_terms:
             continue
         for right in comparable[index + 1 :]:
-            right_terms = set(right.get("terms") or [])
-            shared = sorted(left_terms & right_terms)
-            if len(shared) < min_shared_terms:
-                continue
-            # Prefer cross-outcome paper/signal edges, but keep strong same-kind clusters too.
-            if (
-                left.get("kind") == right.get("kind")
-                and len(shared) < min_shared_terms + 1
-            ):
-                continue
-            weight = round(len(shared) / max(len(left_terms | right_terms), 1), 4)
-            candidates.append(
-                _edge(
-                    left["id"],
-                    right["id"],
-                    "similar_topic",
-                    weight=weight,
-                    shared_terms=shared[:12],
-                    shared_term_count=len(shared),
-                )
+            candidate = _similar_topic_edge_candidate(
+                left, right, left_terms=left_terms, min_shared_terms=min_shared_terms
             )
-    candidates.sort(
+            if candidate is not None:
+                candidates.append(candidate)
+    return candidates
+
+
+def _similar_topic_edge_candidate(
+    left: dict[str, Any],
+    right: dict[str, Any],
+    *,
+    left_terms: set[str],
+    min_shared_terms: int,
+) -> dict[str, Any] | None:
+    right_terms = set(right.get("terms") or [])
+    shared = sorted(left_terms & right_terms)
+    if len(shared) < min_shared_terms:
+        return None
+    # Prefer cross-outcome paper/signal edges, but keep strong same-kind clusters too.
+    if left.get("kind") == right.get("kind") and len(shared) < min_shared_terms + 1:
+        return None
+    weight = round(len(shared) / max(len(left_terms | right_terms), 1), 4)
+    return _edge(
+        left["id"],
+        right["id"],
+        "similar_topic",
+        weight=weight,
+        shared_terms=shared[:12],
+        shared_term_count=len(shared),
+    )
+
+
+def _sorted_similar_topic_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        edges,
         key=lambda edge: (
             -float(edge.get("weight") or 0),
             -int(edge.get("shared_term_count") or 0),
             edge["source"],
             edge["target"],
-        )
+        ),
     )
+
+
+def _bounded_similar_topic_edges(
+    candidates: list[dict[str, Any]], *, max_similar_per_node: int
+) -> list[dict[str, Any]]:
     if max_similar_per_node <= 0:
         return candidates
     degree: Counter[str] = Counter()
     kept: list[dict[str, Any]] = []
     for edge in candidates:
-        if (
-            degree[edge["source"]] >= max_similar_per_node
-            or degree[edge["target"]] >= max_similar_per_node
+        if _similar_topic_edge_exceeds_degree(
+            edge, degree, max_similar_per_node=max_similar_per_node
         ):
             continue
         kept.append(edge)
         degree[edge["source"]] += 1
         degree[edge["target"]] += 1
     return kept
+
+
+def _similar_topic_edge_exceeds_degree(
+    edge: dict[str, Any], degree: Counter[str], *, max_similar_per_node: int
+) -> bool:
+    return (
+        degree[edge["source"]] >= max_similar_per_node
+        or degree[edge["target"]] >= max_similar_per_node
+    )
+
+
+def _similar_topic_edges(
+    nodes: list[dict[str, Any]], *, min_shared_terms: int, max_similar_per_node: int
+) -> list[dict[str, Any]]:
+    candidates = _similar_topic_edge_candidates(
+        nodes, min_shared_terms=min_shared_terms
+    )
+    candidates = _sorted_similar_topic_edges(candidates)
+    return _bounded_similar_topic_edges(
+        candidates, max_similar_per_node=max_similar_per_node
+    )
 
 
 def _same_project_edges(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -375,131 +411,199 @@ def _dedupe_edges(edges: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(deduped.values(), key=lambda e: (e["kind"], e["source"], e["target"]))
 
 
-def _connected_components(
+def _component_adjacency(
     nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
+) -> dict[str, set[str]]:
     adjacency: dict[str, set[str]] = {node["id"]: set() for node in nodes}
     for edge in edges:
         adjacency.setdefault(edge["source"], set()).add(edge["target"])
         adjacency.setdefault(edge["target"], set()).add(edge["source"])
+    return adjacency
+
+
+def _component_members(
+    start_node_id: str, adjacency: dict[str, set[str]], seen: set[str]
+) -> list[str]:
+    stack = [start_node_id]
+    members: list[str] = []
+    seen.add(start_node_id)
+    while stack:
+        current = stack.pop()
+        members.append(current)
+        for neighbor in sorted(adjacency.get(current, set())):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                stack.append(neighbor)
+    return members
+
+
+def _connected_component_summary(
+    members: list[str], node_by_id: dict[str, dict[str, Any]], *, component_index: int
+) -> dict[str, Any] | None:
+    if len(members) <= 1:
+        return None
+    kind_counts = Counter(
+        node_by_id.get(member, {}).get("kind", "unknown") for member in members
+    )
+    return {
+        "id": f"component:{component_index}",
+        "size": len(members),
+        "kind_counts": dict(sorted(kind_counts.items())),
+        "sample_member_ids": sorted(members)[:25],
+        "sample_titles": _connected_component_sample_titles(members, node_by_id),
+    }
+
+
+def _connected_component_sample_titles(
+    members: list[str], node_by_id: dict[str, dict[str, Any]]
+) -> list[str]:
+    return [
+        node_by_id[member].get("title", member)
+        for member in sorted(members)
+        if member in node_by_id and node_by_id[member].get("kind") != "source"
+    ][:8]
+
+
+def _connected_components(
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    adjacency = _component_adjacency(nodes, edges)
     seen: set[str] = set()
     components: list[dict[str, Any]] = []
     node_by_id = {node["id"]: node for node in nodes}
     for node_id in sorted(adjacency):
         if node_id in seen:
             continue
-        stack = [node_id]
-        members: list[str] = []
-        seen.add(node_id)
-        while stack:
-            current = stack.pop()
-            members.append(current)
-            for neighbor in sorted(adjacency.get(current, set())):
-                if neighbor not in seen:
-                    seen.add(neighbor)
-                    stack.append(neighbor)
-        kind_counts = Counter(
-            node_by_id.get(member, {}).get("kind", "unknown") for member in members
+        members = _component_members(node_id, adjacency, seen)
+        summary = _connected_component_summary(
+            members, node_by_id, component_index=len(components) + 1
         )
-        if len(members) > 1:
-            components.append(
-                {
-                    "id": f"component:{len(components) + 1}",
-                    "size": len(members),
-                    "kind_counts": dict(sorted(kind_counts.items())),
-                    "sample_member_ids": sorted(members)[:25],
-                    "sample_titles": [
-                        node_by_id[member].get("title", member)
-                        for member in sorted(members)
-                        if member in node_by_id
-                        and node_by_id[member].get("kind") != "source"
-                    ][:8],
-                }
-            )
+        if summary is not None:
+            components.append(summary)
     components.sort(key=lambda item: (-item["size"], item["id"]))
     return components
 
 
-def _synthesis_candidates(
-    nodes: list[dict[str, Any]], edges: list[dict[str, Any]], *, limit: int = 25
-) -> list[dict[str, Any]]:
+def _synthesis_related_material(
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
     node_by_id = {node["id"]: node for node in nodes}
     related: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for edge in edges:
         if edge.get("kind") not in {"similar_topic", "cites_source"}:
             continue
-        for source_id, target_id in (
-            (edge["source"], edge["target"]),
-            (edge["target"], edge["source"]),
-        ):
-            source = node_by_id.get(source_id)
-            target = node_by_id.get(target_id)
-            if not source or not target or source.get("kind") != "signal":
-                continue
+        _record_synthesis_edge_material(edge, node_by_id, related)
+    return node_by_id, related
+
+
+def _record_synthesis_edge_material(
+    edge: dict[str, Any],
+    node_by_id: dict[str, dict[str, Any]],
+    related: dict[str, list[dict[str, Any]]],
+) -> None:
+    for source_id, target_id in (
+        (edge["source"], edge["target"]),
+        (edge["target"], edge["source"]),
+    ):
+        source = node_by_id.get(source_id)
+        target = node_by_id.get(target_id)
+        if source and target and source.get("kind") == "signal":
             related[source_id].append({"edge": edge, "node": target})
+
+
+def _synthesis_candidate_from_related(
+    signal_id: str, signal: dict[str, Any], items: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    related_papers = [item for item in items if item["node"].get("kind") == "paper"]
+    if not related_papers:
+        return None
+    related_sources = [item for item in items if item["node"].get("kind") == "source"]
+    status = _text(signal.get("status"))
+    curation = (
+        signal.get("curation") if isinstance(signal.get("curation"), dict) else {}
+    )
+    followup = (
+        signal.get("followup") if isinstance(signal.get("followup"), dict) else {}
+    )
+    return {
+        "signal_id": signal_id,
+        "packet_path": f"candidates/synthesis/{_candidate_slug(signal_id, signal.get('title', ''))}.md",
+        "title": signal.get("title", ""),
+        "status": status,
+        "score": _synthesis_candidate_score(
+            status, curation, related_papers, related_sources
+        ),
+        "curation_score": int(curation.get("score") or 0),
+        "related_paper_count": len(related_papers),
+        "related_source_count": len(related_sources),
+        "related_papers": _synthesis_candidate_paper_rows(related_papers),
+        "sources": _synthesis_candidate_source_rows(related_sources),
+        "recommended_next_action": followup.get("title", ""),
+    }
+
+
+def _synthesis_candidate_score(
+    status: str,
+    curation: dict[str, Any],
+    related_papers: list[dict[str, Any]],
+    related_sources: list[dict[str, Any]],
+) -> int:
+    score = int(curation.get("score") or 0)
+    score += 10 if status == "compute_scale_blocked" else 0
+    score += min(len(related_papers), 5) * 5
+    score += min(len(related_sources), 3) * 2
+    return score
+
+
+def _synthesis_candidate_paper_rows(
+    related_papers: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    paper_rows = sorted(
+        related_papers,
+        key=lambda item: (
+            -float(item["edge"].get("weight") or 0),
+            item["node"].get("title", ""),
+        ),
+    )[:8]
+    return [
+        {
+            "id": item["node"]["id"],
+            "title": item["node"].get("title", ""),
+            "weight": item["edge"].get("weight"),
+            "shared_terms": item["edge"].get("shared_terms", []),
+        }
+        for item in paper_rows
+    ]
+
+
+def _synthesis_candidate_source_rows(
+    related_sources: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_rows = sorted(
+        related_sources, key=lambda item: item["node"].get("title", "")
+    )[:5]
+    return [
+        {
+            "id": item["node"]["id"],
+            "title": item["node"].get("title", ""),
+            "url": item["node"].get("url", ""),
+        }
+        for item in source_rows
+    ]
+
+
+def _synthesis_candidates(
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]], *, limit: int = 25
+) -> list[dict[str, Any]]:
+    node_by_id, related = _synthesis_related_material(nodes, edges)
     candidates: list[dict[str, Any]] = []
     for signal_id, items in related.items():
         signal = node_by_id.get(signal_id)
         if signal is None:
             continue
-        related_papers = [item for item in items if item["node"].get("kind") == "paper"]
-        related_sources = [
-            item for item in items if item["node"].get("kind") == "source"
-        ]
-        if not related_papers:
-            continue
-        status = _text(signal.get("status"))
-        curation = (
-            signal.get("curation") if isinstance(signal.get("curation"), dict) else {}
-        )
-        score = int(curation.get("score") or 0)
-        score += 10 if status == "compute_scale_blocked" else 0
-        score += min(len(related_papers), 5) * 5
-        score += min(len(related_sources), 3) * 2
-        paper_rows = sorted(
-            related_papers,
-            key=lambda item: (
-                -float(item["edge"].get("weight") or 0),
-                item["node"].get("title", ""),
-            ),
-        )[:8]
-        source_rows = sorted(
-            related_sources,
-            key=lambda item: item["node"].get("title", ""),
-        )[:5]
-        followup = (
-            signal.get("followup") if isinstance(signal.get("followup"), dict) else {}
-        )
-        candidates.append(
-            {
-                "signal_id": signal_id,
-                "packet_path": f"candidates/synthesis/{_candidate_slug(signal_id, signal.get('title', ''))}.md",
-                "title": signal.get("title", ""),
-                "status": status,
-                "score": score,
-                "curation_score": int(curation.get("score") or 0),
-                "related_paper_count": len(related_papers),
-                "related_source_count": len(related_sources),
-                "related_papers": [
-                    {
-                        "id": item["node"]["id"],
-                        "title": item["node"].get("title", ""),
-                        "weight": item["edge"].get("weight"),
-                        "shared_terms": item["edge"].get("shared_terms", []),
-                    }
-                    for item in paper_rows
-                ],
-                "sources": [
-                    {
-                        "id": item["node"]["id"],
-                        "title": item["node"].get("title", ""),
-                        "url": item["node"].get("url", ""),
-                    }
-                    for item in source_rows
-                ],
-                "recommended_next_action": followup.get("title", ""),
-            }
-        )
+        candidate = _synthesis_candidate_from_related(signal_id, signal, items)
+        if candidate is not None:
+            candidates.append(candidate)
     candidates.sort(
         key=lambda item: (-int(item["score"]), item["title"], item["signal_id"])
     )
@@ -615,9 +719,8 @@ def build_graph(
     return _safe_json(graph)
 
 
-def _markdown(graph: dict[str, Any]) -> str:
-    summary = graph.get("summary") or {}
-    lines = [
+def _markdown_header_lines(graph: dict[str, Any]) -> list[str]:
+    return [
         "# Enoch Paper Material Graph",
         "",
         f"Generated: `{graph.get('generated_at')}`",
@@ -626,6 +729,11 @@ def _markdown(graph: dict[str, Any]) -> str:
         "",
         "## Summary",
         "",
+    ]
+
+
+def _markdown_summary_lines(summary: dict[str, Any]) -> list[str]:
+    return [
         f"- Papers: {summary.get('paper_count', 0)}",
         f"- Signals: {summary.get('signal_count', 0)}",
         f"- Sources: {summary.get('source_count', 0)}",
@@ -636,63 +744,90 @@ def _markdown(graph: dict[str, Any]) -> str:
         "## Signal statuses",
         "",
     ]
-    for status, count in (summary.get("signal_status_counts") or {}).items():
-        lines.append(f"- `{status}`: {count}")
+
+
+def _markdown_signal_status_lines(summary: dict[str, Any]) -> list[str]:
+    return [
+        f"- `{status}`: {count}"
+        for status, count in (summary.get("signal_status_counts") or {}).items()
+    ]
+
+
+def _markdown_synthesis_candidate_lines(candidate: dict[str, Any]) -> list[str]:
+    lines = [
+        f"### {candidate.get('title')} — score {candidate.get('score')} (`{candidate.get('status')}`)",
+        f"- Signal: `{candidate.get('signal_id')}`",
+    ]
+    if candidate.get("packet_path"):
+        lines.append(
+            f"- Packet: [{candidate.get('packet_path')}]({candidate.get('packet_path')})"
+        )
+    lines.append(f"- Related papers: {candidate.get('related_paper_count', 0)}")
+    if candidate.get("recommended_next_action"):
+        lines.append(f"- Next action: {candidate.get('recommended_next_action')}")
+    for paper in candidate.get("related_papers") or []:
+        terms = ", ".join(paper.get("shared_terms") or [])
+        lines.append(f"  - {paper.get('title')} — shared: {terms}")
+    lines.append("")
+    return lines
+
+
+def _markdown_negative_candidate_lines(candidate: dict[str, Any]) -> list[str]:
+    lines = [
+        f"### {candidate.get('title')} — score {candidate.get('score')} (`{candidate.get('status')}`)",
+        f"- Signal: `{candidate.get('signal_id')}`",
+    ]
+    if candidate.get("packet_path"):
+        lines.append(
+            f"- Packet: [{candidate.get('packet_path')}]({candidate.get('packet_path')})"
+        )
+    for key, label in (
+        ("scale_limits", "Scale limits"),
+        ("claim_scope", "Claim scope"),
+        ("recommended_next_action", "Next action"),
+    ):
+        if candidate.get(key):
+            lines.append(f"- {label}: {candidate.get(key)}")
+    lines.append("")
+    return lines
+
+
+def _markdown_component_lines(component: dict[str, Any]) -> list[str]:
+    lines = [
+        f"### {component.get('id')} — {component.get('size')} nodes {component.get('kind_counts')}"
+    ]
+    lines.extend(f"- {title}" for title in component.get("sample_titles") or [])
+    lines.append("")
+    return lines
+
+
+def _markdown_how_to_use_lines() -> list[str]:
+    return [
+        "## How to use this",
+        "",
+        "Use high-signal mixed components as paper-material candidates: a good component links prior public papers, useful/scale-blocked signals, source lineage, and repeated methods. The next layer should score these components for synthesis and queue bounded follow-up experiments that can turn weak individual runs into stronger paper-positive material.",
+        "",
+        "For live operations, timer checks, and artifact locations, see [Paper Material Graph Operations](operations.md).",
+        "",
+    ]
+
+
+def _markdown(graph: dict[str, Any]) -> str:
+    summary = graph.get("summary") or {}
+    lines = _markdown_header_lines(graph)
+    lines.extend(_markdown_summary_lines(summary))
+    lines.extend(_markdown_signal_status_lines(summary))
     lines.extend(["", "## Top synthesis candidates", ""])
     for candidate in summary.get("synthesis_candidates") or []:
-        lines.append(
-            f"### {candidate.get('title')} — score {candidate.get('score')} "
-            f"(`{candidate.get('status')}`)"
-        )
-        lines.append(f"- Signal: `{candidate.get('signal_id')}`")
-        if candidate.get("packet_path"):
-            lines.append(
-                f"- Packet: [{candidate.get('packet_path')}]({candidate.get('packet_path')})"
-            )
-        lines.append(f"- Related papers: {candidate.get('related_paper_count', 0)}")
-        if candidate.get("recommended_next_action"):
-            lines.append(f"- Next action: {candidate.get('recommended_next_action')}")
-        for paper in candidate.get("related_papers") or []:
-            terms = ", ".join(paper.get("shared_terms") or [])
-            lines.append(f"  - {paper.get('title')} — shared: {terms}")
-        lines.append("")
+        lines.extend(_markdown_synthesis_candidate_lines(candidate))
     lines.extend(["", "## Negative / blocked result candidates", ""])
     for candidate in summary.get("negative_result_candidates") or []:
-        lines.append(
-            f"### {candidate.get('title')} — score {candidate.get('score')} "
-            f"(`{candidate.get('status')}`)"
-        )
-        lines.append(f"- Signal: `{candidate.get('signal_id')}`")
-        if candidate.get("packet_path"):
-            lines.append(
-                f"- Packet: [{candidate.get('packet_path')}]({candidate.get('packet_path')})"
-            )
-        if candidate.get("scale_limits"):
-            lines.append(f"- Scale limits: {candidate.get('scale_limits')}")
-        if candidate.get("claim_scope"):
-            lines.append(f"- Claim scope: {candidate.get('claim_scope')}")
-        if candidate.get("recommended_next_action"):
-            lines.append(f"- Next action: {candidate.get('recommended_next_action')}")
-        lines.append("")
+        lines.extend(_markdown_negative_candidate_lines(candidate))
     lines.extend(["", "## Largest components", ""])
     for component in summary.get("largest_components") or []:
-        lines.append(
-            f"### {component.get('id')} — {component.get('size')} nodes "
-            f"{component.get('kind_counts')}"
-        )
-        for title in component.get("sample_titles") or []:
-            lines.append(f"- {title}")
-        lines.append("")
-    lines.extend(
-        [
-            "## How to use this",
-            "",
-            "Use high-signal mixed components as paper-material candidates: a good component links prior public papers, useful/scale-blocked signals, source lineage, and repeated methods. The next layer should score these components for synthesis and queue bounded follow-up experiments that can turn weak individual runs into stronger paper-positive material.",
-            "",
-            "For live operations, timer checks, and artifact locations, see [Paper Material Graph Operations](operations.md).",
-            "",
-        ]
-    )
+        lines.extend(_markdown_component_lines(component))
+    lines.extend([""])
+    lines.extend(_markdown_how_to_use_lines())
     return "\n".join(lines)
 
 
@@ -722,10 +857,10 @@ def _log_summary(graph: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _candidate_packet_markdown(
+def _candidate_packet_header_lines(
     candidate: dict[str, Any], *, kind: str, graph: dict[str, Any]
-) -> str:
-    lines = [
+) -> list[str]:
+    return [
         f"# {candidate.get('title') or 'Untitled candidate'}",
         "",
         f"Generated from graph: `{graph.get('generated_at')}`",
@@ -740,42 +875,73 @@ def _candidate_packet_markdown(
         candidate.get("recommended_next_action") or "No explicit next action recorded.",
         "",
     ]
-    if candidate.get("claim_scope") or candidate.get("scale_limits"):
-        lines.extend(["## Scope and limits", ""])
-        if candidate.get("claim_scope"):
-            lines.append(f"- Claim scope: {candidate.get('claim_scope')}")
-        if candidate.get("scale_limits"):
-            lines.append(f"- Scale limits: {candidate.get('scale_limits')}")
-        if candidate.get("hypothesis_status"):
-            lines.append(f"- Hypothesis status: `{candidate.get('hypothesis_status')}`")
-        if candidate.get("evidence_strength"):
-            lines.append(f"- Evidence strength: `{candidate.get('evidence_strength')}`")
-        lines.append("")
-    related_papers = candidate.get("related_papers") or []
-    if related_papers:
-        lines.extend(["## Related paper material", ""])
-        for paper in related_papers:
-            terms = ", ".join(paper.get("shared_terms") or [])
-            lines.append(
-                f"- **{paper.get('title')}** (`{paper.get('id')}`) — shared terms: {terms or 'n/a'}"
+
+
+def _candidate_packet_scope_lines(candidate: dict[str, Any]) -> list[str]:
+    if not (candidate.get("claim_scope") or candidate.get("scale_limits")):
+        return []
+    lines = ["## Scope and limits", ""]
+    for key, label in (
+        ("claim_scope", "Claim scope"),
+        ("scale_limits", "Scale limits"),
+        ("hypothesis_status", "Hypothesis status"),
+        ("evidence_strength", "Evidence strength"),
+    ):
+        if candidate.get(key):
+            value = (
+                f"`{candidate.get(key)}`"
+                if key in {"hypothesis_status", "evidence_strength"}
+                else candidate.get(key)
             )
-        lines.append("")
+            lines.append(f"- {label}: {value}")
+    lines.append("")
+    return lines
+
+
+def _candidate_packet_related_paper_lines(candidate: dict[str, Any]) -> list[str]:
+    related_papers = candidate.get("related_papers") or []
+    if not related_papers:
+        return []
+    lines = ["## Related paper material", ""]
+    for paper in related_papers:
+        terms = ", ".join(paper.get("shared_terms") or [])
+        lines.append(
+            f"- **{paper.get('title')}** (`{paper.get('id')}`) — shared terms: {terms or 'n/a'}"
+        )
+    lines.append("")
+    return lines
+
+
+def _candidate_packet_source_lines(candidate: dict[str, Any]) -> list[str]:
     sources = candidate.get("sources") or []
-    if sources:
-        lines.extend(["## Source lineage", ""])
-        for source in sources:
-            url = source.get("url") or ""
-            suffix = f" — {url}" if url else ""
-            lines.append(f"- {source.get('title')} (`{source.get('id')}`){suffix}")
-        lines.append("")
-    lines.extend(
-        [
-            "## Dashboard context",
-            "",
-            "This packet is generated from the paper-material graph and is safe to inspect while the queue is running. It is an operator packet, not a dispatch command.",
-            "",
-        ]
-    )
+    if not sources:
+        return []
+    lines = ["## Source lineage", ""]
+    for source in sources:
+        url = source.get("url") or ""
+        suffix = f" — {url}" if url else ""
+        lines.append(f"- {source.get('title')} (`{source.get('id')}`){suffix}")
+    lines.append("")
+    return lines
+
+
+def _candidate_packet_dashboard_lines() -> list[str]:
+    return [
+        "## Dashboard context",
+        "",
+        "This packet is generated from the paper-material graph and is safe to inspect while the queue is running. It is an operator packet, not a dispatch command.",
+        "",
+    ]
+
+
+def _candidate_packet_markdown(
+    candidate: dict[str, Any], *, kind: str, graph: dict[str, Any]
+) -> str:
+    lines = _candidate_packet_header_lines(candidate, kind=kind, graph=graph)
+    lines.extend(_candidate_packet_scope_lines(candidate))
+    lines.extend(_candidate_packet_related_paper_lines(candidate))
+    lines.extend(_candidate_packet_source_lines(candidate))
+    lines.extend(_candidate_packet_dashboard_lines())
     return "\n".join(str(line) for line in lines)
 
 

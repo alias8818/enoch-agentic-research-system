@@ -36,6 +36,7 @@ DISPATCH_TRANSITION_EVENTS = {
     "controller.live_dispatch",
     "followup.launch",
 }
+CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE = "control_plane_db+worker_preflight"
 
 
 @dataclass(frozen=True)
@@ -242,7 +243,7 @@ _WORKER_WARNING_SOURCES = frozenset(
     {
         "worker_preflight",
         "worker_dashboard_api",
-        "control_plane_db+worker_preflight",
+        CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
     }
 )
 _WORKER_STALE_FRESHNESS_SOURCES = frozenset(
@@ -774,7 +775,7 @@ def _recent_dispatch_transition_projects(
 
 
 def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
-    if finding.source != "control_plane_db+worker_preflight":
+    if finding.source != CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE:
         return False
     return "active row" in finding.message.lower() and (
         "no live worker run" in finding.message.lower()
@@ -784,7 +785,7 @@ def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
 
 
 def _is_worker_live_without_vm_active_row(finding: DashboardFinding) -> bool:
-    if finding.source != "control_plane_db+worker_preflight":
+    if finding.source != CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE:
         return False
     message = finding.message.lower()
     return "live" in message and "control plane has no active row" in message
@@ -1006,6 +1007,10 @@ def _findings_include_critical(findings: list[DashboardFinding]) -> bool:
     return any(f.severity == "critical" for f in findings)
 
 
+def _maintenance_mode_active(status: DashboardStatusResponse) -> bool:
+    return bool(getattr(status.flags, "maintenance_mode", False))
+
+
 def _pushover_configured(config: GateConfig) -> bool:
     return bool(
         (config.pushover_app_token or os.environ.get("PUSHOVER_APP_TOKEN"))
@@ -1220,6 +1225,7 @@ class _QueueAlertDeliveryState:
     event_id: str | None
     inserted: bool
     event_append_error: str
+    suppression_reason: str = ""
 
 
 _NO_ALERT_DELIVERY = _QueueAlertDeliveryState(
@@ -1265,7 +1271,9 @@ def _build_queue_alert_result(
         "dry_run": dry_run,
         "should_alert": should_alert,
         "sent": delivery.sent,
-        "suppressed_by_cooldown": delivery.suppressed,
+        "suppressed": delivery.suppressed,
+        "suppressed_by_cooldown": delivery.suppression_reason == "cooldown",
+        "suppression_reason": delivery.suppression_reason,
         "fingerprint": fingerprint,
         "event_id": delivery.event_id,
         "inserted_event": delivery.inserted,
@@ -1312,6 +1320,25 @@ def _deliver_queue_alert(
         fingerprint=fingerprint,
         payload=payload,
     )
+    if _maintenance_mode_active(status):
+        return _QueueAlertDeliveryState(
+            sent=False,
+            suppressed=True,
+            notification=PushoverResult(
+                attempted=False,
+                ok=True,
+                detail="maintenance mode suppresses pushover alert delivery",
+            ),
+            hermes_webhook=WebhookResult(
+                attempted=False,
+                ok=True,
+                detail="maintenance mode suppresses hermes alert webhook delivery",
+            ),
+            event_id=event_id,
+            inserted=inserted,
+            event_append_error=event_append_error,
+            suppression_reason="maintenance_mode",
+        )
     sent, suppressed, notification = _dispatch_queue_alert_notification(
         config,
         findings=findings,
@@ -1334,6 +1361,7 @@ def _deliver_queue_alert(
         sent=sent,
         suppressed=suppressed,
         notification=notification,
+        suppression_reason="cooldown" if suppressed else "",
         hermes_webhook=hermes_webhook,
         event_id=event_id,
         inserted=inserted,

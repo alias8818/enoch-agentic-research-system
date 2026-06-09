@@ -22,7 +22,6 @@ import type { AutomationReadiness, MovementDiagnosis as MovementDiagnosisModel, 
 
 export function OverviewPage() {
   const queryClient = useQueryClient()
-  const [secondaryOpen, setSecondaryOpen] = useState(false)
   const [readinessRequested, setReadinessRequested] = useState(false)
   const overview = useQuery({ queryKey: ['overview'], queryFn: () => apiGet<unknown>('/control/api/v1/overview?active_limit=8&event_limit=6').then(parseOverviewResponse), refetchInterval: 30_000 })
   const status = useQuery({ queryKey: ['status'], queryFn: () => apiGet<unknown>('/control/api/status?refresh_worker=true').then(parseStatusResponse), refetchInterval: 30_000 })
@@ -71,7 +70,6 @@ export function OverviewPage() {
       onReadinessRefetch={() => readiness.refetch()}
       readinessRequested={readinessRequested}
       isFetching={overview.isFetching || status.isFetching}
-      onSecondaryOpenChange={setSecondaryOpen}
       onReadinessRequested={() => setReadinessRequested(true)}
       refresh={refresh}
     />
@@ -151,7 +149,6 @@ function OverviewPageBody({
   onReadinessRefetch,
   readinessRequested,
   isFetching,
-  onSecondaryOpenChange,
   onReadinessRequested,
   refresh,
 }: Readonly<{
@@ -169,7 +166,6 @@ function OverviewPageBody({
   onReadinessRefetch: () => void
   readinessRequested: boolean
   isFetching: boolean
-  onSecondaryOpenChange: (open: boolean) => void
   onReadinessRequested: () => void
   refresh: () => void
 }>) {
@@ -226,7 +222,6 @@ function OverviewPageBody({
         readinessData={readinessData}
         readinessLoading={readinessLoading}
         readinessError={readinessError}
-        onSecondaryOpenChange={onSecondaryOpenChange}
       />
     </div>
   )
@@ -1312,7 +1307,6 @@ function OverviewSecondaryFold({
   readinessData,
   readinessLoading,
   readinessError,
-  onSecondaryOpenChange,
 }: Readonly<{
   topActions: OverviewResponse['top_actions']
   primaryAction: TopAction | undefined
@@ -1325,10 +1319,9 @@ function OverviewSecondaryFold({
   readinessData?: AutomationReadiness
   readinessLoading: boolean
   readinessError: unknown
-  onSecondaryOpenChange: (open: boolean) => void
 }>) {
   return (
-    <details className="secondary-fold" onToggle={(event) => onSecondaryOpenChange(event.currentTarget.open)}>
+    <details className="secondary-fold">
       <summary>Show secondary details</summary>
       <div className="secondary-links">
         <a href={dashboardV2Href('#runs')}>Runs</a>

@@ -492,6 +492,44 @@ function ProjectsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string
   )
 }
 
+function queueDispatchBlockers(statusContext?: QueueStatusContext): string[] {
+  if (!Array.isArray(statusContext?.dispatch_blockers)) return []
+  return statusContext.dispatch_blockers.map((item) => displayText(item)).filter(Boolean)
+}
+
+function queueSafetyTitle(statusUnavailable: boolean | undefined, dispatchSafe: boolean, blockers: string[], holdActive: boolean, canInspectDispatch: boolean): string {
+  if (statusUnavailable) return 'Queue loaded; dispatch safety unavailable'
+  if (dispatchSafe) return 'Safe to dispatch after selected dry-run'
+  if (blockers.length > 0) return `Dispatch waits: ${blockers[0]}`
+  if (holdActive) return 'Dispatch is intentionally held'
+  if (canInspectDispatch) return 'Ready candidates are waiting for lane capacity'
+  return 'No dispatchable candidate visible'
+}
+
+function queueSafetyDetail(statusUnavailable: boolean | undefined, dispatchSafe: boolean, blockers: string[]): string {
+  if (statusUnavailable) return 'The queue rows loaded, but the global dispatch-safety endpoint did not return; retry refresh before live dispatch.'
+  if (dispatchSafe) return 'Select one queued candidate, run the dry-run preflight, then dispatch only if the selected row stays unchanged.'
+  if (blockers.length > 0) return 'The table still shows candidate readiness, but live dispatch should wait until the global safety blocker clears.'
+  return 'Use selected-row dry-run before any live dispatch; raw lane hints remain in row drilldowns.'
+}
+
+function queueSafetyTone(statusUnavailable: boolean | undefined, dispatchSafe: boolean, blockers: string[], holdActive: boolean): BriefingTone {
+  if (statusUnavailable) return 'warn'
+  if (dispatchSafe) return 'good'
+  if (blockers.length > 0 || holdActive) return 'warn'
+  return 'neutral'
+}
+
+function queueCandidateTitle(canInspectDispatch: boolean): string {
+  if (canInspectDispatch) return 'Ready candidates stay grouped above raw rows'
+  return 'No ready candidate in this slice'
+}
+
+function queueCandidateTone(blocked: number): BriefingTone {
+  if (blocked > 0) return 'risk'
+  return 'neutral'
+}
+
 function QueueBriefing({
   rows,
   queueCounts,
@@ -508,35 +546,21 @@ function QueueBriefing({
   const blocked = rowsWithStatus(rows, 'blocked')
   const completed = rowsWithStatus(rows, 'completed')
   const readyHere = actionableQueueRows(rows)
-  const blockers = Array.isArray(statusContext?.dispatch_blockers) ? statusContext.dispatch_blockers.map((item) => displayText(item)).filter(Boolean) : []
+  const blockers = queueDispatchBlockers(statusContext)
   const dispatchSafe = statusContext?.dispatch_safe === true
   const holdActive = statusContext?.queue_paused === true || statusContext?.maintenance_mode === true
   const canInspectDispatch = queued > 0 || readyHere > 0
-  const safetyTitle = statusUnavailable
-    ? 'Queue loaded; dispatch safety unavailable'
-    : dispatchSafe
-      ? 'Safe to dispatch after selected dry-run'
-      : blockers.length > 0
-        ? `Dispatch waits: ${blockers[0]}`
-        : holdActive
-          ? 'Dispatch is intentionally held'
-          : canInspectDispatch
-            ? 'Ready candidates are waiting for lane capacity'
-            : 'No dispatchable candidate visible'
-  const safetyDetail = statusUnavailable
-    ? 'The queue rows loaded, but the global dispatch-safety endpoint did not return; retry refresh before live dispatch.'
-    : dispatchSafe
-      ? 'Select one queued candidate, run the dry-run preflight, then dispatch only if the selected row stays unchanged.'
-      : blockers.length > 0
-        ? 'The table still shows candidate readiness, but live dispatch should wait until the global safety blocker clears.'
-        : 'Use selected-row dry-run before any live dispatch; raw lane hints remain in row drilldowns.'
-  const safetyTone = statusUnavailable ? 'warn' : dispatchSafe ? 'good' : blockers.length > 0 || holdActive ? 'warn' : 'neutral'
+  const safetyTitle = queueSafetyTitle(statusUnavailable, dispatchSafe, blockers, holdActive, canInspectDispatch)
+  const safetyDetail = queueSafetyDetail(statusUnavailable, dispatchSafe, blockers)
+  const safetyTone = queueSafetyTone(statusUnavailable, dispatchSafe, blockers, holdActive)
+  const candidateTitle = queueCandidateTitle(canInspectDispatch)
+  const candidateTone = queueCandidateTone(blocked)
   return (
     <BriefingGrid>
       <BriefingCard eyebrow="Dispatch safety" title={safetyTitle} detail={safetyDetail} tone={safetyTone}>
         <MetricStrip ariaLabel="Queue dispatch safety summary" items={[{ label: 'queued', value: queued }, { label: 'active lanes', value: activeCount }, { label: 'blockers', value: blockers.length }]} />
       </BriefingCard>
-      <BriefingCard eyebrow="Candidate groups" title={canInspectDispatch ? 'Ready candidates stay grouped above raw rows' : 'No ready candidate in this slice'} detail="Rows below remain the evidence table; this briefing translates queue status into operator action buckets first." tone={blocked > 0 ? 'risk' : 'neutral'}>
+      <BriefingCard eyebrow="Candidate groups" title={candidateTitle} detail="Rows below remain the evidence table; this briefing translates queue status into operator action buckets first." tone={candidateTone}>
         <MetricStrip ariaLabel="Queue candidate grouping summary" items={[{ label: 'ready here', value: readyHere }, { label: 'blocked here', value: blocked }, { label: 'completed here', value: completed }]} />
       </BriefingCard>
       <BriefingCard eyebrow="Action sequence" title="Select candidate → dry-run → dispatch" detail="Live dispatch stays disabled until the selected queued row passes a dry-run and remains unchanged after refresh." />

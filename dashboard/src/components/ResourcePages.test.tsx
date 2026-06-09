@@ -41,10 +41,16 @@ afterEach(() => {
 
 it('keeps ResourcePages briefing helpers away from Sonar nested ternary regressions', () => {
   expect(sourceSlice('ProjectsBriefing')).toContain('projectBriefingHeadline(attention, running, ready, rows.length)')
+  expect(sourceSlice('QueueBriefing')).toContain('queueSafetyTitle(statusUnavailable, dispatchSafe, blockers, holdActive, canInspectDispatch)')
+  expect(sourceSlice('QueueBriefing')).toContain('queueSafetyDetail(statusUnavailable, dispatchSafe, blockers)')
+  expect(sourceSlice('QueueBriefing')).toContain('queueSafetyTone(statusUnavailable, dispatchSafe, blockers, holdActive)')
   expect(sourceSlice('RunsBriefing')).toContain('runBriefingHeadline(attention, active, completed, rows.length)')
   expect(sourceSlice('PapersBriefing')).toContain('paperBriefingTitle(attention, evidenceReview, ready, rows.length)')
   expect(resourcePagesSource).not.toContain('const headline = attention > 0')
   expect(resourcePagesSource).not.toContain('const title = attention > 0')
+  expect(resourcePagesSource).not.toContain('const safetyTitle = statusUnavailable')
+  expect(resourcePagesSource).not.toContain('const safetyDetail = statusUnavailable')
+  expect(resourcePagesSource).not.toContain('const safetyTone = statusUnavailable ?')
   expect(resourcePagesSource).not.toContain("tone={attention > 0 ? 'risk'")
   expect(resourcePagesSource).not.toContain("? 'info' : runIsComplete(row) ? 'good'")
   expect(resourcePagesSource).not.toContain("? 'warn' : paperIsReady(row) ? 'good'")

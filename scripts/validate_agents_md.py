@@ -176,7 +176,7 @@ def check_markdown_links(agents_content: str) -> None:
     """Verify relative markdown links in AGENTS.md point to existing files."""
     for match in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", agents_content):
         link = match.group(2)
-        if link.startswith("http") or link.startswith("#"):
+        if link.startswith(("http", "#")):
             continue
         resolved = REPO_ROOT / link
         if not resolved.exists():

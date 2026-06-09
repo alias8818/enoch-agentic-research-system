@@ -2,6 +2,30 @@
 
 Enoch uses semantic versioning for the control-plane package and runtime. The canonical package version is stored in both `VERSION` and `pyproject.toml`; release work should update both, update this changelog, run validation, and then tag the commit when publishing.
 
+## [1.41.22] - 2026-06-09
+
+### Changed
+
+- Released the 1.41.22 control-plane metadata update.
+
+## [1.41.21] - 2026-06-09
+
+### Changed
+
+- Released the 1.41.21 control-plane metadata update.
+
+## [1.41.20] - 2026-06-09
+
+### Changed
+
+- Released the 1.41.20 control-plane metadata update.
+
+## [1.41.19] - 2026-06-09
+
+### Changed
+
+- Released the 1.41.19 control-plane metadata update.
+
 ## [1.41.18] - 2026-06-05
 
 ### Changed
