@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -134,6 +136,88 @@ def test_queue_alert_findings_suppresses_live_dispatch_noise_during_hold() -> No
     findings = queue_alert_findings(status, hang_after_sec=1)  # type: ignore[arg-type]
 
     assert findings == []
+
+
+def test_queue_alert_notify_suppresses_pushover_during_maintenance_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane.alerts import (
+        DashboardFinding,
+        evaluate_and_notify_queue_alerts,
+    )
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        live_dispatch_enabled=True,
+        queue_alert_hang_after_sec=300,
+        queue_alert_cooldown_sec=3600,
+        pushover_alerts_enabled=True,
+        pushover_app_token="app",
+        pushover_user_key="user",
+    )
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[
+            DashboardFinding(
+                severity="critical",
+                source="control_plane_db+worker_preflight",
+                authority="maintenance regression fixture",
+                message="worker reports live work but control plane has no active row",
+                suggested_action="operator maintenance in progress",
+            )
+        ],
+        active_items=[],
+        warnings=[],
+        source_freshness={},
+        dispatch_safe=False,
+        dispatch_blockers=["maintenance_mode"],
+    )
+
+    class Store:
+        def event_rows(self, limit: int = 100) -> list[dict[str, Any]]:
+            return []
+
+        def append_event(self, **_kwargs: Any) -> tuple[str, bool]:
+            return "event-maintenance", True
+
+    def fail_pushover(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("maintenance mode must suppress Pushover")
+
+    monkeypatch.setattr(alerts, "send_pushover", fail_pushover)
+
+    result = evaluate_and_notify_queue_alerts(
+        config=config,
+        store=cast(Any, Store()),
+        status=cast(Any, status),
+        dry_run=False,
+        force_notify=False,
+        requested_by="test",
+    )
+
+    assert result["should_alert"] is True
+    assert result["sent"] is False
+    assert result["suppressed"] is True
+    assert result["suppressed_by_cooldown"] is False
+    assert result["suppression_reason"] == "maintenance_mode"
+    assert result["notification"] == {
+        "attempted": False,
+        "ok": True,
+        "status_code": None,
+        "detail": "maintenance mode suppresses pushover alert delivery",
+    }
+    assert result["hermes_webhook"] == {
+        "attempted": False,
+        "ok": True,
+        "status_code": None,
+        "detail": "maintenance mode suppresses hermes alert webhook delivery",
+    }
 
 
 def test_queue_alert_findings_suppresses_research_quality_warning_during_hold(
