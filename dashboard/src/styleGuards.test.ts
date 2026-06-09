@@ -30,4 +30,11 @@ describe('style.css P7 guards', () => {
     expect(css).toContain('.selectable-row:focus-visible')
     expect(css).toContain('.cell-link:focus-visible')
   })
+
+  it('keeps disabled buttons and queue step labels above the contrast floor', () => {
+    expect(css).toMatch(/\.primary-button:disabled,[^{]*\{[^}]*color:\s*rgba\(244, 241, 234, 0\.56\)/)
+    expect(css).toMatch(/\.queue-action-steps__item \{[^}]*color:\s*#a69f96/)
+    expect(css).not.toMatch(/\.primary-button:disabled,[^{]*\{[^}]*color:\s*rgba\(244, 241, 234, 0\.38\)/)
+    expect(css).not.toMatch(/\.queue-action-steps__item \{[^}]*color:\s*#837d75/)
+  })
 })
