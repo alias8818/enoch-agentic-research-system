@@ -494,18 +494,133 @@ function QueueBriefing({
   )
 }
 
+function runStateText(row: Record<string, unknown>): string {
+  return rowFieldText(row, ['operator_stage', 'operator_detail_stage', 'state', 'gate_state']).toLowerCase()
+}
+
+function runNeedsAttention(row: Record<string, unknown>): boolean {
+  if (row.operator_attention === true) return true
+  const tone = rowFieldText(row, ['operator_tone']).toLowerCase()
+  const state = runStateText(row)
+  return ['risk', 'warn', 'error'].includes(tone)
+    || state.includes('fail')
+    || state.includes('error')
+    || state.includes('blocked')
+}
+
+function runIsActive(row: Record<string, unknown>): boolean {
+  const state = runStateText(row)
+  return ['running', 'dispatching', 'awaiting_wake'].some((value) => state.includes(value))
+}
+
+function runIsComplete(row: Record<string, unknown>): boolean {
+  const state = runStateText(row)
+  return state.includes('complete') || state.includes('wake_ready') || state === 'completed'
+}
+
+function runSubject(row: Record<string, unknown>): string {
+  const projectName = rowFieldText(row, ['project_name'])
+  if (projectName) return projectName
+  const projectId = rowFieldText(row, ['project_id'])
+  if (projectId) return projectId.replaceAll('-', ' ')
+  return 'Untitled run'
+}
+
+function runHealthLabel(row: Record<string, unknown>): string {
+  return rowFieldText(row, ['operator_stage_label', 'operator_detail_stage_label', 'state', 'gate_state']) || 'Unknown'
+}
+
+function runOutcomeLabel(row: Record<string, unknown>): string {
+  if (runNeedsAttention(row)) return 'Needs investigation'
+  if (runIsActive(row)) return 'In progress'
+  if (runIsComplete(row)) return runHealthLabel(row)
+  return 'Unknown outcome'
+}
+
+function runEvidenceSummary(row: Record<string, unknown>): string {
+  const paths = row.related_artifact_paths_present
+  if (!paths || typeof paths !== 'object' || Array.isArray(paths)) return 'artifact signals unavailable'
+  const present = Object.values(paths as Record<string, unknown>).filter(Boolean).length
+  if (present > 0) return `${present} artifact signal(s) present`
+  if (rowFieldText(row, ['last_callback_at', 'ended_at'])) return 'callback observed; no paper artifacts yet'
+  return 'waiting for callback or artifact evidence'
+}
+
+function runTimelineItems(row: Record<string, unknown>): ReadonlyArray<Readonly<{ label: string; value: string }>> {
+  return [
+    { label: 'Started', value: rowFieldText(row, ['started_at']) || 'start time unknown' },
+    { label: 'Gate / worker', value: rowFieldText(row, ['gate_state', 'current_activity', 'dispatch_mode']) || 'worker state unknown' },
+    { label: 'Callback / outcome', value: rowFieldText(row, ['last_callback_at', 'ended_at']) || runOutcomeLabel(row) },
+    { label: 'Evidence', value: runEvidenceSummary(row) },
+  ]
+}
+
+function prioritizedRunRows(rows: ReadonlyArray<Record<string, unknown>>): Record<string, unknown>[] {
+  return [...rows]
+    .sort((left, right) => {
+      const attentionDelta = Number(runNeedsAttention(right)) - Number(runNeedsAttention(left))
+      if (attentionDelta !== 0) return attentionDelta
+      const activeDelta = Number(runIsActive(right)) - Number(runIsActive(left))
+      if (activeDelta !== 0) return activeDelta
+      const completeDelta = Number(runIsComplete(right)) - Number(runIsComplete(left))
+      if (completeDelta !== 0) return completeDelta
+      return 0
+    })
+    .slice(0, 3)
+}
+
 function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
-  const active = activeOrWaitingRuns(rows)
-  const completed = rowsWithStatus(rows, 'completed')
-  const failed = rowsWithStatus(rows, 'failed') + rowsWithStatus(rows, 'dispatch_error')
-  const latestTitle = firstHumanTitle(rows, ['project_name', 'project_id'], 'No run rows returned')
+  const attention = rows.filter(runNeedsAttention).length
+  const active = rows.filter(runIsActive).length
+  const completed = rows.filter(runIsComplete).length
+  const storyRows = prioritizedRunRows(rows)
+  const headline = attention > 0
+    ? `${attention} recent run(s) need investigation`
+    : active > 0
+      ? `${active} run(s) are in progress`
+      : completed > 0
+        ? `${completed} recent run(s) reached an outcome`
+        : rows.length > 0
+          ? 'Recent runs need timeline review'
+          : 'No run rows returned'
   return (
-    <BriefingGrid>
-      <BriefingCard eyebrow="Run story" title={failed > 0 ? `${failed} recent run(s) need investigation` : active > 0 ? `${active} recent run(s) are active or awaiting wake` : 'Recent runs are quiet'} detail="Use row drilldowns for run IDs, callbacks, gates, and logs; top-level view should summarize outcome first." tone={failed > 0 ? 'risk' : active > 0 ? 'neutral' : 'good'}>
-        <MetricStrip ariaLabel="Run state summary" items={[{ label: 'active/wake', value: active }, { label: 'completed', value: completed }, { label: 'failed', value: failed }]} />
-      </BriefingCard>
-      <BriefingCard eyebrow="Latest story" title="Open the newest visible run" detail={`${latestTitle}. Implementation slices should turn this into a timeline of dispatch, callback, evidence, and outcome.`} />
-    </BriefingGrid>
+    <>
+      <BriefingGrid>
+        <BriefingCard eyebrow="Run story" title={headline} detail="Runs now lead with outcome, callback, and evidence state before raw IDs, gates, and worker internals." tone={attention > 0 ? 'risk' : active > 0 ? 'neutral' : completed > 0 ? 'good' : 'neutral'}>
+          <MetricStrip ariaLabel="Run story summary" items={[{ label: 'attention', value: attention }, { label: 'in progress', value: active }, { label: 'outcome', value: completed }]} />
+        </BriefingCard>
+        <BriefingCard eyebrow="Timeline hierarchy" title={storyRows.length > 0 ? 'Top visible runs are summarized as timelines' : 'No visible run timeline'} detail="Each story card shows start, gate/worker step, callback/outcome, and evidence before the raw run ledger." />
+        <BriefingCard eyebrow="Forensic detail" title="Run IDs, callback internals, and logs stay in drilldowns" detail="Use the table and row detail panel for exact run identifiers, copied links, callback payloads, gates, and raw JSON evidence." />
+      </BriefingGrid>
+      <section className="run-story-cards" aria-label="Prioritized run stories">
+        {storyRows.length > 0 ? storyRows.map((row) => {
+          const title = runSubject(row)
+          const tone = runNeedsAttention(row) ? 'risk' : runIsActive(row) ? 'info' : runIsComplete(row) ? 'good' : 'neutral'
+          return (
+            <article className={`run-story-card run-story-card--${tone}`} key={displayText(row.run_id, title)}>
+              <p className="eyebrow">{runHealthLabel(row)}</p>
+              <h3>{title}</h3>
+              <p>{rowFieldText(row, ['operator_explanation']) || 'No operator explanation recorded for this run row.'}</p>
+              <ol className="run-story-timeline">
+                {runTimelineItems(row).map((item) => (
+                  <li key={item.label}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </li>
+                ))}
+              </ol>
+              <p className="run-story-next"><strong>Next action:</strong> {rowFieldText(row, ['operator_next_step', 'current_activity']) || 'Open the row for forensic run details.'}</p>
+            </article>
+          )
+        }) : (
+          <article className="run-story-card">
+            <p className="eyebrow">Empty slice</p>
+            <h3>No run rows match this filter</h3>
+            <p>Change filters or refresh before relying on the run ledger for timeline decisions.</p>
+          </article>
+        )}
+      </section>
+    </>
   )
 }
 

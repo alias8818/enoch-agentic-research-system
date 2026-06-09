@@ -1506,7 +1506,7 @@ it('keeps project and run hash search filters in V2 read models', async () => {
   globalThis.dispatchEvent(new HashChangeEvent('hashchange'))
 
   expect(await screen.findByRole('heading', { name: 'Runs' })).toBeInTheDocument()
-  expect(await screen.findByText('oracle replay')).toBeInTheDocument()
+  expect(await screen.findAllByText('oracle replay')).not.toHaveLength(0)
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/runs?page_size=50&sort=recent&state=running&search=replay', expect.any(Object))
 })
 

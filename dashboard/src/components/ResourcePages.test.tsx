@@ -130,6 +130,78 @@ it('opens projects with workstream cards before raw ids and copy controls', asyn
   expect(screen.getByRole('link', { name: /blocked-project-raw-id/ })).toBeInTheDocument()
 })
 
+it('opens runs with timeline story cards before raw run ids and callback internals', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    rows: [
+      {
+        run_id: 'failed-run-raw-id-20260609T000000+0000',
+        project_id: 'failed-project',
+        project_name: 'Failed callback run',
+        state: 'dispatch_error',
+        gate_state: 'dispatch_error',
+        current_activity: 'worker_callback',
+        operator_attention: true,
+        operator_stage_label: 'Needs Attention',
+        operator_tone: 'risk',
+        operator_explanation: 'Callback failed validation and needs operator inspection.',
+        operator_next_step: 'Open run detail and inspect callback payload before retry.',
+        started_at: '2026-05-21T06:00:00Z',
+        last_callback_at: '2026-05-21T06:04:00Z',
+        related_artifact_paths_present: { evidence_bundle_path: true, manifest_path: false },
+      },
+      {
+        run_id: 'running-run-raw-id-20260609T000000+0000',
+        project_id: 'running-project',
+        project_name: 'Running verifier run',
+        state: 'running',
+        gate_state: 'running',
+        current_activity: 'dispatched',
+        operator_stage_label: 'Running',
+        operator_tone: 'info',
+        operator_explanation: 'The worker lane is active or awaiting wake callback.',
+        operator_next_step: 'Wait for worker callback or gate completion.',
+        started_at: '2026-05-21T06:02:00Z',
+        related_artifact_paths_present: {},
+      },
+      {
+        run_id: 'complete-run-raw-id-20260609T000000+0000',
+        project_id: 'complete-project',
+        project_name: 'Completed evidence run',
+        state: 'wake_ready',
+        gate_state: 'wake_ready',
+        current_activity: 'worker_callback',
+        operator_stage_label: 'Done / No Paper',
+        operator_tone: 'muted',
+        operator_explanation: 'The worker run is complete; no current draft-needed signal is visible in this row.',
+        operator_next_step: 'Select the next project unless separate paper evidence appears.',
+        started_at: '2026-05-21T06:01:00Z',
+        ended_at: '2026-05-21T06:05:00Z',
+        related_artifact_paths_present: {},
+      },
+    ],
+    page: { returned: 3, has_more: false },
+  }), { status: 200 }))
+
+  renderWithClient(<RunsPage route={{ page: 'runs', state: '', search: '', hash: '#runs' }} />)
+
+  expect(await screen.findByText('Run story')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 recent run(s) need investigation' })).toBeInTheDocument()
+  expect(screen.getByText('Timeline hierarchy')).toBeInTheDocument()
+  expect(screen.getByText('Forensic detail')).toBeInTheDocument()
+  expect(screen.getByLabelText('Run story summary')).toHaveTextContent('attention1')
+  expect(screen.getByLabelText('Run story summary')).toHaveTextContent('in progress1')
+  expect(screen.getByLabelText('Run story summary')).toHaveTextContent('outcome1')
+
+  const runStories = screen.getByLabelText('Prioritized run stories')
+  expect(within(runStories).getByRole('heading', { name: 'Failed callback run' })).toBeInTheDocument()
+  expect(within(runStories).getByText('Callback failed validation and needs operator inspection.')).toBeInTheDocument()
+  expect(within(runStories).getByText('Open run detail and inspect callback payload before retry.')).toBeInTheDocument()
+  expect(within(runStories).getByText('1 artifact signal(s) present')).toBeInTheDocument()
+  expect(within(runStories).queryByText('failed-run-raw-id-20260609T000000+0000')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Copy run id failed-run-raw-id-20260609T000000+0000' })).toBeInTheDocument()
+})
+
 it('adds human-first briefing vocabulary above resource page drilldown tables', async () => {
   saveToken('test-token')
 
@@ -153,8 +225,8 @@ it('adds human-first briefing vocabulary above resource page drilldown tables', 
   )
 
   expect(await screen.findByText('Run story')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '1 recent run(s) are active or awaiting wake' })).toBeInTheDocument()
-  expect(screen.getByText('Active run story')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 run(s) are in progress' })).toBeInTheDocument()
+  expect(screen.getAllByText('Active run story')).not.toHaveLength(0)
 
   rerender(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
@@ -429,8 +501,8 @@ it('loads runs from the V1 runs endpoint with state filters and detail fetches',
   expectParam(url, 'sort', 'recent')
   expect(url.searchParams.get('status')).toBeNull()
 
-  fireEvent.click(screen.getByText('testing'))
-  await screen.findByText('testing')
+  fireEvent.click(screen.getByRole('row', { name: /project-1 run-1/ }))
+  expect(await screen.findAllByText('testing')).not.toHaveLength(0)
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/runs/run-1', expect.any(Object))
 })
 
