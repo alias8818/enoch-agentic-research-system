@@ -668,6 +668,22 @@ def test_llm_settings_format_probe_records_schema_success(
         assert payload["malformed_kind"] == ""
 
 
+def test_llm_settings_candidate_json_probe_prompt_matches_schema_shape() -> None:
+    from enoch_control_plane.control_plane.router import (
+        _llm_format_probe_prompt,
+        _llm_probe_json_schema,
+    )
+
+    prompt = _llm_format_probe_prompt("candidate_json")
+    schema = _llm_probe_json_schema("candidate_json")
+
+    assert schema["type"] == "object"
+    assert schema["required"] == ["candidates"]
+    assert "compact JSON object" in prompt
+    assert '"candidates"' in prompt
+    assert "compact JSON array" not in prompt
+
+
 def test_llm_settings_candidate_json_probe_uses_structured_output_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -683,7 +699,8 @@ def test_llm_settings_candidate_json_probe_uses_structured_output_budget(
         def read(self, *_args: object) -> bytes:
             return (
                 b'{"choices":[{"message":{"content":'
-                b'"[{\\"title\\":\\"Probe\\",\\"rationale\\":\\"Enough budget\\"}]"},'
+                b'"{\\"candidates\\":[{\\"title\\":\\"Probe\\",'
+                b'\\"rationale\\":\\"Enough budget\\"}]}"},'
                 b'"finish_reason":"stop"}]}'
             )
 
@@ -753,7 +770,10 @@ def test_llm_settings_candidate_json_probe_uses_structured_output_budget(
         assert body["schema_ok"] is True
         assert body["malformed_kind"] == ""
         assert '"max_tokens": 1024' in str(seen["body"])
-        assert "compact JSON array" in str(seen["body"])
+        request_payload = json.loads(str(seen["body"]))
+        prompt = request_payload["messages"][0]["content"]
+        assert "compact JSON object" in prompt
+        assert '"candidates"' in prompt
         payload = store.events[0]["payload"]
         assert payload["source"] == "format_probe"
         assert payload["prompt_contract"] == "candidate_json"

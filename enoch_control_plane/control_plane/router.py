@@ -7686,8 +7686,9 @@ def _llm_format_probe_prompt(contract: str) -> str:
             'code block containing {"ok":true,"items":[1,2]}.'
         )
     return (
-        "Return only a compact JSON array with one candidate object. The object must "
-        'have string fields "title" and "rationale".'
+        "Return only this compact JSON object, no markdown or prose: "
+        '{"candidates":[{"title":"Probe","rationale":"Short reason"}]}. '
+        'The candidate object must have string fields "title" and "rationale".'
     )
 
 
