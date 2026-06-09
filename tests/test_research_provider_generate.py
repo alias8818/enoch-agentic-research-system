@@ -517,6 +517,9 @@ def test_generation_prompt_includes_research_quality_policy() -> None:
     assert "Negative results are useful when they save others time" in prompt
     assert "Do not treat proxy-only" in prompt
     assert "supported but still finalize_negative" in prompt
+    assert "Include memory-architecture candidates in the regular idea mix" in prompt
+    assert "semantic compression" in prompt
+    assert "no-memory, full-transcript search, or flat vector retrieval" in prompt
     assert "Do not propose another automatic follow-up at max depth" in prompt
     assert "generation does not queue work until promotion policy allows it" in prompt
 

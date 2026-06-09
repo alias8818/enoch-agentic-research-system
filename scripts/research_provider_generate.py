@@ -39,6 +39,7 @@ _DIAGNOSTIC_PREVIEW_CHARS = 600
 
 TOPIC_SPREAD = [
     "long-context SSM/Mamba memory for tiny local systems",
+    "agent memory architectures for semantic compression and operator-model learning",
     "KV-cache compression/offload for local inference",
     "non-LM speculative decoding and verifier scheduling",
     "1-2 bit quantization with principled residuals",
@@ -247,6 +248,8 @@ Do not use followup_from_negative unless a parent id is known.
 Allowed category:
 long-context, kv-compression, spec-decoding, quantization, home-training,
 distributed-training, agent-reliability, systems-research.
+Use agent-reliability or long-context for memory-architecture ideas; do not
+invent a new category for them.
 
 Fixed values:
 expected_artifacts=["run_notes.md","metrics.json","failure_cases.json",".enoch/project_decision.json"]
@@ -262,6 +265,7 @@ Preferred experiment shapes:
 - Tiny pretraining or data-selection experiments that can run bounded seeds locally.
 - Decoding/speculative-decoding work with exact no-speculation and n-gram/suffix baselines.
 - KV/cache work with measurable memory, latency, throughput, and quality metrics.
+- Agent memory-architecture tests that compare retrieval-only notes, layered user/project memory, trace-derived semantic compression, and predictive operator-model updates on repeated tasks.
 - Agent reliability/evidence-ledger tests that leave direct artifacts and counterexamples.
 
 Avoid proposing:
@@ -285,6 +289,8 @@ Additional Research Quality policy:
 Research Quality feedback from recent Enoch traces:
 - Do not treat proxy-only, trace-only, or synthetic-positive evidence as paper-positive; require direct target-stack evidence before paper writing.
 - When a run is supported but still finalize_negative, require the candidate/follow-up to separate mechanism support from publication readiness.
+- Include memory-architecture candidates in the regular idea mix: test whether memory stores learn reusable operator doctrine, semantic compression, and useful initiative rather than only remembering facts.
+- Memory-architecture tests must compare against at least one dumb baseline such as no-memory, full-transcript search, or flat vector retrieval, with acceptance criteria tied to fewer repeated instructions, better task choices, or better paper/corpus decisions.
 - Do not propose another automatic follow-up at max depth; require a manually justified new branch with a materially different mechanism.
 - For useful adjacent follow-ups, include a changed hypothesis, at least two concrete evidence items, a success threshold, and a stop condition.
 - Preserve the boundary that generation does not queue work until promotion policy allows it.
