@@ -43,6 +43,32 @@ it('loads queue rows from the V1 queue endpoint with the route queue slice', asy
   expect(url.searchParams.get('status')).toBeNull()
 })
 
+it('uses live queue status context to explain dispatch safety before row parsing', async () => {
+  saveToken('test-token')
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      source: 'control-plane',
+      counts: { queued: 24, active: 2 },
+      rows: [{ project_id: 'queue-1', status: 'queued', title: 'Queue item' }],
+      page: { returned: 1, has_more: false },
+    }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      dispatch_safe: false,
+      dispatch_blockers: ['all configured worker lanes active'],
+      counts: { queued: 24, active: 2 },
+    }), { status: 200 }))
+
+  renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
+
+  expect(await screen.findByText('Dispatch safety')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Dispatch waits: all configured worker lanes active' })).toBeInTheDocument()
+  expect(screen.getByText('The table still shows candidate readiness, but live dispatch should wait until the global safety blocker clears.')).toBeInTheDocument()
+  expect(screen.getByLabelText('Queue dispatch safety summary')).toHaveTextContent('queued24')
+  expect(screen.getByLabelText('Queue dispatch safety summary')).toHaveTextContent('active lanes2')
+  expect(screen.getByLabelText('Queue candidate grouping summary')).toHaveTextContent('ready here1')
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/status?refresh_worker=true', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
+})
+
 it('adds human-first briefing vocabulary above resource page drilldown tables', async () => {
   saveToken('test-token')
 
@@ -53,9 +79,10 @@ it('adds human-first briefing vocabulary above resource page drilldown tables', 
 
   const { rerender } = renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
 
-  expect(await screen.findByText('Dispatch briefing')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Pick a queued candidate, then dry-run dispatch' })).toBeInTheDocument()
-  expect(screen.getByText('Raw table role')).toBeInTheDocument()
+  expect(await screen.findByText('Dispatch safety')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Ready candidates are waiting for lane capacity' })).toBeInTheDocument()
+  expect(screen.getByText('Candidate groups')).toBeInTheDocument()
+  expect(screen.getByText('Action sequence')).toBeInTheDocument()
   expect(screen.getByText('Queue item')).toBeInTheDocument()
 
   rerender(

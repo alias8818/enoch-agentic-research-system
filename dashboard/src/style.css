@@ -1814,6 +1814,29 @@ span.cell-primary.cell-truncate {
 }
 .queue-command-card--compact h2 { font-size: 0.98rem; }
 .queue-command-card--compact .detail-id-chip { margin-top: 0.35rem; }
+.queue-action-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.queue-action-steps__item {
+  border: 1px solid rgba(244,241,234,0.12);
+  border-radius: 999px;
+  padding: 0.22rem 0.5rem;
+  color: #837d75;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.queue-action-steps__item--ready {
+  border-color: rgba(134,239,172,0.35);
+  color: #86efac;
+  background: rgba(34,197,94,0.1);
+}
 .cell-link { color: #e2b15b; text-decoration: none; }
 .cell-link:focus-visible {
   outline: none;

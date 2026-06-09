@@ -142,6 +142,13 @@ type ObservabilityLlmModels = { generated_at?: string; status?: string; model_co
 type DetailSelection = { kind: 'project' | 'run' | 'paper' | 'event'; id: string; row?: Record<string, unknown> }
 type FilterState = { search: string; status: string; pageSize: string; cursor: string }
 type CommandResult = { payload: Record<string, unknown>; context?: CommandPresentationContext }
+type QueueStatusContext = {
+  counts?: Record<string, unknown>
+  dispatch_safe?: boolean
+  dispatch_blockers?: unknown[]
+  queue_paused?: boolean
+  maintenance_mode?: boolean
+}
 
 function refetchInBackground(refetch: () => Promise<unknown>): void {
   refetch().catch(() => undefined)
@@ -269,7 +276,11 @@ function PageRefreshAction({ generatedAt, isFetching, onRefresh, label = 'Last l
 }
 
 function rowsWithStatus(rows: ReadonlyArray<Record<string, unknown>>, status: string): number {
-  return rows.filter((row) => displayText(row.status).toLowerCase() === status).length
+  return rows.filter((row) => displayText(firstValue(row.status, row.queue_status)).toLowerCase() === status).length
+}
+
+function actionableQueueRows(rows: ReadonlyArray<Record<string, unknown>>): number {
+  return rows.filter((row) => queueDispatchReadiness(row).tone === 'ready').length
 }
 
 function rowFieldText(row: Record<string, unknown>, keys: string[]): string {
@@ -324,17 +335,54 @@ function ProjectsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string
   )
 }
 
-function QueueBriefing({ rows, activeCount }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>>; activeCount: number }>) {
-  const queued = rowsWithStatus(rows, 'queued')
+function QueueBriefing({
+  rows,
+  queueCounts,
+  statusContext,
+  statusUnavailable,
+}: Readonly<{
+  rows: ReadonlyArray<Record<string, unknown>>
+  queueCounts?: Record<string, unknown>
+  statusContext?: QueueStatusContext
+  statusUnavailable?: boolean
+}>) {
+  const queued = numericCount(statusContext?.counts?.queued ?? queueCounts?.queued) || rowsWithStatus(rows, 'queued')
+  const activeCount = numericCount(statusContext?.counts?.active ?? queueCounts?.active)
   const blocked = rowsWithStatus(rows, 'blocked')
   const completed = rowsWithStatus(rows, 'completed')
-  const canInspectDispatch = queued > 0
+  const readyHere = actionableQueueRows(rows)
+  const blockers = Array.isArray(statusContext?.dispatch_blockers) ? statusContext.dispatch_blockers.map((item) => displayText(item)).filter(Boolean) : []
+  const dispatchSafe = statusContext?.dispatch_safe === true
+  const holdActive = statusContext?.queue_paused === true || statusContext?.maintenance_mode === true
+  const canInspectDispatch = queued > 0 || readyHere > 0
+  const safetyTitle = statusUnavailable
+    ? 'Queue loaded; dispatch safety unavailable'
+    : dispatchSafe
+      ? 'Safe to dispatch after selected dry-run'
+      : blockers.length > 0
+        ? `Dispatch waits: ${blockers[0]}`
+        : holdActive
+          ? 'Dispatch is intentionally held'
+          : canInspectDispatch
+            ? 'Ready candidates are waiting for lane capacity'
+            : 'No dispatchable candidate visible'
+  const safetyDetail = statusUnavailable
+    ? 'The queue rows loaded, but the global dispatch-safety endpoint did not return; retry refresh before live dispatch.'
+    : dispatchSafe
+      ? 'Select one queued candidate, run the dry-run preflight, then dispatch only if the selected row stays unchanged.'
+      : blockers.length > 0
+        ? 'The table still shows candidate readiness, but live dispatch should wait until the global safety blocker clears.'
+        : 'Use selected-row dry-run before any live dispatch; raw lane hints remain in row drilldowns.'
+  const safetyTone = statusUnavailable ? 'warn' : dispatchSafe ? 'good' : blockers.length > 0 || holdActive ? 'warn' : 'neutral'
   return (
     <BriefingGrid>
-      <BriefingCard eyebrow="Dispatch briefing" title={canInspectDispatch ? 'Pick a queued candidate, then dry-run dispatch' : 'No queued candidate visible in this page'} detail={activeCount > 0 ? 'Configured lanes are currently occupied; selected dispatch checks remain available for exact candidates.' : 'Use selected-row dry-run before any live dispatch.'} tone={blocked > 0 ? 'risk' : 'neutral'}>
-        <MetricStrip ariaLabel="Queue pressure summary" items={[{ label: 'queued here', value: queued }, { label: 'active', value: activeCount }, { label: 'blocked', value: blocked }, { label: 'completed here', value: completed }]} />
+      <BriefingCard eyebrow="Dispatch safety" title={safetyTitle} detail={safetyDetail} tone={safetyTone}>
+        <MetricStrip ariaLabel="Queue dispatch safety summary" items={[{ label: 'queued', value: queued }, { label: 'active lanes', value: activeCount }, { label: 'blockers', value: blockers.length }]} />
       </BriefingCard>
-      <BriefingCard eyebrow="Raw table role" title="Rows below are drilldown evidence" detail="Internal hints, lane targets, and copy IDs are preserved for operators, but the briefing above should answer safety before row parsing." />
+      <BriefingCard eyebrow="Candidate groups" title={canInspectDispatch ? 'Ready candidates stay grouped above raw rows' : 'No ready candidate in this slice'} detail="Rows below remain the evidence table; this briefing translates queue status into operator action buckets first." tone={blocked > 0 ? 'risk' : 'neutral'}>
+        <MetricStrip ariaLabel="Queue candidate grouping summary" items={[{ label: 'ready here', value: readyHere }, { label: 'blocked here', value: blocked }, { label: 'completed here', value: completed }]} />
+      </BriefingCard>
+      <BriefingCard eyebrow="Action sequence" title="Select candidate → dry-run → dispatch" detail="Live dispatch stays disabled until the selected queued row passes a dry-run and remains unchanged after refresh." />
     </BriefingGrid>
   )
 }
@@ -571,11 +619,16 @@ function QueueDispatchCommandCard({
   return (
     <section className="queue-command-card queue-command-card--compact">
       <div>
-        <p className="eyebrow">Selected queue row</p>
+        <p className="eyebrow">Selected dispatch action</p>
         <h2>{displayText(firstValue(selection?.row?.project_name, selection?.row?.title), displayText(selectedProjectId, 'No row selected'))}</h2>
         {selectedProjectId ? <span className="detail-id-chip" title={selectedProjectId}>{shortId(selectedProjectId)}</span> : null}
         <p>{selection?.row ? queueDispatchReadiness(selection.row).label : selectedDispatchReason(selection)}</p>
       </div>
+      <ol className="queue-action-steps" aria-label="Selected dispatch action sequence">
+        <li className={canDryRunSelected ? 'queue-action-steps__item queue-action-steps__item--ready' : 'queue-action-steps__item'}>Select queued row</li>
+        <li className={canLiveDispatchSelected ? 'queue-action-steps__item queue-action-steps__item--ready' : 'queue-action-steps__item'}>Dry-run preflight</li>
+        <li className={canLiveDispatchSelected ? 'queue-action-steps__item queue-action-steps__item--ready' : 'queue-action-steps__item'}>Live dispatch</li>
+      </ol>
       <div className="action-row">
         <button className="secondary-button" type="button" disabled={!canDryRunSelected || dispatchBusy} onClick={onDryRun}>
           {dispatchBusy ? 'Checking…' : 'Check selected dispatch'}
@@ -644,6 +697,13 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
   }, [route.search, route.status])
   const params = queueListParams(filters)
   const query = useQuery({ queryKey: ['queue', filters], queryFn: () => apiGet<unknown>(`/control/api/v1/queue?${params}`).then(parseQueueListResponse) })
+  const queueHasLiveStatusContext = Boolean((query.data as Record<string, unknown> | undefined)?.source)
+  const statusQuery = useQuery({
+    queryKey: ['queue-dispatch-status'],
+    queryFn: () => apiGet<QueueStatusContext>('/control/api/status?refresh_worker=true'),
+    enabled: queueHasLiveStatusContext,
+    retry: 1,
+  })
   if (query.isLoading) return <LoadingStateCard label="queue" />
   if (query.isError) return <ResourceErrorCard endpoint="queue" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry queue" />
   const dispatch = deriveQueueDispatchState(query.data?.rows, selection, liveDispatchProjectId, liveDispatchSignature, dispatchBusy)
@@ -658,8 +718,8 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
   }
   return (
     <>
-      <PageShell title="Queue" subtitle="Review queue rows, dry-run dispatch, and start selected work safely." dataSource="/control/api/v1/queue" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
-        <QueueBriefing rows={rows} activeCount={numericCount(query.data?.counts?.active)} />
+      <PageShell title="Queue" subtitle="Review queue rows, dry-run dispatch, and start selected work safely." dataSource="/control/api/v1/queue" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || statusQuery.isFetching} onRefresh={() => { queueHasLiveStatusContext ? refetchAllInBackground(() => query.refetch(), () => statusQuery.refetch()) : refetchInBackground(() => query.refetch()) }} />}>
+        <QueueBriefing rows={rows} queueCounts={query.data?.counts} statusContext={statusQuery.data} statusUnavailable={statusQuery.isError} />
         <ListFilterBar savedFiltersTableId="queue" state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={(next) => { setFilters(next); replaceRouteHash(queueHash(next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(queueHash(next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
         <QueueDispatchCommandCard
           selection={selection}
