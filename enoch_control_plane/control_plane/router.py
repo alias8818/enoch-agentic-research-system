@@ -7442,6 +7442,45 @@ def _paper_material_candidate(candidate: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _paper_material_graph_summary(graph: Any) -> Mapping[str, Any]:
+    summary = graph.get("summary") if isinstance(graph, dict) else {}
+    if isinstance(summary, Mapping):
+        return summary
+    return {}
+
+
+def _paper_material_graph_candidates(
+    summary: Mapping[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    return {
+        "synthesis": [
+            _paper_material_candidate(candidate)
+            for candidate in list(summary.get("synthesis_candidates") or [])[:8]
+            if isinstance(candidate, Mapping)
+        ],
+        "negative": [
+            _paper_material_candidate(candidate)
+            for candidate in list(summary.get("negative_result_candidates") or [])[:8]
+            if isinstance(candidate, Mapping)
+        ],
+    }
+
+
+def _paper_material_graph_counts(summary: Mapping[str, Any]) -> dict[str, int]:
+    return {
+        "paper_count": int(summary.get("paper_count") or 0),
+        "signal_count": int(summary.get("signal_count") or 0),
+        "source_count": int(summary.get("source_count") or 0),
+        "edge_count": int(summary.get("edge_count") or 0),
+        "similar_topic_edges": int(summary.get("similar_topic_edges") or 0),
+        "connected_component_count": int(summary.get("connected_component_count") or 0),
+        "synthesis_candidate_count": len(summary.get("synthesis_candidates") or []),
+        "negative_result_candidate_count": len(
+            summary.get("negative_result_candidates") or []
+        ),
+    }
+
+
 def _paper_material_graph_response(
     graph_path: Path | None = None,
 ) -> dict[str, Any]:
@@ -7464,31 +7503,9 @@ def _paper_material_graph_response(
             status_code=503,
             detail=f"paper material graph artifact is not valid JSON: {exc.msg}",
         ) from exc
-    summary = graph.get("summary") if isinstance(graph, dict) else {}
-    if not isinstance(summary, dict):
-        summary = {}
-    synthesis = [
-        _paper_material_candidate(candidate)
-        for candidate in list(summary.get("synthesis_candidates") or [])[:8]
-        if isinstance(candidate, Mapping)
-    ]
-    negative = [
-        _paper_material_candidate(candidate)
-        for candidate in list(summary.get("negative_result_candidates") or [])[:8]
-        if isinstance(candidate, Mapping)
-    ]
-    counts = {
-        "paper_count": int(summary.get("paper_count") or 0),
-        "signal_count": int(summary.get("signal_count") or 0),
-        "source_count": int(summary.get("source_count") or 0),
-        "edge_count": int(summary.get("edge_count") or 0),
-        "similar_topic_edges": int(summary.get("similar_topic_edges") or 0),
-        "connected_component_count": int(summary.get("connected_component_count") or 0),
-        "synthesis_candidate_count": len(summary.get("synthesis_candidates") or []),
-        "negative_result_candidate_count": len(
-            summary.get("negative_result_candidates") or []
-        ),
-    }
+    summary = _paper_material_graph_summary(graph)
+    candidates = _paper_material_graph_candidates(summary)
+    counts = _paper_material_graph_counts(summary)
     return {
         "ok": True,
         "source": "paper_material_graph_json",
@@ -7499,7 +7516,7 @@ def _paper_material_graph_response(
         "counts": counts,
         "edge_counts": summary.get("edge_counts") or {},
         "signal_status_counts": summary.get("signal_status_counts") or {},
-        "candidates": {"synthesis": synthesis, "negative": negative},
+        "candidates": candidates,
     }
 
 
@@ -8563,7 +8580,14 @@ def _exec_route_block(
 def _register_control_plane_paper_material_graph_route(
     router: APIRouter, require_bearer: RequireBearer
 ) -> None:
-    @router.get("/api/v1/paper-material-graph")
+    @router.get(
+        "/api/v1/paper-material-graph",
+        responses={
+            503: {
+                "description": "paper material graph artifact is not valid JSON",
+            }
+        },
+    )
     def dashboard_paper_material_graph(
         authorization: Annotated[str | None, Header()] = None,
     ) -> dict[str, Any]:
