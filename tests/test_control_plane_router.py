@@ -9997,7 +9997,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                                             "lifecycle_state": "settling",
                                             "callback_delivered": False,
                                             "is_live": True,
-                                            "active_process_count": 0,
+                                            "active_process_count": 1,
                                         }
                                     ],
                                 }
@@ -10034,14 +10034,18 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 any(item["source"] == "worker_preflight" for item in status["warnings"])
             )
 
-            alert = client.post(
-                "/control/api/alerts/queue-check",
-                headers=headers,
-                json={"dry_run": True},
-            ).json()
-            self.assertFalse(
-                any(item["source"] == "worker_settling" for item in alert["findings"])
-            )
+            with patch(
+                "enoch_control_plane.control_plane.alerts.load_latest_quality_status",
+                return_value={},
+            ):
+                alert = client.post(
+                    "/control/api/alerts/queue-check",
+                    headers=headers,
+                    json={"dry_run": True, "refresh_worker": False},
+                ).json()
+            self.assertFalse(alert["should_alert"])
+            self.assertEqual(alert["fingerprint"], "none")
+            self.assertEqual(alert["findings"], [])
 
     def test_dashboard_status_suppresses_recent_worker_settling_without_vm_match(
         self,

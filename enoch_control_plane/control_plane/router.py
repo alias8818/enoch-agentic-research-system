@@ -2554,12 +2554,12 @@ ACTIVE_LANE_CONFIRMATION_GRACE_SEC = 180
 
 
 def _worker_run_is_settling_without_process(run: dict[str, Any]) -> bool:
-    active_process_count = _int_or_none(run.get("active_process_count"))
-    if active_process_count != 0:
-        return False
     gate_state = _normal_status(run.get("gate_state"))
     lifecycle_state = _normal_status(run.get("lifecycle_state"))
-    return gate_state == "waiting_for_quiet_window" or lifecycle_state == "settling"
+    if gate_state == "waiting_for_quiet_window" or lifecycle_state == "settling":
+        return True
+    active_process_count = _int_or_none(run.get("active_process_count"))
+    return active_process_count == 0
 
 
 def _worker_run_updated_recently(
