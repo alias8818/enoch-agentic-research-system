@@ -36,6 +36,7 @@ DISPATCH_TRANSITION_EVENTS = {
     "controller.live_dispatch",
     "followup.launch",
 }
+CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE = "control_plane_db+worker_preflight"
 
 
 @dataclass(frozen=True)
@@ -242,7 +243,7 @@ _WORKER_WARNING_SOURCES = frozenset(
     {
         "worker_preflight",
         "worker_dashboard_api",
-        "control_plane_db+worker_preflight",
+        CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
     }
 )
 _WORKER_STALE_FRESHNESS_SOURCES = frozenset(
@@ -774,7 +775,7 @@ def _recent_dispatch_transition_projects(
 
 
 def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
-    if finding.source != "control_plane_db+worker_preflight":
+    if finding.source != CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE:
         return False
     return "active row" in finding.message.lower() and (
         "no live worker run" in finding.message.lower()
@@ -784,7 +785,7 @@ def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
 
 
 def _is_worker_live_without_vm_active_row(finding: DashboardFinding) -> bool:
-    if finding.source != "control_plane_db+worker_preflight":
+    if finding.source != CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE:
         return False
     message = finding.message.lower()
     return "live" in message and "control plane has no active row" in message
