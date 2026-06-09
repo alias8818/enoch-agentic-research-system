@@ -32,11 +32,12 @@ describe('style.css P7 guards', () => {
   })
 
   it('keeps disabled buttons and queue step labels above the contrast floor', () => {
-    expect(css).toMatch(/\.primary-button:disabled,[^{]*\{[^}]*color:\s*rgba\(244, 241, 234, 0\.72\)/)
+    expect(css).toMatch(/\.primary-button:disabled,[^{]*\{[^}]*color:\s*#f4f1ea/)
     expect(css).toMatch(/\.queue-action-steps__item \{[^}]*color:\s*#a69f96/)
     expect(css).toMatch(/\.queue-action-steps__item--ready \{[^}]*background:\s*rgba\(0,0,0,0\.24\)/)
     expect(css).not.toMatch(/\.primary-button:disabled,[^{]*\{[^}]*color:\s*rgba\(244, 241, 234, 0\.38\)/)
     expect(css).not.toMatch(/\.primary-button:disabled,[^{]*\{[^}]*color:\s*rgba\(244, 241, 234, 0\.56\)/)
+    expect(css).not.toMatch(/\.primary-button:disabled,[^{]*\{[^}]*color:\s*rgba\(244, 241, 234, 0\.72\)/)
     expect(css).not.toMatch(/\.queue-action-steps__item \{[^}]*color:\s*#837d75/)
     expect(css).not.toMatch(/\.queue-action-steps__item--ready \{[^}]*background:\s*rgba\(34,197,94,0\.1\)/)
   })
