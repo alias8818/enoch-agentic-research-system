@@ -62,6 +62,8 @@ import { WorkbenchCountsFold, WorkbenchOperatorSummary } from './WorkbenchSummar
 
 type ObservabilityHealth = { generated_at?: string; route_observability_enabled?: boolean; route_observability_log_configured?: boolean; latest_route_observation?: string | null; sentry_enabled?: boolean; sentry_configured?: boolean; sentry_environment?: string; sentry_release?: string }
 type ObservabilityMemory = { generated_at?: string; rss_mib?: number | null; peak_rss_mib?: number | null; warn_threshold_mib?: number | null; memory_warn?: boolean; route_observability_enabled?: boolean }
+type BriefingTone = 'neutral' | 'good' | 'warn' | 'risk'
+type ResourceRowCardTone = BriefingTone | 'info'
 type ObservabilityLlmModel = {
   provider_id?: string
   provider_label?: string
@@ -424,25 +426,33 @@ function prioritizedProjectRows(rows: ReadonlyArray<Record<string, unknown>>): R
     .slice(0, 3)
 }
 
+function projectBriefingHeadline(attention: number, running: number, ready: number, rowCount: number): string {
+  if (attention > 0) return `${attention} workstream(s) need attention`
+  if (running > 0) return `${running} workstream(s) actively moving`
+  if (ready > 0) return `${ready} ready workstream(s) available`
+  if (rowCount > 0) return 'Workstreams are quiet or recently completed'
+  return 'No project rows returned'
+}
+
+function projectBriefingTone(attention: number, running: number, ready: number): BriefingTone {
+  if (attention > 0) return 'risk'
+  if (running > 0) return 'neutral'
+  if (ready > 0) return 'good'
+  return 'neutral'
+}
+
 function ProjectsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
   const attention = rows.filter(projectNeedsAttention).length
   const running = rows.filter(projectIsRunning).length
   const ready = rows.filter(projectIsReady).length
   const completed = rowsWithStatus(rows, 'completed')
   const highlightedRows = prioritizedProjectRows(rows)
-  const headline = attention > 0
-    ? `${attention} workstream(s) need attention`
-    : running > 0
-      ? `${running} workstream(s) actively moving`
-      : ready > 0
-        ? `${ready} ready workstream(s) available`
-        : rows.length > 0
-          ? 'Workstreams are quiet or recently completed'
-          : 'No project rows returned'
+  const headline = projectBriefingHeadline(attention, running, ready, rows.length)
+  const tone = projectBriefingTone(attention, running, ready)
   return (
     <>
       <BriefingGrid>
-        <BriefingCard eyebrow="Workstream health" title={headline} detail="Projects now open with operator-stage health and action buckets before the raw project table." tone={attention > 0 ? 'risk' : running > 0 ? 'neutral' : ready > 0 ? 'good' : 'neutral'}>
+        <BriefingCard eyebrow="Workstream health" title={headline} detail="Projects now open with operator-stage health and action buckets before the raw project table." tone={tone}>
           <MetricStrip ariaLabel="Project workstream health summary" items={[{ label: 'attention', value: attention }, { label: 'running', value: running }, { label: 'ready', value: ready }]} />
         </BriefingCard>
         <BriefingCard eyebrow="Priority workstreams" title={highlightedRows.length > 0 ? 'Top visible workstreams are grouped by operator relevance' : 'No visible workstream to prioritize'} detail="Each card below answers what changed, whether the workstream is healthy, and the next action before IDs or copy controls." />
@@ -609,24 +619,39 @@ function prioritizedRunRows(rows: ReadonlyArray<Record<string, unknown>>): Recor
     .slice(0, 3)
 }
 
+function runBriefingHeadline(attention: number, active: number, completed: number, rowCount: number): string {
+  if (attention > 0) return `${attention} recent run(s) need investigation`
+  if (active > 0) return `${active} run(s) are in progress`
+  if (completed > 0) return `${completed} recent run(s) reached an outcome`
+  if (rowCount > 0) return 'Recent runs need timeline review'
+  return 'No run rows returned'
+}
+
+function runBriefingTone(attention: number, active: number, completed: number): BriefingTone {
+  if (attention > 0) return 'risk'
+  if (active > 0) return 'neutral'
+  if (completed > 0) return 'good'
+  return 'neutral'
+}
+
+function runCardTone(row: Record<string, unknown>): ResourceRowCardTone {
+  if (runNeedsAttention(row)) return 'risk'
+  if (runIsActive(row)) return 'info'
+  if (runIsComplete(row)) return 'good'
+  return 'neutral'
+}
+
 function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
   const attention = rows.filter(runNeedsAttention).length
   const active = rows.filter(runIsActive).length
   const completed = rows.filter(runIsComplete).length
   const storyRows = prioritizedRunRows(rows)
-  const headline = attention > 0
-    ? `${attention} recent run(s) need investigation`
-    : active > 0
-      ? `${active} run(s) are in progress`
-      : completed > 0
-        ? `${completed} recent run(s) reached an outcome`
-        : rows.length > 0
-          ? 'Recent runs need timeline review'
-          : 'No run rows returned'
+  const headline = runBriefingHeadline(attention, active, completed, rows.length)
+  const tone = runBriefingTone(attention, active, completed)
   return (
     <>
       <BriefingGrid>
-        <BriefingCard eyebrow="Run story" title={headline} detail="Runs now lead with outcome, callback, and evidence state before raw IDs, gates, and worker internals." tone={attention > 0 ? 'risk' : active > 0 ? 'neutral' : completed > 0 ? 'good' : 'neutral'}>
+        <BriefingCard eyebrow="Run story" title={headline} detail="Runs now lead with outcome, callback, and evidence state before raw IDs, gates, and worker internals." tone={tone}>
           <MetricStrip ariaLabel="Run story summary" items={[{ label: 'attention', value: attention }, { label: 'in progress', value: active }, { label: 'outcome', value: completed }]} />
         </BriefingCard>
         <BriefingCard eyebrow="Timeline hierarchy" title={storyRows.length > 0 ? 'Top visible runs are summarized as timelines' : 'No visible run timeline'} detail="Each story card shows start, gate/worker step, callback/outcome, and evidence before the raw run ledger." />
@@ -635,7 +660,7 @@ function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, un
       <section className="run-story-cards" aria-label="Prioritized run stories">
         {storyRows.length > 0 ? storyRows.map((row) => {
           const title = runSubject(row)
-          const tone = runNeedsAttention(row) ? 'risk' : runIsActive(row) ? 'info' : runIsComplete(row) ? 'good' : 'neutral'
+          const tone = runCardTone(row)
           return (
             <article className={`run-story-card run-story-card--${tone}`} key={displayText(row.run_id, title)}>
               <p className="eyebrow">{runHealthLabel(row)}</p>
@@ -758,25 +783,40 @@ function prioritizedPaperRows(rows: ReadonlyArray<Record<string, unknown>>): Rec
     .slice(0, 3)
 }
 
+function paperBriefingTitle(attention: number, evidenceReview: number, ready: number, rowCount: number): string {
+  if (attention > 0) return `${attention} paper artifact(s) need operator attention`
+  if (evidenceReview > 0) return `${evidenceReview} paper artifact(s) need evidence review`
+  if (ready > 0) return `${ready} paper artifact(s) have publication evidence`
+  if (rowCount > 0) return 'Publication artifacts need triage'
+  return 'No paper rows returned'
+}
+
+function paperBriefingTone(attention: number, evidenceReview: number, ready: number): BriefingTone {
+  if (attention > 0) return 'risk'
+  if (evidenceReview > 0) return 'warn'
+  if (ready > 0) return 'good'
+  return 'neutral'
+}
+
+function paperCardTone(row: Record<string, unknown>): BriefingTone {
+  if (paperNeedsAttention(row)) return 'risk'
+  if (paperNeedsEvidence(row)) return 'warn'
+  if (paperIsReady(row)) return 'good'
+  return 'neutral'
+}
+
 function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
   const attention = rows.filter(paperNeedsAttention).length
   const evidenceReview = rows.filter(paperNeedsEvidence).length
   const ready = rows.filter(paperIsReady).length
   const imported = rows.filter((row) => row.corpus_imported === true).length
   const artifactRows = prioritizedPaperRows(rows)
-  const title = attention > 0
-    ? `${attention} paper artifact(s) need operator attention`
-    : evidenceReview > 0
-      ? `${evidenceReview} paper artifact(s) need evidence review`
-      : ready > 0
-        ? `${ready} paper artifact(s) have publication evidence`
-        : rows.length > 0
-          ? 'Publication artifacts need triage'
-          : 'No paper rows returned'
+  const title = paperBriefingTitle(attention, evidenceReview, ready, rows.length)
+  const tone = paperBriefingTone(attention, evidenceReview, ready)
   return (
     <>
       <BriefingGrid>
-        <BriefingCard eyebrow="Publication briefing" title={title} detail="Papers lead with customer-facing artifact readiness, evidence completeness, corpus posture, and next workflow action before raw draft IDs or paths." tone={attention > 0 ? 'risk' : evidenceReview > 0 ? 'warn' : ready > 0 ? 'good' : 'neutral'}>
+        <BriefingCard eyebrow="Publication briefing" title={title} detail="Papers lead with customer-facing artifact readiness, evidence completeness, corpus posture, and next workflow action before raw draft IDs or paths." tone={tone}>
           <MetricStrip ariaLabel="Paper readiness summary" items={[{ label: 'attention', value: attention }, { label: 'evidence review', value: evidenceReview }, { label: 'ready/imported', value: ready || imported }]} />
         </BriefingCard>
         <BriefingCard eyebrow="Artifact outcomes" title={artifactRows.length > 0 ? 'Top visible papers are summarized as publication artifacts' : 'No visible paper artifact'} detail="Each card below names the artifact, readiness, evidence package, corpus state, and next action while keeping exact draft IDs in the table/detail views." />
@@ -785,7 +825,7 @@ function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, 
       <section className="paper-artifact-cards" aria-label="Prioritized publication artifacts">
         {artifactRows.length > 0 ? artifactRows.map((row) => {
           const subject = paperSubject(row)
-          const tone = paperNeedsAttention(row) ? 'risk' : paperNeedsEvidence(row) ? 'warn' : paperIsReady(row) ? 'good' : 'neutral'
+          const tone = paperCardTone(row)
           return (
             <article className={`paper-artifact-card paper-artifact-card--${tone}`} key={displayText(row.paper_id, subject)}>
               <p className="eyebrow">{paperReadinessLabel(row)}</p>

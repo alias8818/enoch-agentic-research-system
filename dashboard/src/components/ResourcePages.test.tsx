@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -5,6 +8,15 @@ import { saveToken } from '../api/client'
 import { SAVED_TABLE_FILTERS_STORAGE_KEY } from '../savedTableFilters'
 import { fetchMockCallUrl, fetchMockRequestBody } from '../test/fetchMockBody'
 import { CorpusPage, EventsPage, IntakePage, ObservabilityPage, PapersPage, ProjectsPage, QueuePage, RunsPage } from './ResourcePages'
+
+const resourcePagesSource = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'ResourcePages.tsx'), 'utf8')
+
+function sourceSlice(functionName: string): string {
+  const start = resourcePagesSource.indexOf(`function ${functionName}`)
+  expect(start).toBeGreaterThanOrEqual(0)
+  const nextFunction = resourcePagesSource.indexOf('\nfunction ', start + 1)
+  return resourcePagesSource.slice(start, nextFunction === -1 ? undefined : nextFunction)
+}
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -25,6 +37,17 @@ afterEach(() => {
   vi.restoreAllMocks()
   saveToken('')
   globalThis.localStorage.removeItem(SAVED_TABLE_FILTERS_STORAGE_KEY)
+})
+
+it('keeps ResourcePages briefing helpers away from Sonar nested ternary regressions', () => {
+  expect(sourceSlice('ProjectsBriefing')).toContain('projectBriefingHeadline(attention, running, ready, rows.length)')
+  expect(sourceSlice('RunsBriefing')).toContain('runBriefingHeadline(attention, active, completed, rows.length)')
+  expect(sourceSlice('PapersBriefing')).toContain('paperBriefingTitle(attention, evidenceReview, ready, rows.length)')
+  expect(resourcePagesSource).not.toContain('const headline = attention > 0')
+  expect(resourcePagesSource).not.toContain('const title = attention > 0')
+  expect(resourcePagesSource).not.toContain("tone={attention > 0 ? 'risk'")
+  expect(resourcePagesSource).not.toContain("? 'info' : runIsComplete(row) ? 'good'")
+  expect(resourcePagesSource).not.toContain("? 'warn' : paperIsReady(row) ? 'good'")
 })
 
 it('loads queue rows from the V1 queue endpoint with the route queue slice', async () => {
