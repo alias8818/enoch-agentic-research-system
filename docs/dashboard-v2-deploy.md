@@ -81,7 +81,7 @@ ssh enoch-core.exe.xyz 'ENOCH_CONTROL_TOKEN="$(jq -r .control_api_bearer_token /
     --check-legacy-dashboard-redirect'
 ```
 
-3. **Browser spot-check** (optional): open `/control/dashboard-v2#overview` with your control-plane token; confirm overview loads without a first-screen raw JSON block.
+3. **Browser spot-check / rendered QA**: for small deploys, open `/control/dashboard-v2#overview` with a safe bearer-injecting access path and confirm overview loads without a first-screen raw JSON block. For information-architecture, visual polish, raw/debug placement, or state-card changes, run the full rendered QA route set in [`dashboard-v2-rendered-qa.md`](dashboard-v2-rendered-qa.md).
 
 ## Post-deploy verification (detail)
 

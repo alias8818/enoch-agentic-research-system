@@ -109,6 +109,64 @@ const queueListPayload = {
   page: { returned: 2, has_more: false },
 }
 
+const projectsListPayload = {
+  generated_at: '2026-05-21T12:00:00Z',
+  rows: [
+    {
+      project_id: 'project-alpha-raw-id-20260609',
+      project_name: 'Alpha workstream',
+      title: 'Alpha workstream',
+      queue_status: 'queued',
+      operator_stage_label: 'Ready',
+      operator_tone: 'info',
+      operator_explanation: 'The workstream is queued and waiting for lane capacity.',
+      operator_next_step: 'Open the row and dry-run dispatch when a lane is idle.',
+      related_artifact_paths_present: { evidence_bundle_path: true },
+    },
+  ],
+  page: { returned: 1, has_more: false },
+}
+
+const runsListPayload = {
+  generated_at: '2026-05-21T12:00:00Z',
+  rows: [
+    {
+      run_id: 'run-alpha-raw-id-20260609T000000Z',
+      project_id: 'project-alpha-raw-id-20260609',
+      project_name: 'Alpha run story',
+      state: 'running',
+      gate_state: 'running',
+      current_activity: 'worker_callback',
+      operator_stage_label: 'Running',
+      operator_tone: 'info',
+      operator_explanation: 'Worker is active; callback evidence is not complete yet.',
+      operator_next_step: 'Wait for the callback before acting on this run.',
+      started_at: '2026-05-21T11:59:00Z',
+      related_artifact_paths_present: {},
+    },
+  ],
+  page: { returned: 1, has_more: false },
+}
+
+const papersListPayload = {
+  generated_at: '2026-05-21T12:00:00Z',
+  rows: [
+    {
+      paper_id: 'raw-paper-id:alpha-run:arxiv_draft:/opt/enoch-control-plane/evidence/alpha/packet.json',
+      project_id: 'project-alpha-raw-id-20260609',
+      project_name: 'Alpha publication artifact',
+      paper_status: 'publication_draft',
+      review_status: 'draft_review',
+      operator_stage_label: 'Needs Evidence',
+      operator_tone: 'warn',
+      operator_explanation: 'Draft exists but publication evidence is still incomplete.',
+      operator_next_step: 'Collect the evidence bundle before publication review.',
+      artifact_paths_present: { draft_markdown_path: true },
+    },
+  ],
+  page: { returned: 1, has_more: false },
+}
+
 export async function installDashboardApiMocks(page: Page): Promise<void> {
   await page.route('**/control/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
@@ -122,12 +180,16 @@ export async function installDashboardApiMocks(page: Page): Promise<void> {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(queueListPayload) })
       return
     }
+    if (path.endsWith('/projects')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projectsListPayload) })
+      return
+    }
     if (path.endsWith('/runs')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rows: [], page: { returned: 0, has_more: false } }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(runsListPayload) })
       return
     }
     if (path.endsWith('/papers')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rows: [], page: { returned: 0, has_more: false } }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(papersListPayload) })
       return
     }
     if (path.endsWith('/events')) {

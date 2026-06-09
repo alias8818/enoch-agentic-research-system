@@ -44,3 +44,25 @@ test('dispatch dry-run keeps raw JSON collapsed', async ({ page }) => {
   await expect(raw).toHaveCount(1)
   await expect(raw).not.toHaveAttribute('open')
 })
+
+test('resource briefing regions demote raw identifiers and internals to table/detail evidence', async ({ page }) => {
+  await openDashboardWithToken(page, '#projects')
+  const projectCards = page.getByLabel('Prioritized project workstreams')
+  await expect(projectCards).toContainText('Alpha workstream')
+  await expect(projectCards).not.toContainText('project-alpha-raw-id-20260609')
+  await expect(page.getByRole('button', { name: 'Copy id project-alpha-raw-id-20260609' })).toBeVisible()
+
+  await page.goto('/control/dashboard-v2/#runs')
+  const runStories = page.getByLabel('Prioritized run stories')
+  await expect(runStories).toContainText('Alpha run story')
+  await expect(runStories).not.toContainText('run-alpha-raw-id-20260609T000000Z')
+  await expect(runStories).not.toContainText('worker_callback')
+  await expect(page.getByRole('button', { name: 'Copy run id run-alpha-raw-id-20260609T000000Z' })).toBeVisible()
+
+  await page.goto('/control/dashboard-v2/#papers')
+  const paperArtifacts = page.getByLabel('Prioritized publication artifacts')
+  await expect(paperArtifacts).toContainText('Alpha publication artifact')
+  await expect(paperArtifacts).not.toContainText('raw-paper-id:alpha-run:arxiv_draft')
+  await expect(paperArtifacts).not.toContainText('/opt/enoch-control-plane/evidence/alpha/packet.json')
+  await expect(page.getByRole('button', { name: 'Copy id raw-paper-id:alpha-run:arxiv_draft:/opt/enoch-control-plane/evidence/alpha/packet.json' })).toBeVisible()
+})
