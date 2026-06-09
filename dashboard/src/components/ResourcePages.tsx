@@ -320,18 +320,125 @@ function firstHumanTitle(rows: ReadonlyArray<Record<string, unknown>>, keys: str
   return fallback
 }
 
+function projectNeedsAttention(row: Record<string, unknown>): boolean {
+  if (row.operator_attention === true) return true
+  const tone = rowFieldText(row, ['operator_tone']).toLowerCase()
+  const stage = rowFieldText(row, ['operator_stage', 'operator_detail_stage', 'queue_status', 'status', 'latest_run_state']).toLowerCase()
+  return ['risk', 'warn', 'error'].includes(tone)
+    || stage.includes('block')
+    || stage.includes('fail')
+    || stage.includes('error')
+}
+
+function projectIsRunning(row: Record<string, unknown>): boolean {
+  const stage = rowFieldText(row, ['operator_stage', 'operator_detail_stage', 'queue_status', 'status', 'latest_run_state']).toLowerCase()
+  return ['running', 'awaiting_wake', 'dispatching', 'wake_ready'].some((value) => stage.includes(value))
+}
+
+function projectIsReady(row: Record<string, unknown>): boolean {
+  const stage = rowFieldText(row, ['operator_stage', 'operator_detail_stage', 'queue_status', 'status']).toLowerCase()
+  return ['ready', 'queued', 'testing', 'exploring'].some((value) => stage.includes(value))
+}
+
+function projectCardTone(row: Record<string, unknown>): string {
+  const tone = rowFieldText(row, ['operator_tone']).toLowerCase()
+  if (projectNeedsAttention(row)) return tone === 'warn' ? 'warn' : 'risk'
+  if (projectIsRunning(row)) return 'info'
+  if (projectIsReady(row)) return 'good'
+  return 'neutral'
+}
+
+function projectHealthLabel(row: Record<string, unknown>): string {
+  return rowFieldText(row, ['operator_stage_label', 'operator_detail_stage_label', 'operator_stage', 'queue_status', 'status']) || 'Unknown'
+}
+
+function projectChangedLabel(row: Record<string, unknown>): string {
+  const updated = rowFieldText(row, ['updated_at', 'created_at'])
+  if (updated) return updated
+  const ageSeconds = numericCount(row.age_seconds)
+  if (ageSeconds > 0) return `${Math.round(ageSeconds / 60)} min ago`
+  return 'No update timestamp'
+}
+
+function projectNextStep(row: Record<string, unknown>): string {
+  return rowFieldText(row, ['operator_next_step', 'next_action_hint', 'operator_explanation']) || 'Open the row to inspect current project evidence.'
+}
+
+function projectArtifactSummary(row: Record<string, unknown>): string {
+  const paths = row.related_artifact_paths_present
+  if (!paths || typeof paths !== 'object' || Array.isArray(paths)) return 'artifact signals unavailable'
+  const present = Object.values(paths as Record<string, unknown>).filter(Boolean).length
+  if (present === 0) return 'no paper artifacts yet'
+  return `${present} artifact signal(s) present`
+}
+
+function prioritizedProjectRows(rows: ReadonlyArray<Record<string, unknown>>): Record<string, unknown>[] {
+  return [...rows]
+    .sort((left, right) => {
+      const attentionDelta = Number(projectNeedsAttention(right)) - Number(projectNeedsAttention(left))
+      if (attentionDelta !== 0) return attentionDelta
+      const runningDelta = Number(projectIsRunning(right)) - Number(projectIsRunning(left))
+      if (runningDelta !== 0) return runningDelta
+      const readyDelta = Number(projectIsReady(right)) - Number(projectIsReady(left))
+      if (readyDelta !== 0) return readyDelta
+      return 0
+    })
+    .slice(0, 3)
+}
+
 function ProjectsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
-  const queued = rowsWithStatus(rows, 'queued')
-  const active = rowsWithStatus(rows, 'running') + rowsWithStatus(rows, 'awaiting_wake')
-  const blocked = rowsWithStatus(rows, 'blocked')
-  const nextTitle = firstHumanTitle(rows, ['project_name', 'title'], 'No project rows returned')
+  const attention = rows.filter(projectNeedsAttention).length
+  const running = rows.filter(projectIsRunning).length
+  const ready = rows.filter(projectIsReady).length
+  const completed = rowsWithStatus(rows, 'completed')
+  const highlightedRows = prioritizedProjectRows(rows)
+  const headline = attention > 0
+    ? `${attention} workstream(s) need attention`
+    : running > 0
+      ? `${running} workstream(s) actively moving`
+      : ready > 0
+        ? `${ready} ready workstream(s) available`
+        : rows.length > 0
+          ? 'Workstreams are quiet or recently completed'
+          : 'No project rows returned'
   return (
-    <BriefingGrid>
-      <BriefingCard eyebrow="Workstream briefing" title={blocked > 0 ? `${blocked} workstream(s) need attention` : 'Workstreams are moving through the queue'} detail={blocked > 0 ? 'Blocked rows should be inspected before adding new work.' : 'Recent projects are grouped by operator state below; raw IDs stay in row drilldowns.'} tone={blocked > 0 ? 'risk' : 'neutral'}>
-        <MetricStrip ariaLabel="Project state summary" items={[{ label: 'queued', value: queued }, { label: 'active-ish', value: active }, { label: 'blocked', value: blocked }]} />
-      </BriefingCard>
-      <BriefingCard eyebrow="Next attention" title="Open the top visible workstream" detail={`${nextTitle}. Open a row for exact identifiers, dispatch history, paper state, and debug evidence.`} />
-    </BriefingGrid>
+    <>
+      <BriefingGrid>
+        <BriefingCard eyebrow="Workstream health" title={headline} detail="Projects now open with operator-stage health and action buckets before the raw project table." tone={attention > 0 ? 'risk' : running > 0 ? 'neutral' : ready > 0 ? 'good' : 'neutral'}>
+          <MetricStrip ariaLabel="Project workstream health summary" items={[{ label: 'attention', value: attention }, { label: 'running', value: running }, { label: 'ready', value: ready }]} />
+        </BriefingCard>
+        <BriefingCard eyebrow="Priority workstreams" title={highlightedRows.length > 0 ? 'Top visible workstreams are grouped by operator relevance' : 'No visible workstream to prioritize'} detail="Each card below answers what changed, whether the workstream is healthy, and the next action before IDs or copy controls." />
+        <BriefingCard eyebrow="Raw detail access" title="IDs and debug fields stay in row drilldowns" detail="Open a row for exact project ID, run links, dispatch history, paper artifacts, and raw JSON evidence; the table remains the bounded evidence ledger." >
+          <MetricStrip ariaLabel="Project evidence summary" items={[{ label: 'visible rows', value: rows.length }, { label: 'completed', value: completed }, { label: 'highlighted', value: highlightedRows.length }]} />
+        </BriefingCard>
+      </BriefingGrid>
+      <section className="project-workstream-cards" aria-label="Prioritized project workstreams">
+        {highlightedRows.length > 0 ? highlightedRows.map((row) => {
+          const title = firstHumanTitle([row], ['project_name', 'title', 'project_id'], 'Untitled project')
+          const explanation = rowFieldText(row, ['operator_explanation']) || 'No operator explanation recorded for this project row.'
+          const tone = projectCardTone(row)
+          return (
+            <article className={`project-workstream-card project-workstream-card--${tone}`} key={displayText(row.project_id, title)}>
+              <p className="eyebrow">{projectHealthLabel(row)}</p>
+              <h3>{title}</h3>
+              <p>{explanation}</p>
+              <dl className="project-workstream-card__facts">
+                <div><dt>Health</dt><dd>{projectHealthLabel(row)}</dd></div>
+                <div><dt>Changed</dt><dd>{projectChangedLabel(row)}</dd></div>
+                <div><dt>Next action</dt><dd>{projectNextStep(row)}</dd></div>
+                <div><dt>Evidence</dt><dd>{projectArtifactSummary(row)}</dd></div>
+              </dl>
+            </article>
+          )
+        }) : (
+          <article className="project-workstream-card">
+            <p className="eyebrow">Empty slice</p>
+            <h3>No project rows match this filter</h3>
+            <p>Change filters or refresh before relying on the project table for workstream decisions.</p>
+          </article>
+        )}
+      </section>
+    </>
   )
 }
 

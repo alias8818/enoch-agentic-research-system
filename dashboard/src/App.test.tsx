@@ -1499,7 +1499,7 @@ it('keeps project and run hash search filters in V2 read models', async () => {
   render(<App />)
 
   expect(await screen.findByRole('heading', { name: 'Projects' })).toBeInTheDocument()
-  expect(await screen.findByText('Oracle project')).toBeInTheDocument()
+  expect(await screen.findAllByText('Oracle project')).not.toHaveLength(0)
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/projects?page_size=50&sort=recent&status=testing&search=oracle', expect.any(Object))
 
   globalThis.location.hash = '#runs:running?search=replay'

@@ -69,6 +69,67 @@ it('uses live queue status context to explain dispatch safety before row parsing
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/status?refresh_worker=true', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
 })
 
+it('opens projects with workstream cards before raw ids and copy controls', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    rows: [
+      {
+        project_id: 'blocked-project-raw-id',
+        project_name: 'Blocked compiler oracle',
+        operator_attention: true,
+        operator_stage_label: 'Needs Attention',
+        operator_tone: 'risk',
+        operator_explanation: 'Dispatch failed and needs operator inspection.',
+        operator_next_step: 'Inspect the failed run before dispatching more work.',
+        queue_status: 'blocked',
+        updated_at: '2026-05-21T06:02:00Z',
+        related_artifact_paths_present: { evidence_bundle_path: true, manifest_path: false },
+      },
+      {
+        project_id: 'running-project-raw-id',
+        project_name: 'Running KV cache study',
+        operator_stage_label: 'Running',
+        operator_tone: 'info',
+        operator_explanation: 'The worker lane is active or awaiting wake callback.',
+        operator_next_step: 'Wait for worker callback or gate completion.',
+        queue_status: 'awaiting_wake',
+        updated_at: '2026-05-21T06:01:00Z',
+        related_artifact_paths_present: {},
+      },
+      {
+        project_id: 'ready-project-raw-id',
+        project_name: 'Ready signed ledger',
+        operator_stage_label: 'Ready',
+        operator_tone: 'info',
+        operator_explanation: 'The idea is queued and not currently running.',
+        operator_next_step: 'Dispatch when the lane is available.',
+        queue_status: 'queued',
+        updated_at: '2026-05-21T06:00:00Z',
+        related_artifact_paths_present: {},
+      },
+    ],
+    page: { returned: 3, has_more: false },
+  }), { status: 200 }))
+
+  renderWithClient(<ProjectsPage route={{ page: 'projects', status: '', search: '', hash: '#projects' }} />)
+
+  expect(await screen.findByText('Workstream health')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 workstream(s) need attention' })).toBeInTheDocument()
+  expect(screen.getByText('Priority workstreams')).toBeInTheDocument()
+  expect(screen.getByText('Raw detail access')).toBeInTheDocument()
+  expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('attention1')
+  expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('running1')
+  expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('ready1')
+
+  const workstreamCards = screen.getByLabelText('Prioritized project workstreams')
+  expect(within(workstreamCards).getByRole('heading', { name: 'Blocked compiler oracle' })).toBeInTheDocument()
+  expect(within(workstreamCards).getByText('Dispatch failed and needs operator inspection.')).toBeInTheDocument()
+  expect(within(workstreamCards).getByText('Inspect the failed run before dispatching more work.')).toBeInTheDocument()
+  expect(within(workstreamCards).getByText('1 artifact signal(s) present')).toBeInTheDocument()
+  expect(within(workstreamCards).queryByText('blocked-project-raw-id')).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /blocked-project-raw-id/ })).toBeInTheDocument()
+})
+
 it('adds human-first briefing vocabulary above resource page drilldown tables', async () => {
   saveToken('test-token')
 
@@ -132,11 +193,11 @@ it('refreshes project rows explicitly from the V2 page', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-21T06:03:00Z', rows: [{ project_id: 'project-fresh', project_name: 'Fresh project', origin_idea_status: 'testing' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
   renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', search: '', hash: '#projects?status=testing' }} />)
-  await screen.findByText('Old project')
+  expect(await screen.findAllByText('Old project')).not.toHaveLength(0)
 
   fireEvent.click(screen.getByRole('button', { name: 'Refresh rows' }))
 
-  await screen.findByText('Fresh project')
+  expect(await screen.findAllByText('Fresh project')).not.toHaveLength(0)
   expect(screen.getByText('Last loaded 2026-05-21T06:03:00Z')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
@@ -301,7 +362,7 @@ it('loads project discovery rows from the V1 projects endpoint', async () => {
 
   renderWithClient(<ProjectsPage route={{ page: 'projects', status: 'testing', search: '', hash: '#projects?status=testing' }} />)
 
-  await screen.findByText('Trace Oracle')
+  expect(await screen.findAllByText('Trace Oracle')).not.toHaveLength(0)
   expect(screen.getByRole('link', { name: /project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   const url = fetchMockUrl(fetchMock, 0)
   expect(url.pathname).toBe('/control/api/v1/projects')
@@ -309,7 +370,9 @@ it('loads project discovery rows from the V1 projects endpoint', async () => {
   expectParam(url, 'page_size', '50')
   expectParam(url, 'sort', 'recent')
 
-  fireEvent.click(screen.getByText('Trace Oracle'))
+  const tableProjectCell = screen.getAllByText('Trace Oracle').find((node) => node.classList.contains('cell-primary'))
+  expect(tableProjectCell).toBeDefined()
+  fireEvent.click(tableProjectCell as HTMLElement)
   await screen.findByLabelText('Dashboard detail panel')
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/projects/project-1', expect.any(Object))
 })
