@@ -624,19 +624,156 @@ function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, un
   )
 }
 
+function paperStatusText(row: Record<string, unknown>): string {
+  return rowFieldText(row, ['operator_stage', 'operator_detail_stage', 'review_status', 'paper_status', 'status']).toLowerCase()
+}
+
+function paperNeedsAttention(row: Record<string, unknown>): boolean {
+  if (row.operator_attention === true) return true
+  const tone = rowFieldText(row, ['operator_tone']).toLowerCase()
+  const status = paperStatusText(row)
+  return ['risk', 'warn', 'error'].includes(tone)
+    || status.includes('missing')
+    || status.includes('blocked')
+    || status.includes('failed')
+}
+
+function paperArtifactCount(row: Record<string, unknown>): number {
+  const flags = row.artifact_paths_present
+  if (!flags || typeof flags !== 'object' || Array.isArray(flags)) return 0
+  return Object.values(flags as Record<string, unknown>).filter(Boolean).length
+}
+
+function paperHasCompleteEvidence(row: Record<string, unknown>): boolean {
+  const flags = row.artifact_paths_present
+  if (!flags || typeof flags !== 'object' || Array.isArray(flags)) return false
+  const record = flags as Record<string, unknown>
+  return (record.evidence_bundle_path === true || record.evidence_bundle === true)
+    && (record.claim_ledger_path === true || record.claim_ledger === true)
+    && (record.manifest_path === true || record.manifest === true)
+}
+
+function paperIsReady(row: Record<string, unknown>): boolean {
+  const status = paperStatusText(row)
+  return row.corpus_imported === true
+    || status.includes('finalized')
+    || status.includes('ready')
+    || paperHasCompleteEvidence(row)
+}
+
+function paperNeedsEvidence(row: Record<string, unknown>): boolean {
+  if (paperNeedsAttention(row)) return true
+  if (paperIsReady(row) && paperArtifactCount(row) > 0) return false
+  const status = paperStatusText(row)
+  return paperArtifactCount(row) === 0 || status.includes('draft') || status.includes('review')
+}
+
+function paperSubject(row: Record<string, unknown>): string {
+  const explicit = rowFieldText(row, ['title', 'paper_title'])
+  if (explicit) return explicit
+  const projectName = rowFieldText(row, ['project_name'])
+  if (projectName) return projectName
+  const projectId = rowFieldText(row, ['project_id'])
+  if (projectId) return projectId.replaceAll('-', ' ')
+  const slug = rowFieldText(row, ['artifact_slug'])
+  if (slug) return slug.replaceAll('-', ' ')
+  return 'Untitled publication artifact'
+}
+
+function paperReadinessLabel(row: Record<string, unknown>): string {
+  return rowFieldText(row, ['operator_stage_label', 'operator_detail_stage_label', 'review_status', 'paper_status', 'status']) || 'Unknown readiness'
+}
+
+function paperEvidenceLabel(row: Record<string, unknown>): string {
+  const count = paperArtifactCount(row)
+  if (paperHasCompleteEvidence(row)) return `complete evidence package (${count} artifact signal(s))`
+  if (count > 0) return `partial evidence package (${count} artifact signal(s))`
+  return 'no artifact evidence visible'
+}
+
+function paperCorpusLabel(row: Record<string, unknown>): string {
+  if (row.corpus_imported === true) return 'imported to corpus'
+  if (row.hf_dataset_synced === true) return 'dataset sync recorded'
+  if (rowFieldText(row, ['corpus_import_id', 'corpus_imported_at'])) return 'corpus import activity recorded'
+  return 'not imported to corpus yet'
+}
+
+function paperNextStep(row: Record<string, unknown>): string {
+  return rowFieldText(row, ['operator_next_step', 'operator_explanation']) || 'Open the row for artifact paths, draft IDs, and publication evidence.'
+}
+
+function prioritizedPaperRows(rows: ReadonlyArray<Record<string, unknown>>): Record<string, unknown>[] {
+  return [...rows]
+    .sort((left, right) => {
+      const attentionDelta = Number(paperNeedsAttention(right)) - Number(paperNeedsAttention(left))
+      if (attentionDelta !== 0) return attentionDelta
+      const evidenceDelta = Number(paperNeedsEvidence(right)) - Number(paperNeedsEvidence(left))
+      if (evidenceDelta !== 0) return evidenceDelta
+      const readyDelta = Number(paperIsReady(right)) - Number(paperIsReady(left))
+      if (readyDelta !== 0) return readyDelta
+      return paperArtifactCount(right) - paperArtifactCount(left)
+    })
+    .slice(0, 3)
+}
+
 function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
-  const drafts = rowsWithAnyValue(rows, ['paper_status', 'status'], 'publication_draft')
-  const missingEvidence = evidenceMissingRows(rows)
-  const ready = publicationReadyRows(rows)
-  const closestTitle = firstHumanTitle(rows, ['title', 'paper_title', 'paper_id'], 'No paper rows returned')
-  const title = missingEvidence > 0 ? `${missingEvidence} visible paper row(s) need evidence review` : drafts > 0 ? `${drafts} draft(s) need evidence review` : ready > 0 ? `${ready} paper(s) look publication-ready` : 'Publication artifacts need triage'
+  const attention = rows.filter(paperNeedsAttention).length
+  const evidenceReview = rows.filter(paperNeedsEvidence).length
+  const ready = rows.filter(paperIsReady).length
+  const imported = rows.filter((row) => row.corpus_imported === true).length
+  const artifactRows = prioritizedPaperRows(rows)
+  const title = attention > 0
+    ? `${attention} paper artifact(s) need operator attention`
+    : evidenceReview > 0
+      ? `${evidenceReview} paper artifact(s) need evidence review`
+      : ready > 0
+        ? `${ready} paper artifact(s) have publication evidence`
+        : rows.length > 0
+          ? 'Publication artifacts need triage'
+          : 'No paper rows returned'
   return (
-    <BriefingGrid>
-      <BriefingCard eyebrow="Publication briefing" title={title} detail="Paper rows should lead with artifact readiness and next workflow action; raw composite draft IDs belong in artifact/debug detail." tone={missingEvidence > 0 || drafts > 0 ? 'warn' : ready > 0 ? 'good' : 'neutral'}>
-        <MetricStrip ariaLabel="Paper readiness summary" items={[{ label: 'drafts', value: drafts }, { label: 'evidence missing', value: missingEvidence }, { label: 'ready', value: ready }]} />
-      </BriefingCard>
-      <BriefingCard eyebrow="Closest artifact" title="Open the closest visible artifact" detail={`${closestTitle}. Open a row for exact draft ID, corpus import state, and artifact/debug evidence.`} />
-    </BriefingGrid>
+    <>
+      <BriefingGrid>
+        <BriefingCard eyebrow="Publication briefing" title={title} detail="Papers lead with customer-facing artifact readiness, evidence completeness, corpus posture, and next workflow action before raw draft IDs or paths." tone={attention > 0 ? 'risk' : evidenceReview > 0 ? 'warn' : ready > 0 ? 'good' : 'neutral'}>
+          <MetricStrip ariaLabel="Paper readiness summary" items={[{ label: 'attention', value: attention }, { label: 'evidence review', value: evidenceReview }, { label: 'ready/imported', value: ready || imported }]} />
+        </BriefingCard>
+        <BriefingCard eyebrow="Artifact outcomes" title={artifactRows.length > 0 ? 'Top visible papers are summarized as publication artifacts' : 'No visible paper artifact'} detail="Each card below names the artifact, readiness, evidence package, corpus state, and next action while keeping exact draft IDs in the table/detail views." />
+        <BriefingCard eyebrow="Raw detail access" title="Draft IDs and artifact paths stay in drilldowns" detail="Use the table and row detail panel for composite paper IDs, import IDs, finalization package paths, corpus manifests, and raw JSON evidence." />
+      </BriefingGrid>
+      <section className="paper-artifact-cards" aria-label="Prioritized publication artifacts">
+        {artifactRows.length > 0 ? artifactRows.map((row) => {
+          const subject = paperSubject(row)
+          const tone = paperNeedsAttention(row) ? 'risk' : paperNeedsEvidence(row) ? 'warn' : paperIsReady(row) ? 'good' : 'neutral'
+          return (
+            <article className={`paper-artifact-card paper-artifact-card--${tone}`} key={displayText(row.paper_id, subject)}>
+              <p className="eyebrow">{paperReadinessLabel(row)}</p>
+              <h3>{subject}</h3>
+              <p>{rowFieldText(row, ['operator_explanation']) || 'No operator explanation recorded for this paper artifact.'}</p>
+              <dl className="paper-artifact-card__facts">
+                <div>
+                  <dt>Evidence</dt>
+                  <dd>{paperEvidenceLabel(row)}</dd>
+                </div>
+                <div>
+                  <dt>Corpus</dt>
+                  <dd>{paperCorpusLabel(row)}</dd>
+                </div>
+                <div>
+                  <dt>Next action</dt>
+                  <dd>{paperNextStep(row)}</dd>
+                </div>
+              </dl>
+            </article>
+          )
+        }) : (
+          <article className="paper-artifact-card">
+            <p className="eyebrow">Empty slice</p>
+            <h3>No paper rows match this filter</h3>
+            <p>Change filters or refresh before relying on the publication ledger for readiness decisions.</p>
+          </article>
+        )}
+      </section>
+    </>
   )
 }
 

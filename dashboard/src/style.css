@@ -461,6 +461,67 @@ button:disabled { cursor: not-allowed; }
   overflow-wrap: anywhere;
 }
 
+.paper-artifact-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 0.85rem;
+  margin-top: 0.85rem;
+}
+
+.paper-artifact-card {
+  border: 1px solid rgba(244, 241, 234, 0.12);
+  border-radius: 1.25rem;
+  background: rgba(10, 10, 8, 0.72);
+  padding: 1rem;
+  min-width: 0;
+}
+
+.paper-artifact-card--good { border-color: rgba(70, 180, 124, 0.3); }
+.paper-artifact-card--info { border-color: rgba(91, 151, 226, 0.28); }
+.paper-artifact-card--warn { border-color: rgba(226, 177, 91, 0.38); }
+.paper-artifact-card--risk { border-color: rgba(194, 80, 70, 0.45); }
+
+.paper-artifact-card h3 {
+  margin: 0.34rem 0 0;
+  color: #fff8ea;
+  font-size: 1.02rem;
+  line-height: 1.22;
+}
+
+.paper-artifact-card > p:not(.eyebrow) {
+  margin: 0.5rem 0 0;
+  color: rgba(255, 248, 234, 0.68);
+  font-size: 0.88rem;
+  line-height: 1.42;
+}
+
+.paper-artifact-card__facts {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.85rem 0 0;
+}
+
+.paper-artifact-card__facts div {
+  border-top: 1px solid rgba(255, 248, 234, 0.09);
+  padding-top: 0.5rem;
+}
+
+.paper-artifact-card__facts dt {
+  color: rgba(255, 248, 234, 0.46);
+  font-size: 0.62rem;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.paper-artifact-card__facts dd {
+  margin: 0.18rem 0 0;
+  color: #eee7da;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .briefing-card h2 {
   margin: 0.28rem 0 0;
   color: #fff8ea;

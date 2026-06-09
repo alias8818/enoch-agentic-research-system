@@ -202,6 +202,65 @@ it('opens runs with timeline story cards before raw run ids and callback interna
   expect(screen.getByRole('button', { name: 'Copy run id failed-run-raw-id-20260609T000000+0000' })).toBeInTheDocument()
 })
 
+it('opens papers with publication artifact cards before raw draft ids and paths', async () => {
+  saveToken('test-token')
+  vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(JSON.stringify({
+    rows: [
+      {
+        paper_id: 'raw-paper-id:finalized-draft:arxiv_draft',
+        project_id: 'human-facing-lora-validation',
+        project_name: 'Human-facing LoRA validation',
+        paper_status: 'publication_draft',
+        review_status: 'finalized',
+        corpus_imported: true,
+        operator_stage_label: 'Finalized',
+        operator_tone: 'good',
+        operator_explanation: 'Finalized paper package is available for publication review.',
+        operator_next_step: 'Open public corpus paper and verify customer-facing copy.',
+        artifact_paths_present: {
+          evidence_bundle_path: true,
+          claim_ledger_path: true,
+          manifest_path: true,
+          draft_markdown_path: true,
+          finalization_package_path: true,
+        },
+      },
+      {
+        paper_id: 'raw-missing-evidence-paper-id:needs-review:arxiv_draft',
+        project_id: 'evidence-gap-study',
+        paper_status: 'publication_draft',
+        review_status: 'draft_review',
+        corpus_imported: false,
+        operator_attention: true,
+        operator_stage_label: 'Needs Evidence',
+        operator_tone: 'warn',
+        operator_explanation: 'Draft exists but evidence package is incomplete.',
+        operator_next_step: 'Collect evidence bundle before publication review.',
+        artifact_paths_present: { draft_markdown_path: true },
+      },
+    ],
+    page: { returned: 2, has_more: false },
+  }), { status: 200 }))
+
+  renderWithClient(<PapersPage route={{ page: 'papers', status: '', search: '', hash: '#papers' }} />)
+
+  expect(await screen.findByText('Publication briefing')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 paper artifact(s) need operator attention' })).toBeInTheDocument()
+  expect(screen.getByText('Artifact outcomes')).toBeInTheDocument()
+  expect(screen.getByText('Raw detail access')).toBeInTheDocument()
+  expect(screen.getByLabelText('Paper readiness summary')).toHaveTextContent('attention1')
+  expect(screen.getByLabelText('Paper readiness summary')).toHaveTextContent('evidence review1')
+  expect(screen.getByLabelText('Paper readiness summary')).toHaveTextContent('ready/imported1')
+
+  const artifactCards = screen.getByLabelText('Prioritized publication artifacts')
+  expect(within(artifactCards).getByRole('heading', { name: 'evidence gap study' })).toBeInTheDocument()
+  expect(within(artifactCards).getByText('Draft exists but evidence package is incomplete.')).toBeInTheDocument()
+  expect(within(artifactCards).getByText('partial evidence package (1 artifact signal(s))')).toBeInTheDocument()
+  expect(within(artifactCards).getByText('not imported to corpus yet')).toBeInTheDocument()
+  expect(within(artifactCards).queryByText('raw-missing-evidence-paper-id:needs-review:arxiv_draft')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Copy id raw-missing-evidence-paper-id:needs-review:arxiv_draft' })).toBeInTheDocument()
+})
+
 it('adds human-first briefing vocabulary above resource page drilldown tables', async () => {
   saveToken('test-token')
 
@@ -235,8 +294,8 @@ it('adds human-first briefing vocabulary above resource page drilldown tables', 
   )
 
   expect(await screen.findByText('Publication briefing')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '1 visible paper row(s) need evidence review' })).toBeInTheDocument()
-  expect(screen.getByText('Draft paper story')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 paper artifact(s) need evidence review' })).toBeInTheDocument()
+  expect(screen.getAllByText('Draft paper story')).not.toHaveLength(0)
 })
 
 
@@ -512,7 +571,7 @@ it('loads papers and events as first-class V2 subviews', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 7, event_type: 'Queue Alert', summary: 'Alert summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
   renderWithClient(<PapersPage route={{ page: 'papers', status: 'publication_draft', search: '', hash: '#papers?status=publication_draft' }} />)
-  await screen.findByText('Draft paper')
+  expect(await screen.findAllByText('Draft paper')).not.toHaveLength(0)
   expect(screen.getByRole('link', { name: /paper-1/ })).toHaveAttribute('href', '/control/dashboard-v2#paper:paper-1')
 
   renderWithClient(<EventsPage />)
@@ -642,7 +701,7 @@ it('applies paper and event filters to the backed endpoints', async () => {
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 8, event_type: 'worker.callback', summary: 'Callback summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
   renderWithClient(<PapersPage route={{ page: 'papers', status: '', search: '', hash: '#papers' }} />)
-  await screen.findByText('Draft paper')
+  expect(await screen.findAllByText('Draft paper')).not.toHaveLength(0)
   const workflowNav = screen.getByRole('navigation', { name: 'Papers workflow' })
   expect(within(workflowNav).getByRole('link', { name: /Papers/ })).toHaveAttribute('aria-current', 'page')
   expect(within(workflowNav).getByRole('link', { name: /Paper corpus import/ })).toHaveAttribute('href', '/control/dashboard-v2#corpus')
@@ -651,7 +710,7 @@ it('applies paper and event filters to the backed endpoints', async () => {
   fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'trace' } })
   fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'draft_review' } })
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
-  await screen.findByText('Review paper')
+  expect(await screen.findAllByText('Review paper')).not.toHaveLength(0)
 
   let url = fetchMockUrl(fetchMock, 1)
   expect(url.pathname).toBe('/control/api/v1/papers')
@@ -685,7 +744,7 @@ it('opens queue and paper detail panels from selected rows', async () => {
   await screen.findByRole('heading', { name: /Detailed project/ })
 
   renderWithClient(<PapersPage route={{ page: 'papers', status: '', search: '', hash: '#papers' }} />)
-  fireEvent.click(await screen.findByText('Draft paper'))
+  fireEvent.click(await screen.findByRole('row', { name: /Draft paper paper-1/ }))
   await screen.findByRole('heading', { name: /Detailed paper/ })
 
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/v1/projects/project-1', expect.any(Object))

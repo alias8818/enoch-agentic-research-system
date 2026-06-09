@@ -1532,7 +1532,7 @@ it('keeps paper hash filters in the V2 papers read model', async () => {
   render(<App />)
 
   expect(await screen.findByRole('heading', { name: 'Papers' })).toBeInTheDocument()
-  expect(await screen.findByText('Trace oracle paper')).toBeInTheDocument()
+  expect(await screen.findAllByText('Trace oracle paper')).not.toHaveLength(0)
   expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/papers?page_size=50&sort=recent&status=publication_draft&search=trace-oracle', expect.any(Object))
 })
 
