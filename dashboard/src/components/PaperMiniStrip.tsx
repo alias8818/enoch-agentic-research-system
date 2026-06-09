@@ -28,6 +28,13 @@ function finalizationDisabledReason(finalizeNeeded: number, finalizeReady: boole
   return ''
 }
 
+function paperPipelineClosestAction(finalizeNeeded: number, writeNeeded: number, publishReady: number): string {
+  if (finalizeNeeded > 0) return 'Finalize drafts'
+  if (writeNeeded > 0) return 'Open draft queue'
+  if (publishReady > 0) return 'Publish ready corpus'
+  return 'Monitor paper flow'
+}
+
 export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: OverviewResponse['paper_pipeline']; onRefresh?: () => void }>) {
   const [result, setResult] = useState<CommandResult | null>(null)
   const [isPending, setIsPending] = useState(false)
@@ -43,7 +50,7 @@ export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: Ove
   const pipelineSignature = [writeNeeded, finalizeNeeded, publishReady].join(':')
   const canLiveFinalize = finalizeReady && finalizeSignature === pipelineSignature
   const finalizeDisabledReason = finalizationDisabledReason(finalizeNeeded, finalizeReady, canLiveFinalize, isPending)
-  const closestAction = finalizeNeeded > 0 ? 'Finalize drafts' : writeNeeded > 0 ? 'Open draft queue' : publishReady > 0 ? 'Publish ready corpus' : 'Monitor paper flow'
+  const closestAction = paperPipelineClosestAction(finalizeNeeded, writeNeeded, publishReady)
 
   async function dryRunFinalize() {
     setIsPending(true)
