@@ -793,7 +793,7 @@ button:disabled { cursor: not-allowed; }
 .danger-button:disabled {
   cursor: not-allowed;
   border-color: rgba(244, 241, 234, 0.1);
-  background: rgba(244, 241, 234, 0.055);
+  background: #121110;
   color: #f4f1ea;
   opacity: 1;
 }
