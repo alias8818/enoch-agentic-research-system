@@ -25,7 +25,10 @@ def test_alerts_centralizes_control_plane_worker_preflight_source() -> None:
         validate_agents_md.REPO_ROOT / "enoch_control_plane/control_plane/alerts.py"
     ).read_text(encoding="utf-8")
 
-    assert 'CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE = "control_plane_db+worker_preflight"' in source
+    assert (
+        'CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE = "control_plane_db+worker_preflight"'
+        in source
+    )
     assert source.count('"control_plane_db+worker_preflight"') == 1
 
 
