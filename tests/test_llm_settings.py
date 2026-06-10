@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
+from enoch_control_plane.control_plane import read_models
 from enoch_control_plane.control_plane.router import (
     _provider_api_key_for_base_url,
     _resolve_research_cycle_params,
@@ -73,6 +74,121 @@ def test_default_llm_settings_include_provider_and_workflow_pools() -> None:
     assert workflows["research_generation"].model_pool
     assert workflows["paper_writing"].model_pool
     assert workflows["research_review"].model_pool
+
+
+def test_llm_model_health_summarizes_structured_output_capability_evidence() -> None:
+    model_id = "minimax/minimax-m3"
+    settings = default_llm_settings()
+    openrouter = next(
+        provider
+        for provider in settings.providers
+        if provider.provider_id == "openrouter"
+    )
+    openrouter.enabled = True
+    settings.models.append(
+        LLMModelSettings(
+            model_id=model_id,
+            provider_id="openrouter",
+            label="MiniMax M3",
+            enabled=True,
+        )
+    )
+    research_generation = next(
+        workflow
+        for workflow in settings.workflows
+        if workflow.workflow_id == "research_generation"
+    )
+    research_generation.provider_ids = ["openrouter"]
+    research_generation.model_pool = [model_id]
+    research_generation.default_model = model_id
+
+    class FakeStore:
+        def event_page(self, **_kwargs: object):
+            return (
+                [
+                    {
+                        "event_id": 3,
+                        "payload": {
+                            "provider_id": "openrouter",
+                            "model_id": model_id,
+                            "ok": True,
+                            "status_code": 200,
+                            "source": "format_probe",
+                            "prompt_contract": "candidate_json",
+                            "structured_output_mode": "json_schema",
+                            "response_format_type": "json_schema",
+                            "checked_at": "2026-06-10T23:01:00Z",
+                            "finish_reason": "stop",
+                            "visible_chars": 100,
+                            "valid_json": True,
+                            "schema_ok": True,
+                            "malformed_kind": "",
+                        },
+                    },
+                    {
+                        "event_id": 2,
+                        "payload": {
+                            "provider_id": "openrouter",
+                            "model_id": model_id,
+                            "ok": False,
+                            "status_code": 400,
+                            "source": "format_probe",
+                            "prompt_contract": "candidate_json",
+                            "structured_output_mode": "json_object",
+                            "response_format_type": "json_object",
+                            "checked_at": "2026-06-10T23:00:00Z",
+                            "failure_kind": "unsupported_response_format",
+                            "error": "provider does not support response_format json_object",
+                        },
+                    },
+                    {
+                        "event_id": 1,
+                        "payload": {
+                            "provider_id": "openrouter",
+                            "model_id": model_id,
+                            "ok": True,
+                            "status_code": 200,
+                            "source": "format_probe",
+                            "prompt_contract": "candidate_json",
+                            "structured_output_mode": "prompt_only",
+                            "response_format_type": "prompt_only",
+                            "checked_at": "2026-06-10T22:59:00Z",
+                            "finish_reason": "stop",
+                            "visible_chars": 64,
+                            "valid_json": True,
+                            "schema_ok": False,
+                            "malformed_kind": "legacy_candidate_array_shape",
+                            "recoverable_json_shape": True,
+                        },
+                    },
+                ],
+                None,
+                False,
+            )
+
+    summary = read_models.llm_model_health_summary(FakeStore(), settings)
+
+    capability = summary["structured_output_capabilities"][f"openrouter:{model_id}"][
+        "candidate_json"
+    ]
+    assert capability["schema_contract_name"] == "candidate_json/v1"
+    assert capability["recommended_response_format_type"] == "json_schema"
+    assert capability["modes"]["json_schema"]["status"] == "supported"
+    assert capability["modes"]["json_schema"]["schema_ok_rate"] == 1
+    assert capability["modes"]["json_object"]["status"] == "unsupported"
+    assert capability["modes"]["json_object"]["unsupported_mode_errors"] == 1
+
+    workflow = summary["workflow_recommendations"][0]
+    assert workflow["workflow_id"] == "research_generation"
+    assert workflow["status"] == "healthy"
+    assert workflow["route_policy"]["mode"] == "observe_only"
+    assert workflow["route_policy"]["production_route_mutation"] is False
+    assert workflow["route_policy"]["recommended_response_format_type"] == "json_schema"
+    assert workflow["models"][0]["recommendation"] == "usable"
+    assert (
+        workflow["models"][0]["contract_results"][0]["response_format_type"]
+        == "json_schema"
+    )
 
 
 def test_llm_settings_reject_unknown_workflow_model() -> None:
@@ -471,6 +587,89 @@ def test_llm_settings_model_test_records_scrubbed_health_event(
         assert payload["failure_kind"] == "rate_limited"
         assert payload["source"] == "autopilot"
         assert "or-secret-value" not in str(payload)
+
+
+def test_llm_settings_format_probe_http_error_preserves_contract_and_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 400
+
+        def read(self, *_args: object) -> bytes:
+            return b'{"error":"unsupported response_format json_object"}'
+
+        def close(self) -> None:
+            return None
+
+    class FakeStore:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> int:
+            self.events.append(kwargs)
+            return len(self.events)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        store = FakeStore()
+        client = _client(config, monkeypatch=monkeypatch, store=store)
+        settings = default_llm_settings(config)
+        openrouter = next(
+            provider
+            for provider in settings.providers
+            if provider.provider_id == "openrouter"
+        )
+        openrouter.enabled = True
+        settings.models.append(
+            LLMModelSettings(
+                model_id="minimax/minimax-m3",
+                provider_id="openrouter",
+                label="MiniMax M3",
+                enabled=True,
+            )
+        )
+        write_llm_settings(config, settings, updated_by="test")
+        write_llm_provider_secrets(
+            config, {"openrouter": "or-secret-value"}, settings=settings
+        )
+
+        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+            raise urllib.error.HTTPError(
+                req.full_url,
+                400,
+                "Bad Request",
+                hdrs=None,
+                fp=FakeResponse(),
+            )
+
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            fake_urlopen,
+        )
+
+        response = client.post(
+            "/control/api/settings/llm/test",
+            headers={"Authorization": f"Bearer {TOKEN}"},
+            json={
+                "provider_id": "openrouter",
+                "model_id": "minimax/minimax-m3",
+                "prompt_contract": "candidate_json",
+                "structured_output_mode": "json_object",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is False
+        assert body["prompt_contract"] == "candidate_json"
+        assert body["structured_output_mode"] == "json_object"
+        assert body["response_format_type"] == "json_object"
+        assert store.events
+        payload = store.events[0]["payload"]
+        assert payload["prompt_contract"] == "candidate_json"
+        assert payload["structured_output_mode"] == "json_object"
+        assert payload["response_format_type"] == "json_object"
+        assert payload["failure_kind"] == "unsupported_response_format"
 
 
 def test_llm_settings_model_test_records_visible_output_health(

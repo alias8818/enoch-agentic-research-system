@@ -4787,6 +4787,7 @@ def _base_llm_model_health_payload(
         "ok": bool(payload.get("ok")),
         "status_code": int(payload.get("status_code") or 0),
         "failure_kind": _text(payload.get("failure_kind")),
+        "error": _text(payload.get("error"))[:500],
         "latency_ms": int(payload.get("latency_ms") or 0),
         "source": _text(payload.get("source")) or "unknown",
         "finish_reason": _text(payload.get("finish_reason")),
@@ -4941,6 +4942,124 @@ def _llm_model_operator_action(
     return "model is currently usable for measured structured automation"
 
 
+_LLM_STRUCTURED_OUTPUT_MODE_PREFERENCE: tuple[str, ...] = (
+    "json_schema",
+    "json_object",
+    "prompt_only",
+)
+
+
+def _llm_contract_schema_name(contract: str) -> str:
+    return f"{contract or 'strict_json'}/v1"
+
+
+def _llm_event_mode(event: Mapping[str, Any]) -> str:
+    return (
+        _text(event.get("response_format_type") or event.get("structured_output_mode"))
+        or "prompt_only"
+    )
+
+
+def _llm_format_event_unsupported_mode(event: Mapping[str, Any]) -> bool:
+    failure = _text(event.get("failure_kind")).lower()
+    error = _text(event.get("error")).lower()
+    return (
+        "unsupported_response_format" in failure
+        or "unsupported" in failure
+        and "response_format" in failure
+        or "unsupported" in error
+        and "response_format" in error
+    )
+
+
+def _llm_format_mode_status(*, success_count: int, unsupported_count: int) -> str:
+    if success_count > 0:
+        return "supported"
+    if unsupported_count > 0:
+        return "unsupported"
+    return "failing"
+
+
+def _llm_mode_evidence(events: list[dict[str, Any]]) -> dict[str, Any]:
+    attempts = len(events)
+    success_count = sum(1 for event in events if _llm_format_contract_passed(event))
+    unsupported_count = sum(
+        1 for event in events if _llm_format_event_unsupported_mode(event)
+    )
+    latest = events[0] if events else {}
+    return {
+        "status": _llm_format_mode_status(
+            success_count=success_count, unsupported_count=unsupported_count
+        ),
+        "attempt_count": attempts,
+        "success_count": success_count,
+        "schema_ok_count": sum(1 for event in events if event.get("schema_ok") is True),
+        "valid_json_count": sum(
+            1 for event in events if event.get("valid_json") is True
+        ),
+        "unsupported_mode_errors": unsupported_count,
+        "schema_ok_rate": _llm_attempt_rate(
+            sum(1 for event in events if event.get("schema_ok") is True), attempts
+        ),
+        "success_rate": _llm_attempt_rate(success_count, attempts),
+        "latest_checked_at": _text(latest.get("checked_at")),
+        "latest_malformed_kind": _text(latest.get("malformed_kind")),
+        "latest_failure_kind": _text(latest.get("failure_kind")),
+        "latest_finish_reason": _text(latest.get("finish_reason")).lower(),
+    }
+
+
+def _llm_recommended_response_format_type(
+    modes: Mapping[str, Mapping[str, Any]],
+) -> str:
+    for mode in _LLM_STRUCTURED_OUTPUT_MODE_PREFERENCE:
+        if str((modes.get(mode) or {}).get("status") or "") == "supported":
+            return mode
+    return ""
+
+
+def _llm_contract_capability_evidence(
+    contract: str, events: list[dict[str, Any]]
+) -> dict[str, Any]:
+    by_mode: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        by_mode.setdefault(_llm_event_mode(event), []).append(event)
+    modes = {
+        mode: _llm_mode_evidence(mode_events) for mode, mode_events in by_mode.items()
+    }
+    return {
+        "schema_contract_name": _llm_contract_schema_name(contract),
+        "prompt_contract": contract,
+        "attempt_count": len(events),
+        "last_tested_at": _text((events[0] if events else {}).get("checked_at")),
+        "recommended_response_format_type": _llm_recommended_response_format_type(
+            modes
+        ),
+        "modes": modes,
+    }
+
+
+def _llm_model_structured_output_capabilities(
+    events_by_model: Mapping[tuple[str, str], list[dict[str, Any]]],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    out: dict[str, dict[str, dict[str, Any]]] = {}
+    for (provider_id, model_id), attempts in events_by_model.items():
+        contract_events: dict[str, list[dict[str, Any]]] = {}
+        for event in _llm_model_format_events(attempts):
+            contract = _text(event.get("prompt_contract"))
+            if not contract:
+                continue
+            contract_events.setdefault(contract, []).append(event)
+        if not contract_events:
+            continue
+        key = f"{provider_id}:{model_id}"
+        out[key] = {
+            contract: _llm_contract_capability_evidence(contract, events)
+            for contract, events in contract_events.items()
+        }
+    return out
+
+
 _LLM_WORKFLOW_REQUIRED_CONTRACTS: dict[str, list[str]] = {
     "research_generation": ["candidate_json"],
     "paper_writing": ["markdown_fenced_json"],
@@ -4957,10 +5076,20 @@ def _llm_workflow_required_contracts(workflow: Any) -> list[str]:
 def _latest_llm_format_event_for_contract(
     attempts: list[dict[str, Any]], contract: str
 ) -> dict[str, Any] | None:
-    for attempt in attempts:
-        if _text(attempt.get("prompt_contract")) == contract:
-            return attempt
-    return None
+    matching = [
+        attempt
+        for attempt in attempts
+        if _text(attempt.get("prompt_contract")) == contract
+    ]
+    if not matching:
+        return None
+    for mode in _LLM_STRUCTURED_OUTPUT_MODE_PREFERENCE:
+        for attempt in matching:
+            if _llm_event_mode(attempt) == mode and _llm_format_contract_passed(
+                attempt
+            ):
+                return attempt
+    return matching[0]
 
 
 def _llm_format_contract_passed(event: dict[str, Any] | None) -> bool:
@@ -5166,6 +5295,56 @@ def _recommended_llm_workflow_default(
     return ""
 
 
+def _llm_workflow_route_policy(
+    *,
+    usable_models: list[str],
+    recommendations: list[dict[str, Any]],
+    required_contracts: list[str],
+) -> dict[str, Any]:
+    if not usable_models:
+        return {
+            "mode": "observe_only",
+            "production_route_mutation": False,
+            "recommended_response_format_type": "",
+            "status": "blocked",
+            "reason": "no model has green persisted contract evidence",
+        }
+    preferred_model = usable_models[0]
+    preferred = next(
+        (
+            item
+            for item in recommendations
+            if _text(item.get("model_id")) == preferred_model
+        ),
+        {},
+    )
+    contract_modes = {
+        _text(result.get("prompt_contract")): _text(result.get("response_format_type"))
+        for result in preferred.get("contract_results", [])
+        if _text(result.get("prompt_contract")) in required_contracts
+    }
+    modes = [mode for mode in contract_modes.values() if mode]
+    recommended_mode = (
+        modes[0] if modes and all(mode == modes[0] for mode in modes) else ""
+    )
+    return {
+        "mode": "observe_only",
+        "production_route_mutation": False,
+        "recommended_model": preferred_model,
+        "recommended_response_format_type": recommended_mode,
+        "required_contracts": required_contracts,
+        "schema_contract_names": [
+            _llm_contract_schema_name(contract) for contract in required_contracts
+        ],
+        "status": "evidence_ready" if recommended_mode else "needs_attention",
+        "reason": (
+            "persisted green evidence exists; production route remains unchanged until explicitly promoted"
+            if recommended_mode
+            else "usable model lacks explicit structured-output mode evidence"
+        ),
+    }
+
+
 def _llm_workflow_recommendation(
     workflow: Any,
     *,
@@ -5218,6 +5397,11 @@ def _llm_workflow_recommendation(
         "recommended_model_pool": usable_models,
         "recommended_default_model": _recommended_llm_workflow_default(
             default_model, usable_models
+        ),
+        "route_policy": _llm_workflow_route_policy(
+            usable_models=usable_models,
+            recommendations=recommendations,
+            required_contracts=required_contracts,
         ),
         "operator_action": operator_action,
         "models": recommendations,
@@ -5400,6 +5584,12 @@ def llm_model_health_summary(
         or row["visible_output_health"] == "empty"
         or row["reasoning_budget_health"] == "length_limited"
     )
+    workflow_recommendations = _llm_workflow_recommendations(
+        settings, models=models, events_by_model=events_by_model
+    )
+    structured_output_capabilities = _llm_model_structured_output_capabilities(
+        events_by_model
+    )
     return {
         "ok": unhealthy_count == 0 and structurally_unhealthy_count == 0,
         "status": "healthy"
@@ -5414,11 +5604,12 @@ def llm_model_health_summary(
             "workflow_health": "model satisfies measured workflow-specific prompt contracts; recoverable_mismatch means valid JSON with a known repairable legacy shape",
             "visible_output_health": "model returns non-empty visible content",
             "reasoning_budget_health": "model does not exhaust output budget before visible content",
+            "structured_output_capabilities": "persisted per-provider/model/contract/mode evidence from bounded LLM format probes; unsupported modes are distinct from semantic/schema failures",
+            "route_policy": "observe-only workflow recommendation; production routing is not mutated by this read model",
         },
         "models": models,
-        "workflow_recommendations": _llm_workflow_recommendations(
-            settings, models=models, events_by_model=events_by_model
-        ),
+        "structured_output_capabilities": structured_output_capabilities,
+        "workflow_recommendations": workflow_recommendations,
     }
 
 

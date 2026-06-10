@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scripts.compare_structured_output_modes import ProbeRow, summarize
+from scripts.compare_structured_output_modes import ProbeRow, matrix_plan, summarize
 
 
 def _row(mode: str, *, schema_ok: bool, malformed_kind: str = "") -> ProbeRow:
@@ -57,3 +57,26 @@ def test_structured_output_mode_script_does_not_import_mutation_surfaces() -> No
     assert "_live_dispatch" not in source
     assert "append_event(" not in source
     assert "settings/llm/test" in source
+
+
+def test_structured_output_matrix_plan_repeats_each_model_mode_contract() -> None:
+    plan = matrix_plan(
+        models=["minimax/minimax-m3", "moonshotai/kimi-k2.6"],
+        modes=["prompt_only", "json_schema"],
+        prompt_contracts=["candidate_json", "strict_json"],
+        repeat=3,
+    )
+
+    assert len(plan) == 24
+    assert plan[0] == {
+        "model_id": "minimax/minimax-m3",
+        "structured_output_mode": "prompt_only",
+        "prompt_contract": "candidate_json",
+        "repeat_index": 1,
+    }
+    assert plan[-1] == {
+        "model_id": "moonshotai/kimi-k2.6",
+        "structured_output_mode": "json_schema",
+        "prompt_contract": "strict_json",
+        "repeat_index": 3,
+    }

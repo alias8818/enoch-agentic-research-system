@@ -21,6 +21,28 @@ DEFAULT_MODES: tuple[str, ...] = ("prompt_only", "json_object", "json_schema")
 DEFAULT_CONTRACT = "candidate_json"
 
 
+def matrix_plan(
+    *,
+    models: list[str],
+    modes: list[str],
+    prompt_contracts: list[str],
+    repeat: int = 1,
+) -> list[dict[str, Any]]:
+    bounded_repeat = max(1, min(int(repeat), 20))
+    return [
+        {
+            "model_id": model_id,
+            "structured_output_mode": mode,
+            "prompt_contract": prompt_contract,
+            "repeat_index": repeat_index,
+        }
+        for model_id in models
+        for mode in modes
+        for prompt_contract in prompt_contracts
+        for repeat_index in range(1, bounded_repeat + 1)
+    ]
+
+
 @dataclass(frozen=True)
 class ProbeRow:
     provider_id: str
@@ -139,32 +161,40 @@ def run_matrix(
     models: list[str],
     modes: list[str],
     prompt_contract: str,
+    repeat: int,
     timeout: int,
     pause_seconds: float,
 ) -> list[ProbeRow]:
     rows: list[ProbeRow] = []
-    for model_id in models:
-        for mode in modes:
-            payload: dict[str, Any] = {
-                "provider_id": provider_id,
-                "model_id": model_id,
-                "source": "manual",
-                "prompt_contract": prompt_contract,
-            }
-            if mode != "prompt_only":
-                payload["structured_output_mode"] = mode
-            result = _request_json(url, token, payload, timeout)
-            rows.append(
-                _row(
-                    provider_id=provider_id,
-                    model_id=model_id,
-                    prompt_contract=prompt_contract,
-                    structured_output_mode=mode,
-                    result=result,
-                )
+    for item in matrix_plan(
+        models=models,
+        modes=modes,
+        prompt_contracts=[prompt_contract],
+        repeat=repeat,
+    ):
+        model_id = item["model_id"]
+        mode = item["structured_output_mode"]
+        contract = item["prompt_contract"]
+        payload: dict[str, Any] = {
+            "provider_id": provider_id,
+            "model_id": model_id,
+            "source": "manual",
+            "prompt_contract": contract,
+        }
+        if mode != "prompt_only":
+            payload["structured_output_mode"] = mode
+        result = _request_json(url, token, payload, timeout)
+        rows.append(
+            _row(
+                provider_id=provider_id,
+                model_id=model_id,
+                prompt_contract=contract,
+                structured_output_mode=mode,
+                result=result,
             )
-            if pause_seconds > 0:
-                time.sleep(pause_seconds)
+        )
+        if pause_seconds > 0:
+            time.sleep(pause_seconds)
     return rows
 
 
@@ -212,6 +242,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", action="append", dest="models", required=True)
     parser.add_argument("--mode", action="append", dest="modes", choices=DEFAULT_MODES)
     parser.add_argument("--contract", default=DEFAULT_CONTRACT, dest="prompt_contract")
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Repeat each model/mode/contract probe up to 20 times for stability evidence",
+    )
     parser.add_argument("--url", default="", help="Control API base URL")
     parser.add_argument("--token", default="", help="Control API bearer token")
     parser.add_argument("--timeout", type=int, default=90)
@@ -229,6 +265,7 @@ def main(argv: list[str] | None = None) -> int:
         models=list(args.models),
         modes=modes,
         prompt_contract=str(args.prompt_contract),
+        repeat=args.repeat,
         timeout=args.timeout,
         pause_seconds=args.pause_seconds,
     )
@@ -239,6 +276,7 @@ def main(argv: list[str] | None = None) -> int:
         "provider_id": args.provider_id,
         "prompt_contract": args.prompt_contract,
         "modes": modes,
+        "repeat": max(1, min(int(args.repeat), 20)),
         "rows": [asdict(row) for row in rows],
         **summarize(rows),
     }

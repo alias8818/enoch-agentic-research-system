@@ -7624,6 +7624,12 @@ def _llm_test_failure_kind(result: Mapping[str, Any]) -> str:
         return "model_not_found"
     if status_code == 429:
         return "rate_limited"
+    if (
+        status_code == 400
+        and "response_format" in error_text
+        and "unsupported" in error_text
+    ):
+        return "unsupported_response_format"
     if status_code >= 500:
         return "server_error"
     if "timeout" in error_text or "timed out" in error_text:
@@ -8096,8 +8102,12 @@ def _llm_provider_error_result(
     status_code: int,
     started: float,
     error: str,
+    prompt_contract: str = "",
+    structured_output_mode: str = "",
+    reasoning_effort: str = "",
+    reasoning_exclude: bool = False,
 ) -> dict[str, Any]:
-    return {
+    result = {
         "ok": False,
         "provider_id": provider.provider_id,
         "model_id": model.model_id if model is not None else "",
@@ -8105,6 +8115,20 @@ def _llm_provider_error_result(
         "latency_ms": int((time.monotonic() - started) * 1000),
         "error": error[:500],
     }
+    if prompt_contract:
+        result["prompt_contract"] = prompt_contract
+        result["max_tokens"] = _llm_format_probe_max_tokens(prompt_contract)
+        if structured_output_mode:
+            result["structured_output_mode"] = structured_output_mode
+            result["response_format_type"] = structured_output_mode
+        else:
+            result["structured_output_mode"] = "prompt_only"
+            result["response_format_type"] = "prompt_only"
+        if reasoning_effort:
+            result["reasoning_effort"] = reasoning_effort
+        if reasoning_exclude:
+            result["reasoning_excluded"] = True
+    return result
 
 
 def _validate_llm_provider_test_target(
@@ -8172,6 +8196,10 @@ def _run_llm_provider_test(
             status_code=int(exc.code),
             started=started,
             error=detail or str(exc),
+            prompt_contract=prompt_contract,
+            structured_output_mode=structured_output_mode,
+            reasoning_effort=reasoning_effort,
+            reasoning_exclude=reasoning_exclude,
         )
     except Exception as exc:  # noqa: BLE001 - operator diagnostic endpoint
         return _llm_provider_error_result(
@@ -8180,6 +8208,10 @@ def _run_llm_provider_test(
             status_code=0,
             started=started,
             error=f"{type(exc).__name__}: {exc}",
+            prompt_contract=prompt_contract,
+            structured_output_mode=structured_output_mode,
+            reasoning_effort=reasoning_effort,
+            reasoning_exclude=reasoning_exclude,
         )
 
 
