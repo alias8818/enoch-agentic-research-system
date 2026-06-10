@@ -149,7 +149,9 @@ def _first_markdown_heading(path: Path, *, root: Path | None = None) -> str:
     return ""
 
 
-def _markdown_excerpt(path: Path, max_chars: int = 900, *, root: Path | None = None) -> str:
+def _markdown_excerpt(
+    path: Path, max_chars: int = 900, *, root: Path | None = None
+) -> str:
     if root is not None and not _is_safe_existing_child(root, path):
         return ""
     try:

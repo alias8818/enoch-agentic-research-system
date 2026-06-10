@@ -2165,8 +2165,10 @@ def test_maintenance_suppression_does_not_consume_queue_alert_cooldown(
     monkeypatch.setattr(
         alerts,
         "send_pushover",
-        lambda *_args, **_kwargs: sent.append("sent")
-        or alerts.PushoverResult(attempted=True, ok=True, detail="sent"),
+        lambda *_args, **_kwargs: (
+            sent.append("sent")
+            or alerts.PushoverResult(attempted=True, ok=True, detail="sent")
+        ),
     )
     maintenance_status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),

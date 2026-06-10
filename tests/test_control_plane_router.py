@@ -2617,9 +2617,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             @staticmethod
             def read():
-                return json.dumps({"data": {"label": "test-key", "limit": 100.0}}).encode(
-                    "utf-8"
-                )
+                return json.dumps(
+                    {"data": {"label": "test-key", "limit": 100.0}}
+                ).encode("utf-8")
 
         with patch(
             "enoch_control_plane.control_plane.router.urllib.request.urlopen",
@@ -19477,7 +19477,9 @@ def test_status_stale_active_rows_scopes_to_lane_active_item() -> None:
 
 
 def test_worker_run_is_not_settling_just_because_process_count_is_zero() -> None:
-    from enoch_control_plane.control_plane.router import _worker_run_is_settling_without_process
+    from enoch_control_plane.control_plane.router import (
+        _worker_run_is_settling_without_process,
+    )
 
     assert (
         _worker_run_is_settling_without_process(
@@ -19502,7 +19504,9 @@ def test_worker_run_is_not_settling_just_because_process_count_is_zero() -> None
     )
 
 
-def test_worker_lane_summary_preserves_session_id_for_stale_reconcile_identity() -> None:
+def test_worker_lane_summary_preserves_session_id_for_stale_reconcile_identity() -> (
+    None
+):
     from enoch_control_plane.control_plane.models import (
         ControlFlags,
         DashboardConfigStatus,

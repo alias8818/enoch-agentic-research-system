@@ -1128,7 +1128,9 @@ def test_janitor_llm_review_uses_dedicated_model_not_provider_rotation(
     monkeypatch.setenv("ENOCH_CONFIG", str(config_path))
     monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:***@host/db")
     monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REPORT_PATH", str(output))
-    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION", "openrouter/not-allowed")
+    monkeypatch.setenv(
+        "ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION", "openrouter/not-allowed"
+    )
     monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
 
     result = autopilot.run_quota_gated_janitor_llm_review()
