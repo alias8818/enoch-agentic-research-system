@@ -28,6 +28,8 @@ RANKING_BUCKET_ORDER = (
 )
 
 MIN_FOLLOWUP_REQUIRED_EVIDENCE = 2
+FOLLOWUP_LAUNCH_SELECTION_RANK = 25
+FOLLOWUP_LAUNCH_DISPATCH_PRIORITY = 25
 
 _SCALE_ONLY_MARKERS = (
     "datacenter",
@@ -341,6 +343,31 @@ def _timestamp_sort_value(value: Any) -> float:
         return 0.0
     parsed = parse_utc_datetime(text)
     return parsed.timestamp() if parsed is not None else 0.0
+
+
+def _intish(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def followup_launch_queue_priorities(row: dict[str, Any]) -> tuple[int, int]:
+    """Return queue priorities for a newly launched bounded follow-up branch.
+
+    Follow-up branches are generated from completed useful-signal rows that the
+    strict paper gate intentionally kept out of paper writing. They should not
+    sit behind the default fresh-idea backlog indefinitely, but they also should
+    not override already higher-priority emergency/operator work.
+    """
+
+    selection_rank = min(
+        _intish(row.get("selection_rank"), 50), FOLLOWUP_LAUNCH_SELECTION_RANK
+    )
+    dispatch_priority = min(
+        _intish(row.get("dispatch_priority"), 50), FOLLOWUP_LAUNCH_DISPATCH_PRIORITY
+    )
+    return selection_rank, dispatch_priority
 
 
 def promising_followup_priority_key(row: dict[str, Any]) -> tuple[int, int, float]:

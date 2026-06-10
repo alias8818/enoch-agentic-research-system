@@ -2191,6 +2191,73 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIsNone(store.project_row(followup_id))
             self.assertIsNone(store.queue_row(followup_id))
 
+    def test_launch_followup_prioritizes_child_ahead_of_default_queue_backlog(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="ordinary-backlog-import",
+                    queue_rows=[
+                        {
+                            "project_id": "ordinary-default-priority",
+                            "project_name": "Ordinary Default Priority",
+                            "project_dir": "ordinary-default-priority",
+                            "status": "queued",
+                            "machine_target": "cpu-proxmox-1",
+                            "dispatch_priority": 50,
+                            "selection_rank": 50,
+                            "updated_at": "2026-06-10T14:00:00Z",
+                        }
+                    ],
+                    paper_rows=[],
+                )
+            )
+            parent_id = "parent-followup-priority"
+            candidate = {
+                "project_id": parent_id,
+                "project_name": "Parent Followup Priority",
+                "status": "completed",
+                "manual_review_required": False,
+                "followup_recommended": True,
+                "followup_title": "Priority Followup Branch",
+                "followup_type": "deepen",
+                "followup_hypothesis": "The signal survives a prioritized follow-up.",
+                "followup_required_evidence": ["direct metric", "ablation"],
+                "followup_success_threshold": "Beat the baseline.",
+                "followup_stop_condition": "Stop on regression.",
+                "followup_depth": 0,
+                "compute_scale_blocked": False,
+                "followup_launched": False,
+                "machine_target": "cpu-proxmox-1",
+                "model": "gpt-5.5",
+                "sandbox": "danger-full-access",
+                "selection_rank": 50,
+                "dispatch_priority": 50,
+                "updated_at": "2026-06-10T15:00:00Z",
+            }
+            store.operator_queue_rows_sql = lambda: [candidate]  # type: ignore[method-assign]
+
+            launched = store.launch_followup_candidate(
+                dry_run=False, requested_by="test"
+            )
+            followup_id = launched["followup"]["idea_id"]
+            followup_row = store.queue_row(followup_id)
+
+            self.assertIsNotNone(followup_row)
+            assert followup_row is not None
+            ordinary_row = store.queue_row("ordinary-default-priority")
+            self.assertIsNotNone(ordinary_row)
+            assert ordinary_row is not None
+            self.assertLess(followup_row["dispatch_priority"], 50)
+            self.assertLess(followup_row["selection_rank"], 50)
+            self.assertLess(
+                (
+                    followup_row["dispatch_priority"],
+                    followup_row["selection_rank"],
+                ),
+                (ordinary_row["dispatch_priority"], ordinary_row["selection_rank"]),
+            )
+
     def test_worker_callback_without_idempotency_key_replays_by_run_event_and_session(
         self,
     ) -> None:

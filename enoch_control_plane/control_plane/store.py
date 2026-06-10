@@ -38,6 +38,7 @@ from .models import (
 )
 from .workload_routing import route_machine_target
 from .promising_signal_priority import (
+    followup_launch_queue_priorities,
     promising_followup_priority_key,
     ranked_followup_readiness,
 )
@@ -4132,6 +4133,7 @@ class ControlPlaneStore:
             ),
             "followup_stop_condition": _text(candidate.get("followup_stop_condition")),
         }
+        selection_rank, dispatch_priority = followup_launch_queue_priorities(candidate)
         if dry_run:
             return {
                 "ok": True,
@@ -4151,8 +4153,8 @@ class ControlPlaneStore:
                 (
                     followup_id,
                     QueueStatus.QUEUED.value,
-                    _int(candidate.get("selection_rank"), 50),
-                    _int(candidate.get("dispatch_priority"), 50),
+                    selection_rank,
+                    dispatch_priority,
                     1,
                     0,
                     0,

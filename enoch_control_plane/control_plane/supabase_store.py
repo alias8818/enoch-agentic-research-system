@@ -37,6 +37,7 @@ from .models import (
     RunState,
 )
 from .promising_signal_priority import (
+    followup_launch_queue_priorities,
     promising_followup_priority_key,
     ranked_followup_readiness,
 )
@@ -5357,6 +5358,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         parent_id = str(plan["parent_id"])
         followup_payload = plan["followup_payload"]
         parent_source = plan["parent_source"]
+        selection_rank, dispatch_priority = followup_launch_queue_priorities(candidate)
         cur.execute(
             """
             insert into ideas(
@@ -5377,8 +5379,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 _text(candidate.get("machine_target")),
                 _text(candidate.get("model")),
                 _text(candidate.get("sandbox")),
-                _int(candidate.get("selection_rank"), 50),
-                _int(candidate.get("dispatch_priority"), 50),
+                selection_rank,
+                dispatch_priority,
                 _json(followup_payload),
                 now,
                 now,
@@ -5400,8 +5402,8 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             """,
             (
                 followup_id,
-                _int(candidate.get("selection_rank"), 50),
-                _int(candidate.get("dispatch_priority"), 50),
+                selection_rank,
+                dispatch_priority,
                 _text(candidate.get("machine_target")),
                 _text(candidate.get("model")),
                 _text(candidate.get("sandbox")),
