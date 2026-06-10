@@ -7680,7 +7680,7 @@ def _llm_structured_output_mode(value: Any) -> str:
     mode = str(value or "").strip().lower().replace("-", "_")
     if mode in {"", "prompt_only", "none"}:
         return ""
-    if mode == "json_schema":
+    if mode in {"json_object", "json_schema"}:
         return mode
     raise HTTPException(status_code=400, detail="unknown LLM structured_output_mode")
 
@@ -7810,7 +7810,7 @@ def _schema_ok_for_llm_contract(contract: str, parsed: Any, text: str) -> bool:
     candidates = parsed.get("candidates")
     return (
         isinstance(candidates, list)
-        and len(candidates) >= 1
+        and len(candidates) == 1
         and isinstance(candidates[0], dict)
         and bool(str(candidates[0].get("title") or "").strip())
         and bool(str(candidates[0].get("rationale") or "").strip())
@@ -7825,6 +7825,27 @@ def _candidate_json_legacy_array_is_recoverable(parsed: Any) -> bool:
         and bool(str(parsed[0].get("title") or "").strip())
         and bool(str(parsed[0].get("rationale") or "").strip())
     )
+
+
+def _candidate_json_completeness_metrics(parsed: Any) -> dict[str, Any]:
+    if isinstance(parsed, dict):
+        candidates = parsed.get("candidates")
+    elif isinstance(parsed, list):
+        candidates = parsed
+    else:
+        candidates = None
+    if not isinstance(candidates, list):
+        return {
+            "candidate_count": 0,
+            "candidate_title_complete": False,
+            "candidate_rationale_complete": False,
+        }
+    first = candidates[0] if candidates and isinstance(candidates[0], dict) else {}
+    return {
+        "candidate_count": len(candidates),
+        "candidate_title_complete": bool(str(first.get("title") or "").strip()),
+        "candidate_rationale_complete": bool(str(first.get("rationale") or "").strip()),
+    }
 
 
 def _evaluate_llm_format_probe(
@@ -7854,6 +7875,8 @@ def _evaluate_llm_format_probe(
         )
         return out
     out["valid_json"] = True
+    if contract == "candidate_json":
+        out.update(_candidate_json_completeness_metrics(parsed))
     out["schema_ok"] = _schema_ok_for_llm_contract(contract, parsed, visible_text)
     if not out["schema_ok"]:
         if contract == "candidate_json" and _candidate_json_legacy_array_is_recoverable(
@@ -7912,6 +7935,9 @@ def _record_llm_model_test_event(
         "response_format_type",
         "reasoning_effort",
         "reasoning_excluded",
+        "candidate_count",
+        "candidate_title_complete",
+        "candidate_rationale_complete",
     ):
         if key in result:
             payload[key] = result.get(key)
@@ -7951,6 +7977,8 @@ def _llm_model_payload(
         "temperature": 0,
         "messages": [{"role": "user", "content": prompt}],
     }
+    if prompt_contract and structured_output_mode == "json_object":
+        payload["response_format"] = {"type": "json_object"}
     if prompt_contract and structured_output_mode == "json_schema":
         payload["response_format"] = {
             "type": "json_schema",

@@ -219,3 +219,76 @@ This means Kimi can be reconsidered for `candidate_json` routing only after the
 normal route-safety gates, while MiniMax M3 should not be promoted from this
 probe evidence. The MiniMax M3 failure was not the known recoverable legacy array
 shape; it was invalid JSON under the bounded probe.
+
+## ALI-184 provider-enforced structured-output A/B — 2026-06-10
+
+ALI-184 tested the operator hypothesis that prompt-only JSON adherence measures a
+model's formatting cognition as well as task quality, and that provider-enforced
+`response_format` modes can improve consistency by moving structure enforcement
+to the API endpoint.
+
+### Implementation
+
+The control-plane LLM test endpoint now supports these bounded modes for
+`candidate_json` probes without mutating production routes:
+
+- `prompt_only` / no `structured_output_mode`: prompt asks for JSON only.
+- `json_object`: sends `response_format={"type":"json_object"}`.
+- `json_schema`: sends strict JSON Schema with `candidates` and `maxItems: 1`.
+
+The probe result and persisted health event now include deterministic candidate
+completeness fields:
+
+- `candidate_count`
+- `candidate_title_complete`
+- `candidate_rationale_complete`
+
+ALI-184 also fixed a validator strictness bug found by the live matrix: the
+`candidate_json` schema declares `maxItems: 1`, but the old in-repo
+`schema_ok` check accepted any `len(candidates) >= 1`. The validator now requires
+exactly one candidate for strict schema success. Extra candidates are valid JSON
+but `schema_ok=false` / `malformed_kind=schema_mismatch`.
+
+### Repeatable harness
+
+`scripts/compare_structured_output_modes.py` calls the existing authenticated
+`/control/api/settings/llm/test` endpoint and reports a no-mutation matrix across
+prompt-only, JSON object, and strict JSON Schema modes. It records per-mode rates
+for valid JSON, schema success, invalid JSON, recoverable shape, complete
+candidate fields, and latency. The script intentionally does not import settings
+write or queue/dispatch mutation surfaces.
+
+### Live bounded matrix
+
+Deployed live on `enoch-core` and run against OpenRouter models
+`moonshotai/kimi-k2.6` and `minimax/minimax-m3`:
+
+| Mode | Attempts | Valid JSON rate | Schema OK rate | Complete candidate rate | Invalid JSON | Avg latency |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| prompt-only | 2 | 0.50 | 0.50 | 0.50 | 1 | 7.49s |
+| json_object | 2 | 1.00 | 1.00 | 1.00 | 0 | 4.93s |
+| json_schema | 2 | 1.00 | 1.00 | 1.00 | 0 | 9.17s |
+
+Model-level observations:
+
+- Kimi passed all three modes in this small matrix.
+- MiniMax M3 failed prompt-only with prose asking for more topic context
+  (`valid_json=false`, `malformed_kind=invalid_json`, `visible_chars=210`) but
+  passed both provider-enforced modes.
+- In an earlier same-session pre-strictness run, MiniMax prompt-only returned
+  three candidate objects. That exposed the old `schema_ok` bug above: extra
+  candidates must not be counted as strict contract success when the schema says
+  `maxItems: 1`.
+
+### Current conclusion
+
+Provider-enforced structured output is materially promising for Enoch model-route
+probes. The first live matrix supports the hypothesis: endpoint-enforced modes
+removed MiniMax M3's prompt-only formatting/prose failure while preserving bounded
+visible output and complete candidate fields.
+
+This is not yet permission to promote MiniMax M3 or mutate production routes. The
+next production-safe step is to run a larger repeated matrix on representative
+workflow prompts, then wire provider capability detection and per-workflow route
+policy so JSON Schema/object modes are used only where the provider/model has
+contract proof.
