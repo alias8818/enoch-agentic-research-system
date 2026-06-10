@@ -2697,6 +2697,12 @@ def _build_paper_pipeline(
             missing_evidence_reason_counts[reason] = (
                 missing_evidence_reason_counts.get(reason, 0) + 1
             )
+    top_missing_evidence_reason_counts = dict(
+        sorted(
+            missing_evidence_reason_counts.items(),
+            key=lambda item: (-item[1], item[0]),
+        )[:20]
+    )
     return {
         "write_needed": len(write_candidates),
         "raw_completed_no_paper_candidates": len(raw_write_candidates),
@@ -2707,7 +2713,7 @@ def _build_paper_pipeline(
             f"{gate_archive_verb} intentionally not paper-writable."
         ),
         "paper_gate_archive_class_counts": archive_class_counts,
-        "paper_gate_missing_evidence_reason_counts": missing_evidence_reason_counts,
+        "paper_gate_missing_evidence_reason_counts": top_missing_evidence_reason_counts,
         "paper_write_blocked": positive_rejected,
         "positive_rejected_by_decision_gate": positive_rejected,
         "gate_rejected_sample": gate_rejected[:10],
