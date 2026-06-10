@@ -12265,6 +12265,71 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(snapshot["paper_rows"], [])
 
+    def test_paper_gate_archive_explains_supported_signal_needs_bounded_followup(
+        self,
+    ) -> None:
+        from enoch_control_plane.control_plane.read_models import (
+            _build_paper_pipeline,
+            _gated_write_candidates,
+        )
+
+        raw_candidates = [
+            {
+                "project_id": "idea-supported-signal",
+                "project_name": "Supported Signal",
+                "current_run_id": "run-supported-signal",
+                "status": "completed",
+                "decision_gate_state": "negative",
+                "decision_summary": "finalize_negative: useful but needs real traces",
+                "research_outcome": "useful_signal",
+                "hypothesis_status": "supported",
+                "evidence_strength": "moderate",
+                "claim_scope": "synthetic evidence supports the mechanism",
+                "bounded_paper_ready": False,
+                "followup_recommended": True,
+                "followup_type": "deepen",
+                "followup_title": "Real trace validation",
+                "followup_hypothesis": "real traces preserve the effect",
+                "followup_required_evidence": ["real transformer traces"],
+                "followup_success_threshold": ">= 10% improvement on real traces",
+                "followup_stop_condition": "stop if real traces erase the gain",
+                "recommended_next_action": "run a bounded real-trace follow-up",
+            }
+        ]
+
+        write_candidates, gate_rejected = _gated_write_candidates(raw_candidates)
+        self.assertEqual(write_candidates, [])
+        self.assertEqual(len(gate_rejected), 1)
+        rejected = gate_rejected[0]
+        self.assertEqual(
+            rejected["gate_reason"], "bounded follow-up required before paper writing"
+        )
+        self.assertEqual(rejected["archive_class"], "bounded_followup_required")
+        self.assertEqual(rejected["missing_evidence_reason"], rejected["gate_reason"])
+        self.assertEqual(rejected["followup_required_evidence"], ["real transformer traces"])
+
+        pipeline = _build_paper_pipeline(
+            write_candidates=write_candidates,
+            gate_rejected=gate_rejected,
+            raw_write_candidates=raw_candidates,
+            operator_counts={},
+            operator_detail_counts={},
+            paper_rows=[],
+        )
+        self.assertEqual(pipeline["write_needed"], 0)
+        self.assertEqual(
+            pipeline["paper_gate_archive_class_counts"],
+            {"bounded_followup_required": 1},
+        )
+        self.assertEqual(
+            pipeline["paper_gate_missing_evidence_reason_counts"],
+            {"bounded follow-up required before paper writing": 1},
+        )
+        self.assertEqual(
+            pipeline["gate_rejected_sample"][0]["recommended_next_action"],
+            "run a bounded real-trace follow-up",
+        )
+
     def test_worker_callback_negative_decision_missing_run_notes_does_not_alert_paper_evidence(
         self,
     ) -> None:

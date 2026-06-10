@@ -7789,6 +7789,14 @@ def _looks_like_refusal_or_sanitized(text: str) -> bool:
     )
 
 
+def _candidate_json_payload_shape(parsed: Any) -> str:
+    if isinstance(parsed, dict) and isinstance(parsed.get("candidates"), list):
+        return "contract_object"
+    if isinstance(parsed, list):
+        return "legacy_array"
+    return "unknown"
+
+
 def _schema_ok_for_llm_contract(contract: str, parsed: Any, text: str) -> bool:
     if contract in {"strict_json", "markdown_fenced_json"}:
         return (
@@ -7797,13 +7805,25 @@ def _schema_ok_for_llm_contract(contract: str, parsed: Any, text: str) -> bool:
             and parsed.get("items") == [1, 2]
             and (contract != "markdown_fenced_json" or text.lstrip().startswith("# "))
         )
-    candidates = parsed.get("candidates") if isinstance(parsed, dict) else parsed
+    if _candidate_json_payload_shape(parsed) != "contract_object":
+        return False
+    candidates = parsed.get("candidates")
     return (
         isinstance(candidates, list)
         and len(candidates) >= 1
         and isinstance(candidates[0], dict)
         and bool(str(candidates[0].get("title") or "").strip())
         and bool(str(candidates[0].get("rationale") or "").strip())
+    )
+
+
+def _candidate_json_legacy_array_is_recoverable(parsed: Any) -> bool:
+    return (
+        isinstance(parsed, list)
+        and len(parsed) >= 1
+        and isinstance(parsed[0], dict)
+        and bool(str(parsed[0].get("title") or "").strip())
+        and bool(str(parsed[0].get("rationale") or "").strip())
     )
 
 
@@ -7836,7 +7856,13 @@ def _evaluate_llm_format_probe(
     out["valid_json"] = True
     out["schema_ok"] = _schema_ok_for_llm_contract(contract, parsed, visible_text)
     if not out["schema_ok"]:
-        out["malformed_kind"] = "schema_mismatch"
+        if contract == "candidate_json" and _candidate_json_legacy_array_is_recoverable(
+            parsed
+        ):
+            out["malformed_kind"] = "legacy_candidate_array_shape"
+            out["recoverable_json_shape"] = True
+        else:
+            out["malformed_kind"] = "schema_mismatch"
     return out
 
 
@@ -7880,6 +7906,7 @@ def _record_llm_model_test_event(
         "valid_json",
         "schema_ok",
         "malformed_kind",
+        "recoverable_json_shape",
         "sanitized_or_refusal_detected",
         "structured_output_mode",
         "response_format_type",

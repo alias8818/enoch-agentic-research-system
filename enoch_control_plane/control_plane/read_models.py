@@ -553,6 +553,28 @@ def _is_followup_candidate(row: dict[str, Any]) -> bool:
     )
 
 
+def _bounded_followup_fields_present(row: dict[str, Any]) -> bool:
+    return bool(
+        _truthy(row.get("followup_recommended"))
+        and _normal(row.get("followup_type")) in {"deepen", "branch", "retry"}
+        and _text(row.get("followup_title"))
+        and _listish(row.get("followup_required_evidence"))
+        and _text(row.get("followup_success_threshold"))
+        and _text(row.get("followup_stop_condition"))
+    )
+
+
+def _supported_signal_requires_bounded_followup(row: dict[str, Any]) -> bool:
+    return bool(
+        _research_outcome(row) == "useful_signal"
+        and not _truthy(row.get("bounded_paper_ready"))
+        and _normal(row.get("hypothesis_status")) in {"supported", "mixed"}
+        and _normal(row.get("evidence_strength")) in {"moderate", "strong"}
+        and _text(row.get("claim_scope"))
+        and _bounded_followup_fields_present(row)
+    )
+
+
 def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] | None:
     state = _text(row.get("decision_gate_state"))
     if not state:
@@ -586,6 +608,14 @@ def _paper_draft_gate_from_row_decision(row: dict[str, Any]) -> dict[str, Any] |
             "reason": "bounded useful signal is paper-scoped",
             "decision": summary or state,
             "values": [],
+            "source": "supabase_project_decisions",
+        }
+    if state == "negative" and _supported_signal_requires_bounded_followup(row):
+        return {
+            "eligible": False,
+            "reason": "bounded follow-up required before paper writing",
+            "decision": summary or state,
+            "values": _listish(row.get("followup_required_evidence")),
             "source": "supabase_project_decisions",
         }
     reason_by_state = {
@@ -2459,14 +2489,31 @@ def _overview_row_sources(
     return _overview_row_sources_canonical(store, active_limit=active_limit)
 
 
+def _paper_gate_archive_class(
+    candidate: Mapping[str, Any], gate: Mapping[str, Any] | None
+) -> str:
+    reason = _text((gate or {}).get("reason"))
+    if reason == "bounded follow-up required before paper writing":
+        return "bounded_followup_required"
+    state = _text(candidate.get("decision_gate_state"))
+    if state in {"missing", "malformed", "unknown"}:
+        return f"decision_{state}"
+    if state == "negative" and _research_outcome(dict(candidate)) == "useful_signal":
+        return "strict_gate_useful_signal_archive"
+    if state:
+        return f"decision_{state}"
+    return "decision_missing"
+
+
 def _gated_write_candidates(
     raw_write_candidates: Sequence[Mapping[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     write_candidates: list[dict[str, Any]] = []
     gate_rejected: list[dict[str, Any]] = []
     for candidate in raw_write_candidates:
+        candidate_dict = dict(candidate)
         artifact_gate = _paper_draft_gate_for_row(candidate)
-        row_gate = _paper_draft_gate_from_row_decision(candidate)
+        row_gate = _paper_draft_gate_from_row_decision(candidate_dict)
         gate = (
             artifact_gate
             if artifact_gate
@@ -2475,6 +2522,9 @@ def _gated_write_candidates(
             else row_gate or artifact_gate
         )
         if gate is None or not bool(gate.get("eligible")):
+            gate_reason = _text(
+                (gate or {}).get("reason", MISSING_PROJECT_DECISION_ARTIFACT_REASON)
+            )
             gate_rejected.append(
                 {
                     "project_id": candidate.get("project_id", ""),
@@ -2484,13 +2534,25 @@ def _gated_write_candidates(
                     or "",
                     "decision_summary": _decision_summary_from_gate(gate),
                     "decision_gate_state": candidate.get("decision_gate_state", ""),
-                    "gate_reason": (gate or {}).get(
-                        "reason", MISSING_PROJECT_DECISION_ARTIFACT_REASON
+                    "gate_reason": gate_reason,
+                    "archive_class": _paper_gate_archive_class(candidate, gate),
+                    "hypothesis_status": _text(candidate.get("hypothesis_status")),
+                    "evidence_strength": _text(candidate.get("evidence_strength")),
+                    "research_outcome": _research_outcome(candidate_dict),
+                    "bounded_paper_ready": _truthy(candidate.get("bounded_paper_ready")),
+                    "missing_evidence_reason": _missing_evidence_reason(
+                        {**candidate_dict, "gate_reason": gate_reason}
+                    ),
+                    "followup_required_evidence": _listish(
+                        candidate.get("followup_required_evidence")
+                    ),
+                    "recommended_next_action": _text(
+                        candidate.get("recommended_next_action")
                     ),
                 }
             )
             continue
-        write_candidates.append(candidate)
+        write_candidates.append(candidate_dict)
     return write_candidates, gate_rejected
 
 
@@ -2614,6 +2676,16 @@ def _build_paper_pipeline(
     gate_archive_count = len(gate_rejected)
     gate_archive_noun = "run" if gate_archive_count == 1 else "runs"
     gate_archive_verb = "is" if gate_archive_count == 1 else "are"
+    archive_class_counts: dict[str, int] = {}
+    missing_evidence_reason_counts: dict[str, int] = {}
+    for row in gate_rejected:
+        archive_class = _text(row.get("archive_class")) or "unknown"
+        archive_class_counts[archive_class] = archive_class_counts.get(archive_class, 0) + 1
+        reason = _text(row.get("missing_evidence_reason"))
+        if reason:
+            missing_evidence_reason_counts[reason] = (
+                missing_evidence_reason_counts.get(reason, 0) + 1
+            )
     return {
         "write_needed": len(write_candidates),
         "raw_completed_no_paper_candidates": len(raw_write_candidates),
@@ -2623,6 +2695,8 @@ def _build_paper_pipeline(
             f"{gate_archive_count} completed {gate_archive_noun} "
             f"{gate_archive_verb} intentionally not paper-writable."
         ),
+        "paper_gate_archive_class_counts": archive_class_counts,
+        "paper_gate_missing_evidence_reason_counts": missing_evidence_reason_counts,
         "paper_write_blocked": positive_rejected,
         "positive_rejected_by_decision_gate": positive_rejected,
         "gate_rejected_sample": gate_rejected[:10],
@@ -2645,6 +2719,8 @@ def _build_paper_pipeline(
             "paper_gate_archive_count": "completed no-paper rows intentionally kept out of paper writing by the deterministic gate; this is an archive metric, not actionable paper work",
             "paper_write_blocked": "positive completed no-paper candidates that could not be surfaced as write_needed; non-zero requires investigation",
             "positive_rejected_by_decision_gate": "same as paper_write_blocked; explicit anomaly count for CLCA checks",
+            "paper_gate_archive_class_counts": "strict gate classes for completed runs kept out of paper writing, e.g. bounded follow-up required versus generic negative archive",
+            "paper_gate_missing_evidence_reason_counts": "dominant deterministic gate reasons that explain what evidence is missing before a no-paper run can become writable",
             "finalize_needed": "publication drafts missing automated finalization package",
             "publish_ready": "finalized publication drafts with required evidence paths that are missing a corpus-import ledger row",
             "missing_from_corpus": "same as publish_ready; actionable corpus import work only",

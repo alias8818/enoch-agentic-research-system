@@ -684,6 +684,21 @@ def test_llm_settings_candidate_json_probe_prompt_matches_schema_shape() -> None
     assert "compact JSON array" not in prompt
 
 
+def test_llm_settings_candidate_json_probe_array_shape_is_recoverable_mismatch() -> None:
+    from enoch_control_plane.control_plane.router import _evaluate_llm_format_probe
+
+    result = _evaluate_llm_format_probe(
+        "candidate_json",
+        visible_text='[{"title":"Probe","rationale":"Legacy array shape"}]',
+        finish_reason="stop",
+    )
+
+    assert result["valid_json"] is True
+    assert result["schema_ok"] is False
+    assert result["malformed_kind"] == "legacy_candidate_array_shape"
+    assert result["recoverable_json_shape"] is True
+
+
 def test_llm_settings_candidate_json_probe_uses_structured_output_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
