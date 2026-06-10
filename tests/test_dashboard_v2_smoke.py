@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -72,6 +73,13 @@ def test_api_auth_status_with_token_runs_api() -> None:
     run_api, detail = api_auth_status("secret", shell_only=False)
     assert run_api is True
     assert detail == ""
+
+
+def test_dashboard_v2_deploy_docs_do_not_put_bearer_token_in_argv() -> None:
+    docs = Path("docs/dashboard-v2-deploy.md").read_text(encoding="utf-8")
+
+    assert '--token "$ENOCH_CONTROL_TOKEN"' not in docs
+    assert "Keep bearer tokens out of argv" in docs
 
 
 def test_first_event_id_prefers_event_id_then_id() -> None:

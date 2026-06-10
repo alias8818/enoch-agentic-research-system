@@ -16,8 +16,17 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 from urllib import error, request
 
+import requests
+
+from enoch_control_plane.config import GateConfig
+from enoch_control_plane.llm_settings import (
+    default_llm_settings,
+    read_llm_settings,
+    resolve_workflow_model,
+)
 from enoch_control_plane.research_provider_defaults import (
     DEFAULT_RESEARCH_PROVIDER_BASE_URL,
     DEFAULT_RESEARCH_PROVIDER_MODEL,
@@ -29,7 +38,6 @@ from enoch_control_plane.url_safety import secure_default_service_url
 # Centralized reason constant for the top remaining S1192 duplication
 # in this autopilot script.
 MISSING_DATABASE_URL_REASON = "missing database URL"
-DEFAULT_JANITOR_LLM_REVIEW_MODEL = "openrouter/owl-alpha"
 
 
 def _load_config() -> dict:
@@ -493,10 +501,23 @@ def _janitor_llm_review_output_path() -> Path:
 
 
 def _janitor_llm_review_model() -> str:
-    return (
-        os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_MODEL")
-        or DEFAULT_JANITOR_LLM_REVIEW_MODEL
+    requested = os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_MODEL", "").strip()
+    config_payload = _load_config()
+    try:
+        config = GateConfig.model_validate(config_payload)
+    except ValueError:
+        config = SimpleNamespace(expanded_state_dir=_state_dir(config_payload))
+    try:
+        settings = read_llm_settings(config)  # type: ignore[arg-type]
+    except ValueError:
+        settings = default_llm_settings(config)  # type: ignore[arg-type]
+    _workflow, model, _provider = resolve_workflow_model(
+        settings,
+        "research_review",
+        requested_model=requested,
+        require_openai_compatible=True,
     )
+    return model.model_id
 
 
 def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:

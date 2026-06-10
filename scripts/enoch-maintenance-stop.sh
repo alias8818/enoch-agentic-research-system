@@ -92,7 +92,7 @@ backup_timer_active="$(systemctl is-active enoch-postgres-backup.timer 2>/dev/nu
 backup_timer_enabled="$(systemctl is-enabled enoch-postgres-backup.timer 2>/dev/null || true)"
 
 worker_checks_json="$(python3 - "$SSH_STRICT_HOST_KEY_CHECKING" "$WORKER_PROCESS_REGEX" "${WORKER_HOSTS[@]}" <<'PY'
-import json, os, subprocess, sys
+import json, os, shlex, subprocess, sys
 checks = []
 timeout_seconds = int(os.environ.get("ENOCH_MAINTENANCE_WORKER_SSH_TIMEOUT", "12"))
 
@@ -105,6 +105,7 @@ def tail_text(value, limit=500):
 
 strict_host_key_checking = sys.argv[1]
 worker_process_regex = sys.argv[2]
+remote_pgrep_pattern = shlex.quote(worker_process_regex)
 for host in sys.argv[3:]:
     cmd = [
         "ssh",
@@ -115,7 +116,7 @@ for host in sys.argv[3:]:
         "-o",
         "ConnectTimeout=8",
         host,
-        f"pgrep -af {worker_process_regex!r} || true",
+        f"pgrep -af {remote_pgrep_pattern} || true",
     ]
     try:
         result = subprocess.run(

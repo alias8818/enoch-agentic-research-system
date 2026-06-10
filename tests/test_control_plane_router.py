@@ -2596,6 +2596,49 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(request.full_url, "https://openrouter.ai/api/v1/key")
         self.assertEqual(request.headers["Authorization"], "Bearer openrouter-key")
 
+    def test_research_budget_check_fails_closed_when_openrouter_remaining_missing(
+        self,
+    ) -> None:
+        class ProviderBudget:
+            @staticmethod
+            def fetch_json(*args, **kwargs):
+                raise AssertionError("OpenRouter must use its own key endpoint")
+
+            @staticmethod
+            def synthetic_budget_status(*args, **kwargs):
+                raise AssertionError("OpenRouter must not parse Synthetic quota")
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            @staticmethod
+            def read():
+                return json.dumps({"data": {"label": "test-key", "limit": 100.0}}).encode(
+                    "utf-8"
+                )
+
+        with patch(
+            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            return_value=Response(),
+        ):
+            budget = _fetch_synthetic_research_budget(
+                provider_id="openrouter",
+                provider_base_url="https://openrouter.ai/api/v1",
+                provider_api_key="openrouter-key",
+                estimated_requests=1,
+                bounded_int=lambda *_args: 2,
+                bounded_float=lambda *_args: 5.0,
+                research_provider_budget=ProviderBudget,
+            )
+
+        self.assertFalse(budget["ok"])
+        self.assertIsNone(budget["remaining_credits"])
+        self.assertIn("missing OpenRouter remaining credits", budget["failures"])
+
     def test_research_budget_check_fails_closed_for_unsupported_provider(
         self,
     ) -> None:
@@ -19431,6 +19474,79 @@ def test_status_stale_active_rows_scopes_to_lane_active_item() -> None:
     )
 
     assert _status_stale_active_rows(status) == [stale_row]
+
+
+def test_worker_run_is_not_settling_just_because_process_count_is_zero() -> None:
+    from enoch_control_plane.control_plane.router import _worker_run_is_settling_without_process
+
+    assert (
+        _worker_run_is_settling_without_process(
+            {
+                "run_id": "active-run",
+                "gate_state": "active",
+                "lifecycle_state": "running",
+                "active_process_count": 0,
+            }
+        )
+        is False
+    )
+    assert (
+        _worker_run_is_settling_without_process(
+            {
+                "run_id": "quiet-run",
+                "gate_state": "waiting_for_quiet_window",
+                "active_process_count": 0,
+            }
+        )
+        is True
+    )
+
+
+def test_worker_lane_summary_preserves_session_id_for_stale_reconcile_identity() -> None:
+    from enoch_control_plane.control_plane.models import (
+        ControlFlags,
+        DashboardConfigStatus,
+        DashboardStatusResponse,
+    )
+    from enoch_control_plane.control_plane.router import (
+        _active_row_has_no_live_worker_confirmation,
+        _worker_lane_summary_row,
+    )
+
+    active_row = {
+        "project_id": "sessioned-project",
+        "project_name": "Sessioned Project",
+        "current_run_id": "run-sessioned",
+        "current_session_id": "sess-sessioned",
+        "status": "active",
+    }
+    lane_item = _worker_lane_summary_row(active_row)
+
+    assert lane_item is not None
+    assert lane_item["current_session_id"] == "sess-sessioned"
+
+    status = DashboardStatusResponse(
+        flags=ControlFlags(),
+        config=DashboardConfigStatus(
+            live_dispatch_enabled=True,
+            worker_wake_gate_url="http://worker",
+            worker_token_configured=True,
+            dispatch_timeout_sec=120,
+            project_root="/tmp/projects",
+            state_dir="/tmp/state",
+        ),
+        counts={},
+        worker_lanes=[
+            {
+                "lane_key": "cpu-proxmox-1",
+                "active_item": lane_item,
+                "active_confirmation": {"state": "stale_active"},
+            },
+        ],
+        active_items=[active_row],
+    )
+
+    assert _active_row_has_no_live_worker_confirmation(status, active_row) is True
 
 
 def test_auto_reconcile_stale_callback_ready_only_reconciles_stale_lane_rows() -> None:

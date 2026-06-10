@@ -183,7 +183,12 @@ class QueuePumpTests(unittest.TestCase):
         self.assertEqual(output["dispatch"]["reason"], "dispatch not safe")
         self.assertEqual(output["dispatch"]["http_status"], 409)
         self.assertEqual(output["dispatch"]["error_type"], "HTTPError")
-        self.assertIn("worker_preflight not ok", output["dispatch"]["response_body"])
+        self.assertNotIn("response_body", output["dispatch"])
+        self.assertEqual(output["dispatch"]["response_body_bytes"], 36)
+        self.assertEqual(
+            output["dispatch"]["response_body_sha256"],
+            "bc3c0bfa75f9af39cd706634c0162c328f7f6dafe38e475f39792211a7db64d1",
+        )
 
     def test_queue_pump_skips_alert_and_mutations_while_control_plane_held(
         self,

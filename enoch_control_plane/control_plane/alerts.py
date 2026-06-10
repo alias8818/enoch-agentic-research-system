@@ -243,6 +243,7 @@ _WORKER_WARNING_SOURCES = frozenset(
     {
         "worker_preflight",
         "worker_dashboard_api",
+        "worker_settling",
         CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
     }
 )
@@ -730,6 +731,7 @@ def queue_alert_findings(
         findings.extend(
             _collect_live_dispatch_alert_findings(status, hang_after_sec=hang_after_sec)
         )
+        findings = [item for item in findings if item.source != "worker_settling"]
 
     return _dedupe_alert_findings(findings)
 
@@ -838,11 +840,12 @@ def _partition_dispatch_race_findings(
     *,
     status: DashboardStatusResponse,
     suppress_settling_backpressure: bool = False,
+    suppress_dispatch_race: bool = True,
 ) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
     kept: list[DashboardFinding] = []
     suppressed: list[DashboardFinding] = []
     for finding in findings:
-        if _is_active_row_worker_preflight_race(finding):
+        if suppress_dispatch_race and _is_active_row_worker_preflight_race(finding):
             suppressed.append(finding)
             continue
         if suppress_settling_backpressure and (
@@ -875,12 +878,14 @@ def _suppress_dispatch_race_findings(
             findings,
             status=status,
             suppress_settling_backpressure=suppress_settling_backpressure,
+            suppress_dispatch_race=True,
         )
     if suppress_settling_backpressure:
         return _partition_dispatch_race_findings(
             findings,
             status=status,
             suppress_settling_backpressure=True,
+            suppress_dispatch_race=False,
         )
     return findings, []
 
@@ -1314,12 +1319,6 @@ def _deliver_queue_alert(
             inserted=False,
             event_append_error="",
         )
-    event_id, inserted, event_append_error = _append_queue_alert_event(
-        store,
-        idempotency_key=idempotency_key,
-        fingerprint=fingerprint,
-        payload=payload,
-    )
     if _maintenance_mode_active(status):
         return _QueueAlertDeliveryState(
             sent=False,
@@ -1334,11 +1333,17 @@ def _deliver_queue_alert(
                 ok=True,
                 detail="maintenance mode suppresses hermes alert webhook delivery",
             ),
-            event_id=event_id,
-            inserted=inserted,
-            event_append_error=event_append_error,
+            event_id=None,
+            inserted=False,
+            event_append_error="",
             suppression_reason="maintenance_mode",
         )
+    event_id, inserted, event_append_error = _append_queue_alert_event(
+        store,
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        payload=payload,
+    )
     sent, suppressed, notification = _dispatch_queue_alert_notification(
         config,
         findings=findings,

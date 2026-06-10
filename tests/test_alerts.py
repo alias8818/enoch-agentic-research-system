@@ -424,8 +424,8 @@ def test_queue_alert_notify_suppresses_external_delivery_during_maintenance(
 
     assert result["ok"] is True
     assert result["should_alert"] is True
-    assert result["inserted_event"] is True
-    assert result["event_id"] == "event-maintenance"
+    assert result["inserted_event"] is False
+    assert result["event_id"] is None
     assert result["sent"] is False
     assert result["suppressed"] is True
     assert result["suppressed_by_cooldown"] is False
@@ -2052,6 +2052,48 @@ def test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown(
     assert "event store unavailable" in result["event_append_error"]
 
 
+def test_worker_settling_warning_source_is_alert_eligible() -> None:
+    findings: list[DashboardFinding] = []
+    status = SimpleNamespace(
+        warnings=[
+            DashboardFinding(
+                severity="warn",
+                source="worker_settling",
+                authority="test",
+                message="cpu worker settling blocker persists",
+                suggested_action="inspect worker lane",
+            )
+        ]
+    )
+
+    alerts._append_queue_warning_findings(  # type: ignore[attr-defined]
+        status, findings, suppress_worker_warning=False
+    )
+
+    assert [finding.source for finding in findings] == ["worker_settling"]
+
+
+def test_settling_only_suppression_keeps_active_row_worker_conflicts() -> None:
+    active_race = DashboardFinding(
+        severity="critical",
+        source=alerts.CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
+        authority="test",
+        message="active row without a matching worker run",
+        suggested_action="reconcile active row",
+    )
+    status = SimpleNamespace(dispatch_blockers=["cpu worker settling"])
+
+    kept, suppressed = alerts._partition_dispatch_race_findings(  # type: ignore[attr-defined]
+        [active_race],
+        status=status,
+        suppress_settling_backpressure=True,
+        suppress_dispatch_race=False,
+    )
+
+    assert kept == [active_race]
+    assert suppressed == []
+
+
 def test_format_queue_alert_message_lists_first_five_findings() -> None:
     from enoch_control_plane.control_plane.alerts import _format_queue_alert_message
     from enoch_control_plane.control_plane.models import DashboardFinding
@@ -2078,6 +2120,93 @@ def test_format_queue_alert_message_lists_first_five_findings() -> None:
     assert "message-4" in message
     assert "message-5" not in message
     assert "+2 more" in message
+
+
+def test_maintenance_suppression_does_not_consume_queue_alert_cooldown(
+    monkeypatch, tmp_path
+) -> None:
+    from enoch_control_plane.config import GateConfig
+    from enoch_control_plane.control_plane import alerts
+
+    config = GateConfig(
+        state_dir=str(tmp_path / "state"),
+        project_root=str(tmp_path / "projects"),
+        dispatch_script_path=str(tmp_path / "dispatch.sh"),
+        control_api_bearer_token="control",
+        completion_callback_url="http://callback",
+        completion_callback_token="callback",
+        live_dispatch_enabled=True,
+        queue_alert_hang_after_sec=300,
+        queue_alert_cooldown_sec=3600,
+        pushover_alerts_enabled=True,
+        pushover_app_token="app",
+        pushover_user_key="user",
+    )
+    finding = DashboardFinding(
+        severity="critical",
+        source="test",
+        authority="test",
+        message="stuck queue",
+        suggested_action="inspect",
+    )
+
+    class Store:
+        def __init__(self) -> None:
+            self.keys: set[str] = set()
+
+        def append_event(self, *, idempotency_key, **_kwargs):  # noqa: ANN001, ANN003
+            if idempotency_key in self.keys:
+                return ("evt-duplicate", False)
+            self.keys.add(idempotency_key)
+            return ("evt-1", True)
+
+    store = Store()
+    sent: list[str] = []
+    monkeypatch.setattr(
+        alerts,
+        "send_pushover",
+        lambda *_args, **_kwargs: sent.append("sent")
+        or alerts.PushoverResult(attempted=True, ok=True, detail="sent"),
+    )
+    maintenance_status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=True, maintenance_mode=True),
+        dispatch_blockers=["blocked"],
+        active_items=[],
+    )
+    normal_status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        dispatch_blockers=["blocked"],
+        active_items=[],
+    )
+
+    first = alerts._deliver_queue_alert(  # type: ignore[attr-defined]
+        config=config,
+        store=store,
+        status=maintenance_status,
+        dry_run=False,
+        force_notify=False,
+        findings=[finding],
+        idempotency_key="queue-alert:test:1",
+        fingerprint="test",
+        payload={"findings": [finding.model_dump(mode="json")]},
+    )
+    second = alerts._deliver_queue_alert(  # type: ignore[attr-defined]
+        config=config,
+        store=store,
+        status=normal_status,
+        dry_run=False,
+        force_notify=False,
+        findings=[finding],
+        idempotency_key="queue-alert:test:1",
+        fingerprint="test",
+        payload={"findings": [finding.model_dump(mode="json")]},
+    )
+
+    assert first.suppression_reason == "maintenance_mode"
+    assert first.inserted is False
+    assert second.inserted is True
+    assert second.sent is True
+    assert sent == ["sent"]
 
 
 def test_queue_alert_notify_suppresses_cooldown_duplicate(

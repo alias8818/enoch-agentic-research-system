@@ -702,7 +702,9 @@ def _openrouter_budget_status(
         failures.append("malformed OpenRouter key response")
     remaining = _openrouter_float(data, "limit_remaining", "limitRemaining")
     credit_limit = _openrouter_float(data, "limit")
-    if remaining is not None and remaining < min_remaining_credits:
+    if remaining is None:
+        failures.append("missing OpenRouter remaining credits")
+    elif remaining < min_remaining_credits:
         failures.append(
             f"OpenRouter remaining credits {remaining:.4g} < required {min_remaining_credits:.4g}"
         )
@@ -2556,10 +2558,7 @@ ACTIVE_LANE_CONFIRMATION_GRACE_SEC = 180
 def _worker_run_is_settling_without_process(run: dict[str, Any]) -> bool:
     gate_state = _normal_status(run.get("gate_state"))
     lifecycle_state = _normal_status(run.get("lifecycle_state"))
-    if gate_state == "waiting_for_quiet_window" or lifecycle_state == "settling":
-        return True
-    active_process_count = _int_or_none(run.get("active_process_count"))
-    return active_process_count == 0
+    return gate_state == "waiting_for_quiet_window" or lifecycle_state == "settling"
 
 
 def _worker_run_updated_recently(
@@ -6999,6 +6998,7 @@ def _worker_lane_summary_row(row: dict[str, Any] | None) -> dict[str, Any] | Non
         "status": str(row.get("status") or ""),
         "machine_target": str(row.get("machine_target") or ""),
         "current_run_id": str(row.get("current_run_id") or ""),
+        "current_session_id": str(row.get("current_session_id") or ""),
         "updated_at": row.get("updated_at"),
         "dispatch_priority": row.get("dispatch_priority"),
         "selection_rank": row.get("selection_rank"),

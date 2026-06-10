@@ -289,6 +289,48 @@ def test_graph_output_redacts_private_paths_and_writes_json_and_markdown(
     assert "Operator next action" in packet
 
 
+def test_graph_builder_skips_symlinked_paper_inputs(tmp_path: Path) -> None:
+    corpus = tmp_path / "corpus"
+    promising = tmp_path / "promising"
+    secret = tmp_path / "secret.md"
+    secret.write_text("# Secret\n\nprivate material\n", encoding="utf-8")
+    paper_dir = corpus / "papers" / "evil"
+    paper_dir.mkdir(parents=True)
+    (paper_dir / "paper.md").symlink_to(secret)
+    (paper_dir / "paper_manifest.json").write_text("{}", encoding="utf-8")
+    _write_promising_signal(promising, project_id="safe-signal", title="Safe Signal")
+
+    graph = builder.build_graph(corpus_repo=corpus, promising_repo=promising)
+
+    assert "paper:evil" not in {node["id"] for node in graph["nodes"]}
+    assert "Secret" not in json.dumps(graph)
+
+
+def test_write_candidate_packets_rejects_symlinked_output_dir(tmp_path: Path) -> None:
+    graph = {
+        "generated_at": "2026-06-10T00:00:00Z",
+        "summary": {
+            "synthesis_candidates": [
+                {"signal_id": "signal:safe", "title": "Safe", "score": 1}
+            ],
+            "negative_result_candidates": [],
+        },
+    }
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    packet_dir = tmp_path / "graph" / "candidates"
+    packet_dir.parent.mkdir()
+    packet_dir.symlink_to(outside, target_is_directory=True)
+
+    try:
+        builder.write_candidate_packets(graph, packet_dir)
+    except OSError as exc:
+        assert "symlink" in str(exc)
+    else:  # pragma: no cover - regression guard
+        raise AssertionError("symlinked candidate packet dir was accepted")
+    assert not list(outside.glob("**/*.md"))
+
+
 def test_log_summary_is_compact_and_operator_focused(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     promising = tmp_path / "promising"

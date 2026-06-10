@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from pathlib import Path
 import sys
 from urllib.parse import quote
@@ -238,21 +239,26 @@ def _pump_when_no_next_candidate(
     return _run_followup_launch_chain(base_url, token)
 
 
-def _http_error_body(exc: error.HTTPError) -> str:
+def _http_error_body_metadata(exc: error.HTTPError) -> dict[str, object]:
     try:
-        return exc.read().decode("utf-8", errors="replace")[:500]
+        body = exc.read()
     except (OSError, ValueError):
-        return ""
+        body = b""
+    if not isinstance(body, bytes):
+        body = str(body).encode("utf-8", errors="replace")
+    return {
+        "response_body_bytes": len(body),
+        "response_body_sha256": hashlib.sha256(body).hexdigest() if body else "",
+    }
 
 
 def _dispatch_error_summary(exc: error.HTTPError) -> dict[str, object]:
-    body = _http_error_body(exc)
     return _skipped(
         DISPATCH_NOT_SAFE_REASON,
         http_status=exc.code,
         error_type=type(exc).__name__,
         detail=str(exc),
-        response_body=body,
+        **_http_error_body_metadata(exc),
     )
 
 

@@ -375,6 +375,9 @@ def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> Non
     assert "timeout=timeout_seconds" in stop
     assert "worker ssh check timed out" in stop
     assert "def tail_text" in stop
+    assert "import json, os, shlex, subprocess, sys" in stop
+    assert "remote_pgrep_pattern = shlex.quote(worker_process_regex)" in stop
+    assert "worker_process_regex!r" not in stop
 
 
 def test_longhaul_guard_links_incidents_to_durable_checks() -> None:

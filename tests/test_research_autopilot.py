@@ -7,6 +7,8 @@ from pathlib import Path
 from urllib import error
 from unittest.mock import Mock, patch
 
+import pytest
+
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[1] / "deploy" / "enoch_research_autopilot.py"
@@ -15,6 +17,15 @@ spec = importlib.util.spec_from_file_location("enoch_research_autopilot", MODULE
 assert spec and spec.loader
 autopilot = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(autopilot)
+
+
+def _minimal_gate_config_payload(tmp_path: Path) -> dict[str, str]:
+    return {
+        "state_dir": str(tmp_path),
+        "completion_callback_url": "http://callback.example/complete",
+        "completion_callback_token": "callback-token",
+        "control_api_bearer_token": "control-token",
+    }
 
 
 def test_topic_rotation_respects_explicit_topic(monkeypatch):
@@ -44,6 +55,33 @@ def test_active_worker_lane_is_benign_timer_backpressure():
         )
         is False
     )
+
+
+def test_janitor_llm_review_model_rejects_model_outside_review_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        autopilot, "_load_config", lambda: _minimal_gate_config_payload(tmp_path)
+    )
+    monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_MODEL", "openrouter/owl-alpha")
+
+    try:
+        autopilot._janitor_llm_review_model()
+    except ValueError as exc:
+        assert "model_pool" in str(exc)
+    else:  # pragma: no cover - regression guard
+        raise AssertionError("janitor accepted model outside research_review pool")
+
+
+def test_janitor_llm_review_model_defaults_to_allowed_review_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        autopilot, "_load_config", lambda: _minimal_gate_config_payload(tmp_path)
+    )
+    monkeypatch.delenv("ENOCH_RESEARCH_JANITOR_LLM_MODEL", raising=False)
+
+    assert autopilot._janitor_llm_review_model() == "hf:zai-org/GLM-5.1"
 
 
 def test_dashboard_attention_block_is_benign_timer_backpressure():
@@ -1090,14 +1128,15 @@ def test_janitor_llm_review_uses_dedicated_model_not_provider_rotation(
     monkeypatch.setenv("ENOCH_CONFIG", str(config_path))
     monkeypatch.setenv("ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:***@host/db")
     monkeypatch.setenv("ENOCH_RESEARCH_JANITOR_LLM_REPORT_PATH", str(output))
-    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION", "hf:zai-org/GLM-5.1")
+    monkeypatch.setenv("ENOCH_RESEARCH_PROVIDER_MODEL_ROTATION", "openrouter/not-allowed")
     monkeypatch.setattr(autopilot.subprocess, "run", fake_run)
 
     result = autopilot.run_quota_gated_janitor_llm_review()
 
     assert result["ok"] is True
     cmd = calls[0]["cmd"]
-    assert cmd[cmd.index("--model") + 1] == "openrouter/owl-alpha"
+    assert cmd[cmd.index("--model") + 1] == autopilot.DEFAULT_RESEARCH_PROVIDER_MODEL
+    assert cmd[cmd.index("--model") + 1] != "openrouter/not-allowed"
 
 
 def test_janitor_llm_review_runs_quota_gated_script(tmp_path, monkeypatch):

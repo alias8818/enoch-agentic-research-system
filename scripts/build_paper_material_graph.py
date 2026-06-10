@@ -103,13 +103,33 @@ def _safe_text(value: Any) -> str:
     return text
 
 
+def _is_safe_existing_child(root: Path, path: Path) -> bool:
+    if path.is_symlink():
+        return False
+    try:
+        path.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _reject_existing_symlink_components(path: Path) -> None:
+    for candidate in (path, *path.parents):
+        if candidate.is_symlink():
+            raise OSError(f"refusing to write through symlinked path: {candidate}")
+        if candidate.exists():
+            continue
+
+
 def _candidate_slug(signal_id: Any, title: Any) -> str:
     seed = _text(signal_id).removeprefix("signal:") or _text(title) or "candidate"
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", seed.lower()).strip("-")
     return slug[:96] or "candidate"
 
 
-def _read_json(path: Path) -> dict[str, Any]:
+def _read_json(path: Path, *, root: Path | None = None) -> dict[str, Any]:
+    if root is not None and not _is_safe_existing_child(root, path):
+        return {}
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -117,7 +137,9 @@ def _read_json(path: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _first_markdown_heading(path: Path) -> str:
+def _first_markdown_heading(path: Path, *, root: Path | None = None) -> str:
+    if root is not None and not _is_safe_existing_child(root, path):
+        return ""
     try:
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             if line.startswith("# "):
@@ -127,7 +149,9 @@ def _first_markdown_heading(path: Path) -> str:
     return ""
 
 
-def _markdown_excerpt(path: Path, max_chars: int = 900) -> str:
+def _markdown_excerpt(path: Path, max_chars: int = 900, *, root: Path | None = None) -> str:
+    if root is not None and not _is_safe_existing_child(root, path):
+        return ""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -154,14 +178,18 @@ def _source_id(url: str) -> str:
 
 
 def _paper_node(paper_dir: Path) -> dict[str, Any] | None:
-    paper_md = paper_dir / "paper.md"
-    if not paper_md.exists():
+    papers_root = paper_dir.parent
+    if not _is_safe_existing_child(papers_root, paper_dir):
         return None
-    manifest = _read_json(paper_dir / "paper_manifest.json")
+    paper_md = paper_dir / "paper.md"
+    if not paper_md.exists() or not _is_safe_existing_child(papers_root, paper_md):
+        return None
+    manifest = _read_json(paper_dir / "paper_manifest.json", root=papers_root)
     title = (
-        _first_markdown_heading(paper_md) or paper_dir.name.replace("-", " ").title()
+        _first_markdown_heading(paper_md, root=papers_root)
+        or paper_dir.name.replace("-", " ").title()
     )
-    excerpt = _markdown_excerpt(paper_md)
+    excerpt = _markdown_excerpt(paper_md, root=papers_root)
     return {
         "id": f"paper:{paper_dir.name}",
         "kind": "paper",
@@ -190,7 +218,7 @@ def load_paper_nodes(corpus_repo: Path) -> list[dict[str, Any]]:
 
 def _load_signal_records(promising_repo: Path) -> list[dict[str, Any]]:
     data_path = promising_repo / "data" / "signals.jsonl"
-    if not data_path.exists():
+    if not data_path.exists() or not _is_safe_existing_child(promising_repo, data_path):
         return []
     records: list[dict[str, Any]] = []
     for line in data_path.read_text(encoding="utf-8").splitlines():
@@ -519,12 +547,10 @@ def _synthesis_candidate_from_related(
         return None
     related_sources = [item for item in items if item["node"].get("kind") == "source"]
     status = _text(signal.get("status"))
-    curation = (
-        signal.get("curation") if isinstance(signal.get("curation"), dict) else {}
-    )
-    followup = (
-        signal.get("followup") if isinstance(signal.get("followup"), dict) else {}
-    )
+    curation_obj = signal.get("curation")
+    curation: dict[str, Any] = curation_obj if isinstance(curation_obj, dict) else {}
+    followup_obj = signal.get("followup")
+    followup: dict[str, Any] = followup_obj if isinstance(followup_obj, dict) else {}
     return {
         "signal_id": signal_id,
         "packet_path": f"candidates/synthesis/{_candidate_slug(signal_id, signal.get('title', ''))}.md",
@@ -946,6 +972,7 @@ def _candidate_packet_markdown(
 
 
 def write_candidate_packets(graph: dict[str, Any], packet_dir: Path) -> list[Path]:
+    _reject_existing_symlink_components(packet_dir)
     packet_dir.mkdir(parents=True, exist_ok=True)
     for stale in packet_dir.glob("**/*.md"):
         stale.unlink()
@@ -956,6 +983,7 @@ def write_candidate_packets(graph: dict[str, Any], packet_dir: Path) -> list[Pat
         ("negative", "negative_result_candidates"),
     ):
         kind_dir = packet_dir / kind
+        _reject_existing_symlink_components(kind_dir)
         kind_dir.mkdir(parents=True, exist_ok=True)
         for candidate in summary.get(key) or []:
             if not isinstance(candidate, dict):
@@ -967,6 +995,7 @@ def write_candidate_packets(graph: dict[str, Any], packet_dir: Path) -> list[Pat
                 else f"{_candidate_slug(candidate.get('signal_id'), candidate.get('title'))}.md"
             )
             output = kind_dir / filename
+            _reject_existing_symlink_components(output)
             output.write_text(
                 _candidate_packet_markdown(candidate, kind=kind, graph=graph),
                 encoding="utf-8",
@@ -982,12 +1011,16 @@ def write_outputs(
     markdown_output: Path | None = None,
     candidate_packet_dir: Path | None = None,
 ) -> None:
+    _reject_existing_symlink_components(json_output.parent)
     json_output.parent.mkdir(parents=True, exist_ok=True)
+    _reject_existing_symlink_components(json_output)
     json_output.write_text(
         json.dumps(graph, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     if markdown_output is not None:
+        _reject_existing_symlink_components(markdown_output.parent)
         markdown_output.parent.mkdir(parents=True, exist_ok=True)
+        _reject_existing_symlink_components(markdown_output)
         markdown_output.write_text(_markdown(graph), encoding="utf-8")
     if candidate_packet_dir is not None:
         write_candidate_packets(graph, candidate_packet_dir)

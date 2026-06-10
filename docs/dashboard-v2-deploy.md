@@ -101,10 +101,16 @@ ssh enoch-core.exe.xyz 'ENOCH_CONTROL_TOKEN="$(jq -r .control_api_bearer_token /
 Full check with API token (local or remote base URL):
 
 ```bash
+export ENOCH_CONTROL_TOKEN
 python3 scripts/dashboard_v2_smoke.py \
-  --base-url "http://127.0.0.1:8787" \
-  --token "$ENOCH_CONTROL_TOKEN"
+  --base-url "http://127.0.0.1:8787"
 ```
+
+Keep bearer tokens out of argv: command-line arguments may be visible through
+`ps`, `/proc/<pid>/cmdline`, host audit logs, or process telemetry. The smoke
+script reads `ENOCH_CONTROL_TOKEN`, `ENOCH_CONTROL_PLANE_TOKEN`, and
+`OMX_INBOUND_BEARER_TOKEN` from the environment, so runbook examples must not
+pass token values with `--token "$..."`.
 
 Shell/assets only (no token):
 
