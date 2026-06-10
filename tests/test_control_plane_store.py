@@ -2191,7 +2191,9 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIsNone(store.project_row(followup_id))
             self.assertIsNone(store.queue_row(followup_id))
 
-    def test_launch_followup_prioritizes_child_ahead_of_default_queue_backlog(self) -> None:
+    def test_launch_followup_prioritizes_child_ahead_of_default_queue_backlog(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
             store.import_snapshot(
