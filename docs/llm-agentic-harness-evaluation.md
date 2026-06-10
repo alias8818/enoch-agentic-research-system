@@ -260,8 +260,9 @@ write or queue/dispatch mutation surfaces.
 
 ### Live bounded matrix
 
-Deployed live on `enoch-core` and run against OpenRouter models
-`moonshotai/kimi-k2.6` and `minimax/minimax-m3`:
+Deployed live on `enoch-core` as described by the
+[current runtime snapshot](current-runtime-snapshot.md), and run against
+OpenRouter models `moonshotai/kimi-k2.6` and `minimax/minimax-m3`:
 
 | Mode | Attempts | Valid JSON rate | Schema OK rate | Complete candidate rate | Invalid JSON | Avg latency |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
