@@ -1126,13 +1126,13 @@ def _remote_evidence_dir(
     remote_root = config.paper_evidence_sync_remote_root.rstrip("/")
     source = source_project_dir.strip()
     if not source:
-        return f"{remote_root}/{project_id}"
+        return _remote_evidence_dir_fallback(remote_root, project_id)
     resolved = _remote_evidence_dir_for_source(
         config, remote_root=remote_root, project_id=project_id, source=source
     )
     if resolved is not None:
         return resolved
-    return f"{remote_root}/{project_id}"
+    return _remote_evidence_dir_fallback(remote_root, project_id)
 
 
 def _safe_project_artifact_name(project_id: str) -> str:

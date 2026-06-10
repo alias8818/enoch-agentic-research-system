@@ -98,6 +98,8 @@ def test_process_tracker_project_dir_stays_under_project_root_or_none(
 
 @example(project_id="project", source_project_dir="/remote/../evil")
 @example(project_id="project", source_project_dir="~unknown-user/project")
+@example(project_id="..", source_project_dir="")
+@example(project_id="../evil project", source_project_dir="")
 @given(project_id=unsafe_text, source_project_dir=unsafe_text)
 @settings(max_examples=80, deadline=None)
 def test_remote_evidence_dir_never_contains_parent_traversal(
