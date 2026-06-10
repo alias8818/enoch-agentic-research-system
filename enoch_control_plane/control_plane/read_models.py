@@ -2550,7 +2550,9 @@ def _gated_write_candidates(
                     "hypothesis_status": _text(candidate.get("hypothesis_status")),
                     "evidence_strength": _text(candidate.get("evidence_strength")),
                     "research_outcome": _research_outcome(candidate_dict),
-                    "bounded_paper_ready": _truthy(candidate.get("bounded_paper_ready")),
+                    "bounded_paper_ready": _truthy(
+                        candidate.get("bounded_paper_ready")
+                    ),
                     "missing_evidence_reason": _paper_gate_missing_evidence_reason(
                         candidate, gate_reason=gate_reason
                     ),
@@ -2691,7 +2693,9 @@ def _build_paper_pipeline(
     missing_evidence_reason_counts: dict[str, int] = {}
     for row in gate_rejected:
         archive_class = _text(row.get("archive_class")) or "unknown"
-        archive_class_counts[archive_class] = archive_class_counts.get(archive_class, 0) + 1
+        archive_class_counts[archive_class] = (
+            archive_class_counts.get(archive_class, 0) + 1
+        )
         reason = _text(row.get("missing_evidence_reason"))
         if reason:
             missing_evidence_reason_counts[reason] = (

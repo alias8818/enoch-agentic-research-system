@@ -12306,7 +12306,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
         )
         self.assertEqual(rejected["archive_class"], "bounded_followup_required")
         self.assertEqual(rejected["missing_evidence_reason"], "real transformer traces")
-        self.assertEqual(rejected["followup_required_evidence"], ["real transformer traces"])
+        self.assertEqual(
+            rejected["followup_required_evidence"], ["real transformer traces"]
+        )
 
         pipeline = _build_paper_pipeline(
             write_candidates=write_candidates,

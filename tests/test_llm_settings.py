@@ -684,7 +684,9 @@ def test_llm_settings_candidate_json_probe_prompt_matches_schema_shape() -> None
     assert "compact JSON array" not in prompt
 
 
-def test_llm_settings_candidate_json_probe_array_shape_is_recoverable_mismatch() -> None:
+def test_llm_settings_candidate_json_probe_array_shape_is_recoverable_mismatch() -> (
+    None
+):
     from enoch_control_plane.control_plane.router import _evaluate_llm_format_probe
 
     result = _evaluate_llm_format_probe(
