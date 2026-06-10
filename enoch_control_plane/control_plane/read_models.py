@@ -2489,6 +2489,17 @@ def _overview_row_sources(
     return _overview_row_sources_canonical(store, active_limit=active_limit)
 
 
+def _paper_gate_missing_evidence_reason(
+    candidate: Mapping[str, Any], *, gate_reason: str
+) -> str:
+    required_evidence = _listish(candidate.get("followup_required_evidence"))
+    if required_evidence:
+        return required_evidence[0]
+    if _text(candidate.get("recommended_next_action")):
+        return _text(candidate.get("recommended_next_action"))
+    return gate_reason
+
+
 def _paper_gate_archive_class(
     candidate: Mapping[str, Any], gate: Mapping[str, Any] | None
 ) -> str:
@@ -2540,8 +2551,8 @@ def _gated_write_candidates(
                     "evidence_strength": _text(candidate.get("evidence_strength")),
                     "research_outcome": _research_outcome(candidate_dict),
                     "bounded_paper_ready": _truthy(candidate.get("bounded_paper_ready")),
-                    "missing_evidence_reason": _missing_evidence_reason(
-                        {**candidate_dict, "gate_reason": gate_reason}
+                    "missing_evidence_reason": _paper_gate_missing_evidence_reason(
+                        candidate, gate_reason=gate_reason
                     ),
                     "followup_required_evidence": _listish(
                         candidate.get("followup_required_evidence")

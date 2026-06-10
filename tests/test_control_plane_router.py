@@ -12305,7 +12305,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             rejected["gate_reason"], "bounded follow-up required before paper writing"
         )
         self.assertEqual(rejected["archive_class"], "bounded_followup_required")
-        self.assertEqual(rejected["missing_evidence_reason"], rejected["gate_reason"])
+        self.assertEqual(rejected["missing_evidence_reason"], "real transformer traces")
         self.assertEqual(rejected["followup_required_evidence"], ["real transformer traces"])
 
         pipeline = _build_paper_pipeline(
@@ -12323,7 +12323,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
         )
         self.assertEqual(
             pipeline["paper_gate_missing_evidence_reason_counts"],
-            {"bounded follow-up required before paper writing": 1},
+            {"real transformer traces": 1},
         )
         self.assertEqual(
             pipeline["gate_rejected_sample"][0]["recommended_next_action"],
