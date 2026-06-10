@@ -4810,7 +4810,12 @@ def _base_llm_model_health_payload(
 
 
 def _copy_optional_bool_flags(out: dict[str, Any], payload: Mapping[str, Any]) -> None:
-    for key in ("valid_json", "schema_ok", "sanitized_or_refusal_detected"):
+    for key in (
+        "valid_json",
+        "schema_ok",
+        "recoverable_json_shape",
+        "sanitized_or_refusal_detected",
+    ):
         if key in payload:
             out[key] = bool(payload.get(key))
 
@@ -4861,6 +4866,8 @@ def _llm_model_format_health(format_events: list[dict[str, Any]]) -> str:
     if not format_events:
         return "unmeasured"
     latest = format_events[0]
+    if latest.get("recoverable_json_shape"):
+        return "recoverable_mismatch"
     if latest.get("malformed_kind"):
         return "degraded"
     if latest.get("valid_json") is False or latest.get("schema_ok") is False:
@@ -4896,6 +4903,8 @@ def _llm_model_workflow_health(format_events: list[dict[str, Any]]) -> str:
     if not workflow_events:
         return "unmeasured"
     latest = workflow_events[0]
+    if latest.get("recoverable_json_shape"):
+        return "recoverable_mismatch"
     if (
         latest.get("valid_json") is False
         or latest.get("schema_ok") is False
@@ -4923,6 +4932,8 @@ def _llm_model_operator_action(
         return "increase output budget or disable this model for workflows that require visible structured output"
     if reasoning_budget_health == "length_limited":
         return "increase max_tokens or move strict-output workflows away from this length-limited model"
+    if format_health == "recoverable_mismatch":
+        return "keep endpoint health separate from strict contract health; add prompt/schema parser recovery or retest before widening automation"
     if format_health == "degraded":
         return "keep endpoint health separate from automation usefulness; review format failures before widening automation"
     if format_health == "unmeasured":
@@ -4990,6 +5001,7 @@ def _llm_contract_result_from_event(
         "checked_at": _text(event.get("checked_at")),
         "structured_output_mode": _text(event.get("structured_output_mode")),
         "response_format_type": _text(event.get("response_format_type")),
+        "recoverable_json_shape": bool(event.get("recoverable_json_shape")),
         "reasoning_effort": _text(event.get("reasoning_effort")),
         "reasoning_excluded": bool(event.get("reasoning_excluded")),
     }
@@ -5009,6 +5021,7 @@ def _llm_workflow_model_operator_recommendation(
     model_id: str,
     label: str,
     endpoint_health: str,
+    recoverable_shape_failures: list[str],
     format_failures: list[str],
     token_budget_failures: list[str],
     missing_contracts: list[str],
@@ -5018,6 +5031,12 @@ def _llm_workflow_model_operator_recommendation(
         return (
             "fix_endpoint",
             f"fix endpoint health before using {name} in this workflow",
+        )
+    if recoverable_shape_failures:
+        contracts = ", ".join(recoverable_shape_failures)
+        return (
+            "repair_recoverable_shape",
+            f"repair prompt/schema parser recovery for {name} on {contracts}; JSON was valid but not strict contract shape",
         )
     if format_failures:
         contracts = ", ".join(format_failures)
@@ -5052,6 +5071,7 @@ def _missing_llm_workflow_model_recommendation(
         "passed_contracts": [],
         "missing_contracts": required_contracts,
         "token_budget_failures": [],
+        "recoverable_shape_failures": [],
         "format_failures": [],
         "contract_results": [],
     }
@@ -5068,6 +5088,7 @@ def _llm_workflow_model_recommendation(
     contract_results: list[dict[str, Any]] = []
     missing_contracts: list[str] = []
     token_budget_failures: list[str] = []
+    recoverable_shape_failures: list[str] = []
     format_failures: list[str] = []
     passed_contracts: list[str] = []
     for contract in required_contracts:
@@ -5079,6 +5100,8 @@ def _llm_workflow_model_recommendation(
         passed = _llm_format_contract_passed(event)
         if passed:
             passed_contracts.append(contract)
+        elif event.get("recoverable_json_shape"):
+            recoverable_shape_failures.append(contract)
         elif _llm_contract_needs_token_budget(event):
             token_budget_failures.append(contract)
         else:
@@ -5090,6 +5113,7 @@ def _llm_workflow_model_recommendation(
         model_id=model_id,
         label=label,
         endpoint_health=endpoint_health,
+        recoverable_shape_failures=recoverable_shape_failures,
         format_failures=format_failures,
         token_budget_failures=token_budget_failures,
         missing_contracts=missing_contracts,
@@ -5103,6 +5127,7 @@ def _llm_workflow_model_recommendation(
         "passed_contracts": passed_contracts,
         "missing_contracts": missing_contracts,
         "token_budget_failures": token_budget_failures,
+        "recoverable_shape_failures": recoverable_shape_failures,
         "format_failures": format_failures,
         "contract_results": contract_results,
     }
@@ -5259,6 +5284,9 @@ def _llm_model_health_counts(
             for attempt in attempts
             if _text(attempt.get("finish_reason")).lower() == "length"
         ),
+        "recoverable_json_shape_count": sum(
+            1 for attempt in format_events if attempt.get("recoverable_json_shape")
+        ),
         "rate_limited_count": sum(
             1 for attempt in attempts if attempt.get("failure_kind") == "rate_limited"
         ),
@@ -5292,6 +5320,9 @@ def _llm_latest_model_health_fields(
         "latest_reasoning_effort": _text(latest_payload.get("reasoning_effort")),
         "latest_reasoning_excluded": bool(latest_payload.get("reasoning_excluded")),
         "latest_format_checked_at": _text(latest_format_payload.get("checked_at")),
+        "latest_recoverable_json_shape": bool(
+            latest_format_payload.get("recoverable_json_shape")
+        ),
         "latest_workflow_id": _text(latest_payload.get("workflow_id")),
         "latest_malformed_kind": _text(latest_payload.get("malformed_kind")),
     }
@@ -5365,7 +5396,7 @@ def llm_model_health_summary(
     structurally_unhealthy_count = sum(
         1
         for row in models
-        if row["format_health"] == "degraded"
+        if row["format_health"] in {"degraded", "recoverable_mismatch"}
         or row["visible_output_health"] == "empty"
         or row["reasoning_budget_health"] == "length_limited"
     )
@@ -5379,8 +5410,8 @@ def llm_model_health_summary(
         "structurally_unhealthy_count": structurally_unhealthy_count,
         "taxonomy": {
             "endpoint_health": "provider/model can return a response",
-            "format_health": "model output satisfies measured structured-output contracts",
-            "workflow_health": "model satisfies measured workflow-specific prompt contracts",
+            "format_health": "model output satisfies measured structured-output contracts; recoverable_mismatch means valid JSON with a known repairable legacy shape",
+            "workflow_health": "model satisfies measured workflow-specific prompt contracts; recoverable_mismatch means valid JSON with a known repairable legacy shape",
             "visible_output_health": "model returns non-empty visible content",
             "reasoning_budget_health": "model does not exhaust output budget before visible content",
         },

@@ -154,3 +154,68 @@ routing automatically.
   and output-contract pass/fail.
 - Add provider-router comparison metrics that compare native routing against the
   sidecar without changing production routing.
+
+## ALI-178 structured-output runtime decision — 2026-06-10
+
+ALI-178 revisited the harness question after MiniMax M3 and Kimi showed different
+`candidate_json` behavior. The current decision is narrower than the ALI-124
+sidecar PoC: do **not** adopt Flue, PyFlue, or Pi as the production harness for
+structured-output validation.
+
+### Decision
+
+Use a thin in-repo adapter around Enoch's existing provider calls and
+`llm_harness` telemetry. Prefer library-grade pieces over a framework takeover:
+
+- Pydantic models for typed output contracts.
+- Pydantic AI only where an agent-style typed call is actually needed.
+- Instructor as an optional one-shot typed extraction fallback if provider-native
+  JSON/schema behavior remains inconsistent.
+- Tenacity-style provider retries for transport/rate-limit/timeout failures.
+- Existing Enoch `llm_harness.*` events as the authoritative telemetry and
+  operator surface.
+
+### Rejected as production harnesses
+
+| Candidate | Decision | Reason |
+| --- | --- | --- |
+| Flue | Reject | TypeScript-first full agent framework; wrong language and too much surface for the Python control plane. |
+| PyFlue | Reject for now | Alpha Python port with high overlap against Enoch's existing queue, dispatch, sessions, skills, and telemetry. It appears to use Pydantic AI internally, which Enoch can use directly if needed. |
+| Pi / pi-llm Python ports | Reject as primary | Original TypeScript ecosystem is interesting, but Python ports are small/single-maintainer and would replace provider-call surfaces Enoch already owns. |
+
+### Thin-adapter contract
+
+The next implementation slice should keep this contract explicit and testable:
+
+- **Typed validation:** every structured workflow maps to a Pydantic schema and a
+  deterministic parser/validator result.
+- **Retry taxonomy:** classify failures as `validation`, `recoverable_shape`,
+  `rate_limit`, `timeout`, `provider_error`, `auth_error`, `schema_mismatch`, or
+  `fatal` before dashboard/readiness aggregation.
+- **Telemetry:** persist prompt contract, provider/model, schema mode,
+  `valid_json`, `schema_ok`, `malformed_kind`, `recoverable_json_shape`, latency,
+  token usage, and redacted preview in existing events.
+- **Timeout/cost caps:** provider calls remain bounded before any side effect;
+  validation retries must have an independent cap from transport retries.
+- **Tool allowlists:** any future agent/tool path must be workflow-scoped and
+  disabled for model-health probes, provider-budget checks, readiness, queue
+  dispatch, and paper publication gates.
+- **Rollback boundary:** validated typed output and redacted raw evidence must be
+  persisted before queue, paper, readiness, or route state can be mutated.
+
+### Post-fix probe evidence
+
+After the `candidate_json` contract fix, live bounded probes through
+`/control/api/settings/llm/test` showed:
+
+- `moonshotai/kimi-k2.6`: `valid_json=true`, `schema_ok=true`,
+  `malformed_kind=""`, `finish_reason=stop`, `visible_chars=62`, latency about
+  3.7s.
+- `minimax/minimax-m3`: endpoint healthy but `valid_json=false`,
+  `schema_ok=false`, `malformed_kind=invalid_json`, `finish_reason=stop`,
+  `visible_chars=322`, latency about 73s.
+
+This means Kimi can be reconsidered for `candidate_json` routing only after the
+normal route-safety gates, while MiniMax M3 should not be promoted from this
+probe evidence. The MiniMax M3 failure was not the known recoverable legacy array
+shape; it was invalid JSON under the bounded probe.

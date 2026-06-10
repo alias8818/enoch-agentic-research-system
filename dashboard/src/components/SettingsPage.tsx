@@ -51,15 +51,21 @@ type LlmModelHealthRow = {
   provider_id: string
   model_id: string
   status: string
+  format_health?: string
+  workflow_health?: string
   latest_checked_at?: string
   latest_failure_kind?: string
+  latest_malformed_kind?: string
+  latest_recoverable_json_shape?: boolean
   latest_latency_ms?: number
   latest_status_code?: number
   success_rate?: number
+  format_success_rate?: number
   attempt_count?: number
   success_count?: number
   failure_count?: number
   consecutive_failures?: number
+  recoverable_json_shape_count?: number
   latest?: Record<string, unknown> | null
 }
 
@@ -403,6 +409,10 @@ function HealthResult({ health }: Readonly<{ health?: LlmModelHealthRow }>) {
   }
   const status = health.status || 'unknown'
   const details = [
+    health.format_health ? `format ${health.format_health}` : '',
+    health.workflow_health ? `workflow ${health.workflow_health}` : '',
+    health.latest_recoverable_json_shape ? 'recoverable legacy JSON shape' : '',
+    health.latest_malformed_kind || '',
     health.latest_latency_ms ? `${health.latest_latency_ms}ms` : '',
     health.latest_status_code ? `status ${health.latest_status_code}` : '',
     formatHealthTimestamp(health.latest_checked_at),

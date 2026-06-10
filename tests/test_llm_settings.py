@@ -1301,6 +1301,79 @@ def test_llm_model_health_summary_recommends_workflow_pool_tuning() -> None:
     assert "structurally unreliable" in by_model["hf:bad-json"]["operator_action"]
 
 
+def test_llm_model_health_summary_surfaces_recoverable_candidate_json_shape() -> None:
+    from enoch_control_plane.control_plane.read_models import llm_model_health_summary
+
+    settings = default_llm_settings()
+    synthetic = next(
+        provider
+        for provider in settings.providers
+        if provider.provider_id == "synthetic"
+    )
+    synthetic.enabled = True
+    settings.models = [
+        LLMModelSettings(
+            model_id="hf:legacy-array",
+            provider_id="synthetic",
+            label="Legacy Array",
+            enabled=True,
+        )
+    ]
+    generation = next(
+        workflow
+        for workflow in settings.workflows
+        if workflow.workflow_id == "research_generation"
+    )
+    generation.model_pool = ["hf:legacy-array"]
+    generation.default_model = "hf:legacy-array"
+
+    class FakeStore:
+        def event_page(self, **_kwargs):
+            return (
+                [
+                    {
+                        "event_id": 1,
+                        "created_at": "2026-06-10T02:00:00Z",
+                        "payload": {
+                            "provider_id": "synthetic",
+                            "model_id": "hf:legacy-array",
+                            "ok": True,
+                            "checked_at": "2026-06-10T02:00:00Z",
+                            "source": "format_probe",
+                            "prompt_contract": "candidate_json",
+                            "valid_json": True,
+                            "schema_ok": False,
+                            "malformed_kind": "legacy_candidate_array_shape",
+                            "recoverable_json_shape": True,
+                            "finish_reason": "stop",
+                            "visible_chars": 80,
+                        },
+                    }
+                ],
+                None,
+                False,
+            )
+
+    summary = llm_model_health_summary(FakeStore(), settings)
+
+    row = summary["models"][0]
+    assert row["endpoint_health"] == "healthy"
+    assert row["format_health"] == "recoverable_mismatch"
+    assert row["recoverable_json_shape_count"] == 1
+    assert row["latest_recoverable_json_shape"] is True
+    assert "prompt/schema parser recovery" in row["operator_action"]
+    assert summary["structurally_unhealthy_count"] == 1
+    generation_rec = next(
+        item
+        for item in summary["workflow_recommendations"]
+        if item["workflow_id"] == "research_generation"
+    )
+    model_rec = generation_rec["models"][0]
+    assert model_rec["recommendation"] == "repair_recoverable_shape"
+    assert model_rec["recoverable_shape_failures"] == ["candidate_json"]
+    assert model_rec["contract_results"][0]["recoverable_json_shape"] is True
+
+
 def test_research_provider_selection_uses_persisted_settings() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         config = _config(tmp)
