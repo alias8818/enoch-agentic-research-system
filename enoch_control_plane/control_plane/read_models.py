@@ -4,7 +4,7 @@ import hashlib
 import json
 import math
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, NamedTuple, Sequence
 from urllib.parse import quote
@@ -5066,6 +5066,8 @@ _LLM_WORKFLOW_REQUIRED_CONTRACTS: dict[str, list[str]] = {
     "research_review": ["strict_json"],
     "general_agent": ["strict_json"],
 }
+_LLM_ROUTE_PROMOTION_MIN_GREEN_ATTEMPTS = 3
+_LLM_ROUTE_PROMOTION_FRESHNESS_HOURS = 24
 
 
 def _llm_workflow_required_contracts(workflow: Any) -> list[str]:
@@ -5295,17 +5297,81 @@ def _recommended_llm_workflow_default(
     return ""
 
 
+def _llm_event_fresh_for_route_promotion(event: Mapping[str, Any]) -> bool:
+    checked_at = parse_utc_datetime(_text(event.get("checked_at")))
+    if checked_at is None:
+        return False
+    age = datetime.now(timezone.utc) - checked_at
+    return timedelta(0) <= age <= timedelta(hours=_LLM_ROUTE_PROMOTION_FRESHNESS_HOURS)
+
+
+def _llm_route_promotion_gate(
+    *,
+    attempts: list[dict[str, Any]],
+    required_contracts: list[str],
+    response_format_type: str,
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    for contract in required_contracts:
+        contract_mode_events = [
+            event
+            for event in attempts
+            if _text(event.get("prompt_contract")) == contract
+            and _llm_event_mode(event) == response_format_type
+        ]
+        green_events = [
+            event
+            for event in contract_mode_events
+            if _llm_format_contract_passed(event)
+        ]
+        fresh_green_events = [
+            event
+            for event in green_events
+            if _llm_event_fresh_for_route_promotion(event)
+        ]
+        recent_mode_events = [
+            event
+            for event in contract_mode_events
+            if _llm_event_fresh_for_route_promotion(event)
+        ]
+        if len(fresh_green_events) < _LLM_ROUTE_PROMOTION_MIN_GREEN_ATTEMPTS:
+            reasons.append(
+                f"insufficient_green_attempts:{contract}:{response_format_type}"
+            )
+        if green_events and len(fresh_green_events) < len(green_events):
+            reasons.append(f"stale_green_evidence:{contract}:{response_format_type}")
+        if any(not _llm_format_contract_passed(event) for event in recent_mode_events):
+            reasons.append(
+                f"non_green_recent_attempt:{contract}:{response_format_type}"
+            )
+    return {
+        "eligible": not reasons,
+        "min_green_attempts": _LLM_ROUTE_PROMOTION_MIN_GREEN_ATTEMPTS,
+        "freshness_hours": _LLM_ROUTE_PROMOTION_FRESHNESS_HOURS,
+        "reasons": reasons,
+    }
+
+
 def _llm_workflow_route_policy(
     *,
     usable_models: list[str],
     recommendations: list[dict[str, Any]],
+    events_by_model: Mapping[tuple[str, str], list[dict[str, Any]]],
+    model_provider_ids: Mapping[str, str],
     required_contracts: list[str],
 ) -> dict[str, Any]:
     if not usable_models:
         return {
             "mode": "observe_only",
             "production_route_mutation": False,
+            "recommended_model": "",
             "recommended_response_format_type": "",
+            "promotion_gate": {
+                "eligible": False,
+                "min_green_attempts": _LLM_ROUTE_PROMOTION_MIN_GREEN_ATTEMPTS,
+                "freshness_hours": _LLM_ROUTE_PROMOTION_FRESHNESS_HOURS,
+                "reasons": ["no_usable_model"],
+            },
             "status": "blocked",
             "reason": "no model has green persisted contract evidence",
         }
@@ -5327,20 +5393,37 @@ def _llm_workflow_route_policy(
     recommended_mode = (
         modes[0] if modes and all(mode == modes[0] for mode in modes) else ""
     )
+    provider_id = _text(model_provider_ids.get(preferred_model))
+    gate = (
+        _llm_route_promotion_gate(
+            attempts=events_by_model.get((provider_id, preferred_model), []),
+            required_contracts=required_contracts,
+            response_format_type=recommended_mode,
+        )
+        if provider_id and recommended_mode
+        else {
+            "eligible": False,
+            "min_green_attempts": _LLM_ROUTE_PROMOTION_MIN_GREEN_ATTEMPTS,
+            "freshness_hours": _LLM_ROUTE_PROMOTION_FRESHNESS_HOURS,
+            "reasons": ["missing_explicit_structured_output_mode"],
+        }
+    )
+    eligible = bool(gate.get("eligible"))
     return {
         "mode": "observe_only",
         "production_route_mutation": False,
-        "recommended_model": preferred_model,
-        "recommended_response_format_type": recommended_mode,
+        "recommended_model": preferred_model if eligible else "",
+        "recommended_response_format_type": recommended_mode if eligible else "",
         "required_contracts": required_contracts,
         "schema_contract_names": [
             _llm_contract_schema_name(contract) for contract in required_contracts
         ],
-        "status": "evidence_ready" if recommended_mode else "needs_attention",
+        "promotion_gate": gate,
+        "status": "promotion_candidate" if eligible else "blocked",
         "reason": (
-            "persisted green evidence exists; production route remains unchanged until explicitly promoted"
-            if recommended_mode
-            else "usable model lacks explicit structured-output mode evidence"
+            "fresh repeated green evidence exists; production route remains unchanged until explicitly promoted"
+            if eligible
+            else "fail-closed: route promotion requires fresh repeated all-green structured-output evidence"
         ),
     }
 
@@ -5349,6 +5432,7 @@ def _llm_workflow_recommendation(
     workflow: Any,
     *,
     model_rows: Mapping[str, dict[str, Any]],
+    model_provider_ids: Mapping[str, str],
     events_by_model: Mapping[tuple[str, str], list[dict[str, Any]]],
 ) -> dict[str, Any]:
     workflow_id = _text(getattr(workflow, "workflow_id", ""))
@@ -5401,6 +5485,8 @@ def _llm_workflow_recommendation(
         "route_policy": _llm_workflow_route_policy(
             usable_models=usable_models,
             recommendations=recommendations,
+            events_by_model=events_by_model,
+            model_provider_ids=model_provider_ids,
             required_contracts=required_contracts,
         ),
         "operator_action": operator_action,
@@ -5415,9 +5501,15 @@ def _llm_workflow_recommendations(
     events_by_model: Mapping[tuple[str, str], list[dict[str, Any]]],
 ) -> list[dict[str, Any]]:
     model_rows = {_text(row.get("model_id")): row for row in models}
+    model_provider_ids = {
+        model_id: _text(row.get("provider_id")) for model_id, row in model_rows.items()
+    }
     return [
         _llm_workflow_recommendation(
-            workflow, model_rows=model_rows, events_by_model=events_by_model
+            workflow,
+            model_rows=model_rows,
+            model_provider_ids=model_provider_ids,
+            events_by_model=events_by_model,
         )
         for workflow in getattr(settings, "workflows", [])
         if bool(getattr(workflow, "enabled", True))

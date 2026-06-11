@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import urllib.error
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -183,12 +184,164 @@ def test_llm_model_health_summarizes_structured_output_capability_evidence() -> 
     assert workflow["status"] == "healthy"
     assert workflow["route_policy"]["mode"] == "observe_only"
     assert workflow["route_policy"]["production_route_mutation"] is False
-    assert workflow["route_policy"]["recommended_response_format_type"] == "json_schema"
+    assert workflow["route_policy"]["recommended_response_format_type"] == ""
+    assert workflow["route_policy"]["status"] == "blocked"
+    assert workflow["route_policy"]["promotion_gate"]["eligible"] is False
     assert workflow["models"][0]["recommendation"] == "usable"
     assert (
         workflow["models"][0]["contract_results"][0]["response_format_type"]
         == "json_schema"
     )
+
+
+def _iso_at(delta: timedelta) -> str:
+    return (datetime.now(timezone.utc) + delta).replace(microsecond=0).isoformat()
+
+
+def _settings_with_single_research_model(model_id: str = "minimax/minimax-m3"):
+    settings = default_llm_settings()
+    openrouter = next(
+        provider
+        for provider in settings.providers
+        if provider.provider_id == "openrouter"
+    )
+    openrouter.enabled = True
+    settings.models.append(
+        LLMModelSettings(
+            model_id=model_id,
+            provider_id="openrouter",
+            label="MiniMax M3",
+            enabled=True,
+        )
+    )
+    research_generation = next(
+        workflow
+        for workflow in settings.workflows
+        if workflow.workflow_id == "research_generation"
+    )
+    research_generation.provider_ids = ["openrouter"]
+    research_generation.model_pool = [model_id]
+    research_generation.default_model = model_id
+    return settings
+
+
+def _format_probe_event(
+    event_id: int,
+    *,
+    model_id: str = "minimax/minimax-m3",
+    mode: str = "json_schema",
+    checked_at: str | None = None,
+    valid_json: bool = True,
+    schema_ok: bool = True,
+    malformed_kind: str = "",
+    finish_reason: str = "stop",
+    visible_chars: int = 100,
+) -> dict[str, object]:
+    return {
+        "event_id": event_id,
+        "payload": {
+            "provider_id": "openrouter",
+            "model_id": model_id,
+            "ok": valid_json and schema_ok and not malformed_kind,
+            "status_code": 200,
+            "source": "format_probe",
+            "prompt_contract": "candidate_json",
+            "structured_output_mode": mode,
+            "response_format_type": mode,
+            "checked_at": checked_at or _iso_at(timedelta(minutes=-5)),
+            "finish_reason": finish_reason,
+            "visible_chars": visible_chars,
+            "valid_json": valid_json,
+            "schema_ok": schema_ok,
+            "malformed_kind": malformed_kind,
+        },
+    }
+
+
+class _FakeLLMEventStore:
+    def __init__(self, events: list[dict[str, object]]) -> None:
+        self._events = events
+
+    def event_page(self, **_kwargs: object):
+        return (self._events, None, False)
+
+
+def test_llm_route_policy_fails_closed_until_repeated_fresh_green_evidence() -> None:
+    settings = _settings_with_single_research_model()
+    summary = read_models.llm_model_health_summary(
+        _FakeLLMEventStore([_format_probe_event(1)]), settings
+    )
+
+    policy = summary["workflow_recommendations"][0]["route_policy"]
+
+    assert policy["mode"] == "observe_only"
+    assert policy["production_route_mutation"] is False
+    assert policy["status"] == "blocked"
+    assert policy["recommended_model"] == ""
+    assert policy["recommended_response_format_type"] == ""
+    assert policy["promotion_gate"]["eligible"] is False
+    assert (
+        "insufficient_green_attempts:candidate_json:json_schema"
+        in policy["promotion_gate"]["reasons"]
+    )
+
+
+def test_llm_route_policy_fails_closed_on_stale_or_mixed_evidence() -> None:
+    settings = _settings_with_single_research_model()
+    stale = _iso_at(timedelta(days=-3))
+    events = [
+        _format_probe_event(4, checked_at=stale),
+        _format_probe_event(3, checked_at=stale),
+        _format_probe_event(2, checked_at=stale),
+        _format_probe_event(
+            1,
+            checked_at=_iso_at(timedelta(minutes=-2)),
+            schema_ok=False,
+            malformed_kind="schema_mismatch",
+        ),
+    ]
+    summary = read_models.llm_model_health_summary(_FakeLLMEventStore(events), settings)
+
+    policy = summary["workflow_recommendations"][0]["route_policy"]
+
+    assert policy["status"] == "blocked"
+    assert policy["recommended_model"] == ""
+    assert policy["recommended_response_format_type"] == ""
+    assert policy["promotion_gate"]["eligible"] is False
+    assert (
+        "stale_green_evidence:candidate_json:json_schema"
+        in policy["promotion_gate"]["reasons"]
+    )
+    assert (
+        "non_green_recent_attempt:candidate_json:json_schema"
+        in policy["promotion_gate"]["reasons"]
+    )
+
+
+def test_llm_route_policy_recommends_fail_closed_candidate_after_fresh_repeated_green_evidence() -> (
+    None
+):
+    settings = _settings_with_single_research_model()
+    events = [
+        _format_probe_event(3, checked_at=_iso_at(timedelta(minutes=-1))),
+        _format_probe_event(2, checked_at=_iso_at(timedelta(minutes=-2))),
+        _format_probe_event(1, checked_at=_iso_at(timedelta(minutes=-3))),
+    ]
+    summary = read_models.llm_model_health_summary(_FakeLLMEventStore(events), settings)
+
+    policy = summary["workflow_recommendations"][0]["route_policy"]
+
+    assert policy["mode"] == "observe_only"
+    assert policy["production_route_mutation"] is False
+    assert policy["status"] == "promotion_candidate"
+    assert policy["recommended_model"] == "minimax/minimax-m3"
+    assert policy["recommended_response_format_type"] == "json_schema"
+    assert policy["promotion_gate"] == {
+        "eligible": True,
+        "min_green_attempts": 3,
+        "freshness_hours": 24,
+        "reasons": [],
+    }
 
 
 def test_llm_settings_reject_unknown_workflow_model() -> None:
