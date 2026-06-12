@@ -68,7 +68,9 @@ bootstrap_scaffold() {
   fi
 
   local token_file="${ENOCH_SCAFFOLD_TOKEN_FILE:-$HOME/.config/enoch-git/scaffold-reader-token}"
-  local scaffold_url="${ENOCH_SCAFFOLD_URL:-http://100.114.53.78:8000/scaffolds/scaffold-enoch-worker-artifact.git}"
+  local catalog_url="${ENOCH_SCAFFOLD_CATALOG_URL:-http://100.114.53.78:8000/scaffolds/scaffold-catalog.git}"
+  local requested_scaffold="${ENOCH_SCAFFOLD_NAME:-}"
+  local direct_scaffold_url="${ENOCH_SCAFFOLD_URL:-}"
   if [[ ! -s "$token_file" ]]; then
     echo "scaffold bootstrap skipped: token file missing: $token_file" >&2
     return 0
@@ -78,7 +80,7 @@ bootstrap_scaffold() {
     return 0
   fi
 
-  local tmp_dir git_config scaffold_commit
+  local tmp_dir git_config scaffold_commit scaffold_url selected_scaffold selection
   tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/enoch-scaffold-bootstrap.XXXXXX")"
   git_config="$tmp_dir/gitconfig"
   cleanup_scaffold_tmp() { rm -rf "$tmp_dir"; }
@@ -86,10 +88,70 @@ bootstrap_scaffold() {
 
   {
     printf '[http "http://100.114.53.78:8000/"]\n'
-    printf '\textraHeader = Authorization: token %s\n' "$(<"$token_file")"
+    printf '\textraHeader = Authorization: token %s\n' "$(tr -d '\n' <"$token_file")"
   } >"$git_config"
   chmod 600 "$git_config"
 
+  if [[ -n "$direct_scaffold_url" ]]; then
+    scaffold_url="$direct_scaffold_url"
+    selected_scaffold="direct-url"
+  else
+    GIT_CONFIG_GLOBAL="$git_config" git clone --depth 1 "$catalog_url" "$tmp_dir/catalog" >&2
+    if ! selection="$(python3 - <<'PY_SELECT_SCAFFOLD' "$tmp_dir/catalog" "$requested_scaffold"
+from __future__ import annotations
+import json
+import pathlib
+import sys
+
+catalog_root = pathlib.Path(sys.argv[1])
+requested = sys.argv[2]
+for relative in ("catalog.json", "scaffolds.json", ".scaffold-catalog.json"):
+    candidate = catalog_root / relative
+    if candidate.is_file():
+        catalog_path = candidate
+        break
+else:
+    print("scaffold catalog missing catalog.json", file=sys.stderr)
+    raise SystemExit(2)
+
+try:
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+except Exception as exc:  # pragma: no cover - exercised through shell integration.
+    print(f"invalid scaffold catalog {catalog_path.name}: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+
+scaffolds = catalog.get("scaffolds")
+if not isinstance(scaffolds, list):
+    print("scaffold catalog must contain a scaffolds list", file=sys.stderr)
+    raise SystemExit(2)
+
+wanted = requested or str(catalog.get("default") or "")
+if not wanted:
+    print("scaffold catalog has no default and ENOCH_SCAFFOLD_NAME is unset", file=sys.stderr)
+    raise SystemExit(2)
+
+for item in scaffolds:
+    if not isinstance(item, dict):
+        continue
+    if item.get("name") == wanted:
+        repo = item.get("repo") or item.get("url")
+        if not isinstance(repo, str) or not repo:
+            print(f"scaffold {wanted} has no repo", file=sys.stderr)
+            raise SystemExit(2)
+        print(f"{wanted}\t{repo}")
+        raise SystemExit(0)
+
+print(f"unknown scaffold: {wanted}", file=sys.stderr)
+raise SystemExit(2)
+PY_SELECT_SCAFFOLD
+)"; then
+      return 2
+    fi
+    selected_scaffold="${selection%%$'\t'*}"
+    scaffold_url="${selection#*$'\t'}"
+  fi
+
+  echo "scaffold selected: $selected_scaffold -> $scaffold_url" >&2
   GIT_CONFIG_GLOBAL="$git_config" git clone --depth 1 "$scaffold_url" "$tmp_dir/scaffold" >&2
   scaffold_commit="$(GIT_CONFIG_GLOBAL="$git_config" git -C "$tmp_dir/scaffold" rev-parse HEAD)"
 
@@ -100,16 +162,18 @@ bootstrap_scaffold() {
   if [[ -x "$PROJECT_DIR/.scaffold/smoke.sh" ]]; then
     (cd "$PROJECT_DIR" && bash .scaffold/smoke.sh) >&2
   fi
-  python3 - <<'PY_SCAFFOLD_USED' "$PROJECT_DIR/.scaffold-used.yaml" "$scaffold_url" "$scaffold_commit"
+  python3 - <<'PY_SCAFFOLD_USED' "$PROJECT_DIR/.scaffold-used.yaml" "$scaffold_url" "$scaffold_commit" "$selected_scaffold"
 from __future__ import annotations
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 scaffold_url = sys.argv[2]
 scaffold_commit = sys.argv[3]
+selected_scaffold = sys.argv[4]
 text = path.read_text(encoding="utf-8") if path.exists() else ""
 lines = []
 seen_commit = False
 seen_url = False
+seen_selection = False
 for line in text.splitlines():
     if line.startswith("scaffold_commit:"):
         lines.append(f"scaffold_commit: {scaffold_commit}")
@@ -117,12 +181,17 @@ for line in text.splitlines():
     elif line.startswith("scaffold_source_url:"):
         lines.append(f"scaffold_source_url: {scaffold_url}")
         seen_url = True
+    elif line.startswith("scaffold_selected_name:"):
+        lines.append(f"scaffold_selected_name: {selected_scaffold}")
+        seen_selection = True
     else:
         lines.append(line)
 if not seen_commit:
     lines.append(f"scaffold_commit: {scaffold_commit}")
 if not seen_url:
     lines.append(f"scaffold_source_url: {scaffold_url}")
+if not seen_selection:
+    lines.append(f"scaffold_selected_name: {selected_scaffold}")
 path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 PY_SCAFFOLD_USED
   echo "scaffold bootstrap ok: $scaffold_url@$scaffold_commit" >&2
