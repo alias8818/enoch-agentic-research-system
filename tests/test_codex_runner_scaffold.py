@@ -341,9 +341,12 @@ def test_codex_runner_skips_scaffold_when_disabled(tmp_path: Path) -> None:
     assert not (project / ".scaffold-used.yaml").exists()
 
 
-
-def test_codex_runner_yaml_nested_clone_url_does_not_override_repo(tmp_path: Path) -> None:
-    safe_src, safe_commit = _create_scaffold_repo(tmp_path, "scaffold-enoch-worker-artifact")
+def test_codex_runner_yaml_nested_clone_url_does_not_override_repo(
+    tmp_path: Path,
+) -> None:
+    safe_src, safe_commit = _create_scaffold_repo(
+        tmp_path, "scaffold-enoch-worker-artifact"
+    )
     evil_src, _ = _create_scaffold_repo(tmp_path, "scaffold-enoch-evil")
     catalog = tmp_path / "nested-yaml-catalog"
     catalog.mkdir()

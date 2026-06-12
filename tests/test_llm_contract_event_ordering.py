@@ -4,7 +4,9 @@ from enoch_control_plane.control_plane.read_models import (
 )
 
 
-def test_latest_llm_format_event_prefers_newest_matching_event_over_stale_pass() -> None:
+def test_latest_llm_format_event_prefers_newest_matching_event_over_stale_pass() -> (
+    None
+):
     newest_failure = {
         "prompt_contract": "strict_json",
         "structured_output_mode": "json_schema",
