@@ -81,25 +81,48 @@ def _create_catalog_repo(
     *,
     default: str,
     scaffolds: dict[str, str],
+    fmt: str = "json",
 ) -> Path:
-    catalog = tmp_path / "scaffold-catalog"
+    catalog = tmp_path / f"scaffold-catalog-{fmt}"
     catalog.mkdir()
-    (catalog / "catalog.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "default": default,
-                "scaffolds": [
-                    {"name": name, "repo": repo, "tags": [name]}
-                    for name, repo in scaffolds.items()
-                ],
-            },
-            indent=2,
-            sort_keys=True,
+    if fmt == "json":
+        (catalog / "catalog.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "default": default,
+                    "scaffolds": [
+                        {"name": name, "repo": repo, "tags": [name]}
+                        for name, repo in scaffolds.items()
+                    ],
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
         )
-        + "\n",
-        encoding="utf-8",
-    )
+    elif fmt == "yaml":
+        entries = []
+        for name, repo in scaffolds.items():
+            entries.append(
+                "  - name: {name}\n"
+                "    repo: scaffolds/{name}\n"
+                "    clone_url: {repo}\n"
+                "    status: seed\n".format(name=name, repo=repo)
+            )
+        (catalog / "catalog.yaml").write_text(
+            "version: 0.1.0\n"
+            "namespace: scaffolds\n"
+            f"default: {default}\n"
+            "scaffolds:\n"
+            + "".join(entries)
+            + "selection_rules:\n"
+            + "  - If no domain scaffold exists, start from scaffold-enoch-worker-artifact.\n",
+            encoding="utf-8",
+        )
+    else:  # pragma: no cover - helper guard.
+        raise ValueError(fmt)
     _commit_repo(catalog, "seed catalog")
     return catalog
 
@@ -189,6 +212,38 @@ def test_codex_runner_bootstraps_default_scaffold_from_catalog(tmp_path: Path) -
         (project / ".enoch" / "session.json").read_text(encoding="utf-8")
     )
     assert session["session_id"] == "fake-session"
+
+
+def test_codex_runner_bootstraps_default_scaffold_from_catalog_yaml(
+    tmp_path: Path,
+) -> None:
+    scaffold_src, scaffold_commit = _create_scaffold_repo(
+        tmp_path, "scaffold-enoch-worker-artifact"
+    )
+    catalog = _create_catalog_repo(
+        tmp_path,
+        default="scaffold-enoch-worker-artifact",
+        scaffolds={"scaffold-enoch-worker-artifact": f"file://{scaffold_src}"},
+        fmt="yaml",
+    )
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_CATALOG_URL": f"file://{catalog}",
+        },
+    )
+
+    project: Path = result.project  # type: ignore[attr-defined]
+    assert result.returncode == 0, result.stderr
+    assert "scaffold selected: scaffold-enoch-worker-artifact" in result.stderr
+    scaffold_used = (project / ".scaffold-used.yaml").read_text(encoding="utf-8")
+    assert "scaffold_name: scaffold-enoch-worker-artifact" in scaffold_used
+    assert f"scaffold_commit: {scaffold_commit}" in scaffold_used
+    assert f"scaffold_source_url: file://{scaffold_src}" in scaffold_used
 
 
 def test_codex_runner_bootstraps_explicit_scaffold_from_catalog(tmp_path: Path) -> None:

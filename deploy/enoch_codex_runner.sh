@@ -105,36 +105,82 @@ import sys
 
 catalog_root = pathlib.Path(sys.argv[1])
 requested = sys.argv[2]
-for relative in ("catalog.json", "scaffolds.json", ".scaffold-catalog.json"):
+def load_catalog(path: pathlib.Path) -> dict[str, object]:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix == ".json":
+        try:
+            return json.loads(text)
+        except Exception as exc:  # pragma: no cover - exercised through shell integration.
+            print(f"invalid scaffold catalog {path.name}: {exc}", file=sys.stderr)
+            raise SystemExit(2) from exc
+
+    # Minimal parser for the existing scaffold-catalog/catalog.yaml schema. Avoid
+    # requiring PyYAML on production workers; this only needs top-level default and
+    # list items with name/repo/clone_url/url scalar fields.
+    catalog: dict[str, object] = {"scaffolds": []}
+    scaffolds: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    in_scaffolds = False
+    for raw_line in text.splitlines():
+        line = raw_line.split("#", 1)[0].rstrip()
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not raw_line.startswith(" ") and stripped.endswith(":"):
+            in_scaffolds = stripped == "scaffolds:"
+            if not in_scaffolds and current is not None:
+                scaffolds.append(current)
+                current = None
+            continue
+        if not raw_line.startswith(" ") and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            if key == "default":
+                catalog["default"] = value.strip().strip('"\'')
+            in_scaffolds = False
+            continue
+        if not in_scaffolds:
+            continue
+        if line.startswith("  - "):
+            if current is not None:
+                scaffolds.append(current)
+            current = {}
+            rest = line[4:].strip()
+            if ":" in rest:
+                key, value = rest.split(":", 1)
+                current[key.strip()] = value.strip().strip('"\'')
+            continue
+        if current is not None and line.startswith("    ") and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            key = key.strip()
+            if key in {"name", "repo", "clone_url", "url"}:
+                current[key] = value.strip().strip('"\'')
+    if current is not None:
+        scaffolds.append(current)
+    catalog["scaffolds"] = scaffolds
+    return catalog
+
+for relative in ("catalog.json", "scaffolds.json", ".scaffold-catalog.json", "catalog.yaml", "catalog.yml"):
     candidate = catalog_root / relative
     if candidate.is_file():
         catalog_path = candidate
         break
 else:
-    print("scaffold catalog missing catalog.json", file=sys.stderr)
+    print("scaffold catalog missing catalog.json or catalog.yaml", file=sys.stderr)
     raise SystemExit(2)
 
-try:
-    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-except Exception as exc:  # pragma: no cover - exercised through shell integration.
-    print(f"invalid scaffold catalog {catalog_path.name}: {exc}", file=sys.stderr)
-    raise SystemExit(2)
-
+catalog = load_catalog(catalog_path)
 scaffolds = catalog.get("scaffolds")
 if not isinstance(scaffolds, list):
     print("scaffold catalog must contain a scaffolds list", file=sys.stderr)
     raise SystemExit(2)
 
-wanted = requested or str(catalog.get("default") or "")
-if not wanted:
-    print("scaffold catalog has no default and ENOCH_SCAFFOLD_NAME is unset", file=sys.stderr)
-    raise SystemExit(2)
+wanted = requested or str(catalog.get("default") or "scaffold-enoch-worker-artifact")
 
 for item in scaffolds:
     if not isinstance(item, dict):
         continue
     if item.get("name") == wanted:
-        repo = item.get("repo") or item.get("url")
+        repo = item.get("clone_url") or item.get("repo") or item.get("url")
         if not isinstance(repo, str) or not repo:
             print(f"scaffold {wanted} has no repo", file=sys.stderr)
             raise SystemExit(2)
