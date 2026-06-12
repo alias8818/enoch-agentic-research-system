@@ -2543,6 +2543,29 @@ def test_send_hermes_alert_webhook_rejects_non_http_url_before_urlopen(
     assert "hermes alert webhook url must use http or https" in result.detail
 
 
+def test_dispatch_race_partition_suppresses_reconcile_grace_without_recent_event() -> (
+    None
+):
+    finding = DashboardFinding(
+        severity="warn",
+        source=alerts.CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
+        authority="cross-source active-lane reconciliation",
+        message="cpu_worker active row is unconfirmed during worker reconcile grace",
+        suggested_action="wait for the worker observation grace window before reconciling",
+    )
+    status = SimpleNamespace(dispatch_blockers=["all configured worker lanes active"])
+
+    kept, suppressed = alerts._partition_dispatch_race_findings(  # noqa: SLF001
+        [finding],
+        status=status,  # type: ignore[arg-type]
+        suppress_settling_backpressure=False,
+        suppress_dispatch_race=False,
+    )
+
+    assert kept == []
+    assert suppressed == [finding]
+
+
 def test_queue_alert_findings_suppresses_worker_settling_warning() -> None:
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),

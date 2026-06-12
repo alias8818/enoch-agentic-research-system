@@ -776,6 +776,16 @@ def _recent_dispatch_transition_projects(
     return projects
 
 
+def _is_reconcile_grace_worker_preflight_finding(finding: DashboardFinding) -> bool:
+    if finding.source != CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE:
+        return False
+    message = finding.message.lower()
+    return (
+        "active row" in message
+        and "unconfirmed during worker reconcile grace" in message
+    )
+
+
 def _is_active_row_worker_preflight_race(finding: DashboardFinding) -> bool:
     if finding.source != CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE:
         return False
@@ -845,6 +855,9 @@ def _partition_dispatch_race_findings(
     kept: list[DashboardFinding] = []
     suppressed: list[DashboardFinding] = []
     for finding in findings:
+        if _is_reconcile_grace_worker_preflight_finding(finding):
+            suppressed.append(finding)
+            continue
         if suppress_dispatch_race and _is_active_row_worker_preflight_race(finding):
             suppressed.append(finding)
             continue
