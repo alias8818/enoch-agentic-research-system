@@ -40,7 +40,10 @@ from enoch_control_plane.control_plane.llm_harness_telemetry import (
     record_llm_harness_event,
 )
 from enoch_control_plane.control_plane.store import ControlPlaneStore
-from enoch_control_plane.control_plane.alerts import _suppress_dispatch_race_findings
+from enoch_control_plane.control_plane.alerts import (
+    DISPATCH_RACE_GRACE_SEC,
+    _suppress_dispatch_race_findings,
+)
 from enoch_control_plane.control_plane.models import (
     ImportSnapshotRequest,
     PaperRecord,
@@ -10743,6 +10746,148 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             self.assertEqual(kept, [])
             self.assertEqual(suppressed, findings)
+
+    def test_queue_alert_suppresses_recent_live_worker_orphan_during_other_active_lane(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            now = datetime.now(timezone.utc).isoformat()
+            status = SimpleNamespace(
+                active_items=[{"project_id": "active-cpu"}],
+                dispatch_blockers=[
+                    "worker_preflight not ok",
+                    "GB10/VM active-lane conflict",
+                    "worker live run without active control-plane row: gpu_worker",
+                ],
+                worker_lanes=[
+                    {
+                        "lane_key": "http://gb10-worker:8787",
+                        "machine_target": "gb10",
+                        "worker_role": "gpu_worker",
+                        "active_count": 0,
+                        "worker_observations": {
+                            "worker_preflight": {
+                                "payload": {
+                                    "body": {
+                                        "runs": [
+                                            {
+                                                "run_id": "recent-gb10-live-run",
+                                                "project_id": "recent-gb10-live-run",
+                                                "lifecycle_state": "active",
+                                                "is_live": True,
+                                                "active_process_count": 1,
+                                                "updated_at": now,
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                    }
+                ],
+            )
+            findings = [
+                DashboardFinding(
+                    severity="critical",
+                    source="control_plane_db+worker_preflight",
+                    authority="cross-source active-lane reconciliation",
+                    message=(
+                        "gpu_worker worker reports live work but the control plane "
+                        "has no active row for that lane"
+                    ),
+                    suggested_action="pause dispatch and reconcile the orphan worker run",
+                    data={
+                        "lane_key": "http://gb10-worker:8787",
+                        "machine_target": "gb10",
+                        "worker_check": {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                    },
+                ),
+                DashboardFinding(
+                    severity="warn",
+                    source="worker_preflight",
+                    authority="cached explicit worker preflight evidence",
+                    message="worker_preflight status is warn",
+                    suggested_action="run /control/api/preflight and verify GB10 health",
+                ),
+            ]
+
+            kept, suppressed = _suppress_dispatch_race_findings(
+                store=store, status=status, findings=findings
+            )
+
+            self.assertEqual(kept, [])
+            self.assertEqual(suppressed, findings)
+
+    def test_queue_alert_keeps_stale_live_worker_orphan_alertable(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            stale = (
+                datetime.now(timezone.utc) - timedelta(seconds=DISPATCH_RACE_GRACE_SEC + 30)
+            ).isoformat()
+            status = SimpleNamespace(
+                active_items=[{"project_id": "active-cpu"}],
+                dispatch_blockers=[
+                    "worker_preflight not ok",
+                    "GB10/VM active-lane conflict",
+                ],
+                worker_lanes=[
+                    {
+                        "lane_key": "http://gb10-worker:8787",
+                        "machine_target": "gb10",
+                        "worker_role": "gpu_worker",
+                        "active_count": 0,
+                        "worker_observations": {
+                            "worker_preflight": {
+                                "payload": {
+                                    "body": {
+                                        "runs": [
+                                            {
+                                                "run_id": "stale-gb10-live-run",
+                                                "project_id": "stale-gb10-live-run",
+                                                "lifecycle_state": "active",
+                                                "is_live": True,
+                                                "active_process_count": 1,
+                                                "updated_at": stale,
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                    }
+                ],
+            )
+            findings = [
+                DashboardFinding(
+                    severity="critical",
+                    source="control_plane_db+worker_preflight",
+                    authority="cross-source active-lane reconciliation",
+                    message=(
+                        "gpu_worker worker reports live work but the control plane "
+                        "has no active row for that lane"
+                    ),
+                    suggested_action="pause dispatch and reconcile the orphan worker run",
+                    data={
+                        "lane_key": "http://gb10-worker:8787",
+                        "machine_target": "gb10",
+                    },
+                )
+            ]
+
+            kept, suppressed = _suppress_dispatch_race_findings(
+                store=store, status=status, findings=findings
+            )
+
+            self.assertEqual(kept, findings)
+            self.assertEqual(suppressed, [])
 
     def test_dashboard_status_does_not_treat_future_worker_settling_without_vm_match_as_backpressure(
         self,

@@ -827,6 +827,85 @@ def _worker_settling_backpressure_matches_finding(
     return True
 
 
+def _worker_run_updated_within_dispatch_grace(run: dict[str, Any]) -> bool:
+    observed = _parse_ts(
+        str(
+            run.get("updated_at")
+            or run.get("last_seen_at")
+            or run.get("last_event_at")
+            or run.get("created_at")
+            or ""
+        )
+        or None
+    )
+    if observed is None:
+        return False
+    now = datetime.now(timezone.utc)
+    grace = timedelta(seconds=DISPATCH_RACE_GRACE_SEC)
+    if observed > now + grace:
+        return False
+    return now <= observed + grace
+
+
+def _worker_run_is_live_or_active(run: dict[str, Any]) -> bool:
+    if run.get("is_live") is True:
+        return True
+    if str(run.get("lifecycle_state") or "").lower() in {"active", "settling"}:
+        return True
+    try:
+        return int(run.get("active_process_count") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _runs_from_worker_lane(lane: dict[str, Any]) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    observations = lane.get("worker_observations")
+    if isinstance(observations, dict):
+        for observation in observations.values():
+            _accumulate_worker_runs_from_observation(observation, runs)
+    worker_settling = lane.get("worker_settling_after_vm_completion")
+    if isinstance(worker_settling, dict):
+        run = worker_settling.get("worker_run")
+        if isinstance(run, dict):
+            runs.append(run)
+    return runs
+
+
+def _lane_matches_worker_live_without_active_finding(
+    lane: dict[str, Any], finding: DashboardFinding
+) -> bool:
+    data = finding.data if isinstance(finding.data, dict) else {}
+    lane_key = str(data.get("lane_key") or "").strip()
+    machine_target = str(data.get("machine_target") or "").strip()
+    if lane_key and str(lane.get("lane_key") or "").strip() == lane_key:
+        return True
+    return bool(
+        machine_target
+        and str(lane.get("machine_target") or "").strip() == machine_target
+    )
+
+
+def _recent_worker_live_without_vm_match(
+    status: DashboardStatusResponse, finding: DashboardFinding
+) -> bool:
+    if not getattr(status, "active_items", None):
+        return False
+    if not _is_worker_live_without_vm_active_row(finding):
+        return False
+    for lane in _worker_lane_dicts(status):
+        if not _lane_matches_worker_live_without_active_finding(lane, finding):
+            continue
+        if int(lane.get("active_count") or 0) > 0:
+            return False
+        return any(
+            _worker_run_is_live_or_active(run)
+            and _worker_run_updated_within_dispatch_grace(run)
+            for run in _runs_from_worker_lane(lane)
+        )
+    return False
+
+
 def _active_project_ids(status: DashboardStatusResponse) -> set[str]:
     return {str(row.get("project_id") or "") for row in status.active_items}
 
@@ -854,11 +933,20 @@ def _partition_dispatch_race_findings(
 ) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
     kept: list[DashboardFinding] = []
     suppressed: list[DashboardFinding] = []
+    suppress_recent_live_orphan = any(
+        _recent_worker_live_without_vm_match(status, finding) for finding in findings
+    )
     for finding in findings:
         if _is_reconcile_grace_worker_preflight_finding(finding):
             suppressed.append(finding)
             continue
         if suppress_dispatch_race and _is_active_row_worker_preflight_race(finding):
+            suppressed.append(finding)
+            continue
+        if _recent_worker_live_without_vm_match(status, finding):
+            suppressed.append(finding)
+            continue
+        if suppress_recent_live_orphan and _is_cached_worker_preflight_warning(finding):
             suppressed.append(finding)
             continue
         if suppress_settling_backpressure and (
@@ -884,6 +972,9 @@ def _suppress_dispatch_race_findings(
         "worker settling" in str(blocker).lower()
         for blocker in status.dispatch_blockers
     )
+    suppress_recent_live_orphan = any(
+        _recent_worker_live_without_vm_match(status, finding) for finding in findings
+    )
     if _should_apply_dispatch_race_suppression(
         store=store, status=status, findings=findings
     ):
@@ -893,11 +984,11 @@ def _suppress_dispatch_race_findings(
             suppress_settling_backpressure=suppress_settling_backpressure,
             suppress_dispatch_race=True,
         )
-    if suppress_settling_backpressure:
+    if suppress_settling_backpressure or suppress_recent_live_orphan:
         return _partition_dispatch_race_findings(
             findings,
             status=status,
-            suppress_settling_backpressure=True,
+            suppress_settling_backpressure=suppress_settling_backpressure,
             suppress_dispatch_race=False,
         )
     return findings, []
