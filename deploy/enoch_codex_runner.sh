@@ -55,6 +55,80 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 callback_outbox() {
   (cd "$REPO_ROOT" && PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}" python3 -m enoch_control_plane.callback_outbox "$@")
 }
+
+bootstrap_scaffold() {
+  local enabled="${ENOCH_SCAFFOLD_BOOTSTRAP:-1}"
+  case "$enabled" in
+    1|true|TRUE|yes|YES) ;;
+    *) return 0 ;;
+  esac
+
+  if [[ -f "$PROJECT_DIR/.scaffold-used.yaml" ]]; then
+    return 0
+  fi
+
+  local token_file="${ENOCH_SCAFFOLD_TOKEN_FILE:-$HOME/.config/enoch-git/scaffold-reader-token}"
+  local scaffold_url="${ENOCH_SCAFFOLD_URL:-http://100.114.53.78:8000/scaffolds/scaffold-enoch-worker-artifact.git}"
+  if [[ ! -s "$token_file" ]]; then
+    echo "scaffold bootstrap skipped: token file missing: $token_file" >&2
+    return 0
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    echo "scaffold bootstrap skipped: git not found" >&2
+    return 0
+  fi
+
+  local tmp_dir git_config scaffold_commit
+  tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/enoch-scaffold-bootstrap.XXXXXX")"
+  git_config="$tmp_dir/gitconfig"
+  cleanup_scaffold_tmp() { rm -rf "$tmp_dir"; }
+  trap cleanup_scaffold_tmp RETURN
+
+  {
+    printf '[http "http://100.114.53.78:8000/"]\n'
+    printf '\textraHeader = Authorization: token %s\n' "$(<"$token_file")"
+  } >"$git_config"
+  chmod 600 "$git_config"
+
+  GIT_CONFIG_GLOBAL="$git_config" git clone --depth 1 "$scaffold_url" "$tmp_dir/scaffold" >&2
+  scaffold_commit="$(GIT_CONFIG_GLOBAL="$git_config" git -C "$tmp_dir/scaffold" rev-parse HEAD)"
+
+  (cd "$tmp_dir/scaffold" && tar --exclude .git -cf - .) | (cd "$PROJECT_DIR" && tar -xf -)
+  if [[ -x "$PROJECT_DIR/.scaffold/bootstrap.sh" ]]; then
+    (cd "$PROJECT_DIR" && bash .scaffold/bootstrap.sh) >&2
+  fi
+  if [[ -x "$PROJECT_DIR/.scaffold/smoke.sh" ]]; then
+    (cd "$PROJECT_DIR" && bash .scaffold/smoke.sh) >&2
+  fi
+  python3 - <<'PY_SCAFFOLD_USED' "$PROJECT_DIR/.scaffold-used.yaml" "$scaffold_url" "$scaffold_commit"
+from __future__ import annotations
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+scaffold_url = sys.argv[2]
+scaffold_commit = sys.argv[3]
+text = path.read_text(encoding="utf-8") if path.exists() else ""
+lines = []
+seen_commit = False
+seen_url = False
+for line in text.splitlines():
+    if line.startswith("scaffold_commit:"):
+        lines.append(f"scaffold_commit: {scaffold_commit}")
+        seen_commit = True
+    elif line.startswith("scaffold_source_url:"):
+        lines.append(f"scaffold_source_url: {scaffold_url}")
+        seen_url = True
+    else:
+        lines.append(line)
+if not seen_commit:
+    lines.append(f"scaffold_commit: {scaffold_commit}")
+if not seen_url:
+    lines.append(f"scaffold_source_url: {scaffold_url}")
+path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+PY_SCAFFOLD_USED
+  echo "scaffold bootstrap ok: $scaffold_url@$scaffold_commit" >&2
+}
+
+bootstrap_scaffold
 cd "$PROJECT_DIR"
 
 export ENOCH_RUN_ID="$RUN_ID"
