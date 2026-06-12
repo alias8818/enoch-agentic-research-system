@@ -710,6 +710,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--openai-api-key-env",
+        default=os.environ.get(
+            "ENOCH_RESEARCH_PROVIDER_OPENAI_API_KEY_ENV", "SYNTHETIC_API_KEY"
+        ),
+        help="Environment variable containing the API key for --openai-base-url chat calls; Synthetic budget checks still use SYNTHETIC_API_KEY.",
+    )
+    parser.add_argument(
         "--model",
         default=os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL", DEFAULT_MODEL),
     )
@@ -838,10 +845,10 @@ def _run_provider_review(
     *,
     dry_run: bool,
 ) -> None:
-    api_key = os.environ.get("SYNTHETIC_API_KEY", "")
+    synthetic_api_key = os.environ.get("SYNTHETIC_API_KEY", "")
     budget = budget_status(
         base_url=args.provider_base_url,
-        api_key=api_key,
+        api_key=synthetic_api_key,
         estimated_requests=args.estimated_requests,
         reserve_requests=args.reserve_requests,
         min_remaining_credits=args.min_remaining_credits,
@@ -882,7 +889,7 @@ def _run_provider_review(
     try:
         raw = call_review_model(
             base_url=args.openai_base_url,
-            api_key=api_key,
+            api_key=os.environ.get(str(args.openai_api_key_env or ""), ""),
             model=args.model,
             prompt=prompt,
             timeout=args.timeout,

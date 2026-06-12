@@ -84,6 +84,58 @@ def test_janitor_llm_review_model_defaults_to_allowed_review_model(
     assert autopilot._janitor_llm_review_model() == "hf:zai-org/GLM-5.1"
 
 
+def test_janitor_llm_review_command_uses_resolved_provider_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "llm-provider-settings.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "providers": [
+                    {
+                        "provider_id": "openrouter",
+                        "label": "OpenRouter",
+                        "api_format": "openai_compatible",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "api_key_env": "OPENROUTER_API_KEY",
+                        "enabled": True,
+                    }
+                ],
+                "models": [
+                    {
+                        "model_id": "moonshotai/kimi-k2.6",
+                        "provider_id": "openrouter",
+                        "label": "Kimi",
+                        "enabled": True,
+                    }
+                ],
+                "workflows": [
+                    {
+                        "workflow_id": "research_review",
+                        "label": "Research review agents",
+                        "provider_ids": ["openrouter"],
+                        "model_pool": ["moonshotai/kimi-k2.6"],
+                        "default_model": "moonshotai/kimi-k2.6",
+                    }
+                ],
+            }
+        )
+    )
+    monkeypatch.setattr(
+        autopilot,
+        "_load_config",
+        lambda: {**_minimal_gate_config_payload(tmp_path), "state_dir": str(state_dir)},
+    )
+
+    cmd = autopilot._janitor_llm_review_command(tmp_path / "review.json", 120)
+
+    assert cmd[cmd.index("--model") + 1] == "moonshotai/kimi-k2.6"
+    assert cmd[cmd.index("--openai-base-url") + 1] == "https://openrouter.ai/api/v1"
+    assert cmd[cmd.index("--openai-api-key-env") + 1] == "OPENROUTER_API_KEY"
+
+
 def test_dashboard_attention_block_is_benign_timer_backpressure():
     assert (
         autopilot._is_benign_skip_result(
