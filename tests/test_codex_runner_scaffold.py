@@ -143,11 +143,16 @@ def _create_fake_codex(tmp_path: Path) -> Path:
 
 
 def _run_runner(
-    tmp_path: Path, env_updates: dict[str, str]
+    tmp_path: Path,
+    env_updates: dict[str, str],
+    *,
+    prompt_text: str = "do work\n",
+    project_name: str = "project",
+    project_id: str = "test-project",
 ) -> subprocess.CompletedProcess[str]:
-    prompt = tmp_path / "prompt.txt"
-    prompt.write_text("do work\n", encoding="utf-8")
-    project = tmp_path / "project"
+    prompt = tmp_path / f"{project_name}-prompt.txt"
+    prompt.write_text(prompt_text, encoding="utf-8")
+    project = tmp_path / project_name
     project.mkdir()
     runner = Path(__file__).resolve().parents[1] / "deploy" / "enoch_codex_runner.sh"
     env = os.environ.copy()
@@ -164,7 +169,7 @@ def _run_runner(
             "--run-id",
             "test-run",
             "--project-id",
-            "test-project",
+            project_id,
             "--project-dir",
             str(project),
             "--prompt-file",
@@ -339,6 +344,149 @@ def test_codex_runner_skips_scaffold_when_disabled(tmp_path: Path) -> None:
     project: Path = result.project  # type: ignore[attr-defined]
     assert result.returncode == 0, result.stderr
     assert not (project / ".scaffold-used.yaml").exists()
+
+
+def _create_full_routing_catalog(tmp_path: Path) -> tuple[Path, dict[str, str]]:
+    scaffold_names = [
+        "scaffold-enoch-worker-artifact",
+        "scaffold-enoch-benchmark-results",
+        "scaffold-enoch-memory-agent-eval",
+        "scaffold-enoch-gb10-gpu-experiment",
+        "scaffold-enoch-agent-evidence-ledger",
+        "scaffold-enoch-speculative-decoding",
+    ]
+    scaffolds: dict[str, str] = {}
+    commits: dict[str, str] = {}
+    for name in scaffold_names:
+        src, commit = _create_scaffold_repo(tmp_path, name)
+        scaffolds[name] = f"file://{src}"
+        commits[name] = commit
+    catalog = _create_catalog_repo(
+        tmp_path,
+        default="scaffold-enoch-worker-artifact",
+        scaffolds=scaffolds,
+        fmt="yaml",
+    )
+    return catalog, commits
+
+
+def test_codex_runner_routes_scaffold_from_prompt_intent(tmp_path: Path) -> None:
+    catalog, commits = _create_full_routing_catalog(tmp_path)
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+    cases = [
+        (
+            "evidence-ledger",
+            "Build an evidence-ledger for falsifiable-claim drift-trap review.",
+            "scaffold-enoch-agent-evidence-ledger",
+            "matched evidence-ledger/falsifiable-claim/drift-trap intent",
+        ),
+        (
+            "memory-eval",
+            "Evaluate memory retrieval and replay for operator-doctrine regressions.",
+            "scaffold-enoch-memory-agent-eval",
+            "matched memory/retrieval/operator-doctrine/replay intent",
+        ),
+        (
+            "gb10-gpu",
+            "Run GB10 GPU CUDA VRAM profiling for model serving.",
+            "scaffold-enoch-gb10-gpu-experiment",
+            "matched GB10/GPU/VRAM/CUDA/profiling intent",
+        ),
+        (
+            "speculative-decoding",
+            "Measure speculative decoding with KV-cache suffix ngram long-context compression.",
+            "scaffold-enoch-speculative-decoding",
+            "matched speculative-decoding/KV-cache/suffix/ngram/long-context-compression intent",
+        ),
+        (
+            "benchmark-results",
+            "Produce benchmark metrics baseline failure-cases for the release.",
+            "scaffold-enoch-benchmark-results",
+            "matched benchmark/metrics/baseline/failure-cases intent",
+        ),
+    ]
+    for project_name, prompt_text, expected, reason in cases:
+        result = _run_runner(
+            tmp_path,
+            {
+                "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+                "ENOCH_SCAFFOLD_CATALOG_URL": f"file://{catalog}",
+            },
+            prompt_text=prompt_text,
+            project_name=project_name,
+            project_id=project_name,
+        )
+        project: Path = result.project  # type: ignore[attr-defined]
+        assert result.returncode == 0, result.stderr
+        assert f"scaffold selected: {expected}" in result.stderr
+        scaffold_used = (project / ".scaffold-used.yaml").read_text(encoding="utf-8")
+        assert f"scaffold_name: {expected}" in scaffold_used
+        assert f"scaffold_selected_name: {expected}" in scaffold_used
+        assert f"scaffold_commit: {commits[expected]}" in scaffold_used
+        assert f"scaffold_routing_reason: {reason}" in scaffold_used
+        assert "scaffold_routing_deviation: none" in scaffold_used
+        assert "scaffold_catalog_commit:" in scaffold_used
+
+
+def test_codex_runner_routes_unknown_intent_to_fallback_default(tmp_path: Path) -> None:
+    catalog, commits = _create_full_routing_catalog(tmp_path)
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_CATALOG_URL": f"file://{catalog}",
+        },
+        prompt_text="Summarize miscellaneous project notes with no special domain.",
+        project_name="unknown-fallback",
+        project_id="unknown-fallback",
+    )
+
+    project: Path = result.project  # type: ignore[attr-defined]
+    assert result.returncode == 0, result.stderr
+    scaffold_used = (project / ".scaffold-used.yaml").read_text(encoding="utf-8")
+    assert "scaffold_selected_name: scaffold-enoch-worker-artifact" in scaffold_used
+    assert (
+        f"scaffold_commit: {commits['scaffold-enoch-worker-artifact']}" in scaffold_used
+    )
+    assert (
+        "scaffold_routing_reason: fallback to catalog default: no routing rule matched"
+        in scaffold_used
+    )
+    assert "scaffold_routing_deviation: fallback-default" in scaffold_used
+
+
+def test_codex_runner_explicit_scaffold_name_overrides_intent_routing(
+    tmp_path: Path,
+) -> None:
+    catalog, _ = _create_full_routing_catalog(tmp_path)
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_CATALOG_URL": f"file://{catalog}",
+            "ENOCH_SCAFFOLD_NAME": "scaffold-enoch-benchmark-results",
+        },
+        prompt_text="This mentions GB10 GPU CUDA but explicit override should win.",
+        project_name="explicit-override",
+        project_id="explicit-override",
+    )
+
+    project: Path = result.project  # type: ignore[attr-defined]
+    assert result.returncode == 0, result.stderr
+    scaffold_used = (project / ".scaffold-used.yaml").read_text(encoding="utf-8")
+    assert "scaffold_selected_name: scaffold-enoch-benchmark-results" in scaffold_used
+    assert (
+        "scaffold_routing_reason: explicit ENOCH_SCAFFOLD_NAME override"
+        in scaffold_used
+    )
+    assert "scaffold_routing_deviation: explicit-override" in scaffold_used
 
 
 def test_codex_runner_yaml_nested_clone_url_does_not_override_repo(

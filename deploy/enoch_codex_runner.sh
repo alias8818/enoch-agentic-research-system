@@ -84,7 +84,7 @@ bootstrap_scaffold() {
     return 0
   fi
 
-  local tmp_dir git_config scaffold_commit scaffold_url selected_scaffold selection expected_scaffold_commit
+  local tmp_dir git_config scaffold_commit scaffold_url selected_scaffold selection expected_scaffold_commit catalog_commit routing_reason routing_deviation
   tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/enoch-scaffold-bootstrap.XXXXXX")"
   git_config="$tmp_dir/gitconfig"
   cleanup_scaffold_tmp() { rm -rf "$tmp_dir"; }
@@ -100,9 +100,13 @@ bootstrap_scaffold() {
     scaffold_url="$direct_scaffold_url"
     selected_scaffold="direct-url"
     expected_scaffold_commit="$direct_scaffold_commit"
+    catalog_commit=""
+    routing_reason="direct ENOCH_SCAFFOLD_URL override"
+    routing_deviation="direct-url"
   else
     GIT_CONFIG_GLOBAL="$git_config" git clone --depth 1 "$catalog_url" "$tmp_dir/catalog" >&2
-    if ! selection="$(python3 - <<'PY_SELECT_SCAFFOLD' "$tmp_dir/catalog" "$requested_scaffold"
+    catalog_commit="$(GIT_CONFIG_GLOBAL="$git_config" git -C "$tmp_dir/catalog" rev-parse HEAD)"
+    if ! selection="$(python3 - <<'PY_SELECT_SCAFFOLD' "$tmp_dir/catalog" "$requested_scaffold" "$PROJECT_ID" "$PROJECT_DIR" "$PROMPT_FILE"
 from __future__ import annotations
 import json
 import pathlib
@@ -110,6 +114,37 @@ import sys
 
 catalog_root = pathlib.Path(sys.argv[1])
 requested = sys.argv[2]
+project_id = sys.argv[3]
+project_dir = pathlib.Path(sys.argv[4])
+prompt_file = pathlib.Path(sys.argv[5])
+
+def _sanitize_field(value: object) -> str:
+    return str(value).replace("\t", " ").replace("\n", " ").strip()
+
+def _prompt_text(path: pathlib.Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[:20000]
+    except OSError:
+        return ""
+
+def route_scaffold(names: set[str], default: str) -> tuple[str, str, str]:
+    if requested:
+        return requested, "explicit ENOCH_SCAFFOLD_NAME override", "explicit-override"
+    corpus = "\n".join([project_id, project_dir.name, str(project_dir), _prompt_text(prompt_file)]).lower()
+    rules: list[tuple[str, str, tuple[str, ...]]] = [
+        ("scaffold-enoch-agent-evidence-ledger", "matched evidence-ledger/falsifiable-claim/drift-trap intent", ("evidence-ledger", "evidence ledger", "falsifiable-claim", "falsifiable claim", "drift-trap", "drift trap")),
+        ("scaffold-enoch-memory-agent-eval", "matched memory/retrieval/operator-doctrine/replay intent", ("memory", "retrieval", "operator-doctrine", "operator doctrine", "replay")),
+        ("scaffold-enoch-gb10-gpu-experiment", "matched GB10/GPU/VRAM/CUDA/profiling intent", ("gb10", "gpu", "vram", "cuda", "profiling")),
+        ("scaffold-enoch-speculative-decoding", "matched speculative-decoding/KV-cache/suffix/ngram/long-context-compression intent", ("speculative decoding", "speculative-decoding", "kv-cache", "kv cache", "suffix", "ngram", "n-gram", "long-context compression", "long context compression")),
+        ("scaffold-enoch-benchmark-results", "matched benchmark/metrics/baseline/failure-cases intent", ("benchmark", "metrics", "baseline", "failure-cases", "failure cases")),
+    ]
+    for scaffold, reason, needles in rules:
+        if scaffold in names and any(needle in corpus for needle in needles):
+            return scaffold, reason, "none"
+    if default in names:
+        return default, "fallback to catalog default: no routing rule matched", "fallback-default"
+    return "scaffold-enoch-worker-artifact", "fallback to worker artifact: no routing rule matched", "fallback-worker-artifact"
+
 def load_catalog(path: pathlib.Path) -> dict[str, object]:
     text = path.read_text(encoding="utf-8")
     if path.suffix == ".json":
@@ -183,7 +218,9 @@ if not isinstance(scaffolds, list):
     print("scaffold catalog must contain a scaffolds list", file=sys.stderr)
     raise SystemExit(2)
 
-wanted = requested or str(catalog.get("default") or "scaffold-enoch-worker-artifact")
+default_scaffold = str(catalog.get("default") or "scaffold-enoch-worker-artifact")
+scaffold_names = {str(item.get("name")) for item in scaffolds if isinstance(item, dict) and item.get("name")}
+wanted, routing_reason, routing_deviation = route_scaffold(scaffold_names, default_scaffold)
 
 for item in scaffolds:
     if not isinstance(item, dict):
@@ -197,7 +234,7 @@ for item in scaffolds:
         if commit is not None and not isinstance(commit, str):
             print(f"scaffold {wanted} has invalid commit pin", file=sys.stderr)
             raise SystemExit(2)
-        print(f"{wanted}\t{repo}\t{commit}")
+        print(f"{wanted}\t{repo}\t{commit}\t{_sanitize_field(routing_reason)}\t{_sanitize_field(routing_deviation)}")
         raise SystemExit(0)
 
 print(f"unknown scaffold: {wanted}", file=sys.stderr)
@@ -209,10 +246,14 @@ PY_SELECT_SCAFFOLD
     selected_scaffold="${selection%%$'\t'*}"
     selection="${selection#*$'\t'}"
     scaffold_url="${selection%%$'\t'*}"
+    selection="${selection#*$'\t'}"
+    expected_scaffold_commit="${selection%%$'\t'*}"
+    selection="${selection#*$'\t'}"
+    routing_reason="${selection%%$'\t'*}"
     if [[ "$selection" == *$'\t'* ]]; then
-      expected_scaffold_commit="${selection#*$'\t'}"
+      routing_deviation="${selection#*$'\t'}"
     else
-      expected_scaffold_commit=""
+      routing_deviation="none"
     fi
   fi
 
@@ -264,36 +305,37 @@ PY_VALIDATE_SCAFFOLD_URL
   if [[ -x "$PROJECT_DIR/.scaffold/smoke.sh" ]]; then
     (cd "$PROJECT_DIR" && bash .scaffold/smoke.sh) >&2
   fi
-  python3 - <<'PY_SCAFFOLD_USED' "$PROJECT_DIR/.scaffold-used.yaml" "$scaffold_url" "$scaffold_commit" "$selected_scaffold"
+  python3 - <<'PY_SCAFFOLD_USED' "$PROJECT_DIR/.scaffold-used.yaml" "$scaffold_url" "$scaffold_commit" "$selected_scaffold" "$catalog_commit" "$routing_reason" "$routing_deviation"
 from __future__ import annotations
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 scaffold_url = sys.argv[2]
 scaffold_commit = sys.argv[3]
 selected_scaffold = sys.argv[4]
+catalog_commit = sys.argv[5]
+routing_reason = sys.argv[6]
+routing_deviation = sys.argv[7]
 text = path.read_text(encoding="utf-8") if path.exists() else ""
+values = {
+    "scaffold_commit": scaffold_commit,
+    "scaffold_source_url": scaffold_url,
+    "scaffold_selected_name": selected_scaffold,
+    "scaffold_catalog_commit": catalog_commit or "none",
+    "scaffold_routing_reason": routing_reason or "none",
+    "scaffold_routing_deviation": routing_deviation or "none",
+}
 lines = []
-seen_commit = False
-seen_url = False
-seen_selection = False
+seen: set[str] = set()
 for line in text.splitlines():
-    if line.startswith("scaffold_commit:"):
-        lines.append(f"scaffold_commit: {scaffold_commit}")
-        seen_commit = True
-    elif line.startswith("scaffold_source_url:"):
-        lines.append(f"scaffold_source_url: {scaffold_url}")
-        seen_url = True
-    elif line.startswith("scaffold_selected_name:"):
-        lines.append(f"scaffold_selected_name: {selected_scaffold}")
-        seen_selection = True
+    key = line.split(":", 1)[0]
+    if key in values:
+        lines.append(f"{key}: {values[key]}")
+        seen.add(key)
     else:
         lines.append(line)
-if not seen_commit:
-    lines.append(f"scaffold_commit: {scaffold_commit}")
-if not seen_url:
-    lines.append(f"scaffold_source_url: {scaffold_url}")
-if not seen_selection:
-    lines.append(f"scaffold_selected_name: {selected_scaffold}")
+for key, value in values.items():
+    if key not in seen:
+        lines.append(f"{key}: {value}")
 path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 PY_SCAFFOLD_USED
   echo "scaffold bootstrap ok: $scaffold_url@$scaffold_commit" >&2
