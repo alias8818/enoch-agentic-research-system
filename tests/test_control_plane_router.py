@@ -20,13 +20,17 @@ from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.router import (
+    MAINTENANCE_AUTOMATION_TIMERS,
+    MAINTENANCE_RESUME_TIMERS,
     _active_lane_worker_confirmation,
     _codex_dispatch_model,
     _fetch_synthetic_research_budget,
     _handle_followup_and_early_skips,
-    _project_prompt,
     _paper_material_graph_response,
+    _pause_automation_for_control_pause,
+    _project_prompt,
     _register_control_plane_maintenance_routes,
+    _resume_automation_after_control_resume,
     _run_resume_systemctl,
     _write_deterministic_paper,
     create_control_plane_router,
@@ -51,6 +55,14 @@ from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
 TOKEN = "test-token"
+
+
+@pytest.fixture(autouse=True)
+def _disable_pause_systemd_mutation_in_tests(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Local route tests must never touch the host's real Enoch systemd timers.
+    # Tests that verify pause-time systemd commands opt back in while mocking
+    # the systemctl boundary.
+    monkeypatch.setenv("ENOCH_CONTROL_PAUSE_STOP_SYSTEMD", "0")
 
 
 def test_codex_dispatch_model_falls_back_for_provider_route_ids() -> None:
@@ -388,6 +400,109 @@ def test_writable_store_routes_openapi_documents_readonly_store_501() -> None:
         responses = openapi["paths"][path]["post"]["responses"]
         assert "501" in responses, path
         assert "writable control-plane store" in responses["501"]["description"]
+
+
+def test_pause_and_resume_timer_inventory_covers_active_automation_units() -> None:
+    expected_active_timers = {
+        "enoch-research-autopilot.timer",
+        "enoch-corpus-import-autopilot.timer",
+        "enoch-queue-alert-check.timer",
+        "enoch-source-lineage-check.timer",
+        "enoch-paper-draft-next.timer",
+        "enoch-paper-material-graph.timer",
+    }
+    obsolete_or_disabled_timers = {"enoch-notion-sync.timer"}
+    deployed_timers = {
+        path.name
+        for path in (Path(__file__).parents[1] / "deploy").glob("enoch-*.timer")
+    }
+
+    assert expected_active_timers <= deployed_timers
+    assert obsolete_or_disabled_timers <= deployed_timers
+    assert set(MAINTENANCE_AUTOMATION_TIMERS) == expected_active_timers
+    assert set(MAINTENANCE_RESUME_TIMERS) == expected_active_timers
+    assert not (set(MAINTENANCE_AUTOMATION_TIMERS) & obsolete_or_disabled_timers)
+
+
+def test_dashboard_pause_stops_all_active_automation_timers() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        pause_result = {
+            "ok": True,
+            "action": "systemd_pause_timers",
+            "timers": list(MAINTENANCE_AUTOMATION_TIMERS),
+            "steps": [],
+            "failures": [],
+        }
+        with patch(
+            "enoch_control_plane.control_plane.router._pause_automation_for_control_pause",
+            return_value=pause_result,
+        ) as pause_helper:
+            response = client.post(
+                "/control/pause",
+                headers=headers,
+                json={
+                    "reason": "dashboard operator pause",
+                    "paused_by": "dashboard-v2",
+                    "maintenance_mode": True,
+                },
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["ok"] is True
+        assert body["flags"]["queue_paused"] is True
+        assert body["flags"]["maintenance_mode"] is True
+        assert body["systemd"] == pause_result
+        pause_helper.assert_called_once_with()
+
+        events = client.get("/control/api/events", headers=headers).json()["rows"]
+        pause_events = [
+            event
+            for event in events
+            if event["event_type"] == "control.pause.systemd_pause"
+        ]
+        assert len(pause_events) == 1
+        assert pause_events[0]["entity_id"] == "queue"
+        assert pause_events[0]["payload"]["systemd"] == pause_result
+
+
+def test_pause_automation_stops_all_active_timers_before_resume_rearms_them() -> None:
+    calls: list[list[str]] = []
+
+    def fake_systemctl(args: list[str], *, timeout: int = 10) -> dict[str, Any]:
+        calls.append(args)
+        return {
+            "ok": True,
+            "command": ["systemctl", *args],
+            "returncode": 0,
+            "stdout": "",
+            "stderr": "",
+        }
+
+    with (
+        patch.dict(os.environ, {"ENOCH_CONTROL_PAUSE_STOP_SYSTEMD": "1"}),
+        patch(
+            "enoch_control_plane.control_plane.router._systemd_available_for_resume",
+            return_value=True,
+        ),
+        patch(
+            "enoch_control_plane.control_plane.router._run_resume_systemctl",
+            side_effect=fake_systemctl,
+        ),
+    ):
+        pause = _pause_automation_for_control_pause()
+        resume = _resume_automation_after_control_resume()
+
+    assert pause["ok"] is True
+    assert pause["timers"] == list(MAINTENANCE_AUTOMATION_TIMERS)
+    assert ["stop", *MAINTENANCE_AUTOMATION_TIMERS] in calls
+    assert ["disable", *MAINTENANCE_AUTOMATION_TIMERS] in calls
+    assert resume["ok"] is True
+    assert resume["timers"] == list(MAINTENANCE_RESUME_TIMERS)
+    assert ["enable", "--now", *MAINTENANCE_RESUME_TIMERS] in calls
+    assert ["restart", *MAINTENANCE_RESUME_TIMERS] in calls
 
 
 def test_dashboard_maintenance_resume_rearms_systemd_and_records_observation() -> None:
