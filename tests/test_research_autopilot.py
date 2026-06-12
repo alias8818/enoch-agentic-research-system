@@ -938,12 +938,17 @@ def test_llm_model_format_probes_select_unmeasured_models_with_limit(monkeypatch
 
     assert result["ok"] is True
     assert result["checked_count"] == 2
-    assert result["candidate_count"] == 2
-    assert result["skipped_count"] == 0
+    assert result["candidate_count"] == 6
+    assert result["skipped_count"] == 4
     assert result["contracts"] == ["strict_json", "markdown_fenced_json"]
+    assert result["structured_output_modes"] == [
+        "prompt_only",
+        "json_object",
+        "json_schema",
+    ]
     assert result["selected_reasons"] == {
-        "openrouter/owl-alpha:strict_json": "stale_format_probe",
-        "openrouter/owl-alpha:markdown_fenced_json": "stale_format_probe",
+        "openrouter/owl-alpha:strict_json:prompt_only": "stale_format_probe",
+        "openrouter/owl-alpha:strict_json:json_object": "stale_format_probe",
     }
     assert posts == [
         {
@@ -951,12 +956,50 @@ def test_llm_model_format_probes_select_unmeasured_models_with_limit(monkeypatch
             "model_id": "openrouter/owl-alpha",
             "source": "autopilot",
             "prompt_contract": "strict_json",
+            "structured_output_mode": "prompt_only",
         },
         {
             "provider_id": "openrouter",
             "model_id": "openrouter/owl-alpha",
             "source": "autopilot",
-            "prompt_contract": "markdown_fenced_json",
+            "prompt_contract": "strict_json",
+            "structured_output_mode": "json_object",
+        },
+    ]
+
+
+def test_llm_model_format_probe_modes_can_be_narrowed(monkeypatch) -> None:
+    monkeypatch.setenv("ENOCH_LLM_MODEL_FORMAT_PROBE_MODES", "json_schema")
+
+    items = autopilot._llm_model_format_probe_items(  # noqa: SLF001
+        provider_id="openrouter",
+        model_id="model-a",
+        reason="stale_format_probe",
+        latest_ts=0,
+        contracts=["candidate_json", "strict_json"],
+        modes=autopilot._llm_model_format_probe_modes(),  # noqa: SLF001
+    )
+
+    assert items == [
+        {
+            "provider_id": "openrouter",
+            "model_id": "model-a",
+            "prompt_contract": "candidate_json",
+            "structured_output_mode": "json_schema",
+            "contract_index": 0,
+            "mode_index": 0,
+            "reason": "stale_format_probe",
+            "latest_checked_ts": 0,
+        },
+        {
+            "provider_id": "openrouter",
+            "model_id": "model-a",
+            "prompt_contract": "strict_json",
+            "structured_output_mode": "json_schema",
+            "contract_index": 1,
+            "mode_index": 0,
+            "reason": "stale_format_probe",
+            "latest_checked_ts": 0,
         },
     ]
 

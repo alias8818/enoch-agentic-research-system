@@ -1285,6 +1285,19 @@ def _llm_model_format_probe_contracts() -> list[str]:
     return contracts
 
 
+def _llm_model_format_probe_modes() -> list[str]:
+    raw = os.environ.get(
+        "ENOCH_LLM_MODEL_FORMAT_PROBE_MODES",
+        "prompt_only,json_object,json_schema",
+    )
+    modes: list[str] = []
+    for item in raw.split(","):
+        mode = item.strip().lower().replace("-", "_")
+        if mode in {"prompt_only", "json_object", "json_schema"} and mode not in modes:
+            modes.append(mode)
+    return modes
+
+
 def _llm_model_format_probe_reason(
     health: dict | None, *, now: float, min_interval_seconds: int
 ) -> str:
@@ -1326,28 +1339,37 @@ def _llm_model_format_probe_items(
     reason: str,
     latest_ts: float,
     contracts: list[str],
+    modes: list[str],
 ) -> list[dict]:
     return [
         {
             "provider_id": provider_id,
             "model_id": model_id,
             "prompt_contract": contract,
+            "structured_output_mode": mode,
             "contract_index": contract_index,
+            "mode_index": mode_index,
             "reason": reason,
             "latest_checked_ts": latest_ts,
         }
         for contract_index, contract in enumerate(contracts)
+        for mode_index, mode in enumerate(modes)
     ]
 
 
 def _llm_model_format_probe_candidates(
-    settings: dict, *, now: float, min_interval_seconds: int, contracts: list[str]
+    settings: dict,
+    *,
+    now: float,
+    min_interval_seconds: int,
+    contracts: list[str],
+    modes: list[str],
 ) -> tuple[list[dict], int]:
     provider_ids = _enabled_provider_ids(settings)
     health_by_model = _health_rows_by_model(settings)
     candidates: list[dict] = []
     enabled_model_count = 0
-    if not contracts:
+    if not contracts or not modes:
         return candidates, enabled_model_count
     enabled_models = (settings.get("settings") or {}).get("models") or []
     for model in enabled_models:
@@ -1371,12 +1393,13 @@ def _llm_model_format_probe_candidates(
                 reason=reason,
                 latest_ts=latest_ts,
                 contracts=contracts,
+                modes=modes,
             )
         )
     return candidates, enabled_model_count
 
 
-def _llm_model_format_probe_priority(item: dict) -> tuple[int, float, str, int]:
+def _llm_model_format_probe_priority(item: dict) -> tuple[int, float, str, int, int]:
     reason = str(item.get("reason") or "")
     if reason == "stale_format_probe":
         group = 0
@@ -1389,6 +1412,7 @@ def _llm_model_format_probe_priority(item: dict) -> tuple[int, float, str, int]:
         float(item.get("latest_checked_ts") or 0.0),
         str(item.get("model_id") or ""),
         int(item.get("contract_index") or 0),
+        int(item.get("mode_index") or 0),
     )
 
 
@@ -1403,6 +1427,7 @@ def _run_selected_llm_model_format_probes(
             "model_id": item["model_id"],
             "source": "autopilot",
             "prompt_contract": item["prompt_contract"],
+            "structured_output_mode": item["structured_output_mode"],
         }
         try:
             checked.append(
@@ -1420,6 +1445,7 @@ def _run_selected_llm_model_format_probes(
                     "provider_id": item["provider_id"],
                     "model_id": item["model_id"],
                     "prompt_contract": item["prompt_contract"],
+                    "structured_output_mode": item["structured_output_mode"],
                     "reason": f"{type(exc).__name__}: {exc}",
                 }
             )
@@ -1511,11 +1537,18 @@ def run_llm_model_format_probes(base_url: str, token: str) -> dict:
     )
     timeout = _bounded_int("ENOCH_LLM_MODEL_FORMAT_PROBE_TIMEOUT_SECONDS", 45, 5, 180)
     contracts = _llm_model_format_probe_contracts()
+    modes = _llm_model_format_probe_modes()
     if not contracts:
         return {
             "ok": True,
             "action": "llm_model_format_probes_skipped",
             "reason": "no contracts configured",
+        }
+    if not modes:
+        return {
+            "ok": True,
+            "action": "llm_model_format_probes_skipped",
+            "reason": "no structured output modes configured",
         }
     try:
         settings = _get_json(base_url, "/control/api/settings/llm", token, timeout=10)
@@ -1530,10 +1563,13 @@ def run_llm_model_format_probes(base_url: str, token: str) -> dict:
         now=time.time(),
         min_interval_seconds=min_interval,
         contracts=contracts,
+        modes=modes,
     )
     selected = sorted(candidates, key=_llm_model_format_probe_priority)[:limit]
     selected_reasons = {
-        f"{item['model_id']}:{item['prompt_contract']}": str(item["reason"])
+        f"{item['model_id']}:{item['prompt_contract']}:{item['structured_output_mode']}": str(
+            item["reason"]
+        )
         for item in selected
     }
     checked, failures = _run_selected_llm_model_format_probes(
@@ -1549,6 +1585,7 @@ def run_llm_model_format_probes(base_url: str, token: str) -> dict:
         "enabled_model_count": enabled_model_count,
         "limit": limit,
         "contracts": contracts,
+        "structured_output_modes": modes,
         "selected_reasons": selected_reasons,
         "checked": checked,
         "failures": failures,
