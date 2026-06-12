@@ -350,6 +350,27 @@ def _run_resume_systemctl(args: list[str], *, timeout: int = 10) -> dict[str, An
     }
 
 
+def _installed_maintenance_automation_timers() -> tuple[str, ...]:
+    result = _run_resume_systemctl(
+        [
+            "list-unit-files",
+            "--type=timer",
+            "--no-legend",
+            *MAINTENANCE_AUTOMATION_TIMERS,
+        ]
+    )
+    if not result.get("ok"):
+        return MAINTENANCE_AUTOMATION_TIMERS
+    installed: set[str] = set()
+    for line in str(result.get("stdout") or "").splitlines():
+        unit = line.split(maxsplit=1)[0] if line.split() else ""
+        if unit in MAINTENANCE_AUTOMATION_TIMERS:
+            installed.add(unit)
+    if not installed:
+        return MAINTENANCE_AUTOMATION_TIMERS
+    return tuple(timer for timer in MAINTENANCE_AUTOMATION_TIMERS if timer in installed)
+
+
 def _pause_automation_for_control_pause() -> dict[str, Any]:
     if os.environ.get("ENOCH_CONTROL_PAUSE_STOP_SYSTEMD", "1") == "0":
         return {"ok": True, "action": "systemd_pause_skipped", "reason": "disabled"}
@@ -360,15 +381,16 @@ def _pause_automation_for_control_pause() -> dict[str, Any]:
             "reason": "systemd unavailable",
         }
 
+    timers = _installed_maintenance_automation_timers()
     steps = [
-        _run_resume_systemctl(["stop", *MAINTENANCE_AUTOMATION_TIMERS]),
-        _run_resume_systemctl(["disable", *MAINTENANCE_AUTOMATION_TIMERS]),
+        _run_resume_systemctl(["stop", *timers]),
+        _run_resume_systemctl(["disable", *timers]),
     ]
     failures = [step for step in steps if not step.get("ok")]
     return {
         "ok": not failures,
         "action": "systemd_pause_timers",
-        "timers": list(MAINTENANCE_AUTOMATION_TIMERS),
+        "timers": list(timers),
         "steps": steps,
         "failures": failures,
     }
@@ -384,10 +406,11 @@ def _resume_automation_after_control_resume() -> dict[str, Any]:
             "reason": "systemd unavailable",
         }
 
+    timers = _installed_maintenance_automation_timers()
     steps = [
         _run_resume_systemctl(["daemon-reload"]),
-        _run_resume_systemctl(["enable", "--now", *MAINTENANCE_RESUME_TIMERS]),
-        _run_resume_systemctl(["restart", *MAINTENANCE_RESUME_TIMERS]),
+        _run_resume_systemctl(["enable", "--now", *timers]),
+        _run_resume_systemctl(["restart", *timers]),
         _run_resume_systemctl(
             ["start", "--no-block", *MAINTENANCE_RESUME_KICK_SERVICES]
         ),
@@ -396,7 +419,7 @@ def _resume_automation_after_control_resume() -> dict[str, Any]:
     return {
         "ok": not failures,
         "action": "systemd_rearm_and_kick",
-        "timers": list(MAINTENANCE_RESUME_TIMERS),
+        "timers": list(timers),
         "kick_services": list(MAINTENANCE_RESUME_KICK_SERVICES),
         "steps": steps,
         "failures": failures,

@@ -470,14 +470,22 @@ def test_dashboard_pause_stops_all_active_automation_timers() -> None:
 
 def test_pause_automation_stops_all_active_timers_before_resume_rearms_them() -> None:
     calls: list[list[str]] = []
+    installed_timers = tuple(
+        timer
+        for timer in MAINTENANCE_AUTOMATION_TIMERS
+        if timer != "enoch-paper-draft-next.timer"
+    )
 
     def fake_systemctl(args: list[str], *, timeout: int = 10) -> dict[str, Any]:
         calls.append(args)
+        stdout = ""
+        if args[:3] == ["list-unit-files", "--type=timer", "--no-legend"]:
+            stdout = "".join(f"{timer} enabled\n" for timer in installed_timers)
         return {
             "ok": True,
             "command": ["systemctl", *args],
             "returncode": 0,
-            "stdout": "",
+            "stdout": stdout,
             "stderr": "",
         }
 
@@ -496,13 +504,18 @@ def test_pause_automation_stops_all_active_timers_before_resume_rearms_them() ->
         resume = _resume_automation_after_control_resume()
 
     assert pause["ok"] is True
-    assert pause["timers"] == list(MAINTENANCE_AUTOMATION_TIMERS)
-    assert ["stop", *MAINTENANCE_AUTOMATION_TIMERS] in calls
-    assert ["disable", *MAINTENANCE_AUTOMATION_TIMERS] in calls
+    assert pause["timers"] == list(installed_timers)
+    assert ["stop", *installed_timers] in calls
+    assert ["disable", *installed_timers] in calls
+    assert all(
+        "enoch-paper-draft-next.timer" not in call
+        for call in calls
+        if call[0] in {"stop", "disable", "enable", "restart"}
+    )
     assert resume["ok"] is True
-    assert resume["timers"] == list(MAINTENANCE_RESUME_TIMERS)
-    assert ["enable", "--now", *MAINTENANCE_RESUME_TIMERS] in calls
-    assert ["restart", *MAINTENANCE_RESUME_TIMERS] in calls
+    assert resume["timers"] == list(installed_timers)
+    assert ["enable", "--now", *installed_timers] in calls
+    assert ["restart", *installed_timers] in calls
 
 
 def test_dashboard_maintenance_resume_rearms_systemd_and_records_observation() -> None:
