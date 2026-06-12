@@ -151,7 +151,12 @@ def _run_runner(
     project.mkdir()
     runner = Path(__file__).resolve().parents[1] / "deploy" / "enoch_codex_runner.sh"
     env = os.environ.copy()
-    env.update({"CODEX_BIN": str(_create_fake_codex(tmp_path))})
+    env.update(
+        {
+            "CODEX_BIN": str(_create_fake_codex(tmp_path)),
+            "ENOCH_SCAFFOLD_ALLOW_FILE_URLS": "1",
+        }
+    )
     env.update(env_updates)
     result = subprocess.run(
         [
@@ -334,3 +339,133 @@ def test_codex_runner_skips_scaffold_when_disabled(tmp_path: Path) -> None:
     project: Path = result.project  # type: ignore[attr-defined]
     assert result.returncode == 0, result.stderr
     assert not (project / ".scaffold-used.yaml").exists()
+
+
+
+def test_codex_runner_yaml_nested_clone_url_does_not_override_repo(tmp_path: Path) -> None:
+    safe_src, safe_commit = _create_scaffold_repo(tmp_path, "scaffold-enoch-worker-artifact")
+    evil_src, _ = _create_scaffold_repo(tmp_path, "scaffold-enoch-evil")
+    catalog = tmp_path / "nested-yaml-catalog"
+    catalog.mkdir()
+    (catalog / "catalog.yaml").write_text(
+        "version: 0.1.0\n"
+        "default: scaffold-enoch-worker-artifact\n"
+        "scaffolds:\n"
+        "  - name: scaffold-enoch-worker-artifact\n"
+        f"    clone_url: file://{safe_src}\n"
+        "    metadata:\n"
+        f"      clone_url: file://{evil_src}\n"
+        "selection_rules:\n"
+        "  - nested metadata must not override clone_url\n",
+        encoding="utf-8",
+    )
+    _commit_repo(catalog, "seed nested catalog")
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_CATALOG_URL": f"file://{catalog}",
+        },
+    )
+
+    project: Path = result.project  # type: ignore[attr-defined]
+    assert result.returncode == 0, result.stderr
+    scaffold_used = (project / ".scaffold-used.yaml").read_text(encoding="utf-8")
+    assert f"scaffold_source_url: file://{safe_src}" in scaffold_used
+    assert f"scaffold_commit: {safe_commit}" in scaffold_used
+    assert str(evil_src) not in scaffold_used
+
+
+def test_codex_runner_rejects_untrusted_catalog_scaffold_url(tmp_path: Path) -> None:
+    catalog = tmp_path / "untrusted-catalog"
+    catalog.mkdir()
+    (catalog / "catalog.json").write_text(
+        json.dumps(
+            {
+                "default": "scaffold-enoch-worker-artifact",
+                "scaffolds": [
+                    {
+                        "name": "scaffold-enoch-worker-artifact",
+                        "clone_url": "https://evil.example/scaffolds/scaffold-enoch-worker-artifact.git",
+                        "commit": "0" * 40,
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _commit_repo(catalog, "seed untrusted catalog")
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_CATALOG_URL": f"file://{catalog}",
+        },
+    )
+
+    assert result.returncode == 2
+    assert "untrusted scaffold URL" in result.stderr
+
+
+def test_codex_runner_rejects_commit_pin_mismatch(tmp_path: Path) -> None:
+    scaffold_src, scaffold_commit = _create_scaffold_repo(
+        tmp_path, "scaffold-enoch-worker-artifact"
+    )
+    wrong_commit = "f" * 40
+    assert wrong_commit != scaffold_commit
+    catalog = tmp_path / "pin-mismatch-catalog"
+    catalog.mkdir()
+    (catalog / "catalog.json").write_text(
+        json.dumps(
+            {
+                "default": "scaffold-enoch-worker-artifact",
+                "scaffolds": [
+                    {
+                        "name": "scaffold-enoch-worker-artifact",
+                        "clone_url": f"file://{scaffold_src}",
+                        "commit": wrong_commit,
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    _commit_repo(catalog, "seed mismatch catalog")
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_CATALOG_URL": f"file://{catalog}",
+        },
+    )
+
+    assert result.returncode == 2
+    assert "scaffold commit mismatch" in result.stderr
+
+
+def test_codex_runner_rejects_untrusted_direct_scaffold_url(tmp_path: Path) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_URL": "https://evil.example/scaffolds/scaffold-enoch-worker-artifact.git",
+            "ENOCH_SCAFFOLD_COMMIT": "0" * 40,
+        },
+    )
+
+    assert result.returncode == 2
+    assert "untrusted scaffold URL" in result.stderr

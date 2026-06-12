@@ -5078,20 +5078,10 @@ def _llm_workflow_required_contracts(workflow: Any) -> list[str]:
 def _latest_llm_format_event_for_contract(
     attempts: list[dict[str, Any]], contract: str
 ) -> dict[str, Any] | None:
-    matching = [
-        attempt
-        for attempt in attempts
-        if _text(attempt.get("prompt_contract")) == contract
-    ]
-    if not matching:
-        return None
-    for mode in _LLM_STRUCTURED_OUTPUT_MODE_PREFERENCE:
-        for attempt in matching:
-            if _llm_event_mode(attempt) == mode and _llm_format_contract_passed(
-                attempt
-            ):
-                return attempt
-    return matching[0]
+    for attempt in attempts:
+        if _text(attempt.get("prompt_contract")) == contract:
+            return attempt
+    return None
 
 
 def _llm_format_contract_passed(event: dict[str, Any] | None) -> bool:

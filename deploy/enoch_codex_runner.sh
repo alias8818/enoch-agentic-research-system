@@ -71,6 +71,10 @@ bootstrap_scaffold() {
   local catalog_url="${ENOCH_SCAFFOLD_CATALOG_URL:-http://100.114.53.78:8000/scaffolds/scaffold-catalog.git}"
   local requested_scaffold="${ENOCH_SCAFFOLD_NAME:-}"
   local direct_scaffold_url="${ENOCH_SCAFFOLD_URL:-}"
+  local direct_scaffold_commit="${ENOCH_SCAFFOLD_COMMIT:-}"
+  local allowed_base_urls="${ENOCH_SCAFFOLD_ALLOWED_BASE_URLS:-http://100.114.53.78:8000/scaffolds/}"
+  local allow_file_urls="${ENOCH_SCAFFOLD_ALLOW_FILE_URLS:-0}"
+  local require_pin="${ENOCH_SCAFFOLD_REQUIRE_PIN:-1}"
   if [[ ! -s "$token_file" ]]; then
     echo "scaffold bootstrap skipped: token file missing: $token_file" >&2
     return 0
@@ -80,7 +84,7 @@ bootstrap_scaffold() {
     return 0
   fi
 
-  local tmp_dir git_config scaffold_commit scaffold_url selected_scaffold selection
+  local tmp_dir git_config scaffold_commit scaffold_url selected_scaffold selection expected_scaffold_commit
   tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/enoch-scaffold-bootstrap.XXXXXX")"
   git_config="$tmp_dir/gitconfig"
   cleanup_scaffold_tmp() { rm -rf "$tmp_dir"; }
@@ -95,6 +99,7 @@ bootstrap_scaffold() {
   if [[ -n "$direct_scaffold_url" ]]; then
     scaffold_url="$direct_scaffold_url"
     selected_scaffold="direct-url"
+    expected_scaffold_commit="$direct_scaffold_commit"
   else
     GIT_CONFIG_GLOBAL="$git_config" git clone --depth 1 "$catalog_url" "$tmp_dir/catalog" >&2
     if ! selection="$(python3 - <<'PY_SELECT_SCAFFOLD' "$tmp_dir/catalog" "$requested_scaffold"
@@ -115,12 +120,14 @@ def load_catalog(path: pathlib.Path) -> dict[str, object]:
             raise SystemExit(2) from exc
 
     # Minimal parser for the existing scaffold-catalog/catalog.yaml schema. Avoid
-    # requiring PyYAML on production workers; this only needs top-level default and
-    # list items with name/repo/clone_url/url scalar fields.
+    # requiring PyYAML on production workers. Security invariant: only fields that
+    # are direct children of a scaffold list item are accepted. More deeply nested
+    # keys such as metadata.clone_url must never be promoted into the selected repo.
     catalog: dict[str, object] = {"scaffolds": []}
     scaffolds: list[dict[str, str]] = []
     current: dict[str, str] | None = None
     in_scaffolds = False
+    allowed_item_keys = {"name", "repo", "clone_url", "url", "commit", "scaffold_commit", "ref"}
     for raw_line in text.splitlines():
         line = raw_line.split("#", 1)[0].rstrip()
         stripped = line.strip()
@@ -147,12 +154,14 @@ def load_catalog(path: pathlib.Path) -> dict[str, object]:
             rest = line[4:].strip()
             if ":" in rest:
                 key, value = rest.split(":", 1)
-                current[key.strip()] = value.strip().strip('"\'')
+                key = key.strip()
+                if key in allowed_item_keys:
+                    current[key] = value.strip().strip('"\'')
             continue
-        if current is not None and line.startswith("    ") and ":" in stripped:
+        if current is not None and line.startswith("    ") and not line.startswith("     ") and ":" in stripped:
             key, value = stripped.split(":", 1)
             key = key.strip()
-            if key in {"name", "repo", "clone_url", "url"}:
+            if key in allowed_item_keys:
                 current[key] = value.strip().strip('"\'')
     if current is not None:
         scaffolds.append(current)
@@ -184,7 +193,11 @@ for item in scaffolds:
         if not isinstance(repo, str) or not repo:
             print(f"scaffold {wanted} has no repo", file=sys.stderr)
             raise SystemExit(2)
-        print(f"{wanted}\t{repo}")
+        commit = item.get("commit") or item.get("scaffold_commit") or item.get("ref") or ""
+        if commit is not None and not isinstance(commit, str):
+            print(f"scaffold {wanted} has invalid commit pin", file=sys.stderr)
+            raise SystemExit(2)
+        print(f"{wanted}\t{repo}\t{commit}")
         raise SystemExit(0)
 
 print(f"unknown scaffold: {wanted}", file=sys.stderr)
@@ -194,12 +207,55 @@ PY_SELECT_SCAFFOLD
       return 2
     fi
     selected_scaffold="${selection%%$'\t'*}"
-    scaffold_url="${selection#*$'\t'}"
+    selection="${selection#*$'\t'}"
+    scaffold_url="${selection%%$'\t'*}"
+    if [[ "$selection" == *$'\t'* ]]; then
+      expected_scaffold_commit="${selection#*$'\t'}"
+    else
+      expected_scaffold_commit=""
+    fi
   fi
+
+  python3 - <<'PY_VALIDATE_SCAFFOLD_URL' "$scaffold_url" "$allowed_base_urls" "$allow_file_urls" "$require_pin" "$expected_scaffold_commit"
+from __future__ import annotations
+import re
+import sys
+from urllib.parse import urlparse
+
+url, allowed_bases_raw, allow_file_raw, require_pin_raw, expected_commit = sys.argv[1:]
+allow_file = allow_file_raw.lower() in {"1", "true", "yes"}
+require_pin = require_pin_raw.lower() not in {"0", "false", "no"}
+parsed = urlparse(url)
+if parsed.scheme == "file":
+    if not allow_file:
+        print("untrusted scaffold URL: file URLs disabled", file=sys.stderr)
+        raise SystemExit(2)
+elif parsed.scheme in {"http", "https"}:
+    if parsed.username or parsed.password:
+        print("untrusted scaffold URL: credentials in URL are forbidden", file=sys.stderr)
+        raise SystemExit(2)
+    allowed_bases = [base.strip().rstrip("/") + "/" for base in allowed_bases_raw.split(",") if base.strip()]
+    if not any(url.startswith(base) for base in allowed_bases):
+        print(f"untrusted scaffold URL: {url}", file=sys.stderr)
+        raise SystemExit(2)
+else:
+    print(f"untrusted scaffold URL scheme: {parsed.scheme or 'missing'}", file=sys.stderr)
+    raise SystemExit(2)
+if expected_commit and not re.fullmatch(r"[0-9a-fA-F]{40}", expected_commit):
+    print("invalid scaffold commit pin: expected full 40-character hex commit", file=sys.stderr)
+    raise SystemExit(2)
+if require_pin and parsed.scheme != "file" and not expected_commit:
+    print("scaffold commit pin required for non-file scaffold URL", file=sys.stderr)
+    raise SystemExit(2)
+PY_VALIDATE_SCAFFOLD_URL
 
   echo "scaffold selected: $selected_scaffold -> $scaffold_url" >&2
   GIT_CONFIG_GLOBAL="$git_config" git clone --depth 1 "$scaffold_url" "$tmp_dir/scaffold" >&2
   scaffold_commit="$(GIT_CONFIG_GLOBAL="$git_config" git -C "$tmp_dir/scaffold" rev-parse HEAD)"
+  if [[ -n "$expected_scaffold_commit" && "$scaffold_commit" != "$expected_scaffold_commit" ]]; then
+    echo "scaffold commit mismatch: expected $expected_scaffold_commit got $scaffold_commit" >&2
+    return 2
+  fi
 
   (cd "$tmp_dir/scaffold" && tar --exclude .git -cf - .) | (cd "$PROJECT_DIR" && tar -xf -)
   if [[ -x "$PROJECT_DIR/.scaffold/bootstrap.sh" ]]; then
