@@ -14,7 +14,14 @@ def _write_executable(path: Path, content: str) -> None:
 
 
 def _git(args: list[str], cwd: Path) -> None:
-    subprocess.run(["git", *args], cwd=cwd, check=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
 
 def test_codex_runner_bootstraps_scaffold_before_exec(tmp_path: Path) -> None:
@@ -49,7 +56,9 @@ def test_codex_runner_bootstraps_scaffold_before_exec(tmp_path: Path) -> None:
         "python3 -m json.tool .enoch/project_decision.json >/dev/null\n"
         "echo smoke_ok\n",
     )
-    (scaffold_src / "templates" / "run_notes.template.md").write_text("# Run Notes\n", encoding="utf-8")
+    (scaffold_src / "templates" / "run_notes.template.md").write_text(
+        "# Run Notes\n", encoding="utf-8"
+    )
     (scaffold_src / "templates" / "project_decision.template.json").write_text(
         json.dumps({"decision": "pending"}) + "\n", encoding="utf-8"
     )
@@ -67,11 +76,11 @@ def test_codex_runner_bootstraps_scaffold_before_exec(tmp_path: Path) -> None:
         fake_codex,
         "#!/usr/bin/env bash\nset -euo pipefail\nlast=''\nargs=(\"$@\")\n"
         "for ((i=0; i<${#args[@]}; i++)); do\n"
-        "  if [[ \"${args[$i]}\" == \"--output-last-message\" ]]; then last=\"${args[$((i+1))]}\"; fi\n"
+        '  if [[ "${args[$i]}" == "--output-last-message" ]]; then last="${args[$((i+1))]}"; fi\n'
         "done\n"
         "cat >/dev/null\n"
-        "if [[ -n \"$last\" ]]; then mkdir -p \"$(dirname \"$last\")\"; echo OK > \"$last\"; fi\n"
-        "echo '{\"type\":\"session\",\"session_id\":\"fake-session\"}'\n",
+        'if [[ -n "$last" ]]; then mkdir -p "$(dirname "$last")"; echo OK > "$last"; fi\n'
+        'echo \'{"type":"session","session_id":"fake-session"}\'\n',
     )
     token_file = tmp_path / "token"
     token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
@@ -118,7 +127,9 @@ def test_codex_runner_bootstraps_scaffold_before_exec(tmp_path: Path) -> None:
     scaffold_used = (project / ".scaffold-used.yaml").read_text(encoding="utf-8")
     assert f"scaffold_commit: {scaffold_commit}" in scaffold_used
     assert f"scaffold_source_url: file://{scaffold_src}" in scaffold_used
-    session = json.loads((project / ".enoch" / "session.json").read_text(encoding="utf-8"))
+    session = json.loads(
+        (project / ".enoch" / "session.json").read_text(encoding="utf-8")
+    )
     assert session["session_id"] == "fake-session"
 
 
@@ -126,7 +137,7 @@ def test_codex_runner_skips_scaffold_when_disabled(tmp_path: Path) -> None:
     fake_codex = tmp_path / "fake-codex"
     _write_executable(
         fake_codex,
-        "#!/usr/bin/env bash\nset -euo pipefail\ncat >/dev/null\necho '{\"type\":\"session\",\"session_id\":\"fake-session\"}'\n",
+        '#!/usr/bin/env bash\nset -euo pipefail\ncat >/dev/null\necho \'{"type":"session","session_id":"fake-session"}\'\n',
     )
     prompt = tmp_path / "prompt.txt"
     prompt.write_text("do work\n", encoding="utf-8")
