@@ -4972,9 +4972,13 @@ def _llm_format_event_unsupported_mode(event: Mapping[str, Any]) -> bool:
     )
 
 
-def _llm_format_mode_status(*, success_count: int, unsupported_count: int) -> str:
-    if success_count > 0:
+def _llm_format_mode_status(
+    *, success_count: int, unsupported_count: int, attempts: int
+) -> str:
+    if success_count > 0 and success_count == attempts:
         return "supported"
+    if success_count > 0:
+        return "unstable"
     if unsupported_count > 0:
         return "unsupported"
     return "failing"
@@ -4989,10 +4993,13 @@ def _llm_mode_evidence(events: list[dict[str, Any]]) -> dict[str, Any]:
     latest = events[0] if events else {}
     return {
         "status": _llm_format_mode_status(
-            success_count=success_count, unsupported_count=unsupported_count
+            success_count=success_count,
+            unsupported_count=unsupported_count,
+            attempts=attempts,
         ),
         "attempt_count": attempts,
         "success_count": success_count,
+        "failure_count": attempts - success_count,
         "schema_ok_count": sum(1 for event in events if event.get("schema_ok") is True),
         "valid_json_count": sum(
             1 for event in events if event.get("valid_json") is True

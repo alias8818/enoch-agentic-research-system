@@ -344,6 +344,50 @@ def test_llm_route_policy_recommends_fail_closed_candidate_after_fresh_repeated_
     }
 
 
+def test_llm_model_health_marks_mixed_provider_enforced_mode_unstable() -> None:
+    settings = _settings_with_single_research_model()
+    events = [
+        _format_probe_event(
+            3,
+            mode="json_schema",
+            checked_at=_iso_at(timedelta(minutes=-1)),
+            schema_ok=True,
+        ),
+        _format_probe_event(
+            2,
+            mode="json_schema",
+            checked_at=_iso_at(timedelta(minutes=-2)),
+            schema_ok=False,
+            malformed_kind="schema_mismatch",
+        ),
+        _format_probe_event(
+            1,
+            mode="json_schema",
+            checked_at=_iso_at(timedelta(minutes=-3)),
+            schema_ok=True,
+        ),
+    ]
+
+    summary = read_models.llm_model_health_summary(_FakeLLMEventStore(events), settings)
+
+    capability = summary["structured_output_capabilities"][
+        "openrouter:minimax/minimax-m3"
+    ]["candidate_json"]
+    mode = capability["modes"]["json_schema"]
+    assert mode["status"] == "unstable"
+    assert mode["success_count"] == 2
+    assert mode["failure_count"] == 1
+    assert capability["recommended_response_format_type"] == ""
+
+    policy = summary["workflow_recommendations"][0]["route_policy"]
+    assert policy["status"] == "blocked"
+    assert policy["recommended_response_format_type"] == ""
+    assert (
+        "non_green_recent_attempt:candidate_json:json_schema"
+        in policy["promotion_gate"]["reasons"]
+    )
+
+
 def test_llm_settings_reject_unknown_workflow_model() -> None:
     settings = default_llm_settings().model_dump(mode="json")
     settings["workflows"][0]["model_pool"].append("missing-model")
