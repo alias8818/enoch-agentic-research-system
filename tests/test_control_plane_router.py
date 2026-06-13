@@ -10830,7 +10830,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
             stale = (
-                datetime.now(timezone.utc) - timedelta(seconds=DISPATCH_RACE_GRACE_SEC + 30)
+                datetime.now(timezone.utc)
+                - timedelta(seconds=DISPATCH_RACE_GRACE_SEC + 30)
             ).isoformat()
             status = SimpleNamespace(
                 active_items=[{"project_id": "active-cpu"}],
