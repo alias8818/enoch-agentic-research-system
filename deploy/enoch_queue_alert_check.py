@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import hashlib
@@ -20,6 +21,7 @@ DISPATCH_NOT_SAFE_REASON = "dispatch not safe"
 ACTIVE_WORKER_LANE_PRESENT_REASON = "active worker lane present"
 QUEUE_PUMP_DISABLED_REASON = "queue pump disabled"
 CONTROL_HELD_REASON = "control plane held"
+CLI_DRY_RUN_REASON = "cli dry-run"
 
 
 def _load_config() -> dict:
@@ -381,7 +383,30 @@ def _exit_code_for_alert(alert: dict) -> int:
     return 1
 
 
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Refresh worker evidence and run Enoch queue alert checks."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Run alert checks without notifications or queue-pump side effects. "
+            "This mode never dispatches, drafts papers, or launches follow-ups."
+        ),
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit JSON output (currently the only output format).",
+    )
+    args, _unknown = parser.parse_known_args(argv)
+    return args
+
+
 def main() -> int:
+    args = _parse_args()
+    cli_dry_run = bool(args.dry_run)
     config = _load_config()
     token = str(
         config.get("control_api_bearer_token")
@@ -424,9 +449,13 @@ def main() -> int:
             "/control/api/alerts/queue-check",
             token,
             {
-                "dry_run": False,
+                "dry_run": cli_dry_run,
                 "refresh_worker": True,
-                "requested_by": "systemd:enoch-queue-alert-check",
+                "requested_by": (
+                    "cli:enoch-queue-alert-check-dry-run"
+                    if cli_dry_run
+                    else "systemd:enoch-queue-alert-check"
+                ),
             },
         )
     queue_pump_enabled = bool(
@@ -443,7 +472,13 @@ def main() -> int:
     followup_dry_run = _skipped(QUEUE_PUMP_DISABLED_REASON)
     followup_launch = _skipped(QUEUE_PUMP_DISABLED_REASON)
     publication_rewrite = _skipped("no paper drafted")
-    if queue_pump_enabled:
+    if cli_dry_run:
+        dispatch = _skipped(CLI_DRY_RUN_REASON)
+        paper_draft = _skipped(CLI_DRY_RUN_REASON)
+        followup_dry_run = _skipped(CLI_DRY_RUN_REASON)
+        followup_launch = _skipped(CLI_DRY_RUN_REASON)
+        publication_rewrite = _skipped(CLI_DRY_RUN_REASON)
+    elif queue_pump_enabled:
         (
             dispatch,
             paper_draft,

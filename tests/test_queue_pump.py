@@ -122,6 +122,76 @@ class QueuePumpTests(unittest.TestCase):
         self.assertNotIn("checks", output["preflight"])
         self.assertLess(len(json.dumps(output)), 1000)
 
+    def test_cli_dry_run_does_not_perform_queue_pump_side_effects(self) -> None:
+        status = {
+            "flags": {"queue_paused": False, "maintenance_mode": False},
+            "dispatch_safe": True,
+            "dispatch_blockers": [],
+            "active_items": [],
+            "next_candidate": {"project_id": "queued-idea"},
+            "conflicts": [],
+        }
+        calls: list[tuple[str, dict[str, object]]] = []
+
+        def fake_post(
+            base_url: str,
+            path: str,
+            token: str,
+            payload: dict[str, object],
+            *,
+            timeout: int = 30,
+        ) -> dict[str, object]:
+            calls.append((path, payload))
+            if path == "/control/api/preflight":
+                return {"ok": True, "checks": []}
+            if path == "/control/api/alerts/queue-check":
+                return {"should_alert": False, "sent": False, "alerts_enabled": True}
+            raise AssertionError(
+                f"dry-run must not call mutating queue-pump endpoint: {path}"
+            )
+
+        with (
+            patch.object(
+                queue_pump,
+                "_load_config",
+                return_value={
+                    "listen_host": "127.0.0.1",
+                    "listen_port": 8787,
+                    "control_api_bearer_token": "t",
+                    "queue_pump_enabled": True,
+                    "queue_pump_paper_draft_enabled": True,
+                    "queue_pump_followup_launch_enabled": True,
+                },
+            ),
+            patch.object(queue_pump, "_post_json", side_effect=fake_post),
+            patch.object(queue_pump, "_get_json", return_value=status),
+            patch.object(
+                queue_pump.sys,
+                "argv",
+                ["enoch_queue_alert_check.py", "--dry-run", "--json"],
+            ),
+        ):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = queue_pump.main()
+
+        output = json.loads(out.getvalue())
+        paths = [path for path, _payload in calls]
+        alert_payloads = [
+            payload
+            for path, payload in calls
+            if path == "/control/api/alerts/queue-check"
+        ]
+        self.assertEqual(code, 0)
+        self.assertEqual(len(alert_payloads), 1)
+        self.assertTrue(alert_payloads[0]["dry_run"])
+        self.assertNotIn("/control/papers/draft-next", paths)
+        self.assertNotIn("/control/api/v1/followups/launch-next", paths)
+        self.assertNotIn("/control/dispatch-next", paths)
+        self.assertEqual(output["dispatch"]["reason"], "cli dry-run")
+        self.assertEqual(output["paper_draft"]["reason"], "cli dry-run")
+        self.assertEqual(output["followup_launch"]["reason"], "cli dry-run")
+
     def test_queue_pump_reports_dispatch_conflict_without_crashing(self) -> None:
         calls: list[str] = []
         status = {
