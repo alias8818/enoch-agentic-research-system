@@ -2566,6 +2566,34 @@ def test_dispatch_race_partition_suppresses_reconcile_grace_without_recent_event
     assert suppressed == [finding]
 
 
+def test_queue_alert_suppression_applies_reconcile_grace_without_recent_event() -> None:
+    finding = DashboardFinding(
+        severity="warn",
+        source=alerts.CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
+        authority="cross-source active-lane reconciliation",
+        message="cpu_worker active row is unconfirmed during worker reconcile grace",
+        suggested_action="wait for the worker observation grace window before reconciling",
+    )
+
+    def event_rows(limit: int = 100) -> list[dict[str, object]]:
+        return []
+
+    store = SimpleNamespace(event_rows=event_rows)
+    status = SimpleNamespace(
+        active_items=[{"project_id": "cpu-project"}],
+        dispatch_blockers=[],
+    )
+
+    kept, suppressed = alerts._suppress_dispatch_race_findings(  # noqa: SLF001
+        store=store,  # type: ignore[arg-type]
+        status=status,  # type: ignore[arg-type]
+        findings=[finding],
+    )
+
+    assert kept == []
+    assert suppressed == [finding]
+
+
 def test_queue_alert_findings_suppresses_worker_settling_warning() -> None:
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),

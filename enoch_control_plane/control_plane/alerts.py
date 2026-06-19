@@ -975,6 +975,9 @@ def _suppress_dispatch_race_findings(
     suppress_recent_live_orphan = any(
         _recent_worker_live_without_vm_match(status, finding) for finding in findings
     )
+    suppress_reconcile_grace = any(
+        _is_reconcile_grace_worker_preflight_finding(finding) for finding in findings
+    )
     if _should_apply_dispatch_race_suppression(
         store=store, status=status, findings=findings
     ):
@@ -984,7 +987,11 @@ def _suppress_dispatch_race_findings(
             suppress_settling_backpressure=suppress_settling_backpressure,
             suppress_dispatch_race=True,
         )
-    if suppress_settling_backpressure or suppress_recent_live_orphan:
+    if (
+        suppress_settling_backpressure
+        or suppress_recent_live_orphan
+        or suppress_reconcile_grace
+    ):
         return _partition_dispatch_race_findings(
             findings,
             status=status,
