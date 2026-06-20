@@ -3259,6 +3259,7 @@ async def _replay_callback_outbox_once() -> None:
         token=config.completion_callback_token,
         timeout=float(config.completion_callback_timeout_sec),
         limit=10,
+        hmac_secret=config.completion_callback_hmac_secret,
     )
     for result in results:
         store.append_event(

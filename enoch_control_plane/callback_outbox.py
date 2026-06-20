@@ -4,16 +4,23 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 from typing import Any
 from urllib import error, request
 
+from .callback_signing import signature_headers
 from .url_safety import validate_http_url
 
 
 OUTBOX_DIRNAME = "callback_outbox"
 DELIVERED_DIRNAME = "callback_delivered"
+DEAD_LETTER_DIRNAME = "callback_dead_letter"
+MAX_ATTEMPTS = 50
+PERMANENT_HTTP_STATUSES = frozenset(
+    status for status in range(400, 500) if status not in {408, 425, 429}
+)
 
 
 def utc_now() -> str:
@@ -30,6 +37,23 @@ def delivered_dir(state_dir: str | Path) -> Path:
     path = Path(state_dir).expanduser() / DELIVERED_DIRNAME
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def dead_letter_dir(state_dir: str | Path) -> Path:
+    path = Path(state_dir).expanduser() / DEAD_LETTER_DIRNAME
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _fsync_dir(path: Path) -> None:
+    try:
+        dir_fd = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError:
+        return
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
 
 
 def _legacy_safe_run_id(run_id: str) -> str:
@@ -59,8 +83,11 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
         ) as fh:
             json.dump(payload, fh, indent=2, sort_keys=True)
             fh.write("\n")
+            fh.flush()
+            os.fsync(fh.fileno())
             tmp = Path(fh.name)
         tmp.replace(path)
+        _fsync_dir(path.parent)
     finally:
         if tmp is not None:
             try:
@@ -140,21 +167,51 @@ class DeliveryResult:
     path: str = ""
 
 
+def _dead_letter_pending(
+    pending: Path,
+    *,
+    state_dir: str | Path,
+    payload: dict[str, Any],
+    reason: str,
+    result: DeliveryResult,
+) -> DeliveryResult:
+    payload["dead_letter_reason"] = reason
+    payload["dead_lettered_at"] = utc_now()
+    payload["last_error"] = result.detail[:4096]
+    dest = dead_letter_dir(state_dir) / pending.name
+    _atomic_write_json(dest, payload)
+    try:
+        pending.unlink()
+    except FileNotFoundError:
+        pass
+    detail = f"dead-lettered {reason}: {result.detail[:512]}"
+    return DeliveryResult(
+        ok=False, status_code=result.status_code, detail=detail, path=str(dest)
+    )
+
+
 def deliver_payload(
-    payload: dict[str, Any], *, url: str, token: str, timeout: float
+    payload: dict[str, Any],
+    *,
+    url: str,
+    token: str,
+    timeout: float,
+    hmac_secret: str = "",
 ) -> DeliveryResult:
     try:
         safe_url = validate_http_url(url, field_name="callback url")
     except ValueError as exc:
         return DeliveryResult(ok=False, detail=str(exc))
     data = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    headers.update(signature_headers(data, secret=hmac_secret))
     req = request.Request(
         safe_url,
         data=data,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        },
+        headers=headers,
         method="POST",
     )
     try:
@@ -179,7 +236,13 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 
 
 def deliver_pending_file(
-    path: str | Path, *, state_dir: str | Path, url: str, token: str, timeout: float
+    path: str | Path,
+    *,
+    state_dir: str | Path,
+    url: str,
+    token: str,
+    timeout: float,
+    hmac_secret: str = "",
 ) -> DeliveryResult:
     try:
         pending = Path(path).expanduser()
@@ -207,7 +270,9 @@ def deliver_pending_file(
         )
     payload["attempt_count"] = int(payload.get("attempt_count") or 0) + 1
     payload["last_attempt_at"] = utc_now()
-    result = deliver_payload(payload, url=url, token=token, timeout=timeout)
+    result = deliver_payload(
+        payload, url=url, token=token, timeout=timeout, hmac_secret=hmac_secret
+    )
     if result.ok:
         payload["delivered_at"] = utc_now()
         payload["last_error"] = ""
@@ -235,7 +300,23 @@ def deliver_pending_file(
             detail=result.detail,
             path=str(dest),
         )
-    payload["last_error"] = result.detail
+    payload["last_error"] = result.detail[:4096]
+    if result.status_code in PERMANENT_HTTP_STATUSES:
+        return _dead_letter_pending(
+            pending,
+            state_dir=state_dir,
+            payload=payload,
+            reason=f"permanent_{result.status_code}",
+            result=result,
+        )
+    if int(payload.get("attempt_count") or 0) >= MAX_ATTEMPTS:
+        return _dead_letter_pending(
+            pending,
+            state_dir=state_dir,
+            payload=payload,
+            reason="max_attempts",
+            result=result,
+        )
     _atomic_write_json(pending, payload)
     return DeliveryResult(
         ok=False,
@@ -252,6 +333,7 @@ def replay_pending(
     token: str,
     timeout: float = 30.0,
     limit: int = 20,
+    hmac_secret: str = "",
 ) -> list[DeliveryResult]:
     if not url or not token:
         return []
@@ -263,7 +345,12 @@ def replay_pending(
         try:
             results.append(
                 deliver_pending_file(
-                    path, state_dir=state_dir, url=url, token=token, timeout=timeout
+                    path,
+                    state_dir=state_dir,
+                    url=url,
+                    token=token,
+                    timeout=timeout,
+                    hmac_secret=hmac_secret,
                 )
             )
         except Exception as exc:
@@ -295,6 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="read bearer token from stdin instead of argv",
     )
+    deliver.add_argument("--hmac-secret", default="")
     deliver.add_argument("--timeout", type=float, default=30.0)
     replay = sub.add_parser("replay")
     replay.add_argument("--state-dir", required=True)
@@ -306,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="read bearer token from stdin instead of argv",
     )
+    replay.add_argument("--hmac-secret", default="")
     replay.add_argument("--timeout", type=float, default=30.0)
     replay.add_argument("--limit", type=int, default=20)
     args = parser.parse_args(argv)
@@ -323,6 +412,7 @@ def main(argv: list[str] | None = None) -> int:
             url=args.url,
             token=token,
             timeout=args.timeout,
+            hmac_secret=args.hmac_secret,
         )
         print(json.dumps(result.__dict__, sort_keys=True))
         return 0 if result.ok else 1
@@ -334,6 +424,7 @@ def main(argv: list[str] | None = None) -> int:
             token=token,
             timeout=args.timeout,
             limit=args.limit,
+            hmac_secret=args.hmac_secret,
         )
         print(
             json.dumps(

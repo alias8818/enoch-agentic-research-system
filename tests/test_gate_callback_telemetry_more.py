@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import signal
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from urllib import error
 
 import pytest
@@ -371,6 +373,77 @@ def test_callback_outbox_failure_and_replay_limits(
     assert second.exists()
 
 
+def test_callback_outbox_quarantines_permanent_4xx_without_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = callback_outbox.write_pending(tmp_path, {"run_id": "perm"})
+    monkeypatch.setattr(
+        callback_outbox,
+        "deliver_payload",
+        lambda payload, **kwargs: callback_outbox.DeliveryResult(
+            ok=False, status_code=401, detail="unauthorized"
+        ),
+    )
+
+    result = callback_outbox.deliver_pending_file(
+        pending, state_dir=tmp_path, url="http://example", token="t", timeout=1
+    )
+
+    assert result.ok is False
+    assert "permanent_401" in result.detail
+    assert not pending.exists()
+    dead = Path(result.path)
+    assert dead.parent.name == callback_outbox.DEAD_LETTER_DIRNAME
+    stored = json.loads(dead.read_text(encoding="utf-8"))
+    assert stored["dead_letter_reason"] == "permanent_401"
+    assert stored["attempt_count"] == 1
+    assert stored["last_error"] == "unauthorized"
+
+
+def test_callback_outbox_quarantines_after_max_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pending = callback_outbox.write_pending(tmp_path, {"run_id": "transient"})
+    stored = json.loads(pending.read_text(encoding="utf-8"))
+    stored["attempt_count"] = callback_outbox.MAX_ATTEMPTS - 1
+    pending.write_text(json.dumps(stored), encoding="utf-8")
+    monkeypatch.setattr(
+        callback_outbox,
+        "deliver_payload",
+        lambda payload, **kwargs: callback_outbox.DeliveryResult(
+            ok=False, status_code=503, detail="busy"
+        ),
+    )
+
+    result = callback_outbox.deliver_pending_file(
+        pending, state_dir=tmp_path, url="http://example", token="t", timeout=1
+    )
+
+    assert result.ok is False
+    assert "max_attempts" in result.detail
+    assert not pending.exists()
+    stored = json.loads(Path(result.path).read_text(encoding="utf-8"))
+    assert stored["dead_letter_reason"] == "max_attempts"
+    assert stored["attempt_count"] == callback_outbox.MAX_ATTEMPTS
+
+
+def test_callback_outbox_atomic_write_fsyncs_file_and_parent_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fsynced: list[int] = []
+    real_fsync = os.fsync
+
+    def fake_fsync(fd: int) -> None:
+        fsynced.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(callback_outbox.os, "fsync", fake_fsync)
+    path = callback_outbox.write_pending(tmp_path, {"run_id": "durable"})
+
+    assert path.exists()
+    assert len(fsynced) >= 2
+
+
 def test_deliver_payload_handles_http_and_url_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -386,13 +459,23 @@ def test_deliver_payload_handles_http_and_url_errors(
         def read(self, n):
             return b"created"
 
-    monkeypatch.setattr(
-        callback_outbox.request, "urlopen", lambda req, timeout: _Resp()
-    )
+    captured: dict[str, Any] = {}
+
+    def fake_urlopen(req, timeout):
+        captured["headers"] = dict(req.header_items())
+        return _Resp()
+
+    monkeypatch.setattr(callback_outbox.request, "urlopen", fake_urlopen)
     ok = callback_outbox.deliver_payload(
-        {"run_id": "run"}, url="http://example", token="t", timeout=1
+        {"run_id": "run"},
+        url="http://example",
+        token="t",
+        timeout=1,
+        hmac_secret="signing-secret",
     )
     assert ok.ok is True and ok.status_code == 201
+    assert captured["headers"]["X-enoch-timestamp"].isdigit()
+    assert captured["headers"]["X-enoch-signature"].startswith("sha256=")
 
     class _HTTP(error.HTTPError):
         def read(self, n=-1):

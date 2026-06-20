@@ -13,6 +13,7 @@ from tenacity import (
 )
 
 from .url_safety import validate_http_url
+from .callback_signing import signature_headers
 from .config import GateConfig
 from .models import GateCallback
 
@@ -43,17 +44,21 @@ class CallbackSender:
         safe_url = validate_http_url(
             self.config.completion_callback_url, field_name="completion callback url"
         )
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.config.completion_callback_token}",
+            "X-Run-Id": callback.run_id,
+            "X-Session-Id": callback.session_id,
+            "X-Idempotency-Key": callback.idempotency_key,
+        }
+        headers.update(
+            signature_headers(body, secret=self.config.completion_callback_hmac_secret)
+        )
         req = request.Request(
             safe_url,
             data=body,
             method="POST",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.config.completion_callback_token}",
-                "X-Run-Id": callback.run_id,
-                "X-Session-Id": callback.session_id,
-                "X-Idempotency-Key": callback.idempotency_key,
-            },
+            headers=headers,
         )
         with request.urlopen(
             req, timeout=self.config.completion_callback_timeout_sec

@@ -66,6 +66,7 @@ def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
         control_api_bearer_token="control",
         completion_callback_url="http://callback",
         completion_callback_token="secret",
+        completion_callback_hmac_secret="signing-secret",
     )
     callback = GateCallback(
         event_type="wake_ready",
@@ -106,6 +107,8 @@ def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
     assert captured["url"] == "http://callback"
     assert captured["headers"]["Authorization"] == "Bearer secret"
     assert captured["headers"]["X-idempotency-key"] == "idem"
+    assert captured["headers"]["X-enoch-timestamp"].isdigit()
+    assert captured["headers"]["X-enoch-signature"].startswith("sha256=")
 
 
 def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None:

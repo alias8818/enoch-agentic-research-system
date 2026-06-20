@@ -66,6 +66,7 @@ class GateConfig(BaseModel):
     )
     completion_callback_url: str = ""
     completion_callback_token: str = ""
+    completion_callback_hmac_secret: str = ""
     completion_callback_timeout_sec: int = Field(default=120, ge=5)
     # Deprecated compatibility aliases for early private prototypes. Prefer
     # completion_callback_* in public configs.
