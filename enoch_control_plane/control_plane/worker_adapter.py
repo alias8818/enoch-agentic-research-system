@@ -192,6 +192,48 @@ def _compact_dashboard_body(body: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
+def _worker_dashboard_has_only_stale_zero_process_live_runs(
+    dashboard_body: dict[str, Any],
+) -> bool:
+    """Return True when worker totals are held open only by stale gate rows.
+
+    A GB10 wake-gate can retain a `running` dashboard row after the project-owned
+    process tree has already exited.  In that state the dashboard totals still
+    report live/active work, but every live row has active_process_count=0 and no
+    active process entries.  Treating that as lane occupancy causes endless
+    queue-alert pages and blocks otherwise safe dispatch.
+    """
+
+    totals = dashboard_body.get("totals") or {}
+    active_or_waiting = _int_or(totals.get("active_or_waiting"), missing=0, malformed=1)
+    live = _int_or(totals.get("live"), missing=0, malformed=1)
+    if active_or_waiting <= 0 and live <= 0:
+        return False
+
+    runs = dashboard_body.get("runs")
+    if not isinstance(runs, list) or not runs:
+        return False
+
+    live_runs = [
+        run
+        for run in runs
+        if isinstance(run, dict)
+        and (
+            run.get("is_live") is True
+            or str(run.get("lifecycle_state") or "") == "active"
+        )
+    ]
+    if not live_runs:
+        return False
+
+    return all(
+        _int_or(run.get("active_process_count"), missing=0, malformed=1) == 0
+        and not run.get("active_processes")
+        and run.get("needs_attention") is not True
+        for run in live_runs
+    )
+
+
 def _append_control_flag_checks(
     checks: list[WorkerPreflightCheck],
     payload: WorkerPreflightRequest,
@@ -313,6 +355,11 @@ def _worker_telemetry_checks(
     gpu_pids = telemetry.get("gpu_compute_pids") or []
     active_or_waiting = _int_or(totals.get("active_or_waiting"), missing=0, malformed=1)
     live = _int_or(totals.get("live"), missing=0, malformed=1)
+    stale_worker_gate_only = _worker_dashboard_has_only_stale_zero_process_live_runs(
+        dashboard_body or {}
+    )
+    effective_active_or_waiting = 0 if stale_worker_gate_only else active_or_waiting
+    effective_live = 0 if stale_worker_gate_only else live
     queue_active = _int_or(queue.get("active_count"), missing=0, malformed=1)
     callback_compatible = _callback_token_compatible(
         payload.expected_callback_token_fingerprint,
@@ -333,9 +380,20 @@ def _worker_telemetry_checks(
         ),
         _check(
             "worker_no_live_runs",
-            active_or_waiting == 0 and live == 0,
-            f"active_or_waiting={active_or_waiting}, live={live}",
-            {"active_or_waiting": active_or_waiting, "live": live},
+            effective_active_or_waiting == 0 and effective_live == 0,
+            (
+                f"active_or_waiting={active_or_waiting}, live={live}; "
+                "treated as stale zero-process worker gate state"
+                if stale_worker_gate_only
+                else f"active_or_waiting={active_or_waiting}, live={live}"
+            ),
+            {
+                "active_or_waiting": active_or_waiting,
+                "live": live,
+                "effective_active_or_waiting": effective_active_or_waiting,
+                "effective_live": effective_live,
+                "stale_worker_gate_only": stale_worker_gate_only,
+            },
         ),
         _check(
             "worker_queue_snapshot_no_active",

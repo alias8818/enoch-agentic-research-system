@@ -88,6 +88,58 @@ class WorkerPreflightTests(unittest.TestCase):
             checks["wake_gate_dashboard_api"].data["body"]["body_compacted"]
         )
 
+    def test_preflight_treats_stale_zero_process_worker_gate_as_idle(self) -> None:
+        def transport(url: str, headers: dict[str, str]) -> HttpResult:
+            if url.endswith("/healthz"):
+                return HttpResult(ok=True, status=200, body={"ok": True})
+            if "/dashboard/api" in url:
+                return HttpResult(
+                    ok=True,
+                    status=200,
+                    body={
+                        "service": {
+                            "completion_callback_token_fingerprint": "expected-fingerprint"
+                        },
+                        "telemetry": {
+                            "gpu_pct": 0,
+                            "gpu_compute_pids": [],
+                            "memory_available_mib": 120_000,
+                            "swap_free_mib": 0,
+                        },
+                        "totals": {"active_or_waiting": 1, "live": 1},
+                        "queue": {"active_count": 0},
+                        "runs": [
+                            {
+                                "run_id": "stale-run",
+                                "project_id": "project-stale",
+                                "gate_state": "running",
+                                "lifecycle_state": "active",
+                                "is_live": True,
+                                "active_process_count": 0,
+                                "active_processes": [],
+                                "needs_attention": False,
+                            }
+                        ],
+                    },
+                )
+            raise AssertionError(f"unexpected url {url}")
+
+        response = run_worker_preflight(
+            WorkerPreflightRequest(
+                wake_gate_url="http://worker:8787",
+                bearer_token="secret",
+                require_paused=False,
+            ),
+            ControlFlags(queue_paused=False, maintenance_mode=False),
+            transport=transport,
+        )
+
+        checks = {check.name: check for check in response.checks}
+        self.assertTrue(response.ok)
+        self.assertTrue(checks["worker_no_live_runs"].ok)
+        self.assertTrue(checks["worker_no_live_runs"].data["stale_worker_gate_only"])
+        self.assertEqual(checks["worker_no_live_runs"].data["effective_live"], 0)
+
     def test_preflight_bounds_large_dashboard_payloads(self) -> None:
         large_note = "x" * 50_000
 
