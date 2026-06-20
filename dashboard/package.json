@@ -14,6 +14,7 @@
     "test:e2e:update-snapshots": "echo 'Run in Docker/CI (Linux chromium) for correct snapshot names' && playwright test --update-snapshots"
   },
   "dependencies": {
+    "@babel/core": "^7.29.7",
     "@tanstack/react-query": "^5.90.12",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
