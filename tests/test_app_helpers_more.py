@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 import enoch_control_plane.app as appmod
 from enoch_control_plane.app import ControlPlaneHttpError
@@ -26,10 +27,57 @@ def _record(**kwargs) -> RunRecord:
 def test_auth_helpers_accept_header_or_dashboard_token() -> None:
     token = appmod.config.control_api_bearer_token
     appmod._require_local_bearer(f"Bearer {token}")
-    appmod._require_dashboard_bearer(None, token)
+    appmod._require_dashboard_bearer(f"Bearer {token}")
+    with pytest.raises(ControlPlaneHttpError) as query_exc:
+        appmod._require_dashboard_bearer(None, token)
+    assert query_exc.value.status_code == 401
     with pytest.raises(ControlPlaneHttpError) as exc:
         appmod._require_local_bearer("Bearer wrong")
     assert exc.value.status_code == 401
+
+
+def test_local_bearer_uses_constant_time_compare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[bytes, bytes]] = []
+
+    def fake_compare(left: bytes, right: bytes) -> bool:
+        calls.append((left, right))
+        return left == right
+
+    monkeypatch.setattr(appmod.hmac, "compare_digest", fake_compare)
+
+    token = appmod.config.control_api_bearer_token
+    appmod._require_local_bearer(f"Bearer {token}")
+
+    assert calls == [
+        (
+            f"Bearer {token}".encode("utf-8"),
+            f"Bearer {token}".encode("utf-8"),
+        )
+    ]
+
+
+def test_dashboard_rejects_query_token_and_emits_security_headers() -> None:
+    client = TestClient(appmod.app)
+    token = appmod.config.control_api_bearer_token
+
+    query_auth = client.get(f"/dashboard/api?token={token}")
+    assert query_auth.status_code == 401
+
+    response = client.get("/dashboard", follow_redirects=False)
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+
+
+def test_legacy_dashboard_shell_does_not_persist_or_link_tokens() -> None:
+    html = appmod.DASHBOARD_HTML
+    assert "localStorage" not in html
+    assert "sessionStorage" in html
+    assert "&token=" not in html
+    assert "params.get(\"token\")" not in html
 
 
 def test_path_resolution_and_writes_are_safe(tmp_path: Path) -> None:

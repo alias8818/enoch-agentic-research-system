@@ -104,7 +104,12 @@ def test_dashboard_api_and_run_detail_endpoint(tmp_path: Path, monkeypatch) -> N
 
     unauthorized = client.get("/dashboard/api")
     assert unauthorized.status_code == 401
-    response = client.get(f"/dashboard/api?token={token}&detail=true&event_limit=5")
+    query_token = client.get(f"/dashboard/api?token={token}&detail=true&event_limit=5")
+    assert query_token.status_code == 401
+    response = client.get(
+        "/dashboard/api?detail=true&event_limit=5",
+        headers={"Authorization": f"Bearer {token}"},
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["totals"]["runs"] == 2
@@ -339,17 +344,24 @@ def test_prepare_project_status_and_paper_artifact_endpoints(
     assert read.status_code == 200
     assert read.json()["files"][0]["content"] == "# Draft"
 
-    preview = client.get(
+    query_preview = client.get(
         f"/dashboard/api/paper-artifact/project-a?token={token}&path=papers/run-live/draft.md"
+    )
+    assert query_preview.status_code == 401
+    preview = client.get(
+        "/dashboard/api/paper-artifact/project-a?path=papers/run-live/draft.md",
+        headers=headers,
     )
     assert preview.status_code == 200
     assert preview.json()["content"] == "# Draft"
     bad_preview = client.get(
-        f"/dashboard/api/paper-artifact/project-a?token={token}&path=bad%00path"
+        "/dashboard/api/paper-artifact/project-a?path=bad%00path",
+        headers=headers,
     )
     assert bad_preview.status_code == 400
     html = client.get(
-        f"/dashboard/paper-artifact/project-a?token={token}&path=papers/run-live/draft.md"
+        "/dashboard/paper-artifact/project-a?path=papers/run-live/draft.md",
+        headers=headers,
     )
     assert html.status_code == 200
     assert "# Draft" in html.text
@@ -783,14 +795,16 @@ def test_misc_endpoint_error_branches(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(appmod.Path, "stat", blocked_stat)
     unreadable_preview = client.get(
-        f"/dashboard/api/paper-artifact/project-a?token={token}&path=unreadable.md"
+        "/dashboard/api/paper-artifact/project-a?path=unreadable.md",
+        headers=headers,
     )
     assert unreadable_preview.status_code == 403
 
     monkeypatch.setattr(appmod.Path, "stat", real_stat)
     monkeypatch.setattr(appmod.Path, "read_text", blocked_read_text)
     unreadable_preview_body = client.get(
-        f"/dashboard/api/paper-artifact/project-a?token={token}&path=unreadable.md"
+        "/dashboard/api/paper-artifact/project-a?path=unreadable.md",
+        headers=headers,
     )
     assert unreadable_preview_body.status_code == 403
 
@@ -851,7 +865,8 @@ def test_paper_artifact_endpoints_reject_uninspectable_project_dir_without_raw_e
         json={"paths": ["paper.md"]},
     )
     preview_response = client.get(
-        f"/dashboard/api/paper-artifact/project-a?token={token}&path=paper.md"
+        "/dashboard/api/paper-artifact/project-a?path=paper.md",
+        headers={"Authorization": f"Bearer {token}"},
     )
 
     assert read_response.status_code == 403

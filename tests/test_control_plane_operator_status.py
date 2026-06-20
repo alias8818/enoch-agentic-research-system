@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
@@ -114,7 +114,7 @@ def _client(tmp: str) -> TestClient:
 
     def require(auth: str | None) -> None:
         if auth != f"Bearer {TOKEN}":
-            raise AssertionError("bad token")
+            raise HTTPException(status_code=401, detail="invalid bearer token")
 
     app.include_router(create_control_plane_router(config, require))
     return TestClient(app)
@@ -1305,6 +1305,7 @@ class OperatorStatusTests(unittest.TestCase):
     def test_dashboard_legacy_route_redirects_to_v2_shell(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
             legacy = client.get("/control/dashboard", follow_redirects=False)
             self.assertEqual(legacy.status_code, 307)
             self.assertEqual(legacy.headers.get("location"), "/control/dashboard-v2")

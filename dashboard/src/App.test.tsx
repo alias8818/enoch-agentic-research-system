@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { saveToken } from './api/client'
+import { getSavedToken, saveToken, TOKEN_STORAGE_KEY } from './api/client'
 import { fetchMockCallUrl } from './test/fetchMockBody'
 import { App } from './App'
 
@@ -8,7 +8,19 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   saveToken('')
+  globalThis.window?.localStorage?.clear()
+  globalThis.window?.sessionStorage?.clear()
   globalThis.location.hash = ''
+})
+
+it('keeps dashboard tokens in session storage only', () => {
+  globalThis.window.localStorage.setItem(TOKEN_STORAGE_KEY, 'persisted-token')
+
+  saveToken('session-token')
+
+  expect(getSavedToken()).toBe('session-token')
+  expect(globalThis.window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe('session-token')
+  expect(globalThis.window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBe('persisted-token')
 })
 
 const emptyPaperMaterialGraphResponse = {

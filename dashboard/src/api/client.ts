@@ -3,7 +3,7 @@ export const TOKEN_STORAGE_KEY = 'enochControlToken'
 let fallbackToken = ''
 
 function browserStorage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
-  const storage = globalThis.window?.localStorage
+  const storage = globalThis.window?.sessionStorage
   if (typeof storage?.getItem === 'function' && typeof storage?.setItem === 'function') {
     return storage
   }

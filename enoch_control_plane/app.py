@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import heapq
 import html
+import hmac
 import json
 import os
 import re
@@ -16,7 +17,7 @@ from pathlib import Path
 import time
 from typing import Annotated, Any
 
-from fastapi import FastAPI, Header, HTTPException, Query, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from . import callback_outbox
@@ -212,6 +213,35 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="enoch_worker_gate", version="0.1.0", lifespan=lifespan)
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "base-uri 'none'; "
+        "frame-ancestors 'none'; "
+        "form-action 'none'"
+    ),
+}
+
+
+@app.middleware("http")
+async def _add_security_headers(request: Request, call_next: Any) -> Response:
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if request.url.scheme == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
 
 
 @app.exception_handler(ControlPlaneHttpError)
@@ -565,7 +595,7 @@ DASHBOARD_HTML = """
     const tokenKey = "enoch-control-plane-token";
     const cls = {good:"good", warn:"warn", bad:"bad", info:"info", purple:"purple"};
 
-    const token = () => localStorage.getItem(tokenKey) || "";
+    const token = () => sessionStorage.getItem(tokenKey) || "";
     const esc = (value) => String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
     const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
     function fmtDate(value) { if (!value) return "—"; const d = new Date(value); return Number.isNaN(d.getTime()) ? value : d.toLocaleString(); }
@@ -581,8 +611,8 @@ DASHBOARD_HTML = """
     }
     function pill(label, tone="info") { return `<span class="pill ${tone}">${esc(label)}</span>`; }
     function metric(label, value, hint) { return `<div class="metric"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="hint">${esc(hint || "")}</div></div>`; }
-    function setToken() { const next = prompt("Wake-gate dashboard token", token()); if (next !== null) { localStorage.setItem(tokenKey, next.trim()); load(); } }
-    function bootstrapTokenFromUrl() { const params = new URLSearchParams(location.search); const t = params.get("token"); if (t) { localStorage.setItem(tokenKey, t.trim()); params.delete("token"); history.replaceState(null, "", `${location.pathname}${params.toString() ? "?"+params.toString() : ""}`); } }
+    function setToken() { const next = prompt("Wake-gate dashboard token", token()); if (next !== null) { sessionStorage.setItem(tokenKey, next.trim()); load(); } }
+    function bootstrapTokenFromUrl() { const params = new URLSearchParams(location.search); if (params.has("token")) { params.delete("token"); history.replaceState(null, "", `${location.pathname}${params.toString() ? "?"+params.toString() : ""}${location.hash || ""}`); } }
     function setPage(page, updateHash=true) {
       currentPage = ["overview", "projects", "papers", "runs"].includes(page) ? page : "overview";
       document.querySelectorAll(".page").forEach(el => el.classList.toggle("active", el.id === `page-${currentPage}`));
@@ -905,7 +935,7 @@ DASHBOARD_HTML = """
         const res = await fetch(url, {headers});
         if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
         const data = await res.json();
-        const openUrl = `/dashboard/paper-artifact/${encodeURIComponent(projectId)}?path=${encodeURIComponent(path)}${token() ? `&token=${encodeURIComponent(token())}` : ""}`;
+        const openUrl = `/dashboard/paper-artifact/${encodeURIComponent(projectId)}?path=${encodeURIComponent(path)}`;
         reader.innerHTML = `
           ${kv("Artifact", `<span class="mono">${esc(data.path)}</span>`)}
           ${kv("Bytes", esc(data.bytes))}
@@ -1038,7 +1068,9 @@ def healthz() -> dict:
 
 def _require_local_bearer(authorization: str | None) -> None:
     expected = f"Bearer {config.control_api_bearer_token}"
-    if authorization != expected:
+    if authorization is None or not hmac.compare_digest(
+        authorization.encode("utf-8"), expected.encode("utf-8")
+    ):
         raise ControlPlaneHttpError(status_code=401, detail="invalid bearer token")
 
 
@@ -1046,7 +1078,10 @@ def _require_dashboard_bearer(
     authorization: str | None, token: str | None = None
 ) -> None:
     if authorization is None and token:
-        authorization = f"Bearer {token}"
+        raise ControlPlaneHttpError(
+            status_code=401,
+            detail="dashboard bearer tokens must be sent in the Authorization header",
+        )
     _require_local_bearer(authorization)
 
 

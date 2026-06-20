@@ -16,7 +16,7 @@ function TokenGate({ onSave }: Readonly<{ onSave: () => void }>) {
       <section className="auth-card">
         <p className="eyebrow">Enoch Dashboard V2</p>
         <h1>Bearer token required</h1>
-        <p>The React dashboard does not call authenticated APIs until a token is saved locally in this browser.</p>
+        <p>The React dashboard does not call authenticated APIs until a token is saved for this browser tab session.</p>
         <form
           className="auth-form"
           onSubmit={(event) => {
