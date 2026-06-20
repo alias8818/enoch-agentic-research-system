@@ -9,7 +9,7 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 - **Promising signals repo:** public preservation lane for bounded useful/scale-blocked no-paper signals at `alias8818/enoch-promising-signals`; not part of the paper corpus.
 - **Launch site:** deployed at <https://alias8818.github.io/enoch-agentic-research-system/>.
 - **Docs website:** hosted at <https://solo-09d10f60.mintlify.app/>; source repo at `alias8818/enoch-docs`.
-- **Release framing:** Enoch is the system/control-plane; the corpus artifacts are AI-generated, bounded, replication-worthy outputs that demonstrate what the system can produce.
+- **Release framing:** Enoch is the system/control-plane; the corpus artifacts are AI-generated, bounded, replication-worthy outputs that demonstrate what the system can produce. Public copy now emphasizes the quality floor: operational health, promising-signal preservation, paper-corpus readiness, and public trust posture are separate claims.
 
 ## Final gates before public visibility
 
@@ -34,6 +34,7 @@ This checklist tracks the remaining work before the Enoch system, generated corp
 - [x] Add sanitized screenshots to release docs from a clean demo/dashboard instance.
 - [x] Add an architecture diagram or visual explainer.
 - [x] Add compact “why this matters” cards for the top highlighted papers; source is `site/highlights.json`, mirrored into the corpus `papers/highlights.json` and `papers/index.md`.
+- [x] Add explicit quality-floor/public-trust framing across the launch site, docs, personal landing page, and alias8818 landing page so weak/local-only records cannot be mistaken for paper-corpus results.
 
 ## Outreach package
 

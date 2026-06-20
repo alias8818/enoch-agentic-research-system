@@ -21,6 +21,7 @@
     <nav class="nav">
       <a href="#what">What it is</a>
       <a href="#workflow">Workflow</a>
+      <a href="#quality-floor">Quality floor</a>
       <a href="#proof">Run proof</a>
       <a href="#architecture">Diagrams</a>
       <a href="https://solo-09d10f60.mintlify.app/">Docs</a>
@@ -31,7 +32,7 @@
       <div>
         <p class="eyebrow">Agentic research needs a control plane</p>
         <h1>Local AI research needs a control plane.</h1>
-        <p class="lede">Enoch turns idea queues into bounded local runs: dispatch gates, worker telemetry, evidence sync, and publication packages with explicit provenance. Run the proof, then inspect one artifact end to end before trusting the corpus.</p>
+        <p class="lede">Enoch turns idea queues into bounded local runs: dispatch gates, worker telemetry, evidence sync, and publication packages with explicit provenance. It keeps operational success, promising signals, paper-corpus readiness, and public trust posture separate so generated output cannot hide behind one green check.</p>
         <div class="actions">
           <a class="button primary" href="https://github.com/alias8818/enoch-agentic-research-system">Code repo</a>
           <a class="button" href="https://github.com/alias8818/enoch-ai-research-corpus">Research corpus</a>
@@ -76,6 +77,23 @@
         <div><strong>4. Execute</strong><span>GB10 worker runs the experiment while wake gate watches process and telemetry truth.</span></div>
         <div><strong>5. Preserve</strong><span>Run notes, evidence bundles, claim ledgers, metrics, and manifests are synced.</span></div>
         <div><strong>6. Publish</strong><span>The artifact writer emits evidence-grounded reports with provenance, caveats, and release checks; bounded useful no-paper signals stay in a separate promising-signals lane.</span></div>
+      </div>
+    </section>
+
+    <section id="quality-floor" class="section split">
+      <div>
+        <p class="eyebrow">Quality floor</p>
+        <h2>The public claim is the audit boundary, not that every generated result is true.</h2>
+      </div>
+      <div class="copy">
+        <p>Enoch intentionally separates four questions: did the system run correctly, did a run preserve a useful signal, did an artifact satisfy paper-corpus gates, and is the public framing safe enough for review without misleading people?</p>
+        <ul>
+          <li><strong>Operational health</strong> covers queue state, worker callbacks, process-tree completion, alerts, and telemetry.</li>
+          <li><strong>Promising signals</strong> preserve bounded useful or scale-blocked leads without counting them as papers.</li>
+          <li><strong>Paper-corpus readiness</strong> requires provenance metadata, evidence bundles, claim ledgers, and release validators.</li>
+          <li><strong>Public trust posture</strong> requires visible caveats: AI-generated, not peer reviewed, not independently replicated, and not human-authored paper prose.</li>
+        </ul>
+        <p>This is the quality floor for external perception: weak or local-only records can remain useful internally, but they should not be promoted as public research results. <a href="https://solo-09d10f60.mintlify.app/concepts/quality-floor">Read the full quality-floor contract →</a></p>
       </div>
     </section>
 
@@ -164,7 +182,7 @@ scripts/proof-local.sh</code></pre>
           <p class="eyebrow">Featured artifacts</p>
           <h2>Bounded, replication-worthy artifacts from the corpus.</h2>
         </div>
-        <p>These are not “best papers” in a peer-review sense. They are inspectable AI-generated artifacts with concrete reported metrics, evidence metadata, and bounded claims. Packaging/provenance pass does not imply strict claim/evidence auditability, scientific correctness, or independent replication.</p>
+        <p>These are not “best papers” in a peer-review sense. They are inspectable AI-generated artifacts with concrete reported metrics, evidence metadata, bounded claims, and a visible strict claim/evidence audit path. Passing the gates does not imply scientific correctness or independent replication.</p>
       </div>
       <div id="cards" class="cards"></div>
     </section>
@@ -175,7 +193,7 @@ scripts/proof-local.sh</code></pre>
         <h2>Built in the open, with provenance up front.</h2>
       </div>
       <div class="copy">
-        <p>Release Enoch as an engineering artifact: a working control plane, a corpus of generated outputs, and a transparent record of what was automated. The hook is not “these are human papers.” The hook is that a local agentic system generated, supervised, rewrote, and packaged a research corpus with evidence bundles, claim-ledger files, packaging/provenance lint checks, strict claim/evidence audit gaps, and caveats—and some generated artifacts are specific enough to invite independent replication attempts.</p>
+        <p>Release Enoch as an engineering artifact: a working control plane, a corpus of generated outputs, and a transparent record of what was automated. The hook is not “these are human papers.” The hook is that a local agentic system generated, supervised, rewrote, and packaged a research corpus with evidence bundles, claim-ledger files, packaging/provenance lint checks, strict claim/evidence audit status, quality-floor buckets, and caveats—and some generated artifacts are specific enough to invite independent replication attempts.</p>
         <p><a href="https://github.com/alias8818/enoch-agentic-research-system/blob/main/docs/launch-todo.md">Launch TODO</a> · <a href="https://github.com/alias8818/enoch-agentic-research-system/blob/main/docs/outreach/launch-announcement.md">Announcement drafts</a> · <a href="https://solo-09d10f60.mintlify.app/">Enoch Docs</a> · <a href="https://github.com/openai/codex">Codex CLI</a></p>
       </div>
     </section>
