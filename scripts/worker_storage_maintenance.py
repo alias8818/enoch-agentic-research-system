@@ -16,7 +16,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 DEFAULT_PROJECT_ROOT = Path.home() / "projects/enoch_testing_ground/projects"
 RECREATABLE_DIR_NAMES = frozenset(
@@ -245,10 +245,10 @@ def apply_candidates(candidates: Iterable[CleanupCandidate]) -> tuple[int, int]:
     return removed, bytes_removed
 
 
-def build_report(candidates: list[CleanupCandidate]) -> dict[str, object]:
+def build_report(candidates: list[CleanupCandidate]) -> dict[str, Any]:
     deletable = [item for item in candidates if not item.protected]
     protected = [item for item in candidates if item.protected]
-    by_name: dict[str, dict[str, object]] = {}
+    by_name: dict[str, dict[str, Any]] = {}
     for item in candidates:
         bucket = by_name.setdefault(
             item.path.name, {"count": 0, "candidate_bytes_upper_bound": 0}
@@ -307,7 +307,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def _maybe_skip_apply_for_free_space(
-    *, root: Path, args: argparse.Namespace, report: dict[str, object]
+    *, root: Path, args: argparse.Namespace, report: dict[str, Any]
 ) -> bool:
     if not args.apply or args.min_free_gib <= 0:
         return args.apply
@@ -320,7 +320,7 @@ def _maybe_skip_apply_for_free_space(
     return False
 
 
-def _print_human_report(report: dict[str, object]) -> None:
+def _print_human_report(report: dict[str, Any]) -> None:
     mode = "APPLY" if report["applied"] else "DRY RUN"
     print(
         f"{mode}: {report['deletable_count']} deletable candidate(s), {human_bytes(int(report['deletable_bytes']))} reclaimable"
