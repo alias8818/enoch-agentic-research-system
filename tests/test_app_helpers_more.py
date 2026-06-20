@@ -77,7 +77,7 @@ def test_legacy_dashboard_shell_does_not_persist_or_link_tokens() -> None:
     assert "localStorage" not in html
     assert "sessionStorage" in html
     assert "&token=" not in html
-    assert "params.get(\"token\")" not in html
+    assert 'params.get("token")' not in html
 
 
 def test_path_resolution_and_writes_are_safe(tmp_path: Path) -> None:
