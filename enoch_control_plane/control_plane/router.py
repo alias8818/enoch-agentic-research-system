@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 import json
 import io
@@ -37,6 +37,8 @@ from ..llm_settings import (
     LLMSettings,
     llm_settings_path,
     llm_provider_api_key,
+    model_settings,
+    provider_settings,
     read_llm_settings,
     resolve_workflow_model,
     settings_response,
@@ -537,6 +539,68 @@ class _ResearchProviderSelection:
     provider_openai_base_url: str
     provider_api_key: str = ""
     provider_id: str = ""
+    provider_model_pool: tuple[dict[str, str], ...] = ()
+
+
+def _research_provider_model_pool_from_settings(
+    config: GateConfig,
+    settings: LLMSettings,
+    workflow_model_ids: list[str],
+    *,
+    first_model_id: str,
+) -> tuple[dict[str, str], ...]:
+    """Return enabled OpenAI-compatible workflow models ordered for failover."""
+
+    ordered_ids = [first_model_id] + [
+        model_id for model_id in workflow_model_ids if model_id != first_model_id
+    ]
+    pool: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for model_id in ordered_ids:
+        if not model_id or model_id in seen:
+            continue
+        seen.add(model_id)
+        try:
+            model = model_settings(settings, model_id)
+            provider = provider_settings(settings, model.provider_id)
+        except ValueError:
+            continue
+        if not model.enabled or not provider.enabled:
+            continue
+        if provider.api_format != "openai_compatible":
+            continue
+        pool.append(
+            {
+                "provider_model": model.model_id,
+                "provider_openai_base_url": str(provider.base_url).rstrip("/"),
+                "provider_api_key": llm_provider_api_key(config, provider),
+                "provider_id": provider.provider_id,
+            }
+        )
+    return tuple(pool)
+
+
+def _research_provider_model_pool_from_env(
+    *,
+    provider_model: str,
+    allowed_models: list[str],
+    provider_openai_base_url: str,
+    provider_api_key: str,
+    provider_id: str,
+) -> tuple[dict[str, str], ...]:
+    ordered = [provider_model] + [
+        item for item in allowed_models if item != provider_model
+    ]
+    return tuple(
+        {
+            "provider_model": item,
+            "provider_openai_base_url": provider_openai_base_url,
+            "provider_api_key": provider_api_key,
+            "provider_id": provider_id,
+        }
+        for item in ordered
+        if item
+    )
 
 
 def _normal_status(value: Any) -> str:
@@ -812,6 +876,13 @@ def _resolve_research_provider_selection(
             provider_openai_base_url=openai_base_url,
             provider_api_key=os.environ.get("ENOCH_RESEARCH_PROVIDER_API_KEY", ""),
             provider_id="env",
+            provider_model_pool=_research_provider_model_pool_from_env(
+                provider_model=provider_model,
+                allowed_models=allowed_models,
+                provider_openai_base_url=openai_base_url,
+                provider_api_key=os.environ.get("ENOCH_RESEARCH_PROVIDER_API_KEY", ""),
+                provider_id="env",
+            ),
         )
 
     requested_model = str(
@@ -854,6 +925,12 @@ def _resolve_research_provider_selection(
         provider_openai_base_url=openai_base_url,
         provider_api_key=llm_provider_api_key(config, provider),
         provider_id=provider.provider_id,
+        provider_model_pool=_research_provider_model_pool_from_settings(
+            config,
+            settings,
+            workflow.model_pool,
+            first_model_id=model.model_id,
+        ),
     )
 
 
@@ -910,6 +987,20 @@ def _resolve_research_cycle_params(
         "ENOCH_RESEARCH_PROVIDER_BASE_URL",
         _synthetic_budget_base_url(provider_openai_base_url),
     ).rstrip("/")
+    provider_model = str(
+        body.get("model")
+        or os.environ.get("ENOCH_RESEARCH_PROVIDER_MODEL")
+        or DEFAULT_ALLOWED_RESEARCH_MODELS[-1]
+    ).strip()
+    provider_api_key = os.environ.get("ENOCH_RESEARCH_PROVIDER_API_KEY", "")
+    provider_id = "env"
+    provider_model_pool = _research_provider_model_pool_from_env(
+        provider_model=provider_model,
+        allowed_models=list(DEFAULT_ALLOWED_RESEARCH_MODELS),
+        provider_openai_base_url=provider_openai_base_url,
+        provider_api_key=provider_api_key,
+        provider_id=provider_id,
+    )
     if (
         _ROUTER_GATE_CONFIG is not None
         and not os.environ.get("ENOCH_RESEARCH_PROVIDER_OPENAI_BASE_URL")
@@ -917,10 +1008,12 @@ def _resolve_research_cycle_params(
     ):
         selection = _resolve_research_provider_selection(_ROUTER_GATE_CONFIG, body)
         if isinstance(selection, _ResearchProviderSelection):
+            provider_model = selection.provider_model
             provider_base_url = selection.provider_base_url
             provider_openai_base_url = selection.provider_openai_base_url
             provider_api_key = selection.provider_api_key
             provider_id = selection.provider_id
+            provider_model_pool = selection.provider_model_pool
         else:
             provider_api_key = os.environ.get("ENOCH_RESEARCH_PROVIDER_API_KEY", "")
             provider_id = "env"
@@ -970,8 +1063,10 @@ def _resolve_research_cycle_params(
         seed=str(body.get("seed") or utc_now()).strip(),
         provider_base_url=provider_base_url,
         provider_openai_base_url=provider_openai_base_url,
+        provider_model=provider_model,
         provider_api_key=provider_api_key,
         provider_id=provider_id,
+        provider_model_pool=provider_model_pool,
         generation_timeout=bounded_int("generation_timeout", 240, 10, 300),
         generation_max_tokens=bounded_int(
             "generation_max_tokens",
@@ -3946,6 +4041,7 @@ class _ProviderGenerationParams:
     requested_by: str
     provider_api_key: str = ""
     provider_id: str = ""
+    provider_model_pool: tuple[dict[str, str], ...] = ()
     operator_trace: OperatorTrace | None = None
     trace_id: str = ""
     run_cycle_id: str = ""
@@ -4105,7 +4201,7 @@ def _apply_provider_generation_failure(
     return response
 
 
-def _execute_provider_generation_attempt(
+def _execute_provider_generation_single_attempt(
     *,
     params: _ProviderGenerationParams,
     response: dict[str, Any],
@@ -4247,6 +4343,97 @@ def _execute_provider_generation_attempt(
             generation_machine_target=generation_machine_target,
             started=started,
         )
+
+
+def _provider_generation_attempt_params(
+    params: _ProviderGenerationParams,
+) -> list[_ProviderGenerationParams]:
+    """Return provider-generation attempts ordered by configured rotation."""
+
+    raw_pool = params.provider_model_pool or (
+        {
+            "provider_model": params.provider_model,
+            "provider_openai_base_url": params.provider_openai_base_url,
+            "provider_api_key": params.provider_api_key,
+            "provider_id": params.provider_id,
+        },
+    )
+    attempts: list[_ProviderGenerationParams] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in raw_pool:
+        if not isinstance(item, dict):
+            continue
+        provider_model = str(item.get("provider_model") or "").strip()
+        provider_openai_base_url = str(
+            item.get("provider_openai_base_url") or params.provider_openai_base_url
+        ).rstrip("/")
+        provider_id = str(item.get("provider_id") or params.provider_id or "").strip()
+        if not provider_model or not provider_openai_base_url:
+            continue
+        key = (provider_id, provider_openai_base_url, provider_model)
+        if key in seen:
+            continue
+        seen.add(key)
+        attempts.append(
+            replace(
+                params,
+                provider_model=provider_model,
+                provider_openai_base_url=provider_openai_base_url,
+                provider_api_key=str(item.get("provider_api_key") or ""),
+                provider_id=provider_id,
+                provider_model_pool=(),
+            )
+        )
+    return attempts or [replace(params, provider_model_pool=())]
+
+
+def _execute_provider_generation_attempt(
+    *,
+    params: _ProviderGenerationParams,
+    response: dict[str, Any],
+) -> dict[str, Any]:
+    attempts = _provider_generation_attempt_params(params)
+    failed_attempts: list[dict[str, Any]] = []
+    for index, attempt_params in enumerate(attempts):
+        response = _execute_provider_generation_single_attempt(
+            params=attempt_params, response=response
+        )
+        attempt_payload = response.get("provider_generation_attempt")
+        if (
+            isinstance(attempt_payload, dict)
+            and attempt_payload.get("status") == "success"
+        ):
+            if failed_attempts:
+                response["provider_generation_model_rotation"] = {
+                    "rotated": True,
+                    "failed_attempts": failed_attempts,
+                    "selected_model": attempt_params.provider_model,
+                }
+            return response
+        if isinstance(attempt_payload, dict):
+            failed_attempts.append(
+                {
+                    "provider_id": attempt_params.provider_id,
+                    "provider_model": attempt_params.provider_model,
+                    "status": attempt_payload.get("status"),
+                    "failure_kind": attempt_payload.get("failure_kind"),
+                    "error_type": attempt_payload.get("error_type"),
+                    "reason": attempt_payload.get("reason"),
+                }
+            )
+        if index + 1 < len(attempts):
+            next_model = attempts[index + 1].provider_model
+            response.setdefault("warnings", []).append(
+                f"provider generation rotating after model issue: "
+                f"{attempt_params.provider_model} -> {next_model}"
+            )
+    if failed_attempts:
+        response["provider_generation_model_rotation"] = {
+            "rotated": len(failed_attempts) > 1,
+            "failed_attempts": failed_attempts,
+            "selected_model": "",
+        }
+    return response
 
 
 def _execute_provider_generation(
@@ -5545,6 +5732,7 @@ class _LiveResearchCycleParams:
     research_row_lane_key: Callable[[dict[str, Any]], str]
     provider_api_key: str = ""
     provider_id: str = ""
+    provider_model_pool: tuple[dict[str, str], ...] = ()
     operator_trace: OperatorTrace | None = None
     trace_id: str = ""
     run_cycle_id: str = ""
@@ -5652,6 +5840,7 @@ def _execute_live_research_cycle(
             provider_openai_base_url=params.provider_openai_base_url,
             provider_api_key=params.provider_api_key,
             provider_id=params.provider_id,
+            provider_model_pool=params.provider_model_pool,
             provider_model=params.provider_model,
             max_candidates=params.max_candidates,
             topic=params.topic,

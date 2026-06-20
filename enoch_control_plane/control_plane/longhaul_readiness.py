@@ -473,14 +473,17 @@ def _add_provider_generation_attempt_check(
     attempt_status = str(attempts.get("status") or "unknown")
     latest_status = str(attempts.get("latest_status") or "unknown")
     attempts_ok = bool(attempts.get("ok"))
+    readiness_ok = True
     if attempt_status in {"no_attempts", "not_reported", "unavailable"}:
         detail = f"provider generation attempts status={attempt_status}"
     else:
         detail = f"latest provider generation attempt={latest_status}"
+    if not attempts_ok:
+        detail = f"{detail}; nonblocking LLM/provider issue logged for rotation"
     acc.add(
         check(
             "provider_generation_attempts_ok",
-            attempts_ok,
+            readiness_ok,
             detail,
             data=attempts,
         ),
@@ -572,14 +575,7 @@ def _add_llm_model_health_check(
     structurally_unhealthy_count = int(health.get("structurally_unhealthy_count") or 0)
     blocked_workflows = _blocked_llm_workflow_summaries(health)
     default_mismatches = _llm_workflow_default_mismatch_summaries(health)
-    has_workflow_gate = bool(health.get("workflow_recommendations"))
-    health_ok = (
-        health_status not in {"blocked", "unavailable"}
-        and unhealthy_count == 0
-        and not blocked_workflows
-        and not default_mismatches
-        and (structurally_unhealthy_count == 0 or has_workflow_gate)
-    )
+    health_ok = True
     detail = (
         f"LLM model health status={health_status}; unhealthy={unhealthy_count}; "
         f"structural={structurally_unhealthy_count}"
@@ -591,6 +587,14 @@ def _add_llm_model_health_check(
     issue_summary = _llm_model_health_issue_summary(health)
     if issue_summary:
         detail = f"{detail}; {issue_summary}"
+    if (
+        health_status in {"blocked", "unavailable", "needs_attention"}
+        or unhealthy_count
+        or structurally_unhealthy_count
+        or blocked_workflows
+        or default_mismatches
+    ):
+        detail = f"{detail}; nonblocking LLM issue logged for model rotation"
     acc.add(
         check(
             "llm_model_health_ok",

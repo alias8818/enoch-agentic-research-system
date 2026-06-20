@@ -255,7 +255,9 @@ def test_blocked_queue_readiness_names_first_actionable_row() -> None:
     assert check["data"]["samples"][0]["project_id"] == "p-blocked"
 
 
-def test_structurally_unhealthy_llm_model_blocks_longhaul_readiness() -> None:
+def test_structurally_unhealthy_llm_model_logs_without_blocking_longhaul_readiness() -> (
+    None
+):
     payload = _ready_payload()
     payload["llm_model_health"] = {
         "ok": False,
@@ -288,13 +290,14 @@ def test_structurally_unhealthy_llm_model_blocks_longhaul_readiness() -> None:
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
-    assert result["ok"] is False
-    assert "configured LLM model health needs attention" in result["blockers"]
+    assert result["ok"] is True
+    assert "configured LLM model health needs attention" not in result["blockers"]
     check = next(
         item for item in result["checks"] if item["name"] == "llm_model_health_ok"
     )
-    assert check["ok"] is False
+    assert check["ok"] is True
     assert "structural=2" in check["detail"]
+    assert "nonblocking LLM issue logged for model rotation" in check["detail"]
     assert "owl=format_degraded" in check["detail"]
     assert "kimi=visible_output_empty" in check["detail"]
     assert result["summary"]["llm_model_health_status"] == "needs_attention"
@@ -370,7 +373,9 @@ def test_structural_llm_attention_does_not_block_when_workflows_have_usable_mode
     assert result["summary"]["llm_model_structurally_unhealthy_count"] == 1
 
 
-def test_llm_workflow_unusable_default_blocks_longhaul_readiness() -> None:
+def test_llm_workflow_unusable_default_logs_without_blocking_longhaul_readiness() -> (
+    None
+):
     payload = _ready_payload()
     payload["llm_model_health"] = {
         "ok": False,
@@ -414,18 +419,18 @@ def test_llm_workflow_unusable_default_blocks_longhaul_readiness() -> None:
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
-    assert result["ok"] is False
-    assert "configured LLM model health needs attention" in result["blockers"]
+    assert result["ok"] is True
+    assert "configured LLM model health needs attention" not in result["blockers"]
     check = next(
         item for item in result["checks"] if item["name"] == "llm_model_health_ok"
     )
-    assert check["ok"] is False
+    assert check["ok"] is True
     assert (
         "default_mismatches=research_generation:hf:bad-json->hf:ok" in check["detail"]
     )
 
 
-def test_blocked_llm_workflow_blocks_longhaul_readiness() -> None:
+def test_blocked_llm_workflow_logs_without_blocking_longhaul_readiness() -> None:
     payload = _ready_payload()
     payload["llm_model_health"] = {
         "ok": False,
@@ -447,16 +452,18 @@ def test_blocked_llm_workflow_blocks_longhaul_readiness() -> None:
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
-    assert result["ok"] is False
-    assert "configured LLM model health needs attention" in result["blockers"]
+    assert result["ok"] is True
+    assert "configured LLM model health needs attention" not in result["blockers"]
     check = next(
         item for item in result["checks"] if item["name"] == "llm_model_health_ok"
     )
-    assert check["ok"] is False
+    assert check["ok"] is True
     assert "blocked_workflows=research_generation:candidate_json" in check["detail"]
 
 
-def test_latest_provider_generation_failure_blocks_longhaul_readiness() -> None:
+def test_latest_provider_generation_failure_logs_without_blocking_longhaul_readiness() -> (
+    None
+):
     payload = _ready_payload()
     payload["overview"]["provider_generation_attempts"] = {
         "ok": False,
@@ -470,14 +477,15 @@ def test_latest_provider_generation_failure_blocks_longhaul_readiness() -> None:
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
-    assert result["ok"] is False
-    assert "latest provider generation attempt failed" in result["blockers"]
+    assert result["ok"] is True
+    assert "latest provider generation attempt failed" not in result["blockers"]
     check = next(
         item
         for item in result["checks"]
         if item["name"] == "provider_generation_attempts_ok"
     )
-    assert check["ok"] is False
+    assert check["ok"] is True
+    assert "nonblocking LLM/provider issue logged for rotation" in check["detail"]
     assert check["data"]["latest_failure_kind"] == "rate_limited"
     assert result["summary"]["provider_generation_attempt_status"] == "blocked"
     assert result["summary"]["provider_generation_latest_status"] == "failed"
@@ -502,7 +510,7 @@ def test_latest_provider_generation_success_clears_previous_failures() -> None:
     assert result["summary"]["provider_generation_latest_status"] == "success"
 
 
-def test_unhealthy_llm_model_health_blocks_longhaul_readiness() -> None:
+def test_unhealthy_llm_model_health_logs_without_blocking_longhaul_readiness() -> None:
     payload = _ready_payload()
     payload["llm_model_health"] = {
         "ok": False,
@@ -526,12 +534,12 @@ def test_unhealthy_llm_model_health_blocks_longhaul_readiness() -> None:
 
     result = evaluate_longhaul_readiness(now=NOW, **payload)
 
-    assert result["ok"] is False
-    assert "configured LLM model health needs attention" in result["blockers"]
+    assert result["ok"] is True
+    assert "configured LLM model health needs attention" not in result["blockers"]
     check = next(
         item for item in result["checks"] if item["name"] == "llm_model_health_ok"
     )
-    assert check["ok"] is False
+    assert check["ok"] is True
     assert check["data"]["unhealthy_count"] == 2
     assert result["summary"]["llm_model_health_status"] == "needs_attention"
     assert result["summary"]["llm_model_unhealthy_count"] == 2

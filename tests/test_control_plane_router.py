@@ -2998,7 +2998,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["fingerprint"], "none")
             self.assertEqual(body["findings"], [])
 
-    def test_automation_readiness_surfaces_latest_provider_generation_failure(
+    def test_automation_readiness_logs_latest_provider_generation_failure(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -3027,19 +3027,24 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             body = response.json()
-            self.assertIn("latest provider generation attempt failed", body["blockers"])
+            self.assertNotIn(
+                "latest provider generation attempt failed", body["blockers"]
+            )
             check = next(
                 item
                 for item in body["checks"]
                 if item["name"] == "provider_generation_attempts_ok"
             )
-            self.assertFalse(check["ok"])
+            self.assertTrue(check["ok"])
+            self.assertIn(
+                "nonblocking LLM/provider issue logged for rotation", check["detail"]
+            )
             self.assertEqual(check["data"]["latest_failure_kind"], "timeout")
             self.assertEqual(
                 body["summary"]["provider_generation_latest_status"], "failed"
             )
 
-    def test_automation_readiness_blocks_degraded_llm_format_health(self) -> None:
+    def test_automation_readiness_logs_degraded_llm_format_health(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = _live_config(tmp)
             _write_synthetic_llm_settings(config, "synthetic-readiness-key")
@@ -3075,14 +3080,17 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             body = response.json()
             self.assertFalse(body["ok"])
-            self.assertIn(
+            self.assertNotIn(
                 "configured LLM model health needs attention", body["blockers"]
             )
             check = next(
                 item for item in body["checks"] if item["name"] == "llm_model_health_ok"
             )
-            self.assertFalse(check["ok"])
+            self.assertTrue(check["ok"])
             self.assertIn("structural=1", check["detail"])
+            self.assertIn(
+                "nonblocking LLM issue logged for model rotation", check["detail"]
+            )
             self.assertIn("hf:zai-org/GLM-5.1=format_degraded", check["detail"])
             self.assertEqual(
                 body["summary"]["llm_model_structurally_unhealthy_count"], 1
@@ -18627,6 +18635,108 @@ def test_provider_generation_records_bounded_failure_diagnostics():
         }
     ]
     assert store.events[0]["payload"]["failure_diagnostics"] == diagnostics
+
+
+def test_provider_generation_rotates_to_next_model_after_llm_issue():
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _execute_provider_generation,
+    )
+    from scripts.research_provider_generate import ProviderCandidateGenerationError
+
+    class _Store:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> None:
+            self.events.append(kwargs)
+
+        def record_research_facility_plans(
+            self, plans, *_args, **_kwargs
+        ) -> dict[str, int]:
+            return {"recorded": len(plans)}
+
+    calls: list[str] = []
+
+    def generate_provider_candidates(**kwargs):
+        calls.append(kwargs["model"])
+        if kwargs["model"] == "bad-model":
+            raise ProviderCandidateGenerationError(
+                "provider returned no usable candidate JSON after 1 attempt(s)",
+                attempts=[{"attempt": 1, "error_type": "JSONDecodeError"}],
+            )
+        return {
+            "provider_response_id": "resp-good",
+            "attempts_used": 1,
+            "candidates": [{"title": "rotated candidate"}],
+        }
+
+    store = _Store()
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={"machine_target": "gb10", "lane_key": "lane"},
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="bad-model",
+        provider_model_pool=(
+            {
+                "provider_id": "openrouter",
+                "provider_model": "bad-model",
+                "provider_openai_base_url": "http://provider.invalid/openai/v1",
+                "provider_api_key": "bad-key",
+            },
+            {
+                "provider_id": "openrouter",
+                "provider_model": "good-model",
+                "provider_openai_base_url": "http://provider.invalid/openai/v1",
+                "provider_api_key": "good-key",
+            },
+        ),
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=1,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(
+            generate_provider_candidates=generate_provider_candidates
+        ),
+        research_facility=SimpleNamespace(
+            plan_candidates=lambda candidates, _args: candidates
+        ),
+        store=store,
+        requested_by="pytest",
+        trace_id="trace-rotate",
+        run_cycle_id="run-cycle-rotate",
+    )
+
+    response = _execute_provider_generation(params=params, response={"stages": []})
+
+    assert calls == ["bad-model", "good-model"]
+    assert response["provider_generation_attempt"]["status"] == "success"
+    assert response["provider_generation_attempt"]["provider_model"] == "good-model"
+    assert response["provider_generation_model_rotation"] == {
+        "rotated": True,
+        "failed_attempts": [
+            {
+                "provider_id": "openrouter",
+                "provider_model": "bad-model",
+                "status": "failed",
+                "failure_kind": "exception",
+                "error_type": "ProviderCandidateGenerationError",
+                "reason": "provider generation skipped: provider returned no usable candidate JSON after 1 attempt(s)",
+            }
+        ],
+        "selected_model": "good-model",
+    }
+    assert any("bad-model -> good-model" in warning for warning in response["warnings"])
+    assert [event["payload"]["provider_model"] for event in store.events] == [
+        "bad-model",
+        "good-model",
+    ]
 
 
 def test_provider_generation_contains_plan_candidate_exception() -> None:
