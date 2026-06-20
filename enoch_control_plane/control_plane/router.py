@@ -6936,6 +6936,31 @@ def _auto_reconcile_missing_evidence_failure(
     }
 
 
+def _auto_reconcile_missing_decision_sync_failure(
+    *,
+    project_id: str,
+    run_id: str,
+    artifact_root: Path,
+    gate: dict[str, Any],
+    evidence_sync: dict[str, Any],
+) -> dict[str, Any] | None:
+    if gate.get("values"):
+        return None
+    if not evidence_sync.get("enabled"):
+        return None
+    if evidence_sync.get("synced") or evidence_sync.get("local_evidence_present"):
+        return None
+    return {
+        "ok": False,
+        "project_id": project_id,
+        "run_id": run_id,
+        "reason": "missing decision evidence and remote sync did not verify worker artifacts",
+        "artifact_root": str(artifact_root),
+        "evidence_sync": evidence_sync,
+        "decision_gate": gate,
+    }
+
+
 def _auto_reconcile_replay_wake_ready_for_row(
     store: Any,
     row: dict[str, Any],
@@ -7057,6 +7082,16 @@ def _auto_reconcile_stale_callback_ready(
         )
         if missing_evidence is not None:
             reconciled.append(missing_evidence)
+            continue
+        missing_decision_sync = _auto_reconcile_missing_decision_sync_failure(
+            project_id=project_id,
+            run_id=run_id,
+            artifact_root=artifact_root,
+            gate=gate,
+            evidence_sync=evidence_sync,
+        )
+        if missing_decision_sync is not None:
+            reconciled.append(missing_decision_sync)
             continue
         reconciled.append(
             _auto_reconcile_replay_wake_ready_for_row(

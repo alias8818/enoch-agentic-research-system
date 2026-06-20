@@ -11687,15 +11687,19 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     json={"dry_run": False, "requested_by": "test"},
                 ).json()
 
-            self.assertFalse(alert["should_alert"])
+            self.assertTrue(alert["should_alert"])
             self.assertTrue(alert["auto_reconcile"])
-            self.assertTrue(alert["auto_reconcile"][0]["ok"])
+            self.assertFalse(alert["auto_reconcile"][0]["ok"])
             self.assertEqual(
                 alert["auto_reconcile"][0]["reason"],
-                "replayed missing project decision artifact",
+                "missing decision evidence and remote sync did not verify worker artifacts",
             )
             status = client.get("/control/api/status", headers=headers).json()
-            self.assertEqual(status["active_items"], [])
+            self.assertEqual(len(status["active_items"]), 1)
+            self.assertEqual(
+                status["active_items"][0]["current_run_id"],
+                "run-auto-reconcile-no-decision",
+            )
 
     def test_queue_alert_auto_reconcile_requires_local_paper_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
