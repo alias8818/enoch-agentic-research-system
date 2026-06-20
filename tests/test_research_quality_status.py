@@ -795,6 +795,33 @@ def test_weak_evidence_on_needs_review_inconclusive_with_bounded_followup_is_war
     assert status["severity_counts"] == {"warning": 1}
 
 
+def test_weak_evidence_on_needs_review_inconclusive_gated_auth_is_warning() -> None:
+    report = _report_with_decision(
+        "weak_or_missing_evidence_strength",
+        decision="needs_review",
+        hypothesis_status="inconclusive",
+    )
+    report["decision_scores"][0].update(
+        {
+            "evidence_strength": "weak",
+            "followup_recommended": False,
+            "followup_success_threshold": "",
+            "followup_stop_condition": "",
+            "research_outcome": "needs_review",
+            "bounded_paper_ready": False,
+            "stop_reason": "Needs review because direct validation requires manual/private Hugging Face gated-model authorization.",
+            "recommended_next_action": "Obtain authorized access to the official checkpoint, then rerun the benchmark.",
+        }
+    )
+
+    status = classify_quality_report(report)
+
+    assert status["ok"] is True
+    assert status["status"] == "warnings"
+    assert status["problem_counts"] == {"weak_or_missing_evidence_strength": 1}
+    assert status["severity_counts"] == {"warning": 1}
+
+
 def test_supported_negative_depth_capped_proxy_result_is_info_not_amber() -> None:
     report = _report_with_decision(
         "supported_but_negative_requires_review",

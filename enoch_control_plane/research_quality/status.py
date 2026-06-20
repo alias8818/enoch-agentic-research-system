@@ -37,6 +37,21 @@ def _utc_iso_from_mtime(path: Path) -> str:
     )
 
 
+def _mentions_external_manual_dependency(*texts: str) -> bool:
+    haystack = " ".join(texts).casefold()
+    external_markers = (
+        "authorized access",
+        "authorization",
+        "gated-model",
+        "gated model",
+        "manual/private",
+        "manual authorization",
+        "private hugging face",
+        "private hf",
+    )
+    return any(marker in haystack for marker in external_markers)
+
+
 def _weak_evidence_problem_severity(
     problem: str,
     *,
@@ -46,6 +61,8 @@ def _weak_evidence_problem_severity(
     followup_recommended: bool = False,
     bounded_followup: bool = False,
     bounded_paper_ready: bool = False,
+    stop_reason: str = "",
+    recommended_next_action: str = "",
 ) -> str | None:
     weak_evidence_problems = {
         "weak_or_missing_evidence_strength",
@@ -61,8 +78,12 @@ def _weak_evidence_problem_severity(
     needs_external_review = (
         decision == "needs_review"
         and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"}
-        and followup_recommended
-        and bounded_followup
+        and (
+            (followup_recommended and bounded_followup)
+            or _mentions_external_manual_dependency(
+                stop_reason, recommended_next_action
+            )
+        )
         and not bounded_paper_ready
     )
     supported_useful_signal_needs_bounded_followup = (
@@ -99,6 +120,8 @@ def _problem_severity(problem: str, item: dict[str, Any]) -> str:
         followup_recommended=followup_recommended,
         bounded_followup=bounded_followup,
         bounded_paper_ready=as_bool(item.get("bounded_paper_ready")),
+        stop_reason=str(item.get("stop_reason") or "").strip(),
+        recommended_next_action=str(item.get("recommended_next_action") or "").strip(),
     )
     if demoted is not None:
         return demoted
