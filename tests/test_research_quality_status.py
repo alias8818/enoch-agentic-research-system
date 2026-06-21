@@ -115,7 +115,9 @@ def test_weak_evidence_on_supported_useful_signal_with_bounded_followup_is_warni
     ]
 
 
-def test_needs_review_untrusted_manual_dependency_text_does_not_demote_weak_evidence() -> None:
+def test_needs_review_untrusted_manual_dependency_text_does_not_demote_weak_evidence() -> (
+    None
+):
     report = _report_with_decision(
         "weak_or_missing_evidence_strength",
         decision="needs_review",

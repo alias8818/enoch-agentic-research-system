@@ -204,9 +204,7 @@ def _live_run_is_stale_zero_process(run: dict[str, Any]) -> bool:
         return False
     if run.get("needs_attention") is True:
         return False
-    age_seconds = _float_or(
-        run.get("age_seconds"), missing=-1.0, malformed=-1.0
-    )
+    age_seconds = _float_or(run.get("age_seconds"), missing=-1.0, malformed=-1.0)
     return age_seconds >= STALE_ZERO_PROCESS_MIN_AGE_SEC
 
 
