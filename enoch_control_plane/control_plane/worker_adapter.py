@@ -194,6 +194,22 @@ def _compact_dashboard_body(body: dict[str, Any]) -> dict[str, Any]:
     return compact
 
 
+STALE_ZERO_PROCESS_MIN_AGE_SEC = 300
+
+
+def _live_run_is_stale_zero_process(run: dict[str, Any]) -> bool:
+    if _int_or(run.get("active_process_count"), missing=0, malformed=1) != 0:
+        return False
+    if run.get("active_processes") or run.get("active_processes_truncated") is True:
+        return False
+    if run.get("needs_attention") is True:
+        return False
+    age_seconds = _float_or(
+        run.get("age_seconds"), missing=-1.0, malformed=-1.0
+    )
+    return age_seconds >= STALE_ZERO_PROCESS_MIN_AGE_SEC
+
+
 def _worker_dashboard_has_only_stale_zero_process_live_runs(
     dashboard_body: dict[str, Any],
 ) -> bool:
@@ -227,13 +243,10 @@ def _worker_dashboard_has_only_stale_zero_process_live_runs(
     ]
     if not live_runs:
         return False
+    if len(live_runs) < max(active_or_waiting, live):
+        return False
 
-    return all(
-        _int_or(run.get("active_process_count"), missing=0, malformed=1) == 0
-        and not run.get("active_processes")
-        and run.get("needs_attention") is not True
-        for run in live_runs
-    )
+    return all(_live_run_is_stale_zero_process(run) for run in live_runs)
 
 
 def _append_control_flag_checks(
