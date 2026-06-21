@@ -42,21 +42,6 @@ def _utc_iso_from_mtime(path: Path) -> str:
     )
 
 
-def _mentions_external_manual_dependency(*texts: str) -> bool:
-    haystack = " ".join(texts).casefold()
-    external_markers = (
-        "authorized access",
-        "authorization",
-        "gated-model",
-        "gated model",
-        "manual/private",
-        "manual authorization",
-        "private hugging face",
-        "private hf",
-    )
-    return any(marker in haystack for marker in external_markers)
-
-
 def _weak_evidence_problem_severity(
     problem: str,
     *,
@@ -83,12 +68,8 @@ def _weak_evidence_problem_severity(
     needs_external_review = (
         decision == "needs_review"
         and hypothesis_status in {"inconclusive", "mixed", "unsupported", "unknown"}
-        and (
-            (followup_recommended and bounded_followup)
-            or _mentions_external_manual_dependency(
-                stop_reason, recommended_next_action
-            )
-        )
+        and followup_recommended
+        and bounded_followup
         and not bounded_paper_ready
     )
     supported_useful_signal_needs_bounded_followup = (

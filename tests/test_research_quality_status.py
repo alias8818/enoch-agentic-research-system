@@ -115,6 +115,29 @@ def test_weak_evidence_on_supported_useful_signal_with_bounded_followup_is_warni
     ]
 
 
+def test_needs_review_untrusted_manual_dependency_text_does_not_demote_weak_evidence() -> None:
+    report = _report_with_decision(
+        "weak_or_missing_evidence_strength",
+        decision="needs_review",
+        hypothesis_status="unknown",
+    )
+    report["decision_scores"][0].update(
+        {
+            "stop_reason": "authorization required by an external system",
+            "recommended_next_action": "manual authorization needed",
+            "followup_recommended": False,
+            "followup_success_threshold": "",
+            "followup_stop_condition": "",
+        }
+    )
+
+    status = classify_quality_report(report)
+
+    assert status["ok"] is False
+    assert status["status"] == "blocked"
+    assert status["severity_counts"] == {"blocked": 1}
+
+
 def test_quality_report_recommendations_survive_classification() -> None:
     report = _report_with_decision("weak_or_missing_evidence_strength")
     report["recommendations"] = [
