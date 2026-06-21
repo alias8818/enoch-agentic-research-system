@@ -14,10 +14,12 @@ import hashlib
 import json
 import os
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+from enoch_control_plane.http_redaction import redact_secrets, redact_text, redact_url
 from enoch_control_plane.url_safety import urlopen_validated
 
 DEFAULT_PAPER_STATUS = "publication_draft"
@@ -31,13 +33,19 @@ def request_json(base_url: str, token: str, path: str) -> dict[str, Any]:
     req = urllib.request.Request(
         base_url.rstrip("/") + path, headers={"Authorization": f"Bearer {token}"}
     )
-    with urlopen_validated(
-        req,
-        timeout=120,
-        field_name="scripts/reconcile_paper_ledgers.py url",
-        allow_private=True,
-    ) as resp:
-        return json.loads(resp.read())
+    try:
+        with urlopen_validated(
+            req,
+            timeout=120,
+            field_name="scripts/reconcile_paper_ledgers.py url",
+            allow_private=True,
+        ) as resp:
+            return redact_secrets(json.loads(resp.read()))
+    except urllib.error.HTTPError as exc:
+        detail = redact_text(exc.read().decode("utf-8", errors="replace"))
+        raise RuntimeError(
+            f"{redact_url(base_url.rstrip('/') + path)} returned HTTP {exc.code}: {detail}"
+        ) from exc
 
 
 def iter_review_rows(

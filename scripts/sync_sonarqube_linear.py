@@ -15,6 +15,7 @@ import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
+from enoch_control_plane.http_redaction import redact_text, redact_url
 from enoch_control_plane.url_safety import urlopen_validated
 
 
@@ -124,8 +125,10 @@ def request_json(
         ) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"{url} returned HTTP {exc.code}: {detail}") from exc
+        detail = redact_text(exc.read().decode("utf-8", errors="replace"))
+        raise RuntimeError(
+            f"{redact_url(url)} returned HTTP {exc.code}: {detail}"
+        ) from exc
 
 
 def fetch_sonar_issues(base_url: str, token: str, project_key: str) -> list[SonarIssue]:

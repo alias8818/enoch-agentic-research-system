@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from enoch_control_plane.http_redaction import redact_secrets
 from enoch_control_plane.url_safety import urlopen_validated
 
 
@@ -87,13 +88,13 @@ class ControlClient:
                 allow_private=True,
             ) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
-                return resp.status, json.loads(raw or "{}")
+                return resp.status, redact_secrets(json.loads(raw or "{}"))
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
             try:
-                data = json.loads(raw or "{}")
+                data = redact_secrets(json.loads(raw or "{}"))
             except json.JSONDecodeError:
-                data = {"raw": raw}
+                data = {"raw": redact_secrets(raw)}
             return exc.code, data
 
     def get(self, path: str) -> tuple[int, dict[str, Any]]:
@@ -110,13 +111,13 @@ class ControlClient:
                 allow_private=True,
             ) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
-                return resp.status, json.loads(raw or "{}")
+                return resp.status, redact_secrets(json.loads(raw or "{}"))
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
             try:
-                data = json.loads(raw or "{}")
+                data = redact_secrets(json.loads(raw or "{}"))
             except json.JSONDecodeError:
-                data = {"raw": raw}
+                data = {"raw": redact_secrets(raw)}
             return exc.code, data
 
 
