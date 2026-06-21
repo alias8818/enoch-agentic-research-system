@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Generator
 
 from ..models import utc_now
 from ._canonical import canonical_json as _canonical_json
@@ -30,20 +31,51 @@ class EnochCoreStore:
     def __init__(self, path: Path) -> None:
         self.path = path.expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._writer_lock = threading.RLock()
+        self._writer_conn: sqlite3.Connection | None = None
         self._init_db()
 
-    @contextmanager
-    def _connect(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.path)
+    @staticmethod
+    def _configure_connection(conn: sqlite3.Connection) -> None:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=5000")
+
+    @contextmanager
+    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
+        conn = sqlite3.connect(self.path)
+        self._configure_connection(conn)
         try:
             with conn:
                 yield conn
         finally:
             conn.close()
+
+    def _writer_connection(self) -> sqlite3.Connection:
+        if self._writer_conn is None:
+            conn = sqlite3.connect(
+                self.path,
+                isolation_level=None,
+                check_same_thread=False,
+            )
+            self._configure_connection(conn)
+            self._writer_conn = conn
+        return self._writer_conn
+
+    @contextmanager
+    def _write_transaction(self) -> Generator[sqlite3.Connection, None, None]:
+        with self._writer_lock:
+            conn = self._writer_connection()
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield conn
+            except Exception:
+                conn.rollback()
+                raise
+            else:
+                conn.commit()
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -71,21 +103,8 @@ class EnochCoreStore:
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
-                CREATE TABLE IF NOT EXISTS decisions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    decision_key TEXT NOT NULL UNIQUE,
-                    project_id TEXT,
-                    run_id TEXT,
-                    decision_type TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS projection_cache (
-                    projection_key TEXT PRIMARY KEY,
-                    projection_version TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    rebuilt_at TEXT NOT NULL
-                );
+                DROP TABLE IF EXISTS decisions;
+                DROP TABLE IF EXISTS projection_cache;
                 """
             )
             conn.execute(
@@ -111,7 +130,7 @@ class EnochCoreStore:
     ) -> AppendResult:
         payload_json = self.canonical_json(payload)
         payload_hash = self.payload_hash(payload)
-        with self._connect() as conn:
+        with self._write_transaction() as conn:
             existing = conn.execute(
                 "SELECT id, event_type, source, payload_hash FROM events WHERE idempotency_key = ?",
                 (idempotency_key,),
@@ -140,7 +159,12 @@ class EnochCoreStore:
                     utc_now(),
                 ),
             )
-            return AppendResult(event_id=int(cur.lastrowid), inserted=True)
+            event_id = cur.lastrowid
+            if (
+                event_id is None
+            ):  # pragma: no cover - SQLite INSERT should always return an id.
+                raise RuntimeError("event insert did not return an id")
+            return AppendResult(event_id=int(event_id), inserted=True)
 
     def save_queue_snapshot(self, payload: dict[str, Any]) -> tuple[AppendResult, int]:
         key = str(payload["idempotency_key"])

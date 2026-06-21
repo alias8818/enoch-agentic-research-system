@@ -111,6 +111,9 @@ _QUEUE_STATUS_EQUALS_PARAM = "q.status = %s"
 
 
 ConnectionFactory = Callable[[], Any]
+SUPABASE_CONN_LOCK_TIMEOUT_SEC = float(
+    os.getenv("ENOCH_SUPABASE_CONN_LOCK_TIMEOUT_SEC", "10.0")
+)
 
 _NEGATIVE_DECISION_GATE_TOKENS = (
     "negative",
@@ -1559,6 +1562,7 @@ class SupabaseReadOnlyControlPlaneStore:
         self._external_connect_factory = connect is not None
         self._conn: Any | None = None
         self._conn_lock = threading.Lock()
+        self._conn_lock_timeout_sec = SUPABASE_CONN_LOCK_TIMEOUT_SEC
 
     def _psycopg_connect(self) -> Any:
         try:
@@ -1628,7 +1632,11 @@ class SupabaseReadOnlyControlPlaneStore:
                 self._invoke_connection_method(conn, "close")
             return
 
-        self._conn_lock.acquire()
+        if not self._conn_lock.acquire(timeout=self._conn_lock_timeout_sec):
+            raise TimeoutError(
+                "supabase control-plane connection lock timed out "
+                f"after {self._conn_lock_timeout_sec:.1f}s"
+            )
         conn = None
         try:
             conn = self._checkout_persistent_connection()

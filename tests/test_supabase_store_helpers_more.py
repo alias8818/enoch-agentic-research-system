@@ -352,6 +352,19 @@ def test_readonly_store_basic_query_methods() -> None:
         raise AssertionError("pause should be read-only")
 
 
+def test_supabase_persistent_connect_lock_times_out_when_contended() -> None:
+    store = s.SupabaseReadOnlyControlPlaneStore("postgres://example")
+    store._conn_lock_timeout_sec = 0.01
+    acquired = store._conn_lock.acquire(timeout=0)
+    assert acquired is True
+    try:
+        with pytest.raises(TimeoutError, match="connection lock timed out"):
+            with store._connect():
+                raise AssertionError("locked connection should not be yielded")
+    finally:
+        store._conn_lock.release()
+
+
 def test_supabase_latest_dashboard_observations_skips_invalid_sources() -> None:
     rows = [
         {

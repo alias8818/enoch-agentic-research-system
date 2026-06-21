@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -77,6 +78,48 @@ class EnochCoreStoreTests(unittest.TestCase):
                     source="different-source",
                     payload=payload,
                 )
+
+    def test_append_event_uses_reused_writer_connection_with_wal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = EnochCoreStore(Path(tmp) / "core.sqlite3")
+            first_writer = store._writer_connection()
+            store.append_event(
+                idempotency_key="event-1",
+                event_type="n8n.queue_snapshot",
+                source="unit",
+                payload={"same": True},
+            )
+            second_writer = store._writer_connection()
+
+            self.assertIs(first_writer, second_writer)
+            journal_mode = first_writer.execute("PRAGMA journal_mode").fetchone()[0]
+            synchronous = first_writer.execute("PRAGMA synchronous").fetchone()[0]
+            self.assertEqual(str(journal_mode).lower(), "wal")
+            # NORMAL is represented as integer 1 by SQLite.
+            self.assertEqual(int(synchronous), 1)
+
+    def test_bootstrap_drops_dead_decision_and_projection_cache_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "core.sqlite3"
+            with sqlite3.connect(path) as conn:
+                conn.executescript(
+                    """
+                    CREATE TABLE decisions(id INTEGER PRIMARY KEY);
+                    CREATE TABLE projection_cache(projection_key TEXT PRIMARY KEY);
+                    """
+                )
+
+            EnochCoreStore(path)
+
+            with sqlite3.connect(path) as conn:
+                tables = {
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    )
+                }
+            self.assertNotIn("decisions", tables)
+            self.assertNotIn("projection_cache", tables)
 
     def test_projection_rebuild_uses_latest_snapshot_deterministically(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
