@@ -150,6 +150,7 @@ PY_VALIDATE_CATALOG_URL
     if ! selection="$(python3 - <<'PY_SELECT_SCAFFOLD' "$tmp_dir/catalog" "$requested_scaffold" "$PROJECT_ID" "$PROJECT_DIR" "$PROMPT_FILE"
 from __future__ import annotations
 import json
+import os
 import pathlib
 import sys
 
@@ -171,7 +172,10 @@ def _prompt_text(path: pathlib.Path) -> str:
 def route_scaffold(names: set[str], default: str) -> tuple[str, str, str]:
     if requested:
         return requested, "explicit ENOCH_SCAFFOLD_NAME override", "explicit-override"
-    corpus = "\n".join([project_id, project_dir.name, str(project_dir), _prompt_text(prompt_file)]).lower()
+    corpus_parts = [project_id, project_dir.name, str(project_dir)]
+    if os.environ.get("ENOCH_SCAFFOLD_ROUTING_INCLUDE_PROMPT", "0").lower() in {"1", "true", "yes", "on"}:
+        corpus_parts.append(_prompt_text(prompt_file))
+    corpus = "\n".join(corpus_parts).lower()
     rules: list[tuple[str, str, tuple[str, ...]]] = [
         ("scaffold-enoch-agent-evidence-ledger", "matched evidence-ledger/falsifiable-claim/drift-trap intent", ("evidence-ledger", "evidence ledger", "falsifiable-claim", "falsifiable claim", "drift-trap", "drift trap")),
         ("scaffold-enoch-memory-agent-eval", "matched memory/retrieval/operator-doctrine/replay intent", ("memory", "retrieval", "operator-doctrine", "operator doctrine", "replay")),

@@ -459,6 +459,36 @@ def test_codex_runner_routes_unknown_intent_to_fallback_default(tmp_path: Path) 
     assert "scaffold_routing_deviation: fallback-default" in scaffold_used
 
 
+def test_codex_runner_ignores_prompt_text_for_default_scaffold_routing(
+    tmp_path: Path,
+) -> None:
+    catalog, _commits = _create_full_routing_catalog(tmp_path)
+    token_file = tmp_path / "token"
+    token_file.write_text("not-used-for-file-url\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_CATALOG_URL": f"file://{catalog}",
+        },
+        prompt_text=(
+            "Generic control-plane boilerplate: memory retrieval GB10 GPU CUDA VRAM."
+        ),
+        project_name="generic-project",
+        project_id="generic-project",
+    )
+
+    project: Path = result.project  # type: ignore[attr-defined]
+    assert result.returncode == 0, result.stderr
+    scaffold_used = (project / ".scaffold-used.yaml").read_text(encoding="utf-8")
+    assert "scaffold_selected_name: scaffold-enoch-worker-artifact" in scaffold_used
+    assert (
+        "scaffold_routing_reason: fallback to catalog default: no routing rule matched"
+        in scaffold_used
+    )
+
+
 def test_codex_runner_explicit_scaffold_name_overrides_intent_routing(
     tmp_path: Path,
 ) -> None:
