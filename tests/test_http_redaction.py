@@ -118,8 +118,21 @@ def test_paper_drain_control_client_redacts_error_payload(
 
 
 def test_redact_text_handles_key_value_forms() -> None:
-    text = redact_text("Authorization: Bearer abc token=def; apikey=ghi")
+    text = redact_text("Authorization: Bearer *** token=def; apikey=ghi")
 
     assert "def" not in text
     assert "ghi" not in text
     assert "REDACTED" in text
+
+
+def test_redact_secrets_handles_malformed_url_strings() -> None:
+    payload = {
+        "bad_port": "http://example.com:bad/path?token=secret",
+        "bad_ipv6": "http://[::1/path apikey=jwt-token",
+    }
+
+    redacted = redact_secrets(payload)
+
+    assert "secret" not in str(redacted)
+    assert "jwt-token" not in str(redacted)
+    assert "REDACTED" in str(redacted)

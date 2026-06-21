@@ -35,23 +35,29 @@ _BEARER_VALUE_RE = re.compile(r"(?i)\bbearer\s+([^\s,;&\"'{}\[\]<>]+)")
 
 
 def redact_url(url: str) -> str:
-    parts = urlsplit(str(url))
-    query = urlencode(
-        [
-            (key, REDACTED if key.lower() in _SECRET_QUERY_KEYS else value)
-            for key, value in parse_qsl(parts.query, keep_blank_values=True)
-        ],
-        doseq=True,
-    )
-    netloc = parts.hostname or ""
-    if parts.port is not None:
-        netloc = f"{netloc}:{parts.port}"
-    if parts.username or parts.password:
-        user = parts.username or ""
-        if parts.password:
-            user = f"{user}:{REDACTED}"
-        netloc = f"{user}@{netloc}"
-    return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+    raw = str(url)
+    try:
+        parts = urlsplit(raw)
+        query = urlencode(
+            [
+                (key, REDACTED if key.lower() in _SECRET_QUERY_KEYS else value)
+                for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            ],
+            doseq=True,
+        )
+        # Accessing hostname/port can validate malformed netlocs and raise
+        # ValueError, for example on bad ports or unmatched IPv6 brackets.
+        netloc = parts.hostname or ""
+        if parts.port is not None:
+            netloc = f"{netloc}:{parts.port}"
+        if parts.username or parts.password:
+            user = parts.username or ""
+            if parts.password:
+                user = f"{user}:{REDACTED}"
+            netloc = f"{user}@{netloc}"
+        return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+    except ValueError:
+        return redact_text(raw)
 
 
 def redact_headers(headers: Mapping[str, Any]) -> dict[str, Any]:
