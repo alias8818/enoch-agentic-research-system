@@ -32,6 +32,16 @@ class _StaticTelemetry:
 
 
 class StaleProcessReaperTests(unittest.TestCase):
+    def _terminate_process(self, proc: subprocess.Popen[bytes]) -> None:
+        if proc.poll() is not None:
+            return
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+
     def _config(self, project_root: str) -> GateConfig:
         return GateConfig(
             state_dir="/tmp/enoch-worker-gate-test",
@@ -53,7 +63,7 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [sys.executable, "-c", "import time; time.sleep(120)"],
                 cwd=project_dir,
             )
-            self.addCleanup(lambda: proc.poll() is None and proc.kill())
+            self.addCleanup(self._terminate_process, proc)
             try:
                 tracker = ProcessTracker(Path(tmp))
                 gate = WakeGate(self._config(tmp), tracker, _StaticTelemetry())
@@ -73,14 +83,9 @@ class StaleProcessReaperTests(unittest.TestCase):
                 reaped = gate.reap_stale_project_processes(record)
 
                 self.assertEqual([item["pid"] for item in reaped], [proc.pid])
-                for _ in range(20):
-                    if proc.poll() is not None:
-                        break
-                    time.sleep(0.05)
-                self.assertIsNotNone(proc.poll())
+                proc.wait(timeout=5)
             finally:
-                if proc.poll() is None:
-                    proc.kill()
+                self._terminate_process(proc)
 
     def test_reaper_does_not_kill_when_codex_root_is_alive(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,7 +95,7 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [sys.executable, "-c", "import time; time.sleep(120)"],
                 cwd=project_dir,
             )
-            self.addCleanup(lambda: proc.poll() is None and proc.kill())
+            self.addCleanup(self._terminate_process, proc)
             try:
                 tracker = ProcessTracker(Path(tmp))
                 gate = WakeGate(self._config(tmp), tracker, _StaticTelemetry())
@@ -112,8 +117,7 @@ class StaleProcessReaperTests(unittest.TestCase):
                 self.assertEqual(reaped, [])
                 self.assertIsNone(proc.poll())
             finally:
-                if proc.poll() is None:
-                    proc.kill()
+                self._terminate_process(proc)
 
     def test_reaper_does_not_kill_without_root_pid_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,7 +127,7 @@ class StaleProcessReaperTests(unittest.TestCase):
                 [sys.executable, "-c", "import time; time.sleep(120)"],
                 cwd=project_dir,
             )
-            self.addCleanup(lambda: proc.poll() is None and proc.kill())
+            self.addCleanup(self._terminate_process, proc)
             try:
                 tracker = ProcessTracker(Path(tmp))
                 gate = WakeGate(self._config(tmp), tracker, _StaticTelemetry())
@@ -145,8 +149,7 @@ class StaleProcessReaperTests(unittest.TestCase):
                 self.assertEqual(reaped, [])
                 self.assertIsNone(proc.poll())
             finally:
-                if proc.poll() is None:
-                    proc.kill()
+                self._terminate_process(proc)
 
     def test_tracker_rejects_project_dir_escape_outside_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

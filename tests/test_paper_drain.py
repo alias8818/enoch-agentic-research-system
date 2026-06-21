@@ -44,18 +44,25 @@ def test_paper_drain_skips_before_draft_loop_during_control_hold(
 
     monkeypatch.setenv("ENOCH_ENABLE_PAPER_DRAIN", "1")
     monkeypatch.setattr(paper_drain, "_load_drain_settings", lambda: settings)
+
+    drain_loop_calls = 0
+
+    def _drain_loop_spy(_settings):  # noqa: ANN001 - verifies branch selection only
+        nonlocal drain_loop_calls
+        drain_loop_calls += 1
+        return 0
+
     monkeypatch.setattr(
         paper_drain,
         "_run_drain_loop",
-        lambda _settings: (_ for _ in ()).throw(
-            AssertionError("paper drain loop must not run while held")
-        ),
+        _drain_loop_spy,
     )
 
     assert paper_drain.main() == 0
 
     client.get.assert_called_once_with("/control/api/status")
     client.post.assert_not_called()
+    assert drain_loop_calls == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["action"] == "skipped"
     assert payload["hold_state"]["queue_paused"] is True
