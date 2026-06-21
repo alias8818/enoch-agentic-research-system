@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import json
 import os
 import re
@@ -20,6 +22,8 @@ from .research_provider_defaults import (
 )
 from .url_safety import validate_http_url
 
+
+_logger = logging.getLogger(__name__)
 
 SETTINGS_SCHEMA_VERSION = 1
 LLM_SETTINGS_FILENAME = "llm-provider-settings.json"
@@ -416,8 +420,10 @@ def write_llm_settings(
             try:
                 if tmp.exists():
                     tmp.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                _logger.debug(
+                    "failed to remove temporary llm settings file", exc_info=exc
+                )
     return validated
 
 
@@ -445,8 +451,8 @@ def _cleanup_temp_path(path: Path | None) -> None:
     try:
         if path.exists():
             path.unlink()
-    except OSError:
-        pass
+    except OSError as exc:
+        _logger.debug("failed to remove llm provider secret file", exc_info=exc)
 
 
 def _write_llm_provider_secret_file(path: Path, secret: str) -> None:

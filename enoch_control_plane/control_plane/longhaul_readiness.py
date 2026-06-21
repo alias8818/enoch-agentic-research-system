@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 from enoch_control_plane.timeutils import parse_utc_datetime
+
+
+_logger = logging.getLogger(__name__)
 
 
 def _truthy(value: Any) -> bool:
@@ -24,8 +29,11 @@ def _parse_timestamp(value: Any) -> datetime | None:
     ):
         try:
             return datetime.strptime(text, fmt).astimezone(timezone.utc)
-        except ValueError:
-            pass
+        except ValueError as exc:
+            _logger.debug(
+                "timestamp did not match longhaul readiness fallback format",
+                exc_info=exc,
+            )
     return parse_utc_datetime(text)
 
 

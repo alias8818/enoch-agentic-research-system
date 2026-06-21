@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 import os
 import signal
 import time
 from pathlib import Path
+
+
+_logger = logging.getLogger(__name__)
 
 try:
     import psutil
@@ -140,8 +145,10 @@ class ProcessTracker:
                 tracked[root.pid] = root
                 for child in root.children(recursive=True):
                     tracked[child.pid] = child
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+                _logger.debug(
+                    "process disappeared while collecting child processes", exc_info=exc
+                )
 
         if record.process_group_id is not None:
             for proc in psutil.process_iter(["pid"]):

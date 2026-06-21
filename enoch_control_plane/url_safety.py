@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 import ipaddress
 import socket
 from typing import Any
 from urllib import request
 from urllib.parse import urlparse
+
+
+_logger = logging.getLogger(__name__)
 
 _LOCAL_HTTP_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 _EXTERNAL_SOURCE_ID_PREFIXES = ("arxiv:", "doi:")
@@ -58,8 +63,11 @@ def _parse_ip_literal(
 ) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
     try:
         return ipaddress.ip_address(host)
-    except ValueError:
-        pass
+    except ValueError as exc:
+        _logger.debug(
+            "host is not a direct IP literal; trying numeric IPv4 fallback",
+            exc_info=exc,
+        )
     # urllib/socket may accept integer IPv4 forms such as 2130706433 for 127.0.0.1.
     if host.isdecimal():
         try:

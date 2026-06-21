@@ -10,6 +10,8 @@ from enoch_control_plane.observability import (
     current_rss_mib,
     peak_rss_mib,
 )
+from enoch_control_plane.observability.middleware import _redact_observation
+from enoch_control_plane.observability.profiling import ProfilingMiddleware
 from scripts.dashboard_memory_smoke import Sample, summarize
 
 
@@ -75,3 +77,49 @@ def test_dashboard_memory_smoke_summary_tracks_rss_delta() -> None:
     assert summary["/control/api/status"]["failed"] == 2
     assert summary["/control/api/status"]["status_codes"] == [500]
     assert summary["/control/api/status"]["transport_errors"] == 1
+
+
+def test_redact_observation_recurses_into_nested_headers_and_text() -> None:
+    payload = {
+        "request": {
+            "headers": {
+                "Authorization": "Bearer secret-token",
+                "x-api-key": "secret-api-key",
+            },
+            "url": "/control/api/status?apikey=secret-query&ok=1",
+            "events": [{"payload": "Authorization: Bearer nested-secret"}],
+        },
+        "safe": "value",
+    }
+
+    redacted = _redact_observation(payload)
+    serialized = json.dumps(redacted, sort_keys=True)
+
+    assert "secret-token" not in serialized
+    assert "secret-api-key" not in serialized
+    assert "secret-query" not in serialized
+    assert "nested-secret" not in serialized
+    assert redacted["request"]["headers"]["Authorization"] == "[REDACTED]"
+    assert redacted["safe"] == "value"
+
+
+def test_profiling_middleware_samples_and_rate_limits_slow_logs(monkeypatch) -> None:
+    middleware = ProfilingMiddleware(
+        app=FastAPI(),
+        enabled=True,
+        sample_rate=0.25,
+        log_cooldown_sec=10,
+    )
+
+    monkeypatch.setattr(
+        "enoch_control_plane.observability.profiling.random.random", lambda: 0.5
+    )
+    assert middleware._should_profile() is False
+
+    monkeypatch.setattr(
+        "enoch_control_plane.observability.profiling.random.random", lambda: 0.1
+    )
+    assert middleware._should_profile() is True
+    assert middleware._should_log_slow_profile("GET /slow", 100.0) is True
+    assert middleware._should_log_slow_profile("GET /slow", 105.0) is False
+    assert middleware._should_log_slow_profile("GET /slow", 111.0) is True

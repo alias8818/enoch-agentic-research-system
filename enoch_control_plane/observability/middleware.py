@@ -26,15 +26,51 @@ _REDACT_KEY_PATTERNS = re.compile(
 )
 
 
+_REDACTED = "[REDACTED]"
+_MAX_REDACTION_DEPTH = 8
+
+
+def _redact_text(value: str) -> str:
+    # Query strings and free-form error fields can carry token= / apikey= /
+    # Authorization: Bearer material even when the containing key is benign.
+    value = re.sub(
+        r"(?i)(bearer\s+)[^\s,;]+",
+        lambda match: f"{match.group(1)}{_REDACTED}",
+        value,
+    )
+    value = re.sub(
+        r"(?i)([?&;\s](?:token|api[_-]?key|apikey|password|secret)=)[^&;\s]+",
+        lambda match: f"{match.group(1)}{_REDACTED}",
+        value,
+    )
+    return value
+
+
+def _redact_observation_value(value: Any, *, depth: int = 0) -> Any:
+    if depth > _MAX_REDACTION_DEPTH:
+        return _REDACTED
+    if isinstance(value, dict):
+        redacted: dict[Any, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            redacted[key] = (
+                _REDACTED
+                if _REDACT_KEY_PATTERNS.search(key_text)
+                else _redact_observation_value(item, depth=depth + 1)
+            )
+        return redacted
+    if isinstance(value, list):
+        return [_redact_observation_value(item, depth=depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_observation_value(item, depth=depth + 1) for item in value)
+    if isinstance(value, str):
+        return _redact_text(value)
+    return value
+
+
 def _redact_observation(observation: dict[str, Any]) -> dict[str, Any]:
-    """Return a shallow copy with sensitive values redacted."""
-    redacted: dict[str, Any] = {}
-    for key, value in observation.items():
-        if _REDACT_KEY_PATTERNS.search(key):
-            redacted[key] = "[REDACTED]"
-        else:
-            redacted[key] = value
-    return redacted
+    """Return a recursive copy with sensitive values redacted."""
+    return _redact_observation_value(observation)
 
 
 def peak_rss_mib() -> float:

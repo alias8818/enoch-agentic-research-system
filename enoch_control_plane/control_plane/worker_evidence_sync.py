@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -9,6 +10,8 @@ from typing import Any, NamedTuple
 from ..config import GateConfig
 from .store import _atomic_write_text
 from .worker_adapter import HttpResult, post_worker_json
+
+_logger = logging.getLogger(__name__)
 
 
 class _WorkerEvidenceSyncCtx(NamedTuple):
@@ -121,8 +124,8 @@ def _purge_stale_worker_evidence_file(artifact_root: Path, rel: str) -> None:
         stale_target.relative_to(artifact_root)
         if rel and stale_target != artifact_root and stale_target.is_file():
             stale_target.unlink()
-    except (OSError, RuntimeError, ValueError):
-        pass
+    except (OSError, RuntimeError, ValueError) as exc:
+        _logger.debug("failed to remove stale worker evidence target", exc_info=exc)
 
 
 def _resolve_worker_evidence_target(

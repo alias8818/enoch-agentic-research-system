@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import json
 import hashlib
 import os
@@ -21,6 +23,8 @@ from ..llm_settings import (
 from ..url_safety import urlopen_validated, validate_http_url
 from .models import PaperRecord
 
+
+_logger = logging.getLogger(__name__)
 
 JSON_FILE_SUFFIX = ".json"
 EVIDENCE_TEXT_EXTENSIONS = {
@@ -162,8 +166,8 @@ def _atomic_write_text_file(target: Path, content: str) -> None:
         try:
             if tmp_path.exists():
                 tmp_path.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            _logger.debug("failed to remove temporary paper writer file", exc_info=exc)
 
 
 def _write_single_paper_file(
@@ -948,8 +952,8 @@ def _append_paper_artifacts(
                     snippets=snippets,
                     limit=22000,
                 )
-    except (OSError, RuntimeError, ValueError):
-        pass
+    except (OSError, RuntimeError, ValueError) as exc:
+        _logger.debug("paper writer artifact cleanup/inspection failed", exc_info=exc)
 
 
 def _is_result_summary_candidate(path: Path) -> bool:
@@ -980,8 +984,8 @@ def _append_result_summaries(
                 snippets=snippets,
                 limit=18000,
             )
-    except (OSError, RuntimeError, ValueError):
-        pass
+    except (OSError, RuntimeError, ValueError) as exc:
+        _logger.debug("paper writer artifact cleanup/inspection failed", exc_info=exc)
 
 
 def _candidate_context(

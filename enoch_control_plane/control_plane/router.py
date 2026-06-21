@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, replace
 from functools import partial
@@ -148,6 +150,9 @@ from .supabase_store import (
 )
 from .worker_adapter import HttpResult, post_worker_json, run_worker_preflight
 from .worker_evidence_sync import _sync_worker_http_evidence
+
+
+_logger = logging.getLogger(__name__)
 
 _HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT: dict[int, dict[str, str]] = {
     500: {"description": "Configured artifact roots are not resolvable"},
@@ -1154,8 +1159,10 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
             try:
                 if tmp.exists():
                     tmp.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                _logger.debug(
+                    "failed to remove temporary control-plane file", exc_info=exc
+                )
 
 
 from .safe_tar_extract import extract_safe_tar_bytes as _extract_safe_tar_bytes
@@ -1810,8 +1817,10 @@ def _stop_process(proc: subprocess.Popen | None) -> None:
         proc.kill()
     try:
         proc.wait(timeout=5)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _logger.debug(
+            "dispatch subprocess did not exit after stdin close", exc_info=exc
+        )
 
 
 def _restore_fd_blocking(fd: int, previous_blocking: bool | None) -> None:
@@ -1819,8 +1828,8 @@ def _restore_fd_blocking(fd: int, previous_blocking: bool | None) -> None:
         return
     try:
         os.set_blocking(fd, previous_blocking)
-    except OSError:
-        pass
+    except OSError as exc:
+        _logger.debug("failed to restore subprocess pipe blocking mode", exc_info=exc)
 
 
 def _read_bounded_fd_chunk(fd: int, *, max_bytes: int, total: int) -> bytes | None:

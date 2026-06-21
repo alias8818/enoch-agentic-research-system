@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import io
 import tarfile
 import tempfile
@@ -7,6 +9,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 # Sonar S5042: bound untrusted tar expansion (zip bomb / inode exhaustion).
+
+
+_logger = logging.getLogger(__name__)
+
 _MAX_TAR_ENTRIES = 512
 _MAX_TAR_COMPRESSION_RATIO = 10
 _TAR_READ_CHUNK_BYTES = 8192
@@ -25,8 +31,10 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
             try:
                 if tmp.exists():
                     tmp.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                _logger.debug(
+                    "failed to remove temporary tar extraction file", exc_info=exc
+                )
 
 
 def _safe_tar_target(artifact_root: Path, member_name: str) -> Path | None:

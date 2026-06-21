@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import json
 from collections import Counter
 from datetime import datetime, timezone
@@ -7,6 +9,9 @@ from pathlib import Path
 from typing import Any
 
 from .datasets import as_bool, is_supported_negative_nonblocking, negative_rationale
+
+
+_logger = logging.getLogger(__name__)
 
 DEFAULT_REPORT_PATHS = (
     "/var/lib/enoch-control-plane/research-quality/latest-report.json",
@@ -788,8 +793,8 @@ def _followup_required_evidence_count(row: dict[str, Any]) -> int:
     if explicit_count not in (None, ""):
         try:
             return int(explicit_count)
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            _logger.debug("followup evidence count was not parseable", exc_info=exc)
     evidence = row.get("followup_required_evidence")
     if isinstance(evidence, list):
         return len([item for item in evidence if str(item or "").strip()])

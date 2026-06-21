@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import asyncio
 from contextlib import asynccontextmanager
 from collections import Counter
@@ -13,10 +15,12 @@ import json
 import os
 import re
 import subprocess
+import urllib.error
 from pathlib import Path
 import time
 from typing import Annotated, Any
 
+from tenacity import RetryError
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
@@ -52,6 +56,9 @@ from .telemetry import TelemetryCollector
 # Centralized label for project directory checks (eliminates S1192 duplication
 # of the literal across multiple _checked_exists / _checked_is_dir calls and
 # error messages in the dashboard API handlers).
+
+_logger = logging.getLogger(__name__)
+
 PROJECT_DIRECTORY_LABEL = "project directory"
 PAPER_ARTIFACT_ALLOWED_SUFFIXES = frozenset(
     {".json", ".md", ".markdown", ".txt", ".log", ".yaml", ".yml"}
@@ -276,6 +283,10 @@ if os.environ.get("ENOCH_PROFILING_ENABLED", "").strip() in ("1", "true"):
             os.environ.get("ENOCH_PROFILING_THRESHOLD_MS", "2000")
         ),
         enabled=True,
+        sample_rate=float(os.environ.get("ENOCH_PROFILING_SAMPLE_RATE", "0.01")),
+        log_cooldown_sec=float(
+            os.environ.get("ENOCH_PROFILING_LOG_COOLDOWN_SEC", "60")
+        ),
     )
 evaluation_tasks: dict[str, asyncio.Task] = {}
 reconcile_task: asyncio.Task | None = None
@@ -1145,8 +1156,10 @@ def _write_text(path: Path, text: str, overwrite: bool) -> None:
         try:
             if tmp_path.exists():
                 tmp_path.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            _logger.debug(
+                "failed to remove temporary project artifact file", exc_info=exc
+            )
 
 
 def _checked_exists(path: Path, *, label: str, status_code: int = 500) -> bool:
@@ -3248,12 +3261,26 @@ async def dispatch_run(
     }
 
 
+_CALLBACK_DELIVERY_FAILURES = (
+    RetryError,
+    TimeoutError,
+    OSError,
+    urllib.error.URLError,
+    urllib.error.HTTPError,
+)
+
+
 async def _deliver_callback(callback: GateCallback) -> tuple[bool, str]:
     loop = asyncio.get_running_loop()
     try:
         status, text = await loop.run_in_executor(None, sender.send, callback)
         return True, f"{status}:{text}"
-    except Exception as exc:  # pragma: no cover - network/deploy time failure
+    except _CALLBACK_DELIVERY_FAILURES as exc:
+        # Network/HTTP delivery failures are part of the gate state machine: the
+        # caller records a callback_attempt event and may retry or mark the gate
+        # errored. Programming errors while constructing the payload must still
+        # crash loudly instead of being persisted as indistinguishable delivery
+        # failures.
         return False, f"{type(exc).__name__}: {exc}"
 
 

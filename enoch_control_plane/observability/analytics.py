@@ -7,6 +7,9 @@ from typing import Any
 
 from ..models import utc_now
 
+
+_logger = logging.getLogger(__name__)
+
 logger = logging.getLogger("enoch.analytics")
 
 # Lightweight product analytics for the internal control plane.
@@ -66,6 +69,6 @@ class AnalyticsCollector:
                         record = json.loads(line)
                         if record.get("event") == event:
                             count += 1
-        except (OSError, json.JSONDecodeError):
-            pass
+        except (OSError, json.JSONDecodeError) as exc:
+            _logger.debug("failed to read route observation row", exc_info=exc)
         return count

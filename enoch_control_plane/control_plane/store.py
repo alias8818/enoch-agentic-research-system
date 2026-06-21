@@ -44,6 +44,9 @@ from .promising_signal_priority import (
 )
 from .state_contract import RUN_STATES
 
+
+_logger = logging.getLogger(__name__)
+
 SCHEMA_VERSION = 1
 ACTIVE_STATUSES = {
     "dispatching",
@@ -91,8 +94,8 @@ def _atomic_write_text(path: Path, text: str) -> None:
             try:
                 if tmp.exists():
                     tmp.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                _logger.debug("failed to remove temporary store file", exc_info=exc)
 
 
 def _atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -108,8 +111,8 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
             try:
                 if tmp.exists():
                     tmp.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                _logger.debug("failed to remove temporary store file", exc_info=exc)
 
 
 def _restore_or_remove_path(path: Path, *, existed: bool, content: bytes) -> None:
@@ -119,8 +122,8 @@ def _restore_or_remove_path(path: Path, *, existed: bool, content: bytes) -> Non
     try:
         if path.exists():
             path.unlink()
-    except (OSError, RuntimeError, ValueError):
-        pass
+    except (OSError, RuntimeError, ValueError) as exc:
+        _logger.debug("failed to remove unsafe sqlite/store path", exc_info=exc)
 
 
 def _existing_file_snapshot(path: Path, *, label: str) -> tuple[bool, bytes]:
@@ -1705,8 +1708,10 @@ class ControlPlaneStore:
         # set_trace_callback may not be available on mock connections in tests.
         try:
             conn.set_trace_callback(_sqlite_trace_callback)
-        except AttributeError:
-            pass
+        except AttributeError as exc:
+            _logger.debug(
+                "sqlite trace callback unavailable on this connection", exc_info=exc
+            )
         try:
             with conn:
                 yield conn

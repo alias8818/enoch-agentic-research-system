@@ -938,3 +938,42 @@ def test_control_dashboard_v2_assets_require_bearer(
     response = client.get(path, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_deliver_callback_only_converts_transport_failures(monkeypatch) -> None:
+    callback = GateCallback(
+        event_type="wake_ready",
+        run_id="run",
+        session_id="session",
+        project_id="project",
+        project_name="Project",
+        source_event="session-idle",
+        gate_state="wake_ready",
+        process_tracking=ProcessSnapshot(),
+        telemetry={},
+        reason="ready",
+        idempotency_key="run:wake_ready:seen",
+    )
+
+    class TransportSender:
+        def send(self, _callback):
+            raise TimeoutError("network timeout")
+
+    monkeypatch.setattr(appmod, "sender", TransportSender())
+    ok, detail = asyncio.run(appmod._deliver_callback(callback))
+    assert ok is False
+    assert "TimeoutError" in detail
+
+    class BuggySender:
+        def send(self, _callback):
+            raise ValueError("payload construction bug")
+
+    monkeypatch.setattr(appmod, "sender", BuggySender())
+    try:
+        asyncio.run(appmod._deliver_callback(callback))
+    except ValueError as exc:
+        assert "payload construction bug" in str(exc)
+    else:  # pragma: no cover - regression guard
+        raise AssertionError(
+            "programming error was swallowed as callback delivery failure"
+        )

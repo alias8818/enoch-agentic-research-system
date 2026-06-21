@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -29,6 +31,8 @@ from .read_models import (
 from .research_quality_freshness import research_quality_report_freshness
 from .store import ControlPlaneStore
 
+
+_logger = logging.getLogger(__name__)
 
 DISPATCH_RACE_GRACE_SEC = 180
 DISPATCH_TRANSITION_EVENTS = {
@@ -138,8 +142,8 @@ def _has_live_worker_run(status: DashboardStatusResponse, run_id: str | None) ->
         try:
             if int(run.get("active_process_count") or 0) > 0:
                 return True
-        except (TypeError, ValueError):
-            pass
+        except (TypeError, ValueError) as exc:
+            _logger.debug("queue alert timestamp was not parseable", exc_info=exc)
     return False
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -13,6 +15,8 @@ from urllib import error, request
 from .callback_signing import signature_headers
 from .url_safety import urlopen_validated, validate_http_url
 
+
+_logger = logging.getLogger(__name__)
 
 OUTBOX_DIRNAME = "callback_outbox"
 DELIVERED_DIRNAME = "callback_delivered"
@@ -93,8 +97,10 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             try:
                 if tmp.exists():
                     tmp.unlink()
-            except OSError:
-                pass
+            except OSError as exc:
+                _logger.debug(
+                    "failed to remove temporary callback outbox file", exc_info=exc
+                )
 
 
 def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
@@ -182,8 +188,8 @@ def _dead_letter_pending(
     _atomic_write_json(dest, payload)
     try:
         pending.unlink()
-    except FileNotFoundError:
-        pass
+    except FileNotFoundError as exc:
+        _logger.debug("callback outbox pending file already removed", exc_info=exc)
     detail = f"dead-lettered {reason}: {result.detail[:512]}"
     return DeliveryResult(
         ok=False, status_code=result.status_code, detail=detail, path=str(dest)
@@ -280,8 +286,8 @@ def deliver_pending_file(
         _atomic_write_json(dest, payload)
         try:
             pending.unlink()
-        except FileNotFoundError:
-            pass
+        except FileNotFoundError as exc:
+            _logger.debug("callback outbox pending file already removed", exc_info=exc)
         local_state_error = _mark_local_worker_state_delivered(state_dir, payload)
         if local_state_error:
             payload["local_worker_state_error"] = local_state_error
