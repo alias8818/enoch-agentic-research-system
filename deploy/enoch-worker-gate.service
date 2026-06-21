@@ -8,7 +8,7 @@ Type=simple
 WorkingDirectory=/opt/enoch-control-plane
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
 EnvironmentFile=-/etc/enoch-control-plane/sentry.env
-ExecStart=/opt/enoch-control-plane/.venv/bin/python -m uvicorn enoch_control_plane.app:app --host 0.0.0.0 --port 8787
+ExecStart=/opt/enoch-control-plane/.venv/bin/python -m uvicorn enoch_control_plane.app:app --host 127.0.0.1 --port 8787
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=30
@@ -16,6 +16,19 @@ KillMode=mixed
 FinalKillSignal=SIGKILL
 User=enoch
 Group=enoch
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/enoch-control-plane /var/log/enoch-control-plane /tmp
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
 
 [Install]
 WantedBy=multi-user.target

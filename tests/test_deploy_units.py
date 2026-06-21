@@ -598,6 +598,7 @@ printf '{"type":"session","session_id":"fake-session"}\n'
             "ENOCH_COMPLETION_CALLBACK_TOKEN": "super-secret-callback-token",
             "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": "1",
             "ENOCH_WORKER_STATE_DIR": str(tmp_path / "state"),
+            "ENOCH_SCAFFOLD_BOOTSTRAP": "0",
         }
     )
 
@@ -1307,3 +1308,30 @@ def test_research_facility_sql_guard_and_close_centralized_no_s1192_duplication(
     assert src.count("_SQL_GUARD_AND_CLOSE") >= 7, (
         "emit_sql guards must reference _SQL_GUARD_AND_CLOSE"
     )
+
+
+def test_worker_gate_unit_binds_loopback_and_has_systemd_hardening() -> None:
+    service = (ROOT / "deploy" / "enoch-worker-gate.service").read_text(
+        encoding="utf-8"
+    )
+    assert "--host 127.0.0.1 --port 8787" in service
+    assert "--host 0.0.0.0" not in service
+    for directive in (
+        "NoNewPrivileges=yes",
+        "PrivateTmp=yes",
+        "ProtectSystem=strict",
+        "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
+        "IPAddressDeny=any",
+        "IPAddressAllow=localhost",
+        "MemoryDenyWriteExecute=yes",
+        "SystemCallFilter=@system-service",
+    ):
+        assert directive in service
+
+
+def test_worker_gate_example_is_loopback_and_has_no_placeholder_bearer() -> None:
+    config = json.loads(
+        (ROOT / "deploy" / "enoch-worker-gate.json.example").read_text(encoding="utf-8")
+    )
+    assert config["listen_host"] == "127.0.0.1"
+    assert config["control_api_bearer_token"] is None

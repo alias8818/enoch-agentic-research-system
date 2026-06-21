@@ -95,12 +95,20 @@ def _check_status(
 
 
 def _run_ssh_timer_check(ssh_host: str) -> dict[str, Any]:
+    # Keep the SSH surface non-interactive and host-key pinned.  The remote side
+    # is a root-owned helper script installed with the deployment, not an inline
+    # shell snippet assembled by this local script.
+    remote_script = "/opt/enoch/scripts/timer_check.sh"
     cmd = [
         "ssh",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "UserKnownHostsFile=/etc/enoch/known_hosts",
         ssh_host,
-        "systemctl is-enabled enoch-notion-sync.timer enoch-notion-sync.service enoch-paper-draft-next.timer enoch-queue-alert-check.timer 2>/dev/null || true; "
-        "echo --active--; "
-        "systemctl is-active enoch-notion-sync.timer enoch-notion-sync.service enoch-paper-draft-next.timer enoch-queue-alert-check.timer 2>/dev/null || true",
+        remote_script,
     ]
     completed = subprocess.run(
         cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False

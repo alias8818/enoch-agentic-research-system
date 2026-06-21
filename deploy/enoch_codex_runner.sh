@@ -68,12 +68,13 @@ bootstrap_scaffold() {
   fi
 
   local token_file="${ENOCH_SCAFFOLD_TOKEN_FILE:-$HOME/.config/enoch-git/scaffold-reader-token}"
-  local catalog_url="${ENOCH_SCAFFOLD_CATALOG_URL:-http://100.114.53.78:8000/scaffolds/scaffold-catalog.git}"
+  local catalog_url="${ENOCH_SCAFFOLD_CATALOG_URL:-https://100.114.53.78:8000/scaffolds/scaffold-catalog.git}"
   local requested_scaffold="${ENOCH_SCAFFOLD_NAME:-}"
   local direct_scaffold_url="${ENOCH_SCAFFOLD_URL:-}"
   local direct_scaffold_commit="${ENOCH_SCAFFOLD_COMMIT:-}"
-  local allowed_base_urls="${ENOCH_SCAFFOLD_ALLOWED_BASE_URLS:-http://100.114.53.78:8000/scaffolds/}"
+  local allowed_base_urls="${ENOCH_SCAFFOLD_ALLOWED_BASE_URLS:-https://100.114.53.78:8000/scaffolds/}"
   local allow_file_urls="${ENOCH_SCAFFOLD_ALLOW_FILE_URLS:-0}"
+  local allow_insecure_http="${ENOCH_SCAFFOLD_ALLOW_INSECURE_HTTP:-0}"
   local require_pin="${ENOCH_SCAFFOLD_REQUIRE_PIN:-1}"
   if [[ ! -s "$token_file" ]]; then
     echo "scaffold bootstrap skipped: token file missing: $token_file" >&2
@@ -90,10 +91,49 @@ bootstrap_scaffold() {
   cleanup_scaffold_tmp() { rm -rf "$tmp_dir"; }
   trap cleanup_scaffold_tmp RETURN
 
-  {
-    printf '[http "http://100.114.53.78:8000/"]\n'
-    printf '\textraHeader = Authorization: token %s\n' "$(tr -d '\n' <"$token_file")"
-  } >"$git_config"
+  local git_auth_scope
+  if ! git_auth_scope="$(python3 - <<'PY_VALIDATE_CATALOG_URL' "$catalog_url" "$allowed_base_urls" "$allow_file_urls" "$allow_insecure_http"
+from __future__ import annotations
+import sys
+from urllib.parse import urlparse
+
+url, allowed_bases_raw, allow_file_raw, allow_insecure_raw = sys.argv[1:]
+allow_file = allow_file_raw.lower() in {"1", "true", "yes"}
+allow_insecure = allow_insecure_raw.lower() in {"1", "true", "yes"}
+parsed = urlparse(url)
+if parsed.scheme == "file":
+    if not allow_file:
+        print("untrusted scaffold catalog URL: file URLs disabled", file=sys.stderr)
+        raise SystemExit(2)
+    print("")
+    raise SystemExit(0)
+if parsed.scheme not in {"https", "http"}:
+    print(f"untrusted scaffold catalog URL scheme: {parsed.scheme or 'missing'}", file=sys.stderr)
+    raise SystemExit(2)
+if parsed.username or parsed.password:
+    print("untrusted scaffold catalog URL: credentials in URL are forbidden", file=sys.stderr)
+    raise SystemExit(2)
+if parsed.scheme == "http" and not allow_insecure:
+    print("untrusted scaffold catalog URL: plain HTTP requires ENOCH_SCAFFOLD_ALLOW_INSECURE_HTTP=1", file=sys.stderr)
+    raise SystemExit(2)
+allowed_bases = [base.strip().rstrip("/") + "/" for base in allowed_bases_raw.split(",") if base.strip()]
+if allowed_bases and not any(url.startswith(base) for base in allowed_bases):
+    print(f"untrusted scaffold catalog URL: {url}", file=sys.stderr)
+    raise SystemExit(2)
+print(f"{parsed.scheme}://{parsed.netloc}/")
+PY_VALIDATE_CATALOG_URL
+)"; then
+    return 2
+  fi
+
+  if [[ -n "$git_auth_scope" ]]; then
+    {
+      printf '[http "%s"]\n' "$git_auth_scope"
+      printf '\textraHeader = Authorization: token %s\n' "$(tr -d '\n' <"$token_file")"
+    } >"$git_config"
+  else
+    : >"$git_config"
+  fi
   chmod 600 "$git_config"
 
   if [[ -n "$direct_scaffold_url" ]]; then
@@ -257,14 +297,15 @@ PY_SELECT_SCAFFOLD
     fi
   fi
 
-  python3 - <<'PY_VALIDATE_SCAFFOLD_URL' "$scaffold_url" "$allowed_base_urls" "$allow_file_urls" "$require_pin" "$expected_scaffold_commit"
+  python3 - <<'PY_VALIDATE_SCAFFOLD_URL' "$scaffold_url" "$allowed_base_urls" "$allow_file_urls" "$allow_insecure_http" "$require_pin" "$expected_scaffold_commit"
 from __future__ import annotations
 import re
 import sys
 from urllib.parse import urlparse
 
-url, allowed_bases_raw, allow_file_raw, require_pin_raw, expected_commit = sys.argv[1:]
+url, allowed_bases_raw, allow_file_raw, allow_insecure_raw, require_pin_raw, expected_commit = sys.argv[1:]
 allow_file = allow_file_raw.lower() in {"1", "true", "yes"}
+allow_insecure = allow_insecure_raw.lower() in {"1", "true", "yes"}
 require_pin = require_pin_raw.lower() not in {"0", "false", "no"}
 parsed = urlparse(url)
 if parsed.scheme == "file":
@@ -274,6 +315,9 @@ if parsed.scheme == "file":
 elif parsed.scheme in {"http", "https"}:
     if parsed.username or parsed.password:
         print("untrusted scaffold URL: credentials in URL are forbidden", file=sys.stderr)
+        raise SystemExit(2)
+    if parsed.scheme == "http" and not allow_insecure:
+        print("untrusted scaffold URL: plain HTTP requires ENOCH_SCAFFOLD_ALLOW_INSECURE_HTTP=1", file=sys.stderr)
         raise SystemExit(2)
     allowed_bases = [base.strip().rstrip("/") + "/" for base in allowed_bases_raw.split(",") if base.strip()]
     if not any(url.startswith(base) for base in allowed_bases):

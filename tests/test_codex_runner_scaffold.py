@@ -620,3 +620,37 @@ def test_codex_runner_rejects_untrusted_direct_scaffold_url(tmp_path: Path) -> N
 
     assert result.returncode == 2
     assert "untrusted scaffold URL" in result.stderr
+
+
+def test_codex_runner_rejects_plain_http_catalog_without_explicit_opt_in(
+    tmp_path: Path,
+) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text("secret-token\n", encoding="utf-8")
+
+    result = _run_runner(
+        tmp_path,
+        {
+            "ENOCH_SCAFFOLD_TOKEN_FILE": str(token_file),
+            "ENOCH_SCAFFOLD_CATALOG_URL": "http://100.114.53.78:8000/scaffolds/scaffold-catalog.git",
+            "ENOCH_SCAFFOLD_ALLOWED_BASE_URLS": "http://100.114.53.78:8000/scaffolds/",
+        },
+    )
+
+    assert result.returncode == 2
+    assert "plain HTTP requires ENOCH_SCAFFOLD_ALLOW_INSECURE_HTTP=1" in result.stderr
+    assert "secret-token" not in result.stderr
+
+
+def test_codex_runner_default_scaffold_transport_is_not_plain_http() -> None:
+    runner = Path(__file__).resolve().parents[1] / "deploy" / "enoch_codex_runner.sh"
+    source = runner.read_text(encoding="utf-8")
+    assert (
+        "ENOCH_SCAFFOLD_CATALOG_URL:-https://100.114.53.78:8000/scaffolds/scaffold-catalog.git"
+        in source
+    )
+    assert (
+        "ENOCH_SCAFFOLD_ALLOWED_BASE_URLS:-https://100.114.53.78:8000/scaffolds/"
+        in source
+    )
+    assert "http://100.114.53.78:8000/" not in source

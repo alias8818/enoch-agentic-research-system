@@ -1,11 +1,11 @@
 {
-  "listen_host": "0.0.0.0",
+  "listen_host": "127.0.0.1",
   "listen_port": 8787,
   "state_dir": "~/.local/state/enoch-worker-gate",
   "project_root": "~/enoch/projects",
   "dispatch_script_path": "~/enoch/bin/enoch_codex_dispatch.sh",
   "dispatch_timeout_sec": 30,
-  "control_api_bearer_token": "replace-with-local-control-api-token",
+  "control_api_bearer_token": null,
   "sample_interval_sec": 5,
   "default_workload_class": "inference_eval",
   "idle_sustain_sec": 180,
