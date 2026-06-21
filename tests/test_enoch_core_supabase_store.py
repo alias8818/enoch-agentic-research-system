@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 from enoch_control_plane.enoch_core.logic import eligible_paper_draft_candidates
+from enoch_control_plane.enoch_core._canonical import canonical_json
 from enoch_control_plane.enoch_core.supabase_store import SupabaseEnochCoreStore
-from enoch_control_plane.enoch_core.store import IdempotencyConflict
+from enoch_control_plane.enoch_core.store import EnochCoreStore, IdempotencyConflict
 
 
 class Cursor:
@@ -174,7 +175,11 @@ def test_core_supabase_store_json_helpers_and_empty_projection() -> None:
         "postgres://example",
         connect=lambda: Conn({"events": {}, "snapshots": [], "snapshots_by_key": {}}),
     )
-    assert store.canonical_json({"b": 2, "a": 1}) == '{"a":1,"b":2}'
+    payload = {"b": "ß", "a": 1}
+    assert canonical_json(payload) == '{"a":1,"b":"ß"}'
+    assert store.canonical_json(payload) == canonical_json(payload)
+    assert EnochCoreStore.canonical_json(payload) == canonical_json(payload)
+    assert store.payload_hash(payload) == EnochCoreStore.payload_hash(payload)
     assert store._json_payload(None) == {}
     assert store._json_payload('{"a":1}') == {"a": 1}
     assert store.latest_snapshot() is None

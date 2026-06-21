@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from ..models import utc_now
+from ._canonical import canonical_json as _canonical_json
 from .store import AppendResult, IdempotencyConflict
 
 ConnectionFactory = Callable[[], Any]
@@ -79,9 +80,7 @@ class SupabaseEnochCoreStore:
 
     @staticmethod
     def canonical_json(payload: Any) -> str:
-        return json.dumps(
-            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-        )
+        return _canonical_json(payload)
 
     @classmethod
     def payload_hash(cls, payload: Any) -> str:
