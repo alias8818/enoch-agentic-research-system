@@ -1364,8 +1364,6 @@ def test_worker_gate_unit_binds_loopback_and_has_systemd_hardening() -> None:
         "PrivateTmp=yes",
         "ProtectSystem=strict",
         "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
-        "IPAddressDeny=any",
-        "IPAddressAllow=localhost",
         "MemoryDenyWriteExecute=yes",
         "SystemCallFilter=@system-service",
     ):

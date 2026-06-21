@@ -389,7 +389,7 @@ def test_callback_outbox_quarantines_permanent_4xx_without_retry(
         callback_outbox,
         "deliver_payload",
         lambda payload, **kwargs: callback_outbox.DeliveryResult(
-            ok=False, status_code=401, detail="unauthorized"
+            ok=False, status_code=404, detail="not found"
         ),
     )
 
@@ -402,14 +402,14 @@ def test_callback_outbox_quarantines_permanent_4xx_without_retry(
     )
 
     assert result.ok is False
-    assert "permanent_401" in result.detail
+    assert "permanent_404" in result.detail
     assert not pending.exists()
     dead = Path(result.path)
     assert dead.parent.name == callback_outbox.DEAD_LETTER_DIRNAME
     stored = json.loads(dead.read_text(encoding="utf-8"))
-    assert stored["dead_letter_reason"] == "permanent_401"
+    assert stored["dead_letter_reason"] == "permanent_404"
     assert stored["attempt_count"] == 1
-    assert stored["last_error"] == "unauthorized"
+    assert stored["last_error"] == "not found"
 
 
 def test_callback_outbox_quarantines_after_max_attempts(

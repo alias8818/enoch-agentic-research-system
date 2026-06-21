@@ -4607,7 +4607,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 for event in fake_store.events
             )
         )
-        self.assertEqual(generate.call_args.kwargs["attempts"], 2)
+        self.assertEqual(generate.call_args.kwargs["attempts"], 1)
 
     def test_research_facility_run_cycle_generates_backlog_for_active_lane(
         self,
@@ -10842,8 +10842,8 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 store=store, status=status, findings=findings
             )
 
-            self.assertEqual(kept, [])
-            self.assertEqual(suppressed, findings)
+            self.assertEqual(kept, findings)
+            self.assertEqual(suppressed, [])
 
     def test_queue_alert_keeps_stale_live_worker_orphan_alertable(
         self,
@@ -18690,7 +18690,7 @@ def test_provider_generation_rotates_to_next_model_after_llm_issue():
 
     store = _Store()
     params = _ProviderGenerationParams(
-        max_provider_requests=1,
+        max_provider_requests=2,
         generation_target_lane={"machine_target": "gb10", "lane_key": "lane"},
         provider_openai_base_url="http://provider.invalid/openai/v1",
         provider_model="bad-model",

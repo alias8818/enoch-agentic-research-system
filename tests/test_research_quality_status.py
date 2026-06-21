@@ -820,7 +820,9 @@ def test_weak_evidence_on_needs_review_inconclusive_with_bounded_followup_is_war
     assert status["severity_counts"] == {"warning": 1}
 
 
-def test_weak_evidence_on_needs_review_inconclusive_gated_auth_is_warning() -> None:
+def test_weak_evidence_on_needs_review_inconclusive_gated_auth_is_blocked_without_bounded_followup() -> (
+    None
+):
     report = _report_with_decision(
         "weak_or_missing_evidence_strength",
         decision="needs_review",
@@ -841,10 +843,10 @@ def test_weak_evidence_on_needs_review_inconclusive_gated_auth_is_warning() -> N
 
     status = classify_quality_report(report)
 
-    assert status["ok"] is True
-    assert status["status"] == "warnings"
+    assert status["ok"] is False
+    assert status["status"] == "blocked"
     assert status["problem_counts"] == {"weak_or_missing_evidence_strength": 1}
-    assert status["severity_counts"] == {"warning": 1}
+    assert status["severity_counts"] == {"blocked": 1}
 
 
 def test_supported_negative_depth_capped_proxy_result_is_info_not_amber() -> None:
