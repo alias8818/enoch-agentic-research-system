@@ -9,7 +9,12 @@ import subprocess
 import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from enoch_control_plane.url_safety import urlopen_validated
 
 # Centralized filename for the duplicated README.md literal (Sonar S1192 at PUBLIC_FILES).
