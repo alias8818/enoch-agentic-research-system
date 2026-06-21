@@ -1135,12 +1135,13 @@ def _safe_path_for_detail(path: str) -> str:
     return name if name else "[path]"
 
 
-def _resolve_write_target(path: Path) -> Path:
+def _resolve_write_target(path: Path, root: Path | None = None) -> Path:
     try:
-        root = config.expanded_project_root.resolve(strict=False)
         resolved = path.expanduser().resolve(strict=False)
-        resolved.relative_to(root)
-        resolved.parent.relative_to(root)
+        if root is not None:
+            root_resolved = root.resolve(strict=False)
+            resolved.relative_to(root_resolved)
+            resolved.parent.relative_to(root_resolved)
     except (OSError, RuntimeError, ValueError) as exc:
         raise ControlPlaneHttpError(
             status_code=400,
@@ -1149,8 +1150,10 @@ def _resolve_write_target(path: Path) -> Path:
     return resolved
 
 
-def _write_text(path: Path, text: str, overwrite: bool) -> None:
-    target = _resolve_write_target(path)
+def _write_text(
+    path: Path, text: str, overwrite: bool, *, root: Path | None = None
+) -> None:
+    target = _resolve_write_target(path, root)
     target.parent.mkdir(parents=True, exist_ok=True)
     if _checked_exists(target, label="file target") and not overwrite:
         raise ControlPlaneHttpError(
@@ -1179,8 +1182,10 @@ def _write_text(path: Path, text: str, overwrite: bool) -> None:
         if tmp_fd >= 0:
             try:
                 os.close(tmp_fd)
-            except OSError:
-                pass
+            except OSError as exc:
+                _logger.debug(
+                    "failed to close temporary project artifact fd", exc_info=exc
+                )
         try:
             if tmp_path.exists():
                 tmp_path.unlink()
@@ -2979,9 +2984,14 @@ async def prepare_project(
     project_dir.mkdir(parents=True, exist_ok=True)
     (project_dir / ENOCH_PROJECT_DIRNAME).mkdir(parents=True, exist_ok=True)
 
-    _write_text(prompt_file, request.prompt_text, request.overwrite)
+    _write_text(prompt_file, request.prompt_text, request.overwrite, root=project_root)
     if resume_prompt_file and request.resume_prompt_text is not None:
-        _write_text(resume_prompt_file, request.resume_prompt_text, request.overwrite)
+        _write_text(
+            resume_prompt_file,
+            request.resume_prompt_text,
+            request.overwrite,
+            root=project_root,
+        )
 
     metadata_path = project_dir / ENOCH_PROJECT_DIRNAME / "project.json"
     metadata_payload = {
@@ -3001,6 +3011,7 @@ async def prepare_project(
         metadata_path,
         json.dumps(metadata_payload, indent=2, sort_keys=True),
         overwrite=True,
+        root=project_root,
     )
 
     return {
@@ -3085,7 +3096,7 @@ async def write_project_paper(
                 status_code=413, detail=f"paper artifact too large: {artifact.path}"
             )
         path = _resolve_project_relative_path(project_dir, artifact.path)
-        _write_text(path, artifact.content, request.overwrite)
+        _write_text(path, artifact.content, request.overwrite, root=project_dir)
         written.append(
             {
                 "path": path.relative_to(project_dir).as_posix(),
@@ -3104,7 +3115,10 @@ async def write_project_paper(
         "updated_at": utc_now(),
     }
     _write_text(
-        manifest_path, json.dumps(manifest, indent=2, sort_keys=True) + "\n", True
+        manifest_path,
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        True,
+        root=project_dir,
     )
     return {
         "ok": True,

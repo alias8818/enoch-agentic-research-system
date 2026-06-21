@@ -243,13 +243,13 @@ def test_write_text_revalidates_target_under_project_root(
     _client(tmp_path, monkeypatch)
     target = tmp_path / "project-a" / "notes.md"
 
-    appmod._write_text(target, "safe", overwrite=True)
+    appmod._write_text(target, "safe", overwrite=True, root=tmp_path)
 
     assert target.read_text(encoding="utf-8") == "safe"
     assert not list(target.parent.glob(".notes.md.*.tmp"))
     outside = tmp_path.parent / "outside-write.md"
     try:
-        appmod._write_text(outside, "escape", overwrite=True)
+        appmod._write_text(outside, "escape", overwrite=True, root=tmp_path)
     except appmod.ControlPlaneHttpError as exc:
         assert exc.status_code == 400
     else:  # pragma: no cover - regression guard
