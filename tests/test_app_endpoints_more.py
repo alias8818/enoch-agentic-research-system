@@ -256,6 +256,20 @@ def test_write_text_revalidates_target_under_project_root(
         raise AssertionError("escaped write target was accepted")
     assert not outside.exists()
 
+    outside_dir = tmp_path.parent / "outside-symlink-target"
+    outside_dir.mkdir()
+    symlink_parent = tmp_path / "project-a" / "linked-out"
+    symlink_parent.parent.mkdir(parents=True, exist_ok=True)
+    symlink_parent.symlink_to(outside_dir, target_is_directory=True)
+    symlink_target = symlink_parent / "escaped.md"
+    try:
+        appmod._write_text(symlink_target, "escape", overwrite=True, root=tmp_path)
+    except appmod.ControlPlaneHttpError as exc:
+        assert exc.status_code == 400
+    else:  # pragma: no cover - regression guard
+        raise AssertionError("symlinked parent write target was accepted")
+    assert not (outside_dir / "escaped.md").exists()
+
 
 def test_prepare_project_metadata_preserves_existing_file_on_replace_failure(
     tmp_path: Path, monkeypatch

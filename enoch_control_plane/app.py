@@ -1140,10 +1140,13 @@ def _resolve_write_target(path: Path, root: Path | None = None) -> Path:
         if root is not None:
             root_resolved = root.resolve(strict=False)
             candidate = path if path.is_absolute() else root_resolved / path
-            normalized = Path(os.path.normpath(os.fspath(candidate)))
-            normalized.relative_to(root_resolved)
-            normalized.parent.relative_to(root_resolved)
-            return normalized
+            # Follow existing symlink components before the containment check.  A
+            # purely lexical normpath/relative_to check can be bypassed when a
+            # directory inside root is a symlink to an outside location.
+            resolved = candidate.expanduser().resolve(strict=False)
+            resolved.relative_to(root_resolved)
+            resolved.parent.relative_to(root_resolved)
+            return resolved
     except (OSError, RuntimeError, ValueError) as exc:
         raise ControlPlaneHttpError(
             status_code=400,
