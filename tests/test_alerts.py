@@ -2594,6 +2594,51 @@ def test_queue_alert_suppression_applies_reconcile_grace_without_recent_event() 
     assert suppressed == [finding]
 
 
+def test_dispatch_race_partition_keeps_worker_timestamp_only_live_orphan() -> None:
+    finding = DashboardFinding(
+        severity="critical",
+        source=alerts.CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE,
+        authority="cross-source active-lane reconciliation",
+        message="worker reports live work but control plane has no active row",
+        suggested_action="reconcile unauthorized worker execution",
+        data={"lane_key": "gb10", "machine_target": "gb10"},
+    )
+    now = alerts.datetime.now(alerts.timezone.utc).isoformat()
+    status = SimpleNamespace(
+        active_items=[{"project_id": "other-project"}],
+        dispatch_blockers=[],
+        worker_lanes=[
+            {
+                "lane_key": "gb10",
+                "machine_target": "gb10",
+                "active_count": 0,
+                "worker_observations": {
+                    "worker_preflight": {
+                        "runs": [
+                            {
+                                "run_id": "orphan-run",
+                                "project_id": "orphan-project",
+                                "is_live": True,
+                                "updated_at": now,
+                            }
+                        ]
+                    }
+                },
+            }
+        ],
+    )
+
+    kept, suppressed = alerts._partition_dispatch_race_findings(  # noqa: SLF001
+        [finding],
+        status=status,  # type: ignore[arg-type]
+        suppress_settling_backpressure=False,
+        suppress_dispatch_race=False,
+    )
+
+    assert kept == [finding]
+    assert suppressed == []
+
+
 def test_queue_alert_findings_suppresses_worker_settling_warning() -> None:
     status = SimpleNamespace(
         flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),

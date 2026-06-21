@@ -893,20 +893,8 @@ def _lane_matches_worker_live_without_active_finding(
 def _recent_worker_live_without_vm_match(
     status: DashboardStatusResponse, finding: DashboardFinding
 ) -> bool:
-    if not getattr(status, "active_items", None):
-        return False
-    if not _is_worker_live_without_vm_active_row(finding):
-        return False
-    for lane in _worker_lane_dicts(status):
-        if not _lane_matches_worker_live_without_active_finding(lane, finding):
-            continue
-        if int(lane.get("active_count") or 0) > 0:
-            return False
-        return any(
-            _worker_run_is_live_or_active(run)
-            and _worker_run_updated_within_dispatch_grace(run)
-            for run in _runs_from_worker_lane(lane)
-        )
+    """Worker-only timestamps are not authoritative enough to suppress orphans."""
+
     return False
 
 
