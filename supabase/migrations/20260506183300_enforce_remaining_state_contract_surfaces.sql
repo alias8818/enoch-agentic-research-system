@@ -3,6 +3,8 @@
 -- `last_run_state` can contain wake-gate states and decision-gate summary
 -- states, while `gate_state` is strictly wake/run-gate detail.
 
+begin;
+
 alter table enoch.queue_items
   drop constraint if exists queue_items_last_run_state_contract_check,
   add constraint queue_items_last_run_state_contract_check
@@ -29,4 +31,6 @@ alter table enoch.runs
 comment on constraint queue_items_last_run_state_contract_check on enoch.queue_items is
   'Allowed raw queue detail states. This is drill-down evidence only; operator lanes are derived separately.';
 comment on constraint runs_gate_state_contract_check on enoch.runs is
-  'Allowed raw wake-gate detail states. This is debug evidence only; wake_ready is not paper polarity.';;
+  'Allowed raw wake-gate detail states. This is debug evidence only; wake_ready is not paper polarity.';
+
+commit;

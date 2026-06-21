@@ -16,6 +16,7 @@ create extension if not exists pgcrypto with schema extensions;
 create or replace function enoch.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = enoch, pg_temp
 as $$
 begin
   new.updated_at = now();

@@ -6,17 +6,23 @@ begin;
 
 do $$
 declare
-  constraint_name text;
+  constraint_record record;
 begin
-  select conname into constraint_name
-  from pg_constraint
-  where conrelid = 'enoch.publication_automation_items'::regclass
-    and contype = 'c'
-    and pg_get_constraintdef(oid) like '%automation_status%';
-
-  if constraint_name is not null then
-    execute format('alter table enoch.publication_automation_items drop constraint %I', constraint_name);
-  end if;
+  for constraint_record in
+    select c.conname
+    from pg_constraint c
+    join pg_attribute a
+      on a.attrelid = c.conrelid
+     and a.attnum = any(c.conkey)
+    where c.conrelid = 'enoch.publication_automation_items'::regclass
+      and c.contype = 'c'
+      and a.attname = 'automation_status'
+  loop
+    execute format(
+      'alter table enoch.publication_automation_items drop constraint %I',
+      constraint_record.conname
+    );
+  end loop;
 end $$;
 
 alter table enoch.publication_automation_items

@@ -8,9 +8,7 @@
 begin;
 
 alter table enoch.research_sources
-  drop constraint if exists research_sources_source_kind_check;
-
-alter table enoch.research_sources
+  drop constraint if exists research_sources_source_kind_check,
   add constraint research_sources_source_kind_check
   check (source_kind in (
     'arxiv',
