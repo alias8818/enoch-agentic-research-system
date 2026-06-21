@@ -1306,11 +1306,13 @@ class OperatorStatusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
             headers = {"Authorization": f"Bearer {TOKEN}"}
-            legacy = client.get("/control/dashboard", follow_redirects=False)
+            legacy = client.get(
+                "/control/dashboard", headers=headers, follow_redirects=False
+            )
             self.assertEqual(legacy.status_code, 307)
             self.assertEqual(legacy.headers.get("location"), "/control/dashboard-v2")
 
-            html = client.get("/control/dashboard-v2").text
+            html = client.get("/control/dashboard-v2", headers=headers).text
             self.assertIn('id="enoch-dashboard-v2-root"', html)
             self.assertIn("Enoch Dashboard V2", html)
             self.assertIn("/control/dashboard-v2/assets/", html)
