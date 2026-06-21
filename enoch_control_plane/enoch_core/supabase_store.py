@@ -155,16 +155,12 @@ class SupabaseEnochCoreStore:
         payload_json = self.canonical_json(payload)
         with self._connect() as conn:
             with conn.cursor() as cur:
-                existing = cur.execute(
-                    "select id from core_snapshots where idempotency_key = %s",
-                    (key,),
-                ).fetchone()
-                if existing is not None:
-                    return event, int(existing["id"])
                 row = cur.execute(
                     """
                     insert into core_snapshots(idempotency_key, snapshot_type, event_id, source, payload_json, created_at)
                     values (%s, %s, %s, %s, %s::jsonb, %s)
+                    on conflict (idempotency_key) do update
+                    set idempotency_key = excluded.idempotency_key
                     returning id
                     """,
                     (

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from typing import Any
 
 from enoch_control_plane.enoch_core.logic import eligible_paper_draft_candidates
 from enoch_control_plane.enoch_core._canonical import canonical_json
@@ -12,7 +13,7 @@ class Cursor:
     def __init__(self, state):
         self.state = state
         self.sql = ""
-        self.params = ()
+        self.params: tuple[Any, ...] = ()
 
     def __enter__(self):
         return self
@@ -42,8 +43,12 @@ class Cursor:
         if "select id from core_snapshots" in self.sql:
             return self.state["snapshots_by_key"].get(self.params[0])
         if "insert into core_snapshots" in self.sql:
+            key = self.params[0]
+            existing = self.state["snapshots_by_key"].get(key)
+            if existing is not None:
+                return existing
             snap_id = len(self.state["snapshots"]) + 1
-            self.state["snapshots_by_key"][self.params[0]] = {"id": snap_id}
+            self.state["snapshots_by_key"][key] = {"id": snap_id}
             self.state["snapshots"].append(
                 {
                     "id": snap_id,
@@ -117,6 +122,7 @@ def test_core_supabase_store_events_snapshots_and_projection() -> None:
     replayed, replayed_snapshot_id = store.save_queue_snapshot(payload)
     assert replayed.inserted is False
     assert replayed_snapshot_id == 1
+    assert len(state["snapshots"]) == 1
     assert store.latest_snapshot() == payload
     assert store.all_snapshots() == [payload]
     assert store.rebuild_queue_projection() == payload

@@ -25,6 +25,7 @@ class EnochCoreStoreTests(unittest.TestCase):
             self.assertFalse(second_event.inserted)
             self.assertEqual(first_event.event_id, second_event.event_id)
             self.assertEqual(first_snapshot, second_snapshot)
+            self.assertEqual(len(store.all_snapshots()), 1)
 
     def test_idempotency_key_conflict_rejects_different_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

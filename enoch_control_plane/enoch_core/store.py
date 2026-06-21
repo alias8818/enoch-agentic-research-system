@@ -152,16 +152,12 @@ class EnochCoreStore:
         )
         payload_json = self.canonical_json(payload)
         with self._connect() as conn:
-            existing = conn.execute(
-                "SELECT id FROM snapshots WHERE idempotency_key = ?",
-                (key,),
-            ).fetchone()
-            if existing is not None:
-                return event, int(existing["id"])
             cur = conn.execute(
                 """
                 INSERT INTO snapshots(idempotency_key, snapshot_type, event_id, source, payload_json, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(idempotency_key) DO UPDATE SET idempotency_key = excluded.idempotency_key
+                RETURNING id
                 """,
                 (
                     key,
@@ -172,7 +168,10 @@ class EnochCoreStore:
                     utc_now(),
                 ),
             )
-            return event, int(cur.lastrowid)
+            row = cur.fetchone()
+            if row is None:  # pragma: no cover - SQLite RETURNING should always return.
+                raise RuntimeError("snapshot upsert did not return an id")
+            return event, int(row["id"])
 
     def latest_snapshot(
         self, snapshot_type: str = "n8n_queue"
