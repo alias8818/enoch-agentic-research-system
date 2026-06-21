@@ -237,6 +237,26 @@ def test_dashboard_snapshot_writes_preserve_existing_files_on_replace_failure(
     assert not list(state_dir.glob(".paper_snapshot.json.*.tmp"))
 
 
+def test_write_text_revalidates_target_under_project_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _client(tmp_path, monkeypatch)
+    target = tmp_path / "project-a" / "notes.md"
+
+    appmod._write_text(target, "safe", overwrite=True)
+
+    assert target.read_text(encoding="utf-8") == "safe"
+    assert not list(target.parent.glob(".notes.md.*.tmp"))
+    outside = tmp_path.parent / "outside-write.md"
+    try:
+        appmod._write_text(outside, "escape", overwrite=True)
+    except appmod.ControlPlaneHttpError as exc:
+        assert exc.status_code == 400
+    else:  # pragma: no cover - regression guard
+        raise AssertionError("escaped write target was accepted")
+    assert not outside.exists()
+
+
 def test_prepare_project_metadata_preserves_existing_file_on_replace_failure(
     tmp_path: Path, monkeypatch
 ) -> None:

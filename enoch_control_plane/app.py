@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import urllib.error
 from pathlib import Path
 import time
@@ -1134,25 +1135,52 @@ def _safe_path_for_detail(path: str) -> str:
     return name if name else "[path]"
 
 
-def _write_text(path: Path, text: str, overwrite: bool) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if _checked_exists(path, label="file target") and not overwrite:
+def _resolve_write_target(path: Path) -> Path:
+    try:
+        root = config.expanded_project_root.resolve(strict=False)
+        resolved = path.expanduser().resolve(strict=False)
+        resolved.relative_to(root)
+        resolved.parent.relative_to(root)
+    except (OSError, RuntimeError, ValueError) as exc:
         raise ControlPlaneHttpError(
-            status_code=409, detail=f"refusing to overwrite existing file: {path}"
+            status_code=400,
+            detail=f"write target escapes configured project root: {_safe_path_for_detail(str(path))}",
+        ) from exc
+    return resolved
+
+
+def _write_text(path: Path, text: str, overwrite: bool) -> None:
+    target = _resolve_write_target(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if _checked_exists(target, label="file target") and not overwrite:
+        raise ControlPlaneHttpError(
+            status_code=409, detail=f"refusing to overwrite existing file: {target}"
         )
-    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    tmp_fd, tmp_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    tmp_path = Path(tmp_name).resolve(strict=False)
     existing_mode: int | None = None
     try:
-        existing_mode = path.stat().st_mode & 0o777
+        existing_mode = target.stat().st_mode & 0o777
     except FileNotFoundError:
         existing_mode = None
     except OSError:
         existing_mode = None
     try:
-        tmp_path.write_text(text, encoding="utf-8")
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp_fd = -1
         os.chmod(tmp_path, existing_mode if existing_mode is not None else 0o600)
-        os.replace(tmp_path, path)
+        os.replace(tmp_path, target)
     finally:
+        if tmp_fd >= 0:
+            try:
+                os.close(tmp_fd)
+            except OSError:
+                pass
         try:
             if tmp_path.exists():
                 tmp_path.unlink()
