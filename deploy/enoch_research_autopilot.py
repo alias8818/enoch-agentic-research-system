@@ -512,7 +512,7 @@ def _janitor_llm_review_output_path() -> Path:
     return output
 
 
-def _janitor_llm_review_route() -> tuple[str, str, str, str]:
+def _janitor_llm_review_route() -> tuple[str, str, str, str, str]:
     requested = os.environ.get("ENOCH_RESEARCH_JANITOR_LLM_MODEL", "").strip()
     config_payload = _load_config()
     try:
@@ -534,8 +534,14 @@ def _janitor_llm_review_route() -> tuple[str, str, str, str]:
         if provider.provider_id == "synthetic"
         else provider.base_url.rstrip("/")
     )
+    provider_base_url = (
+        _synthetic_provider_base_url()
+        if provider.provider_id == "synthetic"
+        else provider.base_url.rstrip("/")
+    )
     return (
         model.model_id,
+        provider_base_url,
         openai_base_url,
         provider.api_key_env,
         llm_provider_api_key(config, provider),  # type: ignore[arg-type]
@@ -543,19 +549,25 @@ def _janitor_llm_review_route() -> tuple[str, str, str, str]:
 
 
 def _janitor_llm_review_model() -> str:
-    model_id, _base_url, _api_key_env, _api_key = _janitor_llm_review_route()
+    model_id, _provider_base_url, _openai_base_url, _api_key_env, _api_key = (
+        _janitor_llm_review_route()
+    )
     return model_id
 
 
 def _janitor_llm_review_command(output: Path, timeout: int) -> list[str]:
-    model_id, openai_base_url, openai_api_key_env, _openai_api_key = (
-        _janitor_llm_review_route()
-    )
+    (
+        model_id,
+        provider_base_url,
+        openai_base_url,
+        openai_api_key_env,
+        _openai_api_key,
+    ) = _janitor_llm_review_route()
     cmd = [
         sys.executable,
         str(_repo_root() / "scripts" / "research_facility_llm_review.py"),
         "--provider-base-url",
-        _synthetic_provider_base_url(),
+        provider_base_url,
         "--openai-base-url",
         openai_base_url,
         "--openai-api-key-env",
@@ -617,9 +629,13 @@ def _janitor_llm_review_env(database_url: str) -> dict[str, str]:
         api_key = _synthetic_provider_api_key(_load_config())
         if api_key:
             env["SYNTHETIC_API_KEY"] = api_key
-    _model_id, _openai_base_url, openai_api_key_env, openai_api_key = (
-        _janitor_llm_review_route()
-    )
+    (
+        _model_id,
+        _provider_base_url,
+        _openai_base_url,
+        openai_api_key_env,
+        openai_api_key,
+    ) = _janitor_llm_review_route()
     if openai_api_key_env and openai_api_key and not env.get(openai_api_key_env):
         env[openai_api_key_env] = openai_api_key
     return env

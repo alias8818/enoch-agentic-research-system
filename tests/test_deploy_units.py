@@ -150,6 +150,30 @@ def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None
     assert json.loads(capsys.readouterr().out)["action"] == "skipped"
 
 
+def test_research_autopilot_janitor_review_uses_selected_provider_budget_url(
+    tmp_path, monkeypatch
+) -> None:
+    autopilot = _load_research_autopilot_module()
+    output = tmp_path / "janitor-review.json"
+    monkeypatch.setattr(
+        autopilot,
+        "_janitor_llm_review_route",
+        lambda: (
+            "openrouter/gpt-5.5",
+            "https://openrouter.ai/api/v1",
+            "https://openrouter.ai/api/v1",
+            "OPENROUTER_API_KEY",
+            "openrouter-key",
+        ),
+    )
+
+    cmd = autopilot._janitor_llm_review_command(output, 120)
+
+    assert cmd[cmd.index("--provider-base-url") + 1] == "https://openrouter.ai/api/v1"
+    assert cmd[cmd.index("--openai-base-url") + 1] == "https://openrouter.ai/api/v1"
+    assert cmd[cmd.index("--openai-api-key-env") + 1] == "OPENROUTER_API_KEY"
+
+
 def test_research_autopilot_calls_bounded_run_cycle_when_enabled(
     tmp_path, capsys
 ) -> None:
@@ -670,7 +694,10 @@ def test_codex_runner_uses_durable_callback_outbox() -> None:
         encoding="utf-8"
     )
     assert '"ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir)' in app
-    assert '"ENOCH_COMPLETION_CALLBACK_HMAC_SECRET": config.completion_callback_hmac_secret' in app
+    assert (
+        '"ENOCH_COMPLETION_CALLBACK_HMAC_SECRET": config.completion_callback_hmac_secret'
+        in app
+    )
     assert "callback_outbox write" in runner
     assert 'export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"' in runner
     assert "callback_outbox deliver" in runner
