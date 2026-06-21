@@ -75,3 +75,59 @@ def test_dispatch_resolves_prompt_file_under_project_root(
     assert response["accepted"] is True
     prompt_arg = captured["cmd"][captured["cmd"].index("--prompt-file") + 1]
     assert prompt_arg == str(prompt_file.resolve())
+
+
+def test_dispatch_request_defaults_to_workspace_write_sandbox() -> None:
+    request = DispatchRequest(
+        run_id="run-safe",
+        project_id="project-safe",
+        project_dir="project-safe",
+        prompt_file="project-safe/prompts/initial.md",
+    )
+
+    assert request.sandbox == "workspace-write"
+
+
+def test_dispatch_rejects_project_dir_outside_configured_root(
+    tmp_path, monkeypatch
+) -> None:
+    script = tmp_path / "dispatch.sh"
+    script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    script.chmod(0o755)
+    root = tmp_path / "projects"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    prompt_file = outside / "prompt.md"
+    prompt_file.write_text("do work", encoding="utf-8")
+
+    monkeypatch.setattr(
+        appmod,
+        "config",
+        GateConfig(
+            state_dir=str(tmp_path / "state"),
+            project_root=str(root),
+            dispatch_script_path=str(script),
+            control_api_bearer_token="secret",
+            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_token="callback-token",
+        ),
+    )
+
+    try:
+        asyncio.run(
+            appmod.dispatch_run(
+                DispatchRequest(
+                    run_id="run-outside",
+                    project_id="project-outside",
+                    project_dir=str(outside),
+                    prompt_file=str(prompt_file),
+                ),
+                authorization="Bearer secret",
+            ),
+        )
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 400
+        assert "project root" in str(getattr(exc, "detail", exc))
+    else:  # pragma: no cover - regression guard
+        raise AssertionError("dispatch accepted project_dir outside configured root")

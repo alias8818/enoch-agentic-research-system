@@ -2290,16 +2290,21 @@ class ControlPlaneRouterTests(unittest.TestCase):
     def test_control_dashboard_legacy_path_redirects_to_v2(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
-            response = client.get("/control/dashboard", follow_redirects=False)
+            response = client.get(
+                "/control/dashboard",
+                headers={"Authorization": f"Bearer {TOKEN}"},
+                follow_redirects=False,
+            )
             self.assertEqual(response.status_code, 307)
             self.assertEqual(response.headers.get("location"), "/control/dashboard-v2")
 
-    def test_control_dashboard_v2_shell_and_assets_are_served_without_token(
+    def test_control_dashboard_v2_shell_and_assets_require_token(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
-            response = client.get("/control/dashboard-v2")
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            response = client.get("/control/dashboard-v2", headers=headers)
 
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.headers.get("cache-control"), "no-store")
@@ -2311,7 +2316,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
             asset_name = response.text.split("/control/dashboard-v2/assets/", 1)[
                 1
             ].split('"', 1)[0]
-            asset = client.get(f"/control/dashboard-v2/assets/{asset_name}")
+            asset = client.get(
+                f"/control/dashboard-v2/assets/{asset_name}", headers=headers
+            )
             self.assertEqual(asset.status_code, 200)
             self.assertIn(
                 asset.headers.get("content-type", "").split(";", 1)[0],
@@ -2322,16 +2329,22 @@ class ControlPlaneRouterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
 
+            headers = {"Authorization": f"Bearer {TOKEN}"}
             for path in ("../router.py", "%2E%2E/router.py", "nested/../../router.py"):
-                response = client.get(f"/control/dashboard-v2/assets/{path}")
+                response = client.get(
+                    f"/control/dashboard-v2/assets/{path}", headers=headers
+                )
                 self.assertEqual(response.status_code, 404)
 
     def test_control_dashboard_legacy_redirects_while_v2_shell_served(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)
 
-            legacy = client.get("/control/dashboard", follow_redirects=False)
-            v2 = client.get("/control/dashboard-v2")
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            legacy = client.get(
+                "/control/dashboard", headers=headers, follow_redirects=False
+            )
+            v2 = client.get("/control/dashboard-v2", headers=headers)
 
             self.assertEqual(legacy.status_code, 307)
             self.assertEqual(legacy.headers.get("location"), "/control/dashboard-v2")
@@ -20035,3 +20048,36 @@ def test_auto_reconcile_stale_callback_ready_only_reconciles_stale_lane_rows() -
     assert (
         store.events and store.events[0]["event_type"] == "queue_alert.auto_reconcile"
     )
+
+
+def test_live_dispatch_defaults_to_workspace_write_sandbox(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from enoch_control_plane.control_plane import router as router_mod
+
+    config = _live_config(str(tmp_path))
+    store = ControlPlaneStore(tmp_path / "state" / "control.sqlite3")
+    captured: dict[str, object] = {}
+
+    class WorkerTarget:
+        wake_gate_url = "http://worker.local"
+        bearer_token = "worker-token"
+
+    def fake_post_worker_json(base_url, path, token, payload):  # noqa: ANN001 - matches helper
+        captured["payload"] = payload
+        return HttpResult(ok=True, status=200, body={"dispatch": {"session_id": "s"}})
+
+    monkeypatch.setattr(router_mod, "post_worker_json", fake_post_worker_json)
+
+    body, session_id = router_mod._post_live_dispatch_run(
+        worker_target=WorkerTarget(),
+        store=store,
+        project_id="project-one",
+        run_id="run-one",
+        project_dir="/safe/project-one",
+        candidate={},
+    )
+
+    assert session_id == "s"
+    assert body["dispatch"]["session_id"] == "s"
+    assert captured["payload"]["sandbox"] == "workspace-write"

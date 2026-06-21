@@ -150,7 +150,7 @@ class DispatchRequest(BaseModel):
     last: bool = False
     model: str | None = None
     reasoning_effort: Literal["low", "medium", "high", "xhigh"] = "medium"
-    sandbox: str = "danger-full-access"
+    sandbox: str = "workspace-write"
     log_dir: str | None = None
 
 

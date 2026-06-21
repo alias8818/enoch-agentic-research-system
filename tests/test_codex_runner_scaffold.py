@@ -654,3 +654,10 @@ def test_codex_runner_default_scaffold_transport_is_not_plain_http() -> None:
         in source
     )
     assert "http://100.114.53.78:8000/" not in source
+
+
+def test_codex_runner_default_sandbox_is_not_danger_full_access() -> None:
+    runner = Path(__file__).resolve().parents[1] / "deploy" / "enoch_codex_runner.sh"
+    source = runner.read_text(encoding="utf-8")
+    assert 'SANDBOX="workspace-write"' in source
+    assert 'SANDBOX="danger-full-access"' not in source

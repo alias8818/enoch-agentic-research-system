@@ -10,7 +10,7 @@ SESSION_ID=""
 USE_LAST=0
 MODEL=""
 REASONING_EFFORT="medium"
-SANDBOX="danger-full-access"
+SANDBOX="workspace-write"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

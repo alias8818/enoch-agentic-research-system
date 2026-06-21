@@ -692,7 +692,8 @@ def test_misc_endpoint_error_branches(tmp_path: Path, monkeypatch) -> None:
     client, token = _client(tmp_path, monkeypatch)
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get("/healthz").json()["ok"] is True
-    assert client.get("/dashboard").status_code == 200
+    assert client.get("/dashboard").status_code == 401
+    assert client.get("/dashboard", headers=headers).status_code == 200
     assert client.get("/favicon.ico").status_code in {200, 204}
 
     project = tmp_path / "project-a"
@@ -895,3 +896,45 @@ def test_evaluator_registry_does_not_duplicate_running_task(monkeypatch) -> None
     appmod._ensure_evaluator("run")
     assert appmod.evaluation_tasks["run"] is task
     appmod.evaluation_tasks.pop("run", None)
+
+
+def test_control_dashboard_v2_requires_bearer_and_sets_security_headers(
+    monkeypatch, tmp_path: Path
+) -> None:
+    client, token = _client(tmp_path, monkeypatch)
+
+    unauthorized = client.get("/control/dashboard-v2")
+    assert unauthorized.status_code == 401
+
+    response = client.get(
+        "/control/dashboard-v2",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+
+
+def test_control_dashboard_v2_assets_require_bearer(
+    monkeypatch, tmp_path: Path
+) -> None:
+    client, token = _client(tmp_path, monkeypatch)
+    asset = next(
+        (
+            appmod.Path(appmod.__file__).parent
+            / "control_plane"
+            / "dashboard_v2"
+            / "assets"
+        ).glob("*.js")
+    )
+    path = f"/control/dashboard-v2/assets/{asset.name}"
+
+    unauthorized = client.get(path)
+    assert unauthorized.status_code == 401
+
+    response = client.get(path, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
