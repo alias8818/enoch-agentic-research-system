@@ -4374,7 +4374,12 @@ def _provider_generation_attempt_params(
     )
     attempts: list[_ProviderGenerationParams] = []
     seen: set[tuple[str, str, str]] = set()
+    remaining_budget = max(0, int(params.max_provider_requests or 0))
+    if remaining_budget <= 0:
+        return []
     for item in raw_pool:
+        if remaining_budget <= 0:
+            break
         if not isinstance(item, dict):
             continue
         provider_model = str(item.get("provider_model") or "").strip()
@@ -4388,6 +4393,9 @@ def _provider_generation_attempt_params(
         if key in seen:
             continue
         seen.add(key)
+        generation_attempt_budget = min(
+            max(1, int(params.generation_attempts or 1)), remaining_budget
+        )
         attempts.append(
             replace(
                 params,
@@ -4396,9 +4404,11 @@ def _provider_generation_attempt_params(
                 provider_api_key=str(item.get("provider_api_key") or ""),
                 provider_id=provider_id,
                 provider_model_pool=(),
+                generation_attempts=generation_attempt_budget,
             )
         )
-    return attempts or [replace(params, provider_model_pool=())]
+        remaining_budget -= generation_attempt_budget
+    return attempts
 
 
 def _execute_provider_generation_attempt(

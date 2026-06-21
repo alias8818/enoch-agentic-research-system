@@ -18955,6 +18955,52 @@ def test_provider_generation_contains_attempt_recording_exception() -> None:
     assert "attempt event recording failed" in response["warnings"][0]
 
 
+def test_provider_generation_rotation_respects_request_budget() -> None:
+    from enoch_control_plane.control_plane.router import (
+        _ProviderGenerationParams,
+        _provider_generation_attempt_params,
+    )
+
+    params = _ProviderGenerationParams(
+        max_provider_requests=1,
+        generation_target_lane={"machine_target": "cpu-proxmox-1"},
+        provider_openai_base_url="http://provider.invalid/openai/v1",
+        provider_model="model-a",
+        max_candidates=5,
+        topic="",
+        temperature=0.8,
+        seed="unit",
+        generation_timeout=30,
+        generation_max_tokens=1000,
+        generation_attempts=3,
+        min_admission_score=72.0,
+        bounded_float=lambda *_args: 58.0,
+        namespace_cls=SimpleNamespace,
+        research_provider_generate=SimpleNamespace(),
+        research_facility=SimpleNamespace(),
+        store=SimpleNamespace(),
+        requested_by="pytest",
+        provider_id="provider-a",
+        provider_model_pool=(
+            {
+                "provider_id": "provider-a",
+                "provider_model": "model-a",
+                "provider_openai_base_url": "http://provider.invalid/openai/v1",
+            },
+            {
+                "provider_id": "provider-a",
+                "provider_model": "model-b",
+                "provider_openai_base_url": "http://provider.invalid/openai/v1",
+            },
+        ),
+    )
+
+    attempts = _provider_generation_attempt_params(params)
+
+    assert [item.provider_model for item in attempts] == ["model-a"]
+    assert [item.generation_attempts for item in attempts] == [1]
+
+
 def test_provider_generation_records_success_attempt_event():
     from enoch_control_plane.control_plane.router import (
         _ProviderGenerationParams,
