@@ -43,6 +43,17 @@ def _load_corpus_import_autopilot_module():
     return module
 
 
+def test_worker_gate_unit_preserves_required_egress() -> None:
+    service = (ROOT / "deploy" / "enoch-worker-gate.service").read_text(
+        encoding="utf-8"
+    )
+
+    assert "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX" in service
+    assert "IPAddressDeny=any" not in service
+    assert "IPAddressAllow=localhost" not in service
+    assert "worker wake-gates" in service
+
+
 def test_legacy_notion_sync_unit_is_disabled_and_non_dispatching() -> None:
     service = (ROOT / "deploy" / "enoch-notion-sync.service").read_text(
         encoding="utf-8"
