@@ -1137,17 +1137,19 @@ def _safe_path_for_detail(path: str) -> str:
 
 def _resolve_write_target(path: Path, root: Path | None = None) -> Path:
     try:
-        resolved = path.expanduser().resolve(strict=False)
         if root is not None:
             root_resolved = root.resolve(strict=False)
-            resolved.relative_to(root_resolved)
-            resolved.parent.relative_to(root_resolved)
+            candidate = path if path.is_absolute() else root_resolved / path
+            normalized = Path(os.path.normpath(os.fspath(candidate)))
+            normalized.relative_to(root_resolved)
+            normalized.parent.relative_to(root_resolved)
+            return normalized
     except (OSError, RuntimeError, ValueError) as exc:
         raise ControlPlaneHttpError(
             status_code=400,
             detail=f"write target escapes configured project root: {_safe_path_for_detail(str(path))}",
         ) from exc
-    return resolved
+    return path
 
 
 def _write_text(
