@@ -607,6 +607,7 @@ printf '{"type":"session","session_id":"fake-session"}\n'
             "CODEX_BIN": str(fake_codex),
             "ENOCH_COMPLETION_CALLBACK_URL": "http://127.0.0.1/callback",
             "ENOCH_COMPLETION_CALLBACK_TOKEN": "super-secret-callback-token",
+            "ENOCH_COMPLETION_CALLBACK_HMAC_SECRET": "super-secret-hmac-key",
             "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": "1",
             "ENOCH_WORKER_STATE_DIR": str(tmp_path / "state"),
             "ENOCH_SCAFFOLD_BOOTSTRAP": "0",
@@ -636,6 +637,8 @@ printf '{"type":"session","session_id":"fake-session"}\n'
     codex_env = (project / ".enoch" / "codex-env.txt").read_text(encoding="utf-8")
     assert "ENOCH_COMPLETION_CALLBACK_TOKEN" not in codex_env
     assert "super-secret-callback-token" not in codex_env
+    assert "ENOCH_COMPLETION_CALLBACK_HMAC_SECRET" not in codex_env
+    assert "super-secret-hmac-key" not in codex_env
     assert "ENOCH_COMPLETION_CALLBACK_URL" not in codex_env
 
 
@@ -667,10 +670,12 @@ def test_codex_runner_uses_durable_callback_outbox() -> None:
         encoding="utf-8"
     )
     assert '"ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir)' in app
+    assert '"ENOCH_COMPLETION_CALLBACK_HMAC_SECRET": config.completion_callback_hmac_secret' in app
     assert "callback_outbox write" in runner
     assert 'export PYTHONPATH="$REPO_ROOT:${PYTHONPATH:-}"' in runner
     assert "callback_outbox deliver" in runner
     assert "--token-stdin" in runner
+    assert 'ENOCH_CALLBACK_OUTBOX_HMAC_SECRET="$CALLBACK_HMAC_SECRET"' in runner
     assert '--token "$CALLBACK_TOKEN"' not in runner
     assert 'cd "$REPO_ROOT"' in runner
     assert "callback delivery failed; durable callback outbox will retry" in runner

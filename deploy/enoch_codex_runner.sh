@@ -44,10 +44,11 @@ esac
 
 CALLBACK_URL="${ENOCH_COMPLETION_CALLBACK_URL:-}"
 CALLBACK_TOKEN="${ENOCH_COMPLETION_CALLBACK_TOKEN:-}"
+CALLBACK_HMAC_SECRET="${ENOCH_COMPLETION_CALLBACK_HMAC_SECRET:-}"
 CALLBACK_TIMEOUT="${ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC:-120}"
 WORKER_STATE_DIR="${ENOCH_WORKER_STATE_DIR:-$PROJECT_DIR/.enoch/state}"
 # Keep callback credentials out of the untrusted Codex/tool environment.
-unset ENOCH_COMPLETION_CALLBACK_URL ENOCH_COMPLETION_CALLBACK_TOKEN ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC
+unset ENOCH_COMPLETION_CALLBACK_URL ENOCH_COMPLETION_CALLBACK_TOKEN ENOCH_COMPLETION_CALLBACK_HMAC_SECRET ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC
 
 mkdir -p "$PROJECT_DIR/.enoch/logs" "$PROJECT_DIR/.enoch/state" "$PROJECT_DIR/.omx/logs" "$PROJECT_DIR/.omx/state"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -558,7 +559,7 @@ path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY_CALLBACK_PAYLOAD
   callback_outbox write --state-dir "$WORKER_STATE_DIR" --payload-file "$CALLBACK_PAYLOAD_FILE" >/dev/null
-  if printf '%s' "$CALLBACK_TOKEN" | callback_outbox deliver --state-dir "$WORKER_STATE_DIR" --run-id "$RUN_ID" --url "$CALLBACK_URL" --token-stdin --timeout "$CALLBACK_TIMEOUT"; then
+  if printf '%s' "$CALLBACK_TOKEN" | ENOCH_CALLBACK_OUTBOX_HMAC_SECRET="$CALLBACK_HMAC_SECRET" callback_outbox deliver --state-dir "$WORKER_STATE_DIR" --run-id "$RUN_ID" --url "$CALLBACK_URL" --token-stdin --timeout "$CALLBACK_TIMEOUT"; then
     true
   else
     echo "callback delivery failed; durable callback outbox will retry: $WORKER_STATE_DIR/callback_outbox/${RUN_ID}.json" >&2

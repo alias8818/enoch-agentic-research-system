@@ -23,7 +23,7 @@ DELIVERED_DIRNAME = "callback_delivered"
 DEAD_LETTER_DIRNAME = "callback_dead_letter"
 MAX_ATTEMPTS = 50
 PERMANENT_HTTP_STATUSES = frozenset(
-    status for status in range(400, 500) if status not in {408, 425, 429}
+    status for status in range(400, 500) if status not in {401, 403, 408, 425, 429}
 )
 
 
@@ -420,7 +420,8 @@ def main(argv: list[str] | None = None) -> int:
             url=args.url,
             token=token,
             timeout=args.timeout,
-            hmac_secret=args.hmac_secret,
+            hmac_secret=args.hmac_secret
+            or os.environ.get("ENOCH_CALLBACK_OUTBOX_HMAC_SECRET", ""),
         )
         sys.stdout.write(json.dumps(result.__dict__, sort_keys=True) + "\n")
         return 0 if result.ok else 1
@@ -432,7 +433,8 @@ def main(argv: list[str] | None = None) -> int:
             token=token,
             timeout=args.timeout,
             limit=args.limit,
-            hmac_secret=args.hmac_secret,
+            hmac_secret=args.hmac_secret
+            or os.environ.get("ENOCH_CALLBACK_OUTBOX_HMAC_SECRET", ""),
         )
         sys.stdout.write(
             json.dumps(

@@ -595,6 +595,12 @@ def test_dispatch_rejects_unsafe_run_id_and_log_dir_escape(
     assert escaped_log_dir.status_code == 400
 
 
+def test_callback_outbox_keeps_auth_failures_retryable() -> None:
+    assert 401 not in callback_outbox.PERMANENT_HTTP_STATUSES
+    assert 403 not in callback_outbox.PERMANENT_HTTP_STATUSES
+    assert 404 in callback_outbox.PERMANENT_HTTP_STATUSES
+
+
 def test_callback_outbox_replay_and_reaper_async_helpers(
     tmp_path: Path, monkeypatch
 ) -> None:

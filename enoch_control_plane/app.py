@@ -3205,6 +3205,7 @@ def _dispatch_subprocess_env() -> dict[str, str]:
             "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": str(
                 config.completion_callback_timeout_sec
             ),
+            "ENOCH_COMPLETION_CALLBACK_HMAC_SECRET": config.completion_callback_hmac_secret,
             "ENOCH_WORKER_STATE_DIR": str(config.expanded_state_dir),
         }
     )
