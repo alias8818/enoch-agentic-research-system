@@ -19,6 +19,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from enoch_control_plane.url_safety import validate_http_url
+from enoch_control_plane.url_safety import urlopen_validated
 
 SYNTHETIC_BASE_URL = "https://api.synthetic.new"
 _SYNTHETIC_DIRECT_QUOTA_HOST = "api.synthetic.new"
@@ -46,7 +47,12 @@ def fetch_json(url: str, *, api_key: str = "", timeout: int) -> dict[str, Any]:
     if api_key and hostname == _SYNTHETIC_DIRECT_QUOTA_HOST:
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(safe_url, headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urlopen_validated(
+        request,
+        timeout=timeout,
+        field_name="scripts/research_provider_budget.py url",
+        allow_private=False,
+    ) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

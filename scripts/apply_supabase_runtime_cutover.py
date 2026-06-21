@@ -29,6 +29,7 @@ from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+from enoch_control_plane.url_safety import urlopen_validated
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = Path("/etc/enoch-control-plane/config.json")
@@ -175,7 +176,12 @@ def _wait_control_plane_ready(
             req = urllib.request.Request(f"{control_url.rstrip('/')}/control/state")
             if token:
                 req.add_header("Authorization", f"Bearer {token}")
-            with urllib.request.urlopen(req, timeout=5) as response:  # noqa: S310 - operator-provided LAN URL
+            with urlopen_validated(
+                req,
+                timeout=5,
+                field_name="scripts/apply_supabase_runtime_cutover.py url",
+                allow_private=True,
+            ) as response:
                 if response.status == 200:
                     return
         except Exception as exc:  # pragma: no cover - operational wait loop.

@@ -11,7 +11,7 @@ from typing import Any
 from urllib import error, request
 
 from .callback_signing import signature_headers
-from .url_safety import validate_http_url
+from .url_safety import urlopen_validated, validate_http_url
 
 
 OUTBOX_DIRNAME = "callback_outbox"
@@ -215,7 +215,7 @@ def deliver_payload(
         method="POST",
     )
     try:
-        with request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - operator-configured callback URL
+        with urlopen_validated(req, timeout=timeout, field_name="callback url") as resp:
             body = resp.read(4096).decode("utf-8", errors="replace")
             return DeliveryResult(
                 ok=200 <= resp.status < 300, status_code=resp.status, detail=body

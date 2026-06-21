@@ -664,7 +664,7 @@ def test_llm_settings_model_test_calls_exact_openai_model(
         )
         seen: dict[str, object] = {}
 
-        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+        def fake_urlopen(req, timeout: int, **_kwargs):  # noqa: ANN001 - urllib test double
             seen["url"] = req.full_url
             seen["headers"] = dict(req.header_items())
             seen["body"] = req.data.decode("utf-8")
@@ -672,7 +672,7 @@ def test_llm_settings_model_test_calls_exact_openai_model(
             return FakeResponse()
 
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             fake_urlopen,
         )
 
@@ -745,7 +745,7 @@ def test_llm_settings_model_test_records_scrubbed_health_event(
             config, {"openrouter": "or-secret-value"}, settings=settings
         )
 
-        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+        def fake_urlopen(req, timeout: int, **_kwargs):  # noqa: ANN001 - urllib test double
             raise urllib.error.HTTPError(
                 req.full_url,
                 429,
@@ -755,7 +755,7 @@ def test_llm_settings_model_test_records_scrubbed_health_event(
             )
 
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             fake_urlopen,
         )
 
@@ -830,7 +830,7 @@ def test_llm_settings_format_probe_http_error_preserves_contract_and_mode(
             config, {"openrouter": "or-secret-value"}, settings=settings
         )
 
-        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+        def fake_urlopen(req, timeout: int, **_kwargs):  # noqa: ANN001 - urllib test double
             raise urllib.error.HTTPError(
                 req.full_url,
                 400,
@@ -840,7 +840,7 @@ def test_llm_settings_format_probe_http_error_preserves_contract_and_mode(
             )
 
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             fake_urlopen,
         )
 
@@ -931,8 +931,8 @@ def test_llm_settings_model_test_records_visible_output_health(
         )
 
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
-            lambda _req, timeout: FakeResponse(),
+            "enoch_control_plane.control_plane.router.urlopen_validated",
+            lambda _req, timeout, **_kwargs: FakeResponse(),
         )
 
         response = client.post(
@@ -1026,13 +1026,13 @@ def test_llm_settings_format_probe_records_schema_success(
         )
         seen: dict[str, object] = {}
 
-        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+        def fake_urlopen(req, timeout: int, **_kwargs):  # noqa: ANN001 - urllib test double
             seen["body"] = req.data.decode("utf-8")
             seen["timeout"] = timeout
             return FakeResponse()
 
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             fake_urlopen,
         )
 
@@ -1154,13 +1154,13 @@ def test_llm_settings_candidate_json_probe_uses_structured_output_budget(
         )
         seen: dict[str, object] = {}
 
-        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+        def fake_urlopen(req, timeout: int, **_kwargs):  # noqa: ANN001 - urllib test double
             seen["body"] = req.data.decode("utf-8")
             seen["timeout"] = timeout
             return FakeResponse()
 
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             fake_urlopen,
         )
 
@@ -1240,8 +1240,8 @@ def test_llm_settings_candidate_json_probe_rejects_extra_candidates(
             config, {"openrouter": "or-secret-value"}, settings=settings
         )
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
-            lambda _req, timeout: FakeResponse(),
+            "enoch_control_plane.control_plane.router.urlopen_validated",
+            lambda _req, timeout, **_kwargs: FakeResponse(),
         )
 
         response = client.post(
@@ -1318,13 +1318,13 @@ def test_llm_settings_openrouter_candidate_json_object_probe_records_structured_
         )
         seen: dict[str, object] = {}
 
-        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+        def fake_urlopen(req, timeout: int, **_kwargs):  # noqa: ANN001 - urllib test double
             seen["body"] = req.data.decode("utf-8")
             seen["timeout"] = timeout
             return FakeResponse()
 
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             fake_urlopen,
         )
 
@@ -1418,13 +1418,13 @@ def test_llm_settings_openrouter_candidate_schema_probe_records_structured_mode(
         )
         seen: dict[str, object] = {}
 
-        def fake_urlopen(req, timeout: int):  # noqa: ANN001 - urllib test double
+        def fake_urlopen(req, timeout: int, **_kwargs):  # noqa: ANN001 - urllib test double
             seen["body"] = req.data.decode("utf-8")
             seen["timeout"] = timeout
             return FakeResponse()
 
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             fake_urlopen,
         )
 
@@ -1530,8 +1530,8 @@ def test_llm_settings_format_probe_records_malformed_output(
             config, {"openrouter": "or-secret-value"}, settings=settings
         )
         monkeypatch.setattr(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
-            lambda _req, timeout: FakeResponse(),
+            "enoch_control_plane.control_plane.router.urlopen_validated",
+            lambda _req, timeout, **_kwargs: FakeResponse(),
         )
 
         response = client.post(

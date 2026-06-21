@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from enoch_control_plane.url_safety import urlopen_validated
 
 
 def utc_stamp() -> str:
@@ -79,7 +80,12 @@ class ControlClient:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310 - operator configured LAN URL
+            with urlopen_validated(
+                req,
+                timeout=self.timeout,
+                field_name="deploy/enoch_paper_drain_until_noop.py url",
+                allow_private=True,
+            ) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
                 return resp.status, json.loads(raw or "{}")
         except urllib.error.HTTPError as exc:
@@ -97,7 +103,12 @@ class ControlClient:
             headers={"Authorization": f"Bearer {self.token}"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310 - operator configured LAN URL
+            with urlopen_validated(
+                req,
+                timeout=self.timeout,
+                field_name="deploy/enoch_paper_drain_until_noop.py url",
+                allow_private=True,
+            ) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
                 return resp.status, json.loads(raw or "{}")
         except urllib.error.HTTPError as exc:

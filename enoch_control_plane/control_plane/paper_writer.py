@@ -18,7 +18,7 @@ from ..llm_settings import (
     read_llm_settings,
     resolve_workflow_model,
 )
-from ..url_safety import validate_http_url
+from ..url_safety import urlopen_validated, validate_http_url
 from .models import PaperRecord
 
 
@@ -1105,7 +1105,11 @@ Local evidence context:
             "Authorization": f"Bearer {api_key}",
         },
     )
-    with request.urlopen(req, timeout=config.paper_writer_timeout_sec) as resp:  # noqa: S310 - configured operator provider URL
+    with urlopen_validated(
+        req,
+        timeout=config.paper_writer_timeout_sec,
+        field_name="paper writer provider url",
+    ) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
     data = json.loads(raw)
     markdown = _extract_chat_content(data)

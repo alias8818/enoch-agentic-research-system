@@ -68,7 +68,7 @@ def test_github_metadata_fetch_falls_back_to_authenticated_gh_on_rate_limit(
             stderr="",
         )
 
-    monkeypatch.setattr(validate_public_release, "urlopen", fake_urlopen)
+    monkeypatch.setattr(validate_public_release, "urlopen_validated", fake_urlopen)
     monkeypatch.setattr(validate_public_release.subprocess, "run", fake_run)
 
     metadata = validate_public_release.fetch_github_repo_metadata(
@@ -99,7 +99,7 @@ def test_github_metadata_fetch_uses_configured_token_file(
         def read(self) -> bytes:
             return b'{"description":"Public Enoch release surface.","homepage":""}'
 
-    def fake_urlopen(req, timeout):
+    def fake_urlopen(req, timeout, **_kwargs):
         assert timeout == 30
         assert req.get_header("Authorization") == "Bearer ghp_test_token"
         return FakeResponse()
@@ -108,7 +108,7 @@ def test_github_metadata_fetch_uses_configured_token_file(
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.setenv("ENOCH_GITHUB_TOKEN_FILE", str(token_file))
     monkeypatch.setattr(validate_public_release.subprocess, "run", fake_run)
-    monkeypatch.setattr(validate_public_release, "urlopen", fake_urlopen)
+    monkeypatch.setattr(validate_public_release, "urlopen_validated", fake_urlopen)
 
     metadata = validate_public_release.fetch_github_repo_metadata(
         "alias8818/enoch-ai-research-corpus"

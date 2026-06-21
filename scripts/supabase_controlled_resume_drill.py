@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from enoch_control_plane.url_safety import urlopen_validated
 from scripts.run_public_corpus_release import default_control_url
 from scripts.validate_supabase_resume_readiness import (
     validate as validate_resume_readiness,
@@ -72,7 +73,12 @@ def _request(
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:  # noqa: S310 - operator-provided LAN URL
+        with urlopen_validated(
+            req,
+            timeout=timeout,
+            field_name="scripts/supabase_controlled_resume_drill.py url",
+            allow_private=True,
+        ) as response:
             text = response.read().decode("utf-8")
             return response.status, json.loads(text) if text else {}
     except urllib.error.HTTPError as exc:

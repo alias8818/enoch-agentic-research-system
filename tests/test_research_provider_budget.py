@@ -191,9 +191,7 @@ def test_fetch_json_rejects_non_http_url_before_urlopen(monkeypatch) -> None:
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for unsafe provider URL")
 
-    monkeypatch.setattr(
-        research_provider_budget.urllib.request, "urlopen", fake_urlopen
-    )
+    monkeypatch.setattr(research_provider_budget, "urlopen_validated", fake_urlopen)
     try:
         research_provider_budget.fetch_json("file:///etc/passwd", timeout=1)
     except ValueError as exc:
@@ -215,13 +213,11 @@ def test_fetch_json_sends_bearer_only_to_direct_synthetic_host(monkeypatch) -> N
         def read(self) -> bytes:
             return b"{}"
 
-    def fake_urlopen(request, *, timeout):
+    def fake_urlopen(request, *, timeout, **_kwargs):
         requests.append(request)
         return FakeResponse()
 
-    monkeypatch.setattr(
-        research_provider_budget.urllib.request, "urlopen", fake_urlopen
-    )
+    monkeypatch.setattr(research_provider_budget, "urlopen_validated", fake_urlopen)
 
     research_provider_budget.fetch_json(
         "https://api.synthetic.new/v2/quotas",
@@ -242,9 +238,7 @@ def test_fetch_json_rejects_untrusted_synthetic_quota_host(monkeypatch) -> None:
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for untrusted quota host")
 
-    monkeypatch.setattr(
-        research_provider_budget.urllib.request, "urlopen", fake_urlopen
-    )
+    monkeypatch.setattr(research_provider_budget, "urlopen_validated", fake_urlopen)
 
     try:
         research_provider_budget.fetch_json(

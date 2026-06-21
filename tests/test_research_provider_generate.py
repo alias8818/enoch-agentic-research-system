@@ -158,7 +158,7 @@ def test_provider_generate_calls_openai_compatible_endpoint_without_local_auth_w
             return json.dumps(_provider_payload()).encode("utf-8")
 
     with patch(
-        "scripts.research_provider_generate.urllib.request.urlopen",
+        "scripts.research_provider_generate.urlopen_validated",
         return_value=FakeResponse(),
     ) as urlopen:
         result = research_provider_generate.generate_provider_candidates(
@@ -200,7 +200,7 @@ def test_provider_generate_can_request_strict_json_schema_response_format() -> N
             return json.dumps(_provider_payload()).encode("utf-8")
 
     with patch(
-        "scripts.research_provider_generate.urllib.request.urlopen",
+        "scripts.research_provider_generate.urlopen_validated",
         return_value=FakeResponse(),
     ) as urlopen:
         result = research_provider_generate.generate_provider_candidates(
@@ -246,7 +246,7 @@ def test_provider_generate_omits_authorization_for_proxy_default_even_with_key()
             return json.dumps(_provider_payload()).encode("utf-8")
 
     with patch(
-        "scripts.research_provider_generate.urllib.request.urlopen",
+        "scripts.research_provider_generate.urlopen_validated",
         return_value=FakeResponse(),
     ) as urlopen:
         research_provider_generate.generate_provider_candidates(
@@ -275,7 +275,7 @@ def test_provider_generate_omits_authorization_for_proxy_trailing_dot_host() -> 
             return json.dumps(_provider_payload()).encode("utf-8")
 
     with patch(
-        "scripts.research_provider_generate.urllib.request.urlopen",
+        "scripts.research_provider_generate.urlopen_validated",
         return_value=FakeResponse(),
     ) as urlopen:
         research_provider_generate.generate_provider_candidates(
@@ -304,7 +304,7 @@ def test_provider_generate_keeps_authorization_for_non_proxy_provider() -> None:
             return json.dumps(_provider_payload()).encode("utf-8")
 
     with patch(
-        "scripts.research_provider_generate.urllib.request.urlopen",
+        "scripts.research_provider_generate.urlopen_validated",
         return_value=FakeResponse(),
     ) as urlopen:
         research_provider_generate.generate_provider_candidates(
@@ -327,9 +327,7 @@ def test_provider_generate_rejects_authenticated_untrusted_provider_url(
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for untrusted authenticated URL")
 
-    monkeypatch.setattr(
-        research_provider_generate.urllib.request, "urlopen", fake_urlopen
-    )
+    monkeypatch.setattr(research_provider_generate, "urlopen_validated", fake_urlopen)
 
     with pytest.raises(ValueError, match="trusted LLM provider"):
         research_provider_generate.generate_provider_candidates(
@@ -397,7 +395,7 @@ def test_provider_generate_retries_malformed_json_before_succeeding() -> None:
             return json.dumps(payload).encode("utf-8")
 
     with patch(
-        "scripts.research_provider_generate.urllib.request.urlopen",
+        "scripts.research_provider_generate.urlopen_validated",
         return_value=FakeResponse(),
     ):
         result = research_provider_generate.generate_provider_candidates(
@@ -435,7 +433,7 @@ def test_provider_generate_retries_null_choice_diagnostics_before_succeeding() -
             return json.dumps(payload).encode("utf-8")
 
     with patch(
-        "scripts.research_provider_generate.urllib.request.urlopen",
+        "scripts.research_provider_generate.urlopen_validated",
         return_value=FakeResponse(),
     ):
         result = research_provider_generate.generate_provider_candidates(
@@ -473,7 +471,7 @@ def test_provider_generate_failure_contains_bounded_attempt_diagnostics() -> Non
             return json.dumps(payload).encode("utf-8")
 
     with patch(
-        "scripts.research_provider_generate.urllib.request.urlopen",
+        "scripts.research_provider_generate.urlopen_validated",
         return_value=FakeResponse(),
     ):
         with pytest.raises(
@@ -548,9 +546,7 @@ def test_provider_generate_rejects_non_http_base_url_before_urlopen(
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for unsafe provider URL")
 
-    monkeypatch.setattr(
-        research_provider_generate.urllib.request, "urlopen", fake_urlopen
-    )
+    monkeypatch.setattr(research_provider_generate, "urlopen_validated", fake_urlopen)
     try:
         research_provider_generate.generate_provider_candidates(
             base_url="file:///etc/passwd",

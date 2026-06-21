@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 from urllib.request import Request, urlopen
+from enoch_control_plane.url_safety import urlopen_validated
 
 DEFAULT_TARGETS = {
     "launch": "https://alias8818.github.io/enoch-agentic-research-system/",
@@ -31,7 +32,12 @@ def fetch(url: str) -> tuple[str, str]:
             "User-Agent": "enoch-live-validator/1.0",
         },
     )
-    with urlopen(req, timeout=30) as response:
+    with urlopen_validated(
+        req,
+        timeout=30,
+        field_name="scripts/validate_live_public_release.py url",
+        allow_private=False,
+    ) as response:
         body = response.read().decode("utf-8", errors="replace")
         return body, response.headers.get("content-type", "")
 

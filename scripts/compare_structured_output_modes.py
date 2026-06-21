@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Any
+from enoch_control_plane.url_safety import urlopen_validated
 
 DEFAULT_MODES: tuple[str, ...] = ("prompt_only", "json_object", "json_schema")
 DEFAULT_CONTRACT = "candidate_json"
@@ -104,7 +105,12 @@ def _request_json(
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - operator-supplied control API URL
+        with urlopen_validated(
+            req,
+            timeout=timeout,
+            field_name="scripts/compare_structured_output_modes.py url",
+            allow_private=True,
+        ) as resp:
             data = resp.read().decode("utf-8")
             parsed = json.loads(data)
             if isinstance(parsed, dict):

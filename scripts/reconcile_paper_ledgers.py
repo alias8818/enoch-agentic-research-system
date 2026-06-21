@@ -18,6 +18,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+from enoch_control_plane.url_safety import urlopen_validated
 
 DEFAULT_PAPER_STATUS = "publication_draft"
 
@@ -30,7 +31,12 @@ def request_json(base_url: str, token: str, path: str) -> dict[str, Any]:
     req = urllib.request.Request(
         base_url.rstrip("/") + path, headers={"Authorization": f"Bearer {token}"}
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310 - operator-provided control URL
+    with urlopen_validated(
+        req,
+        timeout=120,
+        field_name="scripts/reconcile_paper_ledgers.py url",
+        allow_private=True,
+    ) as resp:
         return json.loads(resp.read())
 
 

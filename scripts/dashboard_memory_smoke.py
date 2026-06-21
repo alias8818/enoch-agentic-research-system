@@ -17,6 +17,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 from urllib import error, request
+from enoch_control_plane.url_safety import urlopen_validated
 
 
 DEFAULT_ENDPOINTS = [
@@ -61,7 +62,12 @@ def fetch(base_url: str, endpoint: str, token: str, timeout: float) -> Sample:
     req = request.Request(url, headers=headers, method="GET")
     started = time.perf_counter()
     try:
-        with request.urlopen(req, timeout=timeout) as resp:
+        with urlopen_validated(
+            req,
+            timeout=timeout,
+            field_name="scripts/dashboard_memory_smoke.py url",
+            allow_private=True,
+        ) as resp:
             data = resp.read()
             elapsed_ms = (time.perf_counter() - started) * 1000.0
             return Sample(

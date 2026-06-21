@@ -103,11 +103,11 @@ def test_failed_delivery_keeps_pending_record(monkeypatch, tmp_path: Path) -> No
     def fail(*args, **kwargs):
         raise TimeoutError("timed out")
 
-    monkeypatch.setattr(callback_outbox.request, "urlopen", fail)
+    monkeypatch.setattr(callback_outbox, "urlopen_validated", fail)
     result = callback_outbox.deliver_pending_file(
         callback_outbox.pending_path(state, "run-1"),
         state_dir=state,
-        url="http://127.0.0.1/callback",
+        url="http://93.184.216.34/callback",
         token="token",
         timeout=0.01,
     )
@@ -145,12 +145,12 @@ def test_successful_delivery_moves_to_delivered_and_marks_worker_state(
             return b'{"ok": true}'
 
     monkeypatch.setattr(
-        callback_outbox.request, "urlopen", lambda *args, **kwargs: FakeResponse()
+        callback_outbox, "urlopen_validated", lambda *args, **kwargs: FakeResponse()
     )
     result = callback_outbox.deliver_pending_file(
         callback_outbox.pending_path(state, "run-1"),
         state_dir=state,
-        url="http://127.0.0.1/callback",
+        url="http://93.184.216.34/callback",
         token="token",
         timeout=1,
     )
@@ -172,7 +172,7 @@ def test_deliver_pending_file_rejects_paths_outside_outbox(tmp_path: Path) -> No
     result = callback_outbox.deliver_pending_file(
         outside,
         state_dir=state,
-        url="http://127.0.0.1/callback",
+        url="http://93.184.216.34/callback",
         token="token",
         timeout=1,
     )
@@ -188,7 +188,7 @@ def test_deliver_pending_file_rejects_unexpandable_pending_path_without_crashing
     result = callback_outbox.deliver_pending_file(
         "~enoch-user-that-should-not-exist/run.json",
         state_dir=tmp_path / "state",
-        url="http://127.0.0.1/callback",
+        url="http://93.184.216.34/callback",
         token="token",
         timeout=1,
     )
@@ -208,7 +208,7 @@ def test_deliver_pending_file_reports_corrupt_pending_json_without_crashing(
     result = callback_outbox.deliver_pending_file(
         pending,
         state_dir=state,
-        url="http://127.0.0.1/callback",
+        url="http://93.184.216.34/callback",
         token="token",
         timeout=1,
     )
@@ -264,7 +264,7 @@ def test_successful_delivery_records_worker_state_update_errors(
     result = callback_outbox.deliver_pending_file(
         callback_outbox.pending_path(state, "run-1"),
         state_dir=state,
-        url="http://127.0.0.1/callback",
+        url="http://93.184.216.34/callback",
         token="token",
         timeout=1,
     )
@@ -303,7 +303,7 @@ def test_deliver_cli_can_read_token_from_stdin(
             "--run-id",
             "run-1",
             "--url",
-            "http://127.0.0.1/callback",
+            "http://93.184.216.34/callback",
             "--token-stdin",
         ]
     )
@@ -335,7 +335,7 @@ def test_replay_cli_can_read_token_from_stdin(
             "--state-dir",
             str(tmp_path),
             "--url",
-            "http://127.0.0.1/callback",
+            "http://93.184.216.34/callback",
             "--token-stdin",
         ]
     )

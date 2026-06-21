@@ -35,6 +35,7 @@ from enoch_control_plane.research_provider_defaults import (
     default_research_provider_openai_base_url,
 )
 from enoch_control_plane.url_safety import secure_default_service_url
+from enoch_control_plane.url_safety import urlopen_validated
 
 # Centralized reason constant for the top remaining S1192 duplication
 # in this autopilot script.
@@ -132,14 +133,24 @@ def _post_json(
             "Authorization": f"Bearer {token}",
         },
     )
-    with request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - local/operator-configured control URL
+    with urlopen_validated(
+        req,
+        timeout=timeout,
+        field_name="deploy/enoch_research_autopilot.py url",
+        allow_private=True,
+    ) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
 def _get_json(base_url: str, path: str, token: str, *, timeout: int) -> dict:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     req = request.Request(f"{base_url}{path}", method="GET", headers=headers)
-    with request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - local/operator-configured control URL
+    with urlopen_validated(
+        req,
+        timeout=timeout,
+        field_name="deploy/enoch_research_autopilot.py url",
+        allow_private=True,
+    ) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

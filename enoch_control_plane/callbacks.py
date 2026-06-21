@@ -12,7 +12,7 @@ from tenacity import (
     retry_if_exception_type,
 )
 
-from .url_safety import validate_http_url
+from .url_safety import urlopen_validated, validate_http_url
 from .callback_signing import signature_headers
 from .config import GateConfig
 from .models import GateCallback
@@ -60,8 +60,10 @@ class CallbackSender:
             method="POST",
             headers=headers,
         )
-        with request.urlopen(
-            req, timeout=self.config.completion_callback_timeout_sec
-        ) as resp:  # noqa: S310 - explicit operator URL
+        with urlopen_validated(
+            req,
+            timeout=float(self.config.completion_callback_timeout_sec),
+            field_name="completion callback url",
+        ) as resp:
             text = resp.read().decode("utf-8", errors="replace")
             return resp.status, text

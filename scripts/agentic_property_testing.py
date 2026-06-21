@@ -33,6 +33,7 @@ if str(REPO_ROOT) not in sys.path:
 from enoch_control_plane.url_safety import validate_http_url
 
 from scripts import research_provider_budget
+from enoch_control_plane.url_safety import urlopen_validated
 
 
 PROMPT_TEMPLATE = """# Agentic property-based testing request
@@ -445,7 +446,12 @@ def generate_provider_proposal(
         method="POST",
         headers=headers,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urlopen_validated(
+        req,
+        timeout=timeout,
+        field_name="scripts/agentic_property_testing.py url",
+        allow_private=False,
+    ) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     content = ((data.get("choices") or [{}])[0].get("message") or {}).get(
         "content"

@@ -395,7 +395,7 @@ def test_http_request_json_rejects_file_scheme_before_urlopen(monkeypatch) -> No
     def fake_urlopen(*args, **kwargs):
         raise AssertionError("urlopen should not run for unsafe worker URL")
 
-    monkeypatch.setattr(worker_adapter.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(worker_adapter, "urlopen_validated", fake_urlopen)
     result = worker_adapter._http_request_json("GET", "file:///etc/passwd", {}, None)
     assert result.ok is False
     assert result.status is None
@@ -418,7 +418,7 @@ def test_http_request_json_rejects_non_object_json(monkeypatch) -> None:
             return b'[{"ok": true}]'
 
     monkeypatch.setattr(
-        worker_adapter.request, "urlopen", lambda *_args, **_kwargs: Response()
+        worker_adapter, "urlopen_validated", lambda *_args, **_kwargs: Response()
     )
 
     result = worker_adapter._http_request_json(

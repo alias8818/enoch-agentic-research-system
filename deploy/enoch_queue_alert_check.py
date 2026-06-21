@@ -11,6 +11,7 @@ from pathlib import Path
 import sys
 from urllib.parse import quote
 from urllib import error, request
+from enoch_control_plane.url_safety import urlopen_validated
 
 # Centralized skip reasons (eliminates S1192 string duplication across the
 # alert/dispatch decision dicts at module and runtime level).
@@ -47,7 +48,12 @@ def _get_json(base_url: str, path: str, token: str) -> dict:
         method="GET",
         headers={"Authorization": f"Bearer {token}"},
     )
-    with request.urlopen(req, timeout=30) as resp:
+    with urlopen_validated(
+        req,
+        timeout=30,
+        field_name="deploy/enoch_queue_alert_check.py url",
+        allow_private=True,
+    ) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -64,7 +70,12 @@ def _post_json(
             "Authorization": f"Bearer {token}",
         },
     )
-    with request.urlopen(req, timeout=timeout) as resp:
+    with urlopen_validated(
+        req,
+        timeout=timeout,
+        field_name="deploy/enoch_queue_alert_check.py url",
+        allow_private=True,
+    ) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

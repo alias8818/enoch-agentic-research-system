@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 from urllib import error, request
 
-from ..url_safety import validate_http_url
+from ..url_safety import urlopen_validated, validate_http_url
 from .models import (
     ControlFlags,
     WorkerPreflightCheck,
@@ -37,14 +37,16 @@ def _http_request_json(
     timeout: float = 5,
 ) -> HttpResult:
     try:
-        safe_url = validate_http_url(url, field_name="worker url")
+        safe_url = validate_http_url(url, field_name="worker url", allow_private=True)
     except ValueError as exc:
         return HttpResult(ok=False, status=None, body=None, error=str(exc))
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     merged_headers = {"Content-Type": "application/json", **headers}
     req = request.Request(safe_url, data=data, headers=merged_headers, method=method)
     try:
-        with request.urlopen(req, timeout=timeout) as resp:
+        with urlopen_validated(
+            req, timeout=timeout, field_name="worker url", allow_private=True
+        ) as resp:
             raw = resp.read().decode("utf-8")
             body = json.loads(raw) if raw else {}
             if not isinstance(body, dict):

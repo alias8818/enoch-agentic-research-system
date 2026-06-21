@@ -29,6 +29,7 @@ from enoch_control_plane.llm_settings import validate_llm_provider_base_url
 from enoch_control_plane.url_safety import validate_http_url
 
 from scripts import research_facility_scan
+from enoch_control_plane.url_safety import urlopen_validated
 
 DEFAULT_OPENAI_BASE_URL = default_research_provider_openai_base_url()
 DEFAULT_MODEL = DEFAULT_RESEARCH_PROVIDER_MODEL
@@ -432,7 +433,12 @@ def call_openai_compatible_chat(
         method="POST",
         headers=headers,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as response:  # noqa: S310 - operator-configured provider URL
+    with urlopen_validated(
+        req,
+        timeout=timeout,
+        field_name="scripts/research_provider_generate.py url",
+        allow_private=False,
+    ) as response:
         return json.loads(response.read().decode("utf-8", errors="replace"))
 
 

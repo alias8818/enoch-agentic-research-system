@@ -20,6 +20,8 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
+from ..url_safety import urlopen_validated, validate_http_url
+
 from fastapi import APIRouter, Body, Header, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -782,14 +784,17 @@ def _fetch_openrouter_key_payload(
 ) -> dict[str, Any]:
     if not api_key:
         raise ValueError("OpenRouter API key is not configured")
+    safe_endpoint = validate_http_url(endpoint, field_name="openrouter key url")
     request = urllib.request.Request(
-        endpoint,
+        safe_endpoint,
         headers={
             "Authorization": f"Bearer {api_key}",
             "User-Agent": "EnochResearchFacility/0.1",
         },
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urlopen_validated(
+        request, timeout=timeout, field_name="openrouter key url"
+    ) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -8448,7 +8453,9 @@ def _run_llm_provider_test(
             reasoning_effort=reasoning_effort,
             reasoning_exclude=reasoning_exclude,
         )
-        with urllib.request.urlopen(req, timeout=20) as response:  # noqa: S310 - operator-configured provider URL
+        with urlopen_validated(
+            req, timeout=20, field_name="llm provider test url"
+        ) as response:
             body = response.read(32768).decode("utf-8", errors="replace")
             try:
                 data = json.loads(body) if body else {}

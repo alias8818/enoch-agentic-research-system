@@ -16,6 +16,7 @@ import time
 import urllib.request
 from pathlib import Path
 from typing import Any
+from enoch_control_plane.url_safety import urlopen_validated
 
 
 ACTIVE_QUEUE_STATUSES = {"dispatching", "awaiting_wake", "running"}
@@ -41,7 +42,12 @@ def fetch_dashboard(api_url: str, token: str, timeout: float) -> dict[str, Any]:
     request = urllib.request.Request(
         api_url, headers={"Authorization": f"Bearer {token}"}
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urlopen_validated(
+        request,
+        timeout=timeout,
+        field_name="deploy/wait_safe_restart_wake_gate.py url",
+        allow_private=True,
+    ) as response:
         data = json.load(response)
     if not isinstance(data, dict):
         raise RuntimeError("dashboard API returned non-object JSON")

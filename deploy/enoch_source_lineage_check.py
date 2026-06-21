@@ -20,6 +20,7 @@ from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane.alerts import send_pushover
 from enoch_control_plane.url_safety import secure_default_service_url
 from scripts.validate_source_lineage import build_report, fetch_snapshot, write_report
+from enoch_control_plane.url_safety import urlopen_validated
 
 DEFAULT_OUTPUT = Path("/var/lib/enoch-control-plane/source-lineage/latest-report.json")
 DEFAULT_CUTOVER = "2026-05-19T17:51:00Z"
@@ -58,7 +59,12 @@ def _get_control_status(config: GateConfig) -> dict[str, Any]:
         method="GET",
         headers={"Authorization": f"Bearer {token}"},
     )
-    with request.urlopen(req, timeout=10) as resp:
+    with urlopen_validated(
+        req,
+        timeout=10,
+        field_name="deploy/enoch_source_lineage_check.py url",
+        allow_private=False,
+    ) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

@@ -20,7 +20,7 @@ from ..research_quality.status import (
     load_latest_quality_status,
 )
 from ..timeutils import parse_utc_datetime
-from ..url_safety import validate_http_url
+from ..url_safety import urlopen_validated, validate_http_url
 from .models import DashboardFinding, DashboardStatusResponse
 from .read_models import (
     research_output_readiness_contract,
@@ -1024,7 +1024,7 @@ def send_pushover(
             config.pushover_api_url, field_name="pushover api url"
         )
         req = request.Request(safe_url, data=data, method="POST")
-        with request.urlopen(req, timeout=10) as resp:
+        with urlopen_validated(req, timeout=10, field_name="pushover api url") as resp:
             body = resp.read(2048).decode("utf-8", errors="replace")
             return PushoverResult(
                 attempted=True,
@@ -1091,7 +1091,9 @@ def send_hermes_alert_webhook(
         sort_keys=True,
     ).encode("utf-8")
     try:
-        safe_url = validate_http_url(webhook_url, field_name="hermes alert webhook url")
+        safe_url = validate_http_url(
+            webhook_url, field_name="hermes alert webhook url", allow_private=True
+        )
         headers = {
             "Content-Type": "application/json",
             "X-Enoch-Alert-Fingerprint": fingerprint,
@@ -1103,8 +1105,11 @@ def send_hermes_alert_webhook(
             signature = hmac.new(secret.encode(), data, hashlib.sha256).hexdigest()
             headers["X-Hub-Signature-256"] = f"sha256={signature}"
         req = request.Request(safe_url, data=data, method="POST", headers=headers)
-        with request.urlopen(
-            req, timeout=config.hermes_alert_webhook_timeout_sec
+        with urlopen_validated(
+            req,
+            timeout=config.hermes_alert_webhook_timeout_sec,
+            field_name="hermes alert webhook url",
+            allow_private=True,
         ) as resp:
             body = resp.read(2048).decode("utf-8", errors="replace")
             return WebhookResult(

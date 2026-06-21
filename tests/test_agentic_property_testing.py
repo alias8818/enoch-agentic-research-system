@@ -332,14 +332,12 @@ def test_agentic_property_testing_provider_proposal_writes_json(
 
     seen_headers = {}
 
-    def fake_urlopen(req, timeout: int):
+    def fake_urlopen(req, timeout: int, **_kwargs):
         seen_headers.update(dict(req.header_items()))
         assert timeout == 11
         return FakeResponse()
 
-    monkeypatch.setattr(
-        agentic_property_testing.urllib.request, "urlopen", fake_urlopen
-    )
+    monkeypatch.setattr(agentic_property_testing, "urlopen_validated", fake_urlopen)
     output = tmp_path / "proposal.json"
 
     result = generate_provider_proposal(
@@ -368,9 +366,7 @@ def test_agentic_property_testing_provider_proposal_rejects_unsafe_url(
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for unsafe provider URL")
 
-    monkeypatch.setattr(
-        agentic_property_testing.urllib.request, "urlopen", fake_urlopen
-    )
+    monkeypatch.setattr(agentic_property_testing, "urlopen_validated", fake_urlopen)
 
     try:
         generate_provider_proposal(

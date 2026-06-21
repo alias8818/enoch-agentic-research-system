@@ -31,6 +31,7 @@ from scripts.reconcile_paper_ledgers import (  # noqa: E402
     load_public_index,
 )
 from scripts.validate_state_contract import validate  # noqa: E402
+from enoch_control_plane.url_safety import urlopen_validated
 
 AGGREGATE_OPERATOR_COUNT_KEYS = {"needs_attention", "total_operator_items"}
 REQUIRED_PAPER_PIPELINE_KEYS = {
@@ -167,7 +168,12 @@ def _json_request(
 ) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     req = urllib.request.Request(base_url.rstrip("/") + path, headers=headers)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - operator-provided control URL
+    with urlopen_validated(
+        req,
+        timeout=timeout,
+        field_name="scripts/state_doctor.py url",
+        allow_private=True,
+    ) as resp:
         return json.loads(resp.read())
 
 

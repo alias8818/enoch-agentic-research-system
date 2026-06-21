@@ -25,6 +25,7 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 from enoch_control_plane.url_safety import secure_default_service_url
+from enoch_control_plane.url_safety import urlopen_validated
 
 
 REPO_NAMES = [
@@ -87,7 +88,12 @@ def _get_json(base_url: str, path: str, token: str, *, timeout: int = 30) -> dic
         method="GET",
         headers={"Authorization": f"Bearer {token}"},
     )
-    with urlopen(req, timeout=timeout) as resp:
+    with urlopen_validated(
+        req,
+        timeout=timeout,
+        field_name="deploy/enoch_corpus_import_autopilot.py url",
+        allow_private=False,
+    ) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -247,7 +253,12 @@ def _update_github_metadata(artifact_count: int) -> dict[str, Any]:
             "User-Agent": "enoch-corpus-import-autopilot/1.0",
         },
     )
-    with urlopen(request, timeout=30) as response:
+    with urlopen_validated(
+        request,
+        timeout=30,
+        field_name="deploy/enoch_corpus_import_autopilot.py url",
+        allow_private=False,
+    ) as response:
         metadata = json.loads(response.read().decode("utf-8"))
     return {
         "repo": "alias8818/enoch-ai-research-corpus",

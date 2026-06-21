@@ -2704,7 +2704,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 ).encode("utf-8")
 
         with patch(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             return_value=Response(),
         ) as urlopen:
             budget = _fetch_synthetic_research_budget(
@@ -2753,7 +2753,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 ).encode("utf-8")
 
         with patch(
-            "enoch_control_plane.control_plane.router.urllib.request.urlopen",
+            "enoch_control_plane.control_plane.router.urlopen_validated",
             return_value=Response(),
         ):
             budget = _fetch_synthetic_research_budget(

@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from enoch_control_plane.url_safety import urlopen_validated
 
 # Centralized filename for the duplicated README.md literal (Sonar S1192 at PUBLIC_FILES).
 README_MD = "README.md"
@@ -527,7 +528,12 @@ def fetch_github_repo_metadata(repo: str) -> dict:
         headers["Authorization"] = f"Bearer {token}"
     req = Request(f"https://api.github.com/repos/{repo}", headers=headers)
     try:
-        with urlopen(req, timeout=30) as response:
+        with urlopen_validated(
+            req,
+            timeout=30,
+            field_name="scripts/validate_public_release.py url",
+            allow_private=False,
+        ) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         if exc.code not in {403, 404}:

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from enoch_control_plane.url_safety import secure_default_service_url
+from enoch_control_plane.url_safety import urlopen_validated
 
 # Documented on-prem control-plane host for the research-facility LAN.
 LAB_CONTROL_PLANE_HOST = "192.168.1.166"  # NOSONAR python:S1313
@@ -67,7 +68,12 @@ def _request(
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req, timeout=20) as response:  # noqa: S310 - operator-provided LAN URL
+        with urlopen_validated(
+            req,
+            timeout=20,
+            field_name="scripts/validate_supabase_resume_readiness.py url",
+            allow_private=True,
+        ) as response:
             text = response.read().decode("utf-8")
             return HttpResult(response.status, json.loads(text) if text else {})
     except urllib.error.HTTPError as exc:

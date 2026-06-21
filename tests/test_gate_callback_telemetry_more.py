@@ -326,7 +326,11 @@ def test_callback_outbox_reuses_existing_metadata_and_marks_delivered(
         ),
     )
     result = callback_outbox.deliver_pending_file(
-        path2, state_dir=tmp_path, url="http://example", token="t", timeout=1
+        path2,
+        state_dir=tmp_path,
+        url="http://93.184.216.34/callback",
+        token="t",
+        timeout=1,
     )
     assert result.ok is True
     assert not path2.exists()
@@ -360,13 +364,17 @@ def test_callback_outbox_failure_and_replay_limits(
         ),
     )
     result = callback_outbox.deliver_pending_file(
-        first, state_dir=tmp_path, url="http://example", token="t", timeout=1
+        first,
+        state_dir=tmp_path,
+        url="http://93.184.216.34/callback",
+        token="t",
+        timeout=1,
     )
     assert result.ok is False
     assert json.loads(first.read_text())["last_error"] == "boom"
     assert callback_outbox.replay_pending(state_dir=tmp_path, url="", token="t") == []
     results = callback_outbox.replay_pending(
-        state_dir=tmp_path, url="http://example", token="t", limit=1
+        state_dir=tmp_path, url="http://93.184.216.34/callback", token="t", limit=1
     )
     assert len(results) == 1
     assert results[0].ok is False
@@ -386,7 +394,11 @@ def test_callback_outbox_quarantines_permanent_4xx_without_retry(
     )
 
     result = callback_outbox.deliver_pending_file(
-        pending, state_dir=tmp_path, url="http://example", token="t", timeout=1
+        pending,
+        state_dir=tmp_path,
+        url="http://93.184.216.34/callback",
+        token="t",
+        timeout=1,
     )
 
     assert result.ok is False
@@ -416,7 +428,11 @@ def test_callback_outbox_quarantines_after_max_attempts(
     )
 
     result = callback_outbox.deliver_pending_file(
-        pending, state_dir=tmp_path, url="http://example", token="t", timeout=1
+        pending,
+        state_dir=tmp_path,
+        url="http://93.184.216.34/callback",
+        token="t",
+        timeout=1,
     )
 
     assert result.ok is False
@@ -461,14 +477,14 @@ def test_deliver_payload_handles_http_and_url_errors(
 
     captured: dict[str, Any] = {}
 
-    def fake_urlopen(req, timeout):
+    def fake_urlopen(req, timeout, **_kwargs):
         captured["headers"] = dict(req.header_items())
         return _Resp()
 
-    monkeypatch.setattr(callback_outbox.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(callback_outbox, "urlopen_validated", fake_urlopen)
     ok = callback_outbox.deliver_payload(
         {"run_id": "run"},
-        url="http://example",
+        url="http://93.184.216.34/callback",
         token="t",
         timeout=1,
         hmac_secret="signing-secret",
@@ -482,24 +498,24 @@ def test_deliver_payload_handles_http_and_url_errors(
             return b"denied"
 
     monkeypatch.setattr(
-        callback_outbox.request,
-        "urlopen",
-        lambda req, timeout: _HTTP("http://example", 403, "Forbidden", {}, None),
+        callback_outbox,
+        "urlopen_validated",
+        lambda *args, **kwargs: _HTTP("http://example", 403, "Forbidden", {}, None),
     )
     denied = callback_outbox.deliver_payload(
-        {"run_id": "run"}, url="http://example", token="t", timeout=1
+        {"run_id": "run"}, url="http://93.184.216.34/callback", token="t", timeout=1
     )
     assert (
         denied.ok is False and denied.status_code == 403 and denied.detail == "denied"
     )
 
     monkeypatch.setattr(
-        callback_outbox.request,
-        "urlopen",
-        lambda req, timeout: (_ for _ in ()).throw(RuntimeError("down")),
+        callback_outbox,
+        "urlopen_validated",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("down")),
     )
     down = callback_outbox.deliver_payload(
-        {"run_id": "run"}, url="http://example", token="t", timeout=1
+        {"run_id": "run"}, url="http://93.184.216.34/callback", token="t", timeout=1
     )
     assert down.ok is False and "RuntimeError" in down.detail
 
@@ -514,7 +530,7 @@ def test_deliver_payload_rejects_file_scheme_before_urlopen(
         called = True
         raise AssertionError("urlopen should not run for unsafe callback URL")
 
-    monkeypatch.setattr(callback_outbox.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(callback_outbox, "urlopen_validated", fake_urlopen)
     result = callback_outbox.deliver_payload(
         {"run_id": "run"}, url="file:///etc/passwd", token="t", timeout=1
     )

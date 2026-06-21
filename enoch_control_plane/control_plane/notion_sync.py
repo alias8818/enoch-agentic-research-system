@@ -10,6 +10,8 @@ from socket import timeout as SocketTimeout
 from typing import Any, Callable
 from urllib import error, request
 
+from ..url_safety import urlopen_validated, validate_http_url
+
 NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2026-03-11"
 
@@ -36,14 +38,17 @@ def _is_non_retryable_http_error(
 def _json_request(
     method: str, url: str, headers: dict[str, str], payload: dict[str, Any] | None
 ) -> HttpResponse:
+    safe_url = validate_http_url(url, field_name="notion api url")
     data = None if payload is None else json.dumps(payload).encode("utf-8")
-    req = request.Request(url, data=data, method=method, headers=headers)
+    req = request.Request(safe_url, data=data, method=method, headers=headers)
     timeout_seconds = float(os.environ.get("ENOCH_NOTION_HTTP_TIMEOUT_SEC", "60"))
     max_attempts = max(1, int(os.environ.get("ENOCH_NOTION_HTTP_ATTEMPTS", "3")))
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            with request.urlopen(req, timeout=timeout_seconds) as resp:
+            with urlopen_validated(
+                req, timeout=timeout_seconds, field_name="notion api url"
+            ) as resp:
                 raw = resp.read().decode("utf-8")
                 return HttpResponse(
                     status=resp.status, body=json.loads(raw) if raw else {}

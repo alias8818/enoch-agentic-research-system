@@ -68,11 +68,15 @@ def test_looks_like_external_source_reference_rejects_malformed_urls(
 
 def test_validate_http_url_accepts_http_and_https() -> None:
     assert (
-        validate_http_url("http://127.0.0.1:8787/path") == "http://127.0.0.1:8787/path"
-    )
-    assert (
         validate_http_url("https://example.com/callback")
         == "https://example.com/callback"
+    )
+
+
+def test_validate_http_url_allows_private_addresses_only_when_explicit() -> None:
+    assert (
+        validate_http_url("http://127.0.0.1:8787/path", allow_private=True)
+        == "http://127.0.0.1:8787/path"
     )
 
 
@@ -85,6 +89,15 @@ def test_validate_http_url_accepts_http_and_https() -> None:
         "http:///missing-host",
         "http://example.com/\nInjected: yes",
         "http://example.com/\r\nInjected: yes",
+        "http://example.com\\@127.0.0.1/admin",
+        "http://user:password@example.com/callback",
+        "http://127.0.0.1:8787/path",
+        "http://[::1]/callback",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.5/admin",
+        "http://172.16.0.10/admin",
+        "http://192.168.1.1/admin",
+        "http://2130706433/admin",
         "",
         "   ",
     ],

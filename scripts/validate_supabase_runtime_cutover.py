@@ -15,6 +15,7 @@ import os
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
+from enoch_control_plane.url_safety import urlopen_validated
 
 EXPECTED_SAFE_FLAGS = {"queue_paused": True, "maintenance_mode": True}
 PIPELINE_KEYS = (
@@ -48,7 +49,12 @@ def _get_json(url: str, token: str) -> dict[str, Any]:
     req = urllib.request.Request(url)
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=15) as response:  # noqa: S310 - operator-provided LAN URL
+    with urlopen_validated(
+        req,
+        timeout=15,
+        field_name="scripts/validate_supabase_runtime_cutover.py url",
+        allow_private=True,
+    ) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

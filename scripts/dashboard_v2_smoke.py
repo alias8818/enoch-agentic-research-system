@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 from urllib import error, parse, request
+from enoch_control_plane.url_safety import urlopen_validated
 
 SHELL_PATH = "/control/dashboard-v2"
 ROOT_MARKER = 'id="enoch-dashboard-v2-root"'
@@ -119,7 +120,12 @@ def _http_get(
     req = request.Request(url, headers=headers, method="GET")
     started = time.perf_counter()
     try:
-        with request.urlopen(req, timeout=timeout) as resp:
+        with urlopen_validated(
+            req,
+            timeout=timeout,
+            field_name="scripts/dashboard_v2_smoke.py url",
+            allow_private=True,
+        ) as resp:
             body = resp.read()
             elapsed_ms = (time.perf_counter() - started) * 1000.0
             return resp.status, body, elapsed_ms, ""

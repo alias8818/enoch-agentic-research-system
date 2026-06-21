@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import sys
 from urllib import request
+from enoch_control_plane.url_safety import urlopen_validated
 
 
 def _load_config(path: str) -> dict:
@@ -24,7 +25,12 @@ def _base_url(config: dict) -> str:
 
 def _get_json(url: str, token: str, timeout: int = 30) -> dict:
     req = request.Request(url, headers={"Authorization": f"Bearer {token}"})
-    with request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - operator-configured control URL
+    with urlopen_validated(
+        req,
+        timeout=timeout,
+        field_name="scripts/check_longhaul_readiness.py url",
+        allow_private=True,
+    ) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

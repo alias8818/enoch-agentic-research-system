@@ -53,6 +53,9 @@ from .telemetry import TelemetryCollector
 # of the literal across multiple _checked_exists / _checked_is_dir calls and
 # error messages in the dashboard API handlers).
 PROJECT_DIRECTORY_LABEL = "project directory"
+PAPER_ARTIFACT_ALLOWED_SUFFIXES = frozenset(
+    {".json", ".md", ".markdown", ".txt", ".log", ".yaml", ".yml"}
+)
 PROJECT_JSON_FILENAME = "project.json"
 ENOCH_PROJECT_DIRNAME = ".enoch"
 _TRACEBACK_LINE = re.compile(
@@ -1306,6 +1309,11 @@ def _read_project_paper_artifact_entry(
 ) -> dict[str, Any]:
     path = _resolve_project_relative_path(project_dir, relative_path)
     safe_relative_path = _safe_path_for_detail(relative_path)
+    if path.suffix.lower() not in PAPER_ARTIFACT_ALLOWED_SUFFIXES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"paper artifact extension not allowed: {safe_relative_path}",
+        )
     try:
         artifact_exists = path.exists() and path.is_file()
     except OSError as exc:

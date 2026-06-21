@@ -64,7 +64,7 @@ def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
         project_root="/tmp/projects",
         dispatch_script_path="/tmp/dispatch.sh",
         control_api_bearer_token="control",
-        completion_callback_url="http://callback",
+        completion_callback_url="http://93.184.216.34/callback",
         completion_callback_token="secret",
         completion_callback_hmac_secret="signing-secret",
     )
@@ -94,17 +94,17 @@ def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
         def read(self):
             return b"accepted"
 
-    def fake_urlopen(req, timeout):
+    def fake_urlopen(req, timeout, **_kwargs):
         captured["url"] = req.full_url
         captured["headers"] = dict(req.header_items())
         captured["timeout"] = timeout
         return Resp()
 
-    monkeypatch.setattr("enoch_control_plane.callbacks.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("enoch_control_plane.callbacks.urlopen_validated", fake_urlopen)
     status, text = CallbackSender(config).send(callback)
     assert status == 202
     assert text == "accepted"
-    assert captured["url"] == "http://callback"
+    assert captured["url"] == "http://93.184.216.34/callback"
     assert captured["headers"]["Authorization"] == "Bearer secret"
     assert captured["headers"]["X-idempotency-key"] == "idem"
     assert captured["headers"]["X-enoch-timestamp"].isdigit()
@@ -136,7 +136,7 @@ def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None
     def fake_urlopen(*args, **kwargs):
         raise AssertionError("urlopen should not run for unsafe callback URL")
 
-    monkeypatch.setattr("enoch_control_plane.callbacks.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("enoch_control_plane.callbacks.urlopen_validated", fake_urlopen)
     try:
         CallbackSender(config).send(callback)
     except ValueError as exc:

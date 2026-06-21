@@ -359,6 +359,13 @@ def test_prepare_project_status_and_paper_artifact_endpoints(
         headers=headers,
     )
     assert bad_preview.status_code == 400
+    (project_dir / ".env").write_text("CONTROL_API_BEARER_TOKEN=secret\n")
+    disallowed_preview = client.get(
+        "/dashboard/api/paper-artifact/project-a?path=.env",
+        headers=headers,
+    )
+    assert disallowed_preview.status_code == 415
+    assert "secret" not in disallowed_preview.text
     html = client.get(
         "/dashboard/paper-artifact/project-a?path=papers/run-live/draft.md",
         headers=headers,

@@ -133,7 +133,7 @@ class NotionSyncTests(unittest.TestCase):
     def test_json_request_retries_transient_url_errors(self) -> None:
         calls = {"count": 0}
 
-        def opener(req, timeout):  # noqa: ANN001
+        def opener(req, timeout, **_kwargs):  # noqa: ANN001
             calls["count"] += 1
             if calls["count"] == 1:
                 raise error.URLError("timed out")
@@ -156,7 +156,8 @@ class NotionSyncTests(unittest.TestCase):
 
         with (
             mock.patch(
-                "enoch_control_plane.control_plane.notion_sync.request.urlopen", opener
+                "enoch_control_plane.control_plane.notion_sync.urlopen_validated",
+                opener,
             ),
             mock.patch(
                 "enoch_control_plane.control_plane.notion_sync.time.sleep",

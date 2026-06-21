@@ -21,6 +21,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from enoch_control_plane.url_safety import urlopen_validated
 
 CATEGORY_TERMS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
@@ -147,7 +148,12 @@ def fetch_text(url: str, *, timeout: int = 20) -> str:
             "User-Agent": "EnochResearchFacility/0.1 (+https://github.com/alias8818/enoch-agentic-research-system)"
         },
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urlopen_validated(
+        request,
+        timeout=timeout,
+        field_name="scripts/research_facility_scan.py url",
+        allow_private=False,
+    ) as response:
         return response.read().decode("utf-8", errors="replace")
 
 

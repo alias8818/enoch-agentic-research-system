@@ -314,7 +314,7 @@ class PaperWriterTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with patch(
-                "enoch_control_plane.control_plane.paper_writer.request.urlopen",
+                "enoch_control_plane.control_plane.paper_writer.urlopen_validated",
                 return_value=FakeResponse(),
             ) as urlopen:
                 meta = write_paper_artifacts(
@@ -373,7 +373,7 @@ class PaperWriterTests(unittest.TestCase):
                     return b'{"id":"cmpl-test","choices":[{"message":{"content":"# Model Draft\n\nMeasured result."}}]}'
 
             with patch(
-                "enoch_control_plane.control_plane.paper_writer.request.urlopen",
+                "enoch_control_plane.control_plane.paper_writer.urlopen_validated",
                 return_value=FakeResponse(),
             ) as urlopen:
                 write_paper_artifacts(
@@ -429,7 +429,7 @@ class PaperWriterTests(unittest.TestCase):
                 },
             }
             with patch(
-                "enoch_control_plane.control_plane.paper_writer.request.urlopen",
+                "enoch_control_plane.control_plane.paper_writer.urlopen_validated",
                 return_value=FakeResponse(),
             ) as urlopen:
                 write_paper_artifacts(cfg, candidate, self._paper(), force=True)
@@ -475,7 +475,7 @@ class PaperWriterTests(unittest.TestCase):
                 },
             }
             with patch(
-                "enoch_control_plane.control_plane.paper_writer.request.urlopen",
+                "enoch_control_plane.control_plane.paper_writer.urlopen_validated",
                 return_value=FakeResponse(),
             ) as urlopen:
                 meta = write_paper_artifacts(cfg, candidate, self._paper(), force=True)
@@ -528,7 +528,7 @@ class PaperWriterTests(unittest.TestCase):
                 )
 
             with patch(
-                "enoch_control_plane.control_plane.paper_writer.request.urlopen",
+                "enoch_control_plane.control_plane.paper_writer.urlopen_validated",
                 side_effect=fake_urlopen,
             ):
                 meta = write_paper_artifacts(
@@ -812,7 +812,7 @@ class PaperWriterTests(unittest.TestCase):
                 return original_exists(path)
 
             with patch(
-                "enoch_control_plane.control_plane.paper_writer.request.urlopen",
+                "enoch_control_plane.control_plane.paper_writer.urlopen_validated",
                 return_value=FakeResponse(),
             ):
                 with patch.object(Path, "exists", fake_exists):

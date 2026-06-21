@@ -1979,7 +1979,7 @@ def test_send_pushover_rejects_non_http_api_url_before_urlopen(
     def fake_urlopen(*_args, **_kwargs):
         raise AssertionError("urlopen should not run for unsafe pushover URL")
 
-    monkeypatch.setattr(alerts.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(alerts, "urlopen_validated", fake_urlopen)
     result = alerts.send_pushover(config, title="t", message="m")
     assert result.attempted is True
     assert result.ok is False
@@ -2463,13 +2463,13 @@ def test_send_hermes_alert_webhook_uses_hmac_signature_header(
         def read(self, _limit=2048):
             return b"accepted"
 
-    def fake_urlopen(req, timeout=0):  # noqa: ANN001 - urllib request fake
+    def fake_urlopen(req, timeout=0, **_kwargs):  # noqa: ANN001 - urllib request fake
         seen["timeout"] = timeout
         seen["data"] = req.data
         seen["headers"] = dict(req.header_items())
         return FakeResponse()
 
-    monkeypatch.setattr(alerts.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(alerts, "urlopen_validated", fake_urlopen)
     result = alerts.send_hermes_alert_webhook(
         config,
         fingerprint="fp",
@@ -2520,7 +2520,7 @@ def test_send_hermes_alert_webhook_rejects_non_http_url_before_urlopen(
     def fake_urlopen(*_args, **_kwargs):  # noqa: ANN001 - test guard
         raise AssertionError("urlopen should not run for unsafe Hermes webhook URL")
 
-    monkeypatch.setattr(alerts.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(alerts, "urlopen_validated", fake_urlopen)
     result = alerts.send_hermes_alert_webhook(
         config,
         fingerprint="fp",

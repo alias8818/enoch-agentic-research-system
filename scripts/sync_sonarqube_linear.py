@@ -15,6 +15,7 @@ import urllib.request
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
+from enoch_control_plane.url_safety import urlopen_validated
 
 
 SONAR_STATUSES = "OPEN,CONFIRMED"
@@ -115,7 +116,12 @@ def request_json(
         request_headers["Content-Type"] = "application/json"
     request = urllib.request.Request(url, data=body, headers=request_headers)
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urlopen_validated(
+            request,
+            timeout=30,
+            field_name="scripts/sync_sonarqube_linear.py url",
+            allow_private=False,
+        ) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
