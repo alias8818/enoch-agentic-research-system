@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -11,6 +12,7 @@ from ._canonical import canonical_json as _canonical_json
 from .store import AppendResult, IdempotencyConflict
 
 ConnectionFactory = Callable[[], Any]
+LOGGER = logging.getLogger(__name__)
 
 
 class SupabaseEnochCoreStore:
@@ -285,11 +287,12 @@ class SupabaseEnochCoreStore:
     def rebuild_queue_projection(self) -> dict[str, Any]:
         try:
             return self._live_queue_projection()
-        except Exception:
-            pass
-        return self.latest_snapshot("n8n_queue") or {
-            "source": "none",
-            "queue_rows": [],
-            "paper_rows": [],
-            "captured_at": None,
-        }
+        except Exception as exc:
+            LOGGER.exception(
+                "supabase queue projection rebuild failed; attempting cached snapshot fallback",
+                extra={"error_type": type(exc).__name__},
+            )
+        fallback = self.latest_snapshot("n8n_queue")
+        if fallback is not None:
+            return fallback
+        raise RuntimeError("supabase queue projection unavailable; no cached snapshot")

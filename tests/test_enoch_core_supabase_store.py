@@ -190,14 +190,26 @@ def test_core_supabase_store_json_helpers_and_empty_projection() -> None:
     assert store._json_payload('{"a":1}') == {"a": 1}
     assert store.latest_snapshot() is None
     assert store.all_snapshots() == []
-    assert store.rebuild_queue_projection() == {
-        "source": "none",
-        "queue_rows": [],
-        "paper_rows": [],
-        "captured_at": None,
-    }
+    with pytest.raises(RuntimeError, match="projection unavailable"):
+        store.rebuild_queue_projection()
     with pytest.raises(ValueError):
         SupabaseEnochCoreStore(" ")
+
+
+def test_core_supabase_projection_logs_and_uses_cached_snapshot_on_live_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    state = {"events": {}, "snapshots": [], "snapshots_by_key": {}}
+    store = SupabaseEnochCoreStore("postgres://example", connect=lambda: Conn(state))
+    payload = {"idempotency_key": "snap-1", "source": "unit", "queue_rows": []}
+    store.save_queue_snapshot(payload)
+
+    with caplog.at_level(
+        "ERROR", logger="enoch_control_plane.enoch_core.supabase_store"
+    ):
+        assert store.rebuild_queue_projection() == payload
+
+    assert "supabase queue projection rebuild failed" in caplog.text
 
 
 def test_core_supabase_projection_rebuilds_from_live_control_plane_rows() -> None:
