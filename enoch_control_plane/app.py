@@ -1158,23 +1158,23 @@ def _write_text(
     target = _resolve_write_target(path, root)
     # codeql[py/path-injection] `_resolve_write_target` normalizes the target and,
     # for user-controlled project writes, requires it to remain under the explicit root.
-    target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)  # codeql[py/path-injection]
     if _checked_exists(target, label="file target") and not overwrite:
         raise ControlPlaneHttpError(
             status_code=409, detail=f"refusing to overwrite existing file: {target}"
         )
     # codeql[py/path-injection] The temporary file is created beside the validated
     # target, and project-write callers pass an explicit root constraint above.
-    tmp_fd, tmp_name = tempfile.mkstemp(
+    tmp_fd, tmp_name = tempfile.mkstemp(  # codeql[py/path-injection]
         prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
     )
     # codeql[py/path-injection] `tmp_name` is returned by `mkstemp`, not supplied by
     # the request, and is only used for cleanup/atomic replacement.
-    tmp_path = Path(tmp_name).resolve(strict=False)
+    tmp_path = Path(tmp_name).resolve(strict=False)  # codeql[py/path-injection]
     existing_mode: int | None = None
     try:
         # codeql[py/path-injection] Target has been normalized/root-checked above.
-        existing_mode = target.stat().st_mode & 0o777
+        existing_mode = target.stat().st_mode & 0o777  # codeql[py/path-injection]
     except FileNotFoundError:
         existing_mode = None
     except OSError:
@@ -1187,10 +1187,12 @@ def _write_text(
         tmp_fd = -1
         # codeql[py/path-injection] `tmp_path` was allocated by `mkstemp` and
         # `target` was normalized/root-checked above.
-        os.chmod(tmp_path, existing_mode if existing_mode is not None else 0o600)
+        os.chmod(  # codeql[py/path-injection]
+            tmp_path, existing_mode if existing_mode is not None else 0o600
+        )
         # codeql[py/path-injection] Atomic replacement is restricted to the
         # validated target path and the `mkstemp`-allocated temporary path.
-        os.replace(tmp_path, target)
+        os.replace(tmp_path, target)  # codeql[py/path-injection]
     finally:
         if tmp_fd >= 0:
             try:
@@ -1201,9 +1203,9 @@ def _write_text(
                 )
         try:
             # codeql[py/path-injection] Cleanup only touches the `mkstemp` path.
-            if tmp_path.exists():
+            if tmp_path.exists():  # codeql[py/path-injection]
                 # codeql[py/path-injection] Cleanup only touches the `mkstemp` path.
-                tmp_path.unlink()
+                tmp_path.unlink()  # codeql[py/path-injection]
         except OSError as exc:
             _logger.debug(
                 "failed to remove temporary project artifact file", exc_info=exc
