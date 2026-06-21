@@ -408,7 +408,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "write":
         payload = json.loads(Path(args.payload_file).read_text(encoding="utf-8"))
         path = write_pending(args.state_dir, payload)
-        print(json.dumps({"ok": True, "path": str(path)}, sort_keys=True))
+        sys.stdout.write(
+            json.dumps({"ok": True, "path": str(path)}, sort_keys=True) + "\n"
+        )
         return 0
     if args.cmd == "deliver":
         token = sys.stdin.read().rstrip("\r\n") if args.token_stdin else args.token
@@ -420,7 +422,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             hmac_secret=args.hmac_secret,
         )
-        print(json.dumps(result.__dict__, sort_keys=True))
+        sys.stdout.write(json.dumps(result.__dict__, sort_keys=True) + "\n")
         return 0 if result.ok else 1
     if args.cmd == "replay":
         token = sys.stdin.read().rstrip("\r\n") if args.token_stdin else args.token
@@ -432,7 +434,7 @@ def main(argv: list[str] | None = None) -> int:
             limit=args.limit,
             hmac_secret=args.hmac_secret,
         )
-        print(
+        sys.stdout.write(
             json.dumps(
                 {
                     "ok": all(r.ok for r in results),
@@ -440,6 +442,7 @@ def main(argv: list[str] | None = None) -> int:
                 },
                 sort_keys=True,
             )
+            + "\n"
         )
         return 0 if all(r.ok for r in results) else 1
     return 2

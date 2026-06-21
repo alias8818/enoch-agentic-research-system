@@ -501,7 +501,7 @@ def main(argv: list[str] | None = None) -> int:
         "yes",
         "on",
     }:
-        print(
+        sys.stdout.write(
             json.dumps(
                 {
                     "ok": True,
@@ -511,6 +511,7 @@ def main(argv: list[str] | None = None) -> int:
                 indent=2,
                 sort_keys=True,
             )
+            + "\n"
         )
         return 0
     parser = build_parser()
@@ -518,9 +519,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = run_sync(args)
     except Exception as exc:  # pragma: no cover - CLI guard
-        print(json.dumps({"ok": False, "error": str(exc)}, indent=2), file=sys.stderr)
+        sys.stderr.write(json.dumps({"ok": False, "error": str(exc)}, indent=2) + "\n")
         return 1
-    print(json.dumps(result, indent=2, sort_keys=True))
+    sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return 0
 
 
