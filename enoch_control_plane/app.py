@@ -3194,6 +3194,30 @@ def _parse_dispatch_subprocess_result(
         ) from exc
 
 
+def _persist_dispatch_envelope_event(
+    *,
+    envelope_id: str,
+    state: str,
+    request: DispatchRequest,
+    project_dir: Path,
+    prompt_file: Path,
+    detail: Any | None = None,
+) -> None:
+    event: dict[str, Any] = {
+        "kind": "dispatch_envelope",
+        "envelope_id": envelope_id,
+        "state": state,
+        "run_id": request.run_id,
+        "project_id": request.project_id,
+        "project_dir": str(project_dir),
+        "prompt_file": str(prompt_file),
+        "timestamp": utc_now(),
+    }
+    if detail is not None:
+        event["detail"] = detail
+    store.append_event(event)
+
+
 def _apply_dispatch_baseline_vram(record: RunRecord) -> None:
     baseline_sample = telemetry.sample()
     if record.baseline_vram_mib is None or (
@@ -3248,14 +3272,42 @@ async def dispatch_run(
 
     script_path = _require_dispatch_script()
     cmd = _build_dispatch_cmd(script_path, request, project_dir, prompt_file)
-    result = await _run_dispatch_subprocess(cmd)
-    payload = _parse_dispatch_subprocess_result(result)
+    envelope_id = request.run_id
+    _persist_dispatch_envelope_event(
+        envelope_id=envelope_id,
+        state="accepted",
+        request=request,
+        project_dir=project_dir,
+        prompt_file=prompt_file,
+    )
+    try:
+        result = await _run_dispatch_subprocess(cmd)
+        payload = _parse_dispatch_subprocess_result(result)
+    except HTTPException as exc:
+        _persist_dispatch_envelope_event(
+            envelope_id=envelope_id,
+            state="failed",
+            request=request,
+            project_dir=project_dir,
+            prompt_file=prompt_file,
+            detail=exc.detail,
+        )
+        raise
     _persist_dispatch_run_record(
         request, project_dir, workload_class, workload_profile, payload
+    )
+    _persist_dispatch_envelope_event(
+        envelope_id=envelope_id,
+        state="started",
+        request=request,
+        project_dir=project_dir,
+        prompt_file=prompt_file,
+        detail=payload,
     )
 
     return {
         "accepted": True,
+        "envelope_id": envelope_id,
         "dispatch": payload,
         "timestamp": utc_now(),
     }
