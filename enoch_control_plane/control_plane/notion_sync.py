@@ -5,7 +5,9 @@ import json
 import os
 import time
 import sys
+from datetime import datetime, timezone
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from socket import timeout as SocketTimeout
 from typing import Any, Callable
 from urllib import error, request
@@ -14,6 +16,7 @@ from ..url_safety import urlopen_validated, validate_http_url
 
 NOTION_API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2026-03-11"
+RETRYABLE_HTTP_STATUSES = {408, 409, 425, 429}
 
 
 class NotionSyncError(RuntimeError):
@@ -54,7 +57,38 @@ class _RequestRateLimiter:
 def _is_non_retryable_http_error(
     exc: error.HTTPError, attempt: int, max_attempts: int
 ) -> bool:
-    return exc.code < 500 or attempt >= max_attempts
+    retryable = exc.code >= 500 or exc.code in RETRYABLE_HTTP_STATUSES
+    return not retryable or attempt >= max_attempts
+
+
+def _retry_after_seconds(exc: error.HTTPError, *, now: float | None = None) -> float | None:
+    raw = exc.headers.get("Retry-After") if exc.headers else None
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        retry_after_seconds = None
+    if retry_after_seconds is not None:
+        return retry_after_seconds
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    current = datetime.fromtimestamp(time.time() if now is None else now, timezone.utc)
+    return max(0.0, (retry_at - current).total_seconds())
+
+
+def _http_retry_delay_seconds(exc: error.HTTPError, attempt: int) -> float:
+    retry_after = _retry_after_seconds(exc)
+    if retry_after is not None:
+        return min(retry_after, 30.0)
+    return min(2 ** (attempt - 1), 5)
 
 
 def _json_request(
@@ -85,6 +119,8 @@ def _json_request(
                     f"{method} {url} failed with {exc.code}: {detail}"
                 ) from exc
             last_exc = exc
+            time.sleep(_http_retry_delay_seconds(exc, attempt))
+            continue
         except (
             TimeoutError,
             SocketTimeout,

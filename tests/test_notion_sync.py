@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import unittest
+from email.message import Message
 from urllib import error
 
 from enoch_control_plane.control_plane.notion_sync import (
@@ -144,7 +146,7 @@ class NotionSyncTests(unittest.TestCase):
                 def __enter__(self):
                     return self
 
-                def __exit__(self, *_args):
+                def __exit__(self, *_args: object):
                     return None
 
                 def read(self):
@@ -175,6 +177,63 @@ class NotionSyncTests(unittest.TestCase):
 
         self.assertEqual(response.body, {"ok": True})
         self.assertEqual(calls["count"], 2)
+
+    def test_json_request_respects_retry_after_on_429(self) -> None:
+        calls = {"count": 0}
+        sleeps: list[float] = []
+
+        def opener(req: object, timeout: object, **_kwargs: object):  # noqa: ANN202
+            del req, timeout
+            calls["count"] += 1
+            if calls["count"] == 1:
+                headers = Message()
+                headers["Retry-After"] = "7"
+                raise error.HTTPError(
+                    "https://example.test",
+                    429,
+                    "rate limited",
+                    headers,
+                    io.BytesIO(b'{"error":"slow down"}'),
+                )
+
+            class Response:
+                status = 200
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_args: object):
+                    return None
+
+                def read(self):
+                    return b'{"ok": true}'
+
+            return Response()
+
+        from unittest import mock
+
+        with (
+            mock.patch(
+                "enoch_control_plane.control_plane.notion_sync.urlopen_validated",
+                opener,
+            ),
+            mock.patch(
+                "enoch_control_plane.control_plane.notion_sync.time.sleep",
+                sleeps.append,
+            ),
+            mock.patch.dict(
+                "os.environ",
+                {
+                    "ENOCH_NOTION_HTTP_TIMEOUT_SEC": "1",
+                    "ENOCH_NOTION_HTTP_ATTEMPTS": "2",
+                },
+            ),
+        ):
+            response = _json_request("GET", "https://example.test", {}, None)
+
+        self.assertEqual(response.body, {"ok": True})
+        self.assertEqual(calls["count"], 2)
+        self.assertEqual(sleeps, [7.0])
 
     def test_normalizes_notion_page_properties(self) -> None:
         row = normalize_notion_page(
