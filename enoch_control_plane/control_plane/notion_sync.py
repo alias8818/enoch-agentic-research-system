@@ -27,6 +27,28 @@ class HttpResponse:
 
 
 Transport = Callable[[str, str, dict[str, str], dict[str, Any] | None], HttpResponse]
+Sleeper = Callable[[float], None]
+Clock = Callable[[], float]
+
+
+class _RequestRateLimiter:
+    def __init__(self, min_interval_sec: float, *, sleep: Sleeper, clock: Clock) -> None:
+        self._min_interval_sec = max(0.0, min_interval_sec)
+        self._sleep = sleep
+        self._clock = clock
+        self._last_request_at: float | None = None
+
+    def wait(self) -> None:
+        if self._min_interval_sec <= 0:
+            return
+        now = self._clock()
+        if self._last_request_at is not None:
+            elapsed = now - self._last_request_at
+            delay = self._min_interval_sec - elapsed
+            if delay > 0:
+                self._sleep(delay)
+                now = self._clock()
+        self._last_request_at = now
 
 
 def _is_non_retryable_http_error(
@@ -287,9 +309,28 @@ def apply_execution_updates(
     transport: Transport = _json_request,
     max_updates: int | None = None,
     filter_to_existing_properties: bool = True,
+    rate_limit_interval_sec: float | None = None,
+    sleep: Sleeper = time.sleep,
+    clock: Clock = time.monotonic,
 ) -> list[dict[str, Any]]:
     applied: list[dict[str, Any]] = []
     headers = notion_headers(token)
+    if rate_limit_interval_sec is None:
+        rate_limit_interval_sec = float(
+            os.environ.get("ENOCH_NOTION_UPDATE_MIN_INTERVAL_SEC", "0.4")
+        )
+    limiter = _RequestRateLimiter(rate_limit_interval_sec, sleep=sleep, clock=clock)
+    existing_property_cache: dict[str, set[str] | None] = {}
+
+    def request_notion(
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        payload: dict[str, Any] | None,
+    ) -> HttpResponse:
+        limiter.wait()
+        return transport(method, url, headers, payload)
+
     for row in rows[: max_updates or len(rows)]:
         page_id = str(row.get("page_id") or "").strip()
         if not page_id:
@@ -306,9 +347,11 @@ def apply_execution_updates(
         properties = notion_update_properties(row)
         skipped_properties: list[str] = []
         if filter_to_existing_properties:
-            existing = _existing_page_property_names(
-                page_id, headers, transport=transport
-            )
+            if page_id not in existing_property_cache:
+                existing_property_cache[page_id] = _existing_page_property_names(
+                    page_id, headers, transport=request_notion
+                )
+            existing = existing_property_cache[page_id]
             if existing is None:
                 applied.append(
                     {
@@ -337,7 +380,7 @@ def apply_execution_updates(
             )
             continue
         payload = {"properties": properties}
-        resp = transport(
+        resp = request_notion(
             "PATCH", f"{NOTION_API_BASE}/pages/{page_id}", headers, payload
         )
         applied.append(

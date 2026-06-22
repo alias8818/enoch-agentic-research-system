@@ -299,6 +299,60 @@ class NotionSyncTests(unittest.TestCase):
         self.assertFalse(result[0]["ok"])
         self.assertEqual(result[0]["reason"], "page property probe failed")
 
+    def test_apply_execution_updates_rate_limits_and_caches_property_probes(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        def transport(
+            method: str,
+            url: str,
+            headers: dict[str, str],
+            payload: dict[str, object] | None,
+        ) -> HttpResponse:
+            calls.append((method, url))
+            if method == "GET" and url.endswith("/pages/page-1"):
+                return HttpResponse(
+                    status=200,
+                    body={
+                        "properties": {
+                            "Execution State": {},
+                            "Current Run ID": {},
+                        }
+                    },
+                )
+            if method == "PATCH" and url.endswith("/pages/page-1"):
+                assert payload is not None
+                properties = payload["properties"]
+                assert isinstance(properties, dict)
+                self.assertIn("Execution State", properties)
+                return HttpResponse(status=200, body={"object": "page"})
+            raise AssertionError(f"unexpected request {method} {url}")
+
+        now = {"value": 0.0}
+        sleeps: list[float] = []
+
+        def clock() -> float:
+            return now["value"]
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            now["value"] += seconds
+
+        result = apply_execution_updates(
+            [
+                {"page_id": "page-1", "properties": {"Execution State": "queued"}},
+                {"page_id": "page-1", "properties": {"Execution State": "running"}},
+            ],
+            "secret",
+            transport=transport,
+            rate_limit_interval_sec=0.4,
+            sleep=sleep,
+            clock=clock,
+        )
+
+        self.assertEqual([item["ok"] for item in result], [True, True])
+        self.assertEqual([method for method, _url in calls], ["GET", "PATCH", "PATCH"])
+        self.assertEqual(sleeps, [0.4, 0.4])
+
     def test_runner_allows_data_source_only_live_read(self) -> None:
         transport = FakeTransport()
         args = argparse.Namespace(
