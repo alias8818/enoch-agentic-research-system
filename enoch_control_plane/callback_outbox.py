@@ -239,7 +239,7 @@ def _dead_letter_pending(
     payload["dead_letter_reason"] = reason
     payload["dead_lettered_at"] = utc_now()
     payload["last_error"] = result.detail[:4096]
-    dest = dead_letter_dir(state_dir) / pending.name
+    dest = dead_letter_dir(state_dir) / pending.name.removesuffix(".claimed")
     _atomic_write_json(dest, payload)
     try:
         pending.unlink()
@@ -326,9 +326,32 @@ def deliver_pending_file(
             detail="pending callback path is outside callback outbox",
             path=str(pending),
         )
+    claimed = pending.with_name(f"{pending.name}.claimed")
     try:
-        payload = json.loads(pending.read_text(encoding="utf-8"))
+        pending.rename(claimed)
+        _fsync_dir(pending.parent)
+    except FileNotFoundError:
+        return DeliveryResult(
+            ok=False,
+            detail="pending callback already claimed or missing",
+            path=str(pending),
+        )
+    except OSError as exc:
+        return DeliveryResult(
+            ok=False,
+            detail=f"pending callback claim failed: {type(exc).__name__}: {exc}",
+            path=str(pending),
+        )
+    try:
+        payload = json.loads(claimed.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
+        try:
+            claimed.rename(pending)
+            _fsync_dir(pending.parent)
+        except OSError as restore_exc:
+            _logger.debug(
+                "failed to restore unreadable claimed callback", exc_info=restore_exc
+            )
         return DeliveryResult(
             ok=False,
             detail=f"pending callback payload unreadable: {type(exc).__name__}: {exc}",
@@ -346,7 +369,7 @@ def deliver_pending_file(
         dest = delivered_dir(state_dir) / pending.name
         _atomic_write_json(dest, payload)
         try:
-            pending.unlink()
+            claimed.unlink()
         except FileNotFoundError as exc:
             _logger.debug("callback outbox pending file already removed", exc_info=exc)
         local_state_error = _mark_local_worker_state_delivered(state_dir, payload)
@@ -370,7 +393,7 @@ def deliver_pending_file(
     payload["last_error"] = result.detail[:4096]
     if result.status_code in PERMANENT_HTTP_STATUSES:
         return _dead_letter_pending(
-            pending,
+            claimed,
             state_dir=state_dir,
             payload=payload,
             reason=f"permanent_{result.status_code}",
@@ -378,7 +401,7 @@ def deliver_pending_file(
         )
     if int(payload.get("attempt_count") or 0) >= MAX_ATTEMPTS:
         return _dead_letter_pending(
-            pending,
+            claimed,
             state_dir=state_dir,
             payload=payload,
             reason="max_attempts",
@@ -391,6 +414,10 @@ def deliver_pending_file(
         .replace("+00:00", "Z")
     )
     _atomic_write_json(pending, payload)
+    try:
+        claimed.unlink()
+    except FileNotFoundError as exc:
+        _logger.debug("claimed callback outbox file already removed", exc_info=exc)
     return DeliveryResult(
         ok=False,
         status_code=result.status_code,

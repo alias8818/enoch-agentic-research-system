@@ -256,11 +256,58 @@ def test_successful_delivery_moves_to_delivered_and_marks_worker_state(
 
     assert result.ok
     assert not callback_outbox.pending_path(state, "run-1").exists()
+    assert not (state / callback_outbox.OUTBOX_DIRNAME / "run-1.json.claimed").exists()
     delivered = state / callback_outbox.DELIVERED_DIRNAME / "run-1.json"
     assert delivered.exists()
     worker_state = json.loads((run_dir / "run-1.json").read_text(encoding="utf-8"))
     assert worker_state["gate_state"] == "wake_ready"
     assert worker_state["last_idempotency_key"] == "run-1:wake_ready:codex-runner:done"
+
+
+def test_deliver_pending_file_claims_before_delivery(monkeypatch: Any, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    pending = callback_outbox.write_pending(state, _payload())
+    claimed = pending.with_name(f"{pending.name}.claimed")
+
+    def deliver(payload: dict[str, Any], **kwargs: Any) -> callback_outbox.DeliveryResult:
+        del payload, kwargs
+        assert not pending.exists()
+        assert claimed.exists()
+        return callback_outbox.DeliveryResult(ok=True, status_code=204, detail="ok")
+
+    monkeypatch.setattr(callback_outbox, "deliver_payload", deliver)
+
+    result = callback_outbox.deliver_pending_file(
+        pending,
+        state_dir=state,
+        url="http://93.184.216.34/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert result.ok
+    assert not pending.exists()
+    assert not claimed.exists()
+    assert (state / callback_outbox.DELIVERED_DIRNAME / "run-1.json").exists()
+
+
+def test_deliver_pending_file_skips_already_claimed_callback(tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    pending = callback_outbox.write_pending(state, _payload())
+    claimed = pending.with_name(f"{pending.name}.claimed")
+    pending.rename(claimed)
+
+    result = callback_outbox.deliver_pending_file(
+        pending,
+        state_dir=state,
+        url="http://93.184.216.34/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert not result.ok
+    assert "already claimed" in result.detail
+    assert claimed.exists()
 
 
 def test_deliver_pending_file_rejects_paths_outside_outbox(tmp_path: Path) -> None:
