@@ -508,43 +508,25 @@ class PaperWriterTests(unittest.TestCase):
         )
 
     def test_synthetic_writer_rejects_non_http_provider_before_urlopen(self) -> None:
+        from pydantic import ValidationError
+
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp) / "projects" / "idea"
             project.mkdir(parents=True)
             (project / "run_notes.md").write_text(
                 "Fallback writer had local source evidence.\n", encoding="utf-8"
             )
-            cfg = self._config(
-                tmp,
-                paper_writer_provider="synthetic.new",
-                paper_writer_api_key="test-key",
-                paper_writer_base_url="file:///etc/passwd",
-                paper_writer_fallback_enabled=True,
-            )
-
-            def fake_urlopen(*_args, **_kwargs):
-                raise AssertionError(
-                    "urlopen should not run for unsafe paper writer URL"
+            with self.assertRaises(ValidationError) as raised:
+                self._config(
+                    tmp,
+                    paper_writer_provider="synthetic.new",
+                    paper_writer_api_key="test-key",
+                    paper_writer_base_url="file:///etc/passwd",
+                    paper_writer_fallback_enabled=True,
                 )
-
-            with patch(
-                "enoch_control_plane.control_plane.paper_writer.urlopen_validated",
-                side_effect=fake_urlopen,
-            ):
-                meta = write_paper_artifacts(
-                    cfg,
-                    {
-                        "project_id": "idea",
-                        "project_name": "Idea",
-                        "project_dir": "idea",
-                    },
-                    self._paper(),
-                    force=True,
-                )
-            self.assertTrue(meta["fallback_used"])
             self.assertIn(
-                "paper writer provider url must use http or https",
-                meta["fallback_reason"],
+                "paper_writer_base_url must use http or https",
+                str(raised.exception),
             )
 
     def test_write_files_rejects_empty_or_directory_targets(self) -> None:

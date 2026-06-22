@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from enoch_control_plane.callbacks import CallbackSender
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.models import GateCallback, ProcessSnapshot, RunRecord
@@ -112,37 +114,18 @@ def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
 
 
 def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None:
-    config = GateConfig(
-        state_dir="/tmp/state",
-        project_root="/tmp/projects",
-        dispatch_script_path="/tmp/dispatch.sh",
-        control_api_bearer_token="control",
-        completion_callback_url="file:///etc/passwd",
-        completion_callback_token="secret",
-    )
-    callback = GateCallback(
-        event_type="wake_ready",
-        run_id="run",
-        session_id="session",
-        project_id="project",
-        source_event="session-idle",
-        gate_state="wake_ready",
-        process_tracking=ProcessSnapshot(),
-        telemetry={},
-        reason="quiet",
-        idempotency_key="idem",
-    )
+    from pydantic import ValidationError
 
-    def fake_urlopen(*args, **kwargs):
-        raise AssertionError("urlopen should not run for unsafe callback URL")
-
-    monkeypatch.setattr("enoch_control_plane.callbacks.urlopen_validated", fake_urlopen)
-    try:
-        CallbackSender(config).send(callback)
-    except ValueError as exc:
-        assert "completion callback url must use http or https" in str(exc)
-    else:  # pragma: no cover
-        raise AssertionError("expected unsafe URL rejection")
+    with pytest.raises(ValidationError) as raised:
+        GateConfig(
+            state_dir="/tmp/state",
+            project_root="/tmp/projects",
+            dispatch_script_path="/tmp/dispatch.sh",
+            control_api_bearer_token="control",
+            completion_callback_url="file:///etc/passwd",
+            completion_callback_token="secret",
+        )
+    assert "completion_callback_url must use http or https" in str(raised.value)
 
 
 def test_dspy_program_signatures_with_fake_module(monkeypatch) -> None:

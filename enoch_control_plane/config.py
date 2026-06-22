@@ -4,14 +4,22 @@ import re
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
-from enoch_control_plane.url_safety import secure_default_service_url
+from enoch_control_plane.url_safety import secure_default_service_url, validate_http_url
 
 
 _SSH_TARGET_RE = re.compile(
     r"^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*@)?[A-Za-z0-9][A-Za-z0-9_.-]*$"
 )
+
+
+def _validate_config_http_url(
+    value: str, *, field_name: str, allow_private: bool = True
+) -> str:
+    return validate_http_url(
+        value, field_name=field_name, allow_private=allow_private
+    )
 
 
 class WorkloadClass(str, Enum):
@@ -37,6 +45,13 @@ class WorkerTargetConfig(BaseModel):
     bearer_token: str = ""
     role: str = ""
     min_memory_available_mib: int | None = Field(default=None, ge=0)
+
+    @field_validator("wake_gate_url")
+    @classmethod
+    def _validate_wake_gate_url(cls, value: str) -> str:
+        return _validate_config_http_url(
+            value, field_name="worker target wake_gate_url"
+        )
 
 
 class GateConfig(BaseModel):
@@ -128,6 +143,29 @@ class GateConfig(BaseModel):
                 "like user@host or host"
             )
         return value
+
+    @field_validator(
+        "completion_callback_url",
+        "n8n_callback_url",
+        "worker_wake_gate_url",
+        "pushover_api_url",
+        "hermes_alert_webhook_url",
+        "paper_writer_base_url",
+    )
+    @classmethod
+    def _validate_outbound_http_url(cls, value: str, info: ValidationInfo) -> str:
+        if not value:
+            return value
+        return _validate_config_http_url(value, field_name=str(info.field_name))
+
+    @field_validator("paper_writer_base_url")
+    @classmethod
+    def _validate_external_provider_url(cls, value: str) -> str:
+        if not value:
+            return value
+        return _validate_config_http_url(
+            value, field_name="paper_writer_base_url", allow_private=False
+        )
 
     @model_validator(mode="after")
     def _normalize_callback_config(self) -> "GateConfig":

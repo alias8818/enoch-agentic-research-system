@@ -1961,29 +1961,23 @@ def test_research_quality_alert_finding_s3776_helpers_extracted() -> None:
 def test_send_pushover_rejects_non_http_api_url_before_urlopen(
     monkeypatch, tmp_path
 ) -> None:
+    from pydantic import ValidationError
+
     from enoch_control_plane.config import GateConfig
-    from enoch_control_plane.control_plane import alerts
 
-    config = GateConfig(
-        state_dir=str(tmp_path / "state"),
-        project_root=str(tmp_path / "projects"),
-        dispatch_script_path=str(tmp_path / "dispatch.sh"),
-        control_api_bearer_token="control",
-        completion_callback_url="http://callback",
-        completion_callback_token="callback",
-        pushover_app_token="app",
-        pushover_user_key="user",
-        pushover_api_url="file:///etc/passwd",
-    )
-
-    def fake_urlopen(*_args, **_kwargs):
-        raise AssertionError("urlopen should not run for unsafe pushover URL")
-
-    monkeypatch.setattr(alerts, "urlopen_validated", fake_urlopen)
-    result = alerts.send_pushover(config, title="t", message="m")
-    assert result.attempted is True
-    assert result.ok is False
-    assert "pushover api url must use http or https" in result.detail
+    with pytest.raises(ValidationError) as raised:
+        GateConfig(
+            state_dir=str(tmp_path / "state"),
+            project_root=str(tmp_path / "projects"),
+            dispatch_script_path=str(tmp_path / "dispatch.sh"),
+            control_api_bearer_token="control",
+            completion_callback_url="http://callback",
+            completion_callback_token="callback",
+            pushover_app_token="app",
+            pushover_user_key="user",
+            pushover_api_url="file:///etc/passwd",
+        )
+    assert "pushover_api_url must use http or https" in str(raised.value)
 
 
 def test_queue_alert_notify_does_not_treat_event_store_failure_as_cooldown(
@@ -2503,44 +2497,21 @@ def test_send_hermes_alert_webhook_uses_hmac_signature_header(
 def test_send_hermes_alert_webhook_rejects_non_http_url_before_urlopen(
     monkeypatch, tmp_path
 ) -> None:
+    from pydantic import ValidationError
+
     from enoch_control_plane.config import GateConfig
-    from enoch_control_plane.control_plane import alerts
-    from enoch_control_plane.control_plane.models import DashboardFinding
 
-    config = GateConfig(
-        state_dir=str(tmp_path / "state"),
-        project_root=str(tmp_path / "projects"),
-        dispatch_script_path=str(tmp_path / "dispatch.sh"),
-        control_api_bearer_token="control",
-        completion_callback_url="http://callback",
-        completion_callback_token="callback",
-        hermes_alert_webhook_url="file:///etc/passwd",
-    )
-
-    def fake_urlopen(*_args, **_kwargs):  # noqa: ANN001 - test guard
-        raise AssertionError("urlopen should not run for unsafe Hermes webhook URL")
-
-    monkeypatch.setattr(alerts, "urlopen_validated", fake_urlopen)
-    result = alerts.send_hermes_alert_webhook(
-        config,
-        fingerprint="fp",
-        event_id="evt",
-        message="message",
-        findings=[
-            DashboardFinding(
-                severity="critical",
-                source="test",
-                authority="test",
-                message="critical test",
-                suggested_action="inspect",
-            )
-        ],
-        payload={"fingerprint": "fp"},
-    )
-
-    assert result.attempted is True
-    assert result.ok is False
-    assert "hermes alert webhook url must use http or https" in result.detail
+    with pytest.raises(ValidationError) as raised:
+        GateConfig(
+            state_dir=str(tmp_path / "state"),
+            project_root=str(tmp_path / "projects"),
+            dispatch_script_path=str(tmp_path / "dispatch.sh"),
+            control_api_bearer_token="control",
+            completion_callback_url="http://callback",
+            completion_callback_token="callback",
+            hermes_alert_webhook_url="file:///etc/passwd",
+        )
+    assert "hermes_alert_webhook_url must use http or https" in str(raised.value)
 
 
 def test_dispatch_race_partition_suppresses_reconcile_grace_without_recent_event() -> (
