@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 from fastapi.testclient import TestClient
 
@@ -925,17 +926,54 @@ def test_paper_artifact_endpoints_reject_uninspectable_project_dir_without_raw_e
 
 def test_evaluator_registry_does_not_duplicate_running_task(monkeypatch) -> None:
     class RunningTask:
-        def __init__(self):
-            self.created = 0
-
         def done(self):
             return False
 
     task = RunningTask()
-    appmod.evaluation_tasks["run"] = task
+    appmod.evaluation_tasks["run"] = cast(Any, task)
+    appmod.evaluation_task_started_at["run"] = appmod.time.monotonic()
     appmod._ensure_evaluator("run")
     assert appmod.evaluation_tasks["run"] is task
     appmod.evaluation_tasks.pop("run", None)
+    appmod.evaluation_task_started_at.pop("run", None)
+
+
+def test_evaluator_registry_cancels_stale_running_task(monkeypatch: Any) -> None:
+    class RunningTask:
+        def __init__(self) -> None:
+            self.canceled = False
+
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            self.canceled = True
+
+    class NewTask:
+        def done(self) -> bool:
+            return False
+
+    stale = RunningTask()
+    created = NewTask()
+    appmod.evaluation_tasks["run"] = cast(Any, stale)
+    appmod.evaluation_task_started_at["run"] = 100.0
+    monkeypatch.setattr(appmod.time, "monotonic", lambda: 100.0 + appmod.EVALUATION_TASK_TTL_SECONDS + 1)
+
+    def create_task(coro: object) -> NewTask:
+        close = getattr(coro, "close", None)
+        if callable(close):
+            close()
+        return created
+
+    monkeypatch.setattr(appmod.asyncio, "create_task", create_task)
+
+    appmod._ensure_evaluator("run")
+
+    assert stale.canceled is True
+    assert appmod.evaluation_tasks["run"] is created
+    assert appmod.evaluation_task_started_at["run"] == 100.0 + appmod.EVALUATION_TASK_TTL_SECONDS + 1
+    appmod.evaluation_tasks.pop("run", None)
+    appmod.evaluation_task_started_at.pop("run", None)
 
 
 def test_control_dashboard_v2_requires_bearer_and_sets_security_headers(

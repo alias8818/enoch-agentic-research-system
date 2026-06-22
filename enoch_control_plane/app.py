@@ -16,6 +16,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import urllib.error
 from pathlib import Path
 import time
@@ -298,6 +299,9 @@ if os.environ.get("ENOCH_PROFILING_ENABLED", "").strip() in ("1", "true"):
         ),
     )
 evaluation_tasks: dict[str, asyncio.Task] = {}
+evaluation_task_started_at: dict[str, float] = {}
+evaluation_tasks_lock = threading.Lock()
+EVALUATION_TASK_TTL_SECONDS = 24 * 60 * 60
 reconcile_task: asyncio.Task | None = None
 
 
@@ -3558,6 +3562,7 @@ async def _process_gate_evaluation(record: RunRecord) -> bool:
 
 
 async def _evaluate_until_ready(run_id: str) -> None:
+    current_task = asyncio.current_task()
     try:
         while True:
             record = store.load_run(run_id)
@@ -3576,14 +3581,25 @@ async def _evaluate_until_ready(run_id: str) -> None:
 
             await asyncio.sleep(config.sample_interval_sec)
     finally:
-        evaluation_tasks.pop(run_id, None)
+        with evaluation_tasks_lock:
+            current = evaluation_tasks.get(run_id)
+            if current is current_task or (current is not None and current.done()):
+                evaluation_tasks.pop(run_id, None)
+                evaluation_task_started_at.pop(run_id, None)
 
 
 def _ensure_evaluator(run_id: str) -> None:
-    current = evaluation_tasks.get(run_id)
-    if current is not None and not current.done():
-        return
-    evaluation_tasks[run_id] = asyncio.create_task(_evaluate_until_ready(run_id))
+    now = time.monotonic()
+    with evaluation_tasks_lock:
+        current = evaluation_tasks.get(run_id)
+        started_at = evaluation_task_started_at.get(run_id, now)
+        if current is not None and not current.done():
+            if now - started_at <= EVALUATION_TASK_TTL_SECONDS:
+                return
+            current.cancel()
+        task = asyncio.create_task(_evaluate_until_ready(run_id))
+        evaluation_tasks[run_id] = task
+        evaluation_task_started_at[run_id] = now
 
 
 async def _reconcile_missing_idle_loop() -> None:
