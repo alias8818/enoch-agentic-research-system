@@ -39,7 +39,7 @@ def _redact_text(value: str) -> str:
         value,
     )
     value = re.sub(
-        r"(?i)([?&;\s](?:token|api[_-]?key|apikey|password|secret)=)[^&;\s]+",
+        r"(?i)([?&;\s](?:token|api[_-]?key|password|secret)=)[^&;\s]+",
         lambda match: f"{match.group(1)}{_REDACTED}",
         value,
     )
