@@ -44,6 +44,40 @@ class EnochCoreStoreTests(unittest.TestCase):
             with self.assertRaises(IdempotencyConflict):
                 store.save_queue_snapshot(changed)
 
+    def test_snapshot_failure_rolls_back_event_insert(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "core.sqlite3"
+            store = EnochCoreStore(path)
+            payload = {
+                "idempotency_key": "snap-rollback",
+                "source": "test",
+                "mode": "shadow",
+                "queue_rows": [],
+                "paper_rows": [],
+                "captured_at": "2026-04-23T00:00:00Z",
+            }
+            with sqlite3.connect(path) as conn:
+                conn.executescript(
+                    """
+                    CREATE TRIGGER fail_snapshot_insert
+                    BEFORE INSERT ON snapshots
+                    BEGIN
+                        SELECT RAISE(ABORT, 'snapshot insert failed');
+                    END;
+                    """
+                )
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                store.save_queue_snapshot(payload)
+
+            with sqlite3.connect(path) as conn:
+                event_count = conn.execute(
+                    "SELECT COUNT(*) FROM events WHERE idempotency_key = ?",
+                    ("snap-rollback",),
+                ).fetchone()[0]
+
+            self.assertEqual(event_count, 0)
+
     def test_event_idempotency_rejects_different_event_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = EnochCoreStore(Path(tmp) / "core.sqlite3")

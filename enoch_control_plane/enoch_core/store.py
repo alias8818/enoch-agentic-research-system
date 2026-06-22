@@ -128,54 +128,70 @@ class EnochCoreStore:
         source: str,
         payload: dict[str, Any],
     ) -> AppendResult:
+        with self._write_transaction() as conn:
+            return self._append_event_in_conn(
+                conn,
+                idempotency_key=idempotency_key,
+                event_type=event_type,
+                source=source,
+                payload=payload,
+            )
+
+    def _append_event_in_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        idempotency_key: str,
+        event_type: str,
+        source: str,
+        payload: dict[str, Any],
+    ) -> AppendResult:
         payload_json = self.canonical_json(payload)
         payload_hash = self.payload_hash(payload)
-        with self._write_transaction() as conn:
-            existing = conn.execute(
-                "SELECT id, event_type, source, payload_hash FROM events WHERE idempotency_key = ?",
-                (idempotency_key,),
-            ).fetchone()
-            if existing is not None:
-                if (
-                    existing["event_type"] != event_type
-                    or existing["source"] != source
-                    or existing["payload_hash"] != payload_hash
-                ):
-                    raise IdempotencyConflict(
-                        f"idempotency key {idempotency_key!r} was reused with different event identity"
-                    )
-                return AppendResult(event_id=int(existing["id"]), inserted=False)
-            cur = conn.execute(
-                """
-                INSERT INTO events(idempotency_key, event_type, source, payload_json, payload_hash, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    idempotency_key,
-                    event_type,
-                    source,
-                    payload_json,
-                    payload_hash,
-                    utc_now(),
-                ),
-            )
-            event_id = cur.lastrowid
+        existing = conn.execute(
+            "SELECT id, event_type, source, payload_hash FROM events WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ).fetchone()
+        if existing is not None:
             if (
-                event_id is None
-            ):  # pragma: no cover - SQLite INSERT should always return an id.
-                raise RuntimeError("event insert did not return an id")
-            return AppendResult(event_id=int(event_id), inserted=True)
+                existing["event_type"] != event_type
+                or existing["source"] != source
+                or existing["payload_hash"] != payload_hash
+            ):
+                raise IdempotencyConflict(
+                    f"idempotency key {idempotency_key!r} was reused with different event identity"
+                )
+            return AppendResult(event_id=int(existing["id"]), inserted=False)
+        cur = conn.execute(
+            """
+            INSERT INTO events(idempotency_key, event_type, source, payload_json, payload_hash, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                idempotency_key,
+                event_type,
+                source,
+                payload_json,
+                payload_hash,
+                utc_now(),
+            ),
+        )
+        event_id = cur.lastrowid
+        if event_id is None:  # pragma: no cover - SQLite INSERT should always return an id.
+            raise RuntimeError("event insert did not return an id")
+        return AppendResult(event_id=int(event_id), inserted=True)
 
     def save_queue_snapshot(self, payload: dict[str, Any]) -> tuple[AppendResult, int]:
         key = str(payload["idempotency_key"])
-        event = self.append_event(
-            idempotency_key=key,
-            event_type="n8n.queue_snapshot",
-            source=str(payload.get("source") or "n8n"),
-            payload=payload,
-        )
         payload_json = self.canonical_json(payload)
-        with self._connect() as conn:
+        with self._write_transaction() as conn:
+            event = self._append_event_in_conn(
+                conn,
+                idempotency_key=key,
+                event_type="n8n.queue_snapshot",
+                source=str(payload.get("source") or "n8n"),
+                payload=payload,
+            )
             cur = conn.execute(
                 """
                 INSERT INTO snapshots(idempotency_key, snapshot_type, event_id, source, payload_json, created_at)

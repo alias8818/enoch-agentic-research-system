@@ -111,52 +111,70 @@ class SupabaseEnochCoreStore:
         source: str,
         payload: dict[str, Any],
     ) -> AppendResult:
-        payload_json = self.canonical_json(payload)
-        payload_hash = self.payload_hash(payload)
         with self._connect() as conn:
             with conn.cursor() as cur:
-                existing = cur.execute(
-                    "select id, event_type, source, payload_hash from core_events where idempotency_key = %s",
-                    (idempotency_key,),
-                ).fetchone()
-                if existing is not None:
-                    if (
-                        existing["event_type"] != event_type
-                        or existing["source"] != source
-                        or existing["payload_hash"] != payload_hash
-                    ):
-                        raise IdempotencyConflict(
-                            f"idempotency key {idempotency_key!r} was reused with different event identity"
-                        )
-                    return AppendResult(event_id=int(existing["id"]), inserted=False)
-                row = cur.execute(
-                    """
-                    insert into core_events(idempotency_key, event_type, source, payload_json, payload_hash, created_at)
-                    values (%s, %s, %s, %s::jsonb, %s, %s)
-                    returning id
-                    """,
-                    (
-                        idempotency_key,
-                        event_type,
-                        source,
-                        payload_json,
-                        payload_hash,
-                        utc_now(),
-                    ),
-                ).fetchone()
-                return AppendResult(event_id=int(row["id"]), inserted=True)
+                return self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=idempotency_key,
+                    event_type=event_type,
+                    source=source,
+                    payload=payload,
+                )
+
+    def _append_event_in_cursor(
+        self,
+        cur: Any,
+        *,
+        idempotency_key: str,
+        event_type: str,
+        source: str,
+        payload: dict[str, Any],
+    ) -> AppendResult:
+        payload_json = self.canonical_json(payload)
+        payload_hash = self.payload_hash(payload)
+        existing = cur.execute(
+            "select id, event_type, source, payload_hash from core_events where idempotency_key = %s",
+            (idempotency_key,),
+        ).fetchone()
+        if existing is not None:
+            if (
+                existing["event_type"] != event_type
+                or existing["source"] != source
+                or existing["payload_hash"] != payload_hash
+            ):
+                raise IdempotencyConflict(
+                    f"idempotency key {idempotency_key!r} was reused with different event identity"
+                )
+            return AppendResult(event_id=int(existing["id"]), inserted=False)
+        row = cur.execute(
+            """
+            insert into core_events(idempotency_key, event_type, source, payload_json, payload_hash, created_at)
+            values (%s, %s, %s, %s::jsonb, %s, %s)
+            returning id
+            """,
+            (
+                idempotency_key,
+                event_type,
+                source,
+                payload_json,
+                payload_hash,
+                utc_now(),
+            ),
+        ).fetchone()
+        return AppendResult(event_id=int(row["id"]), inserted=True)
 
     def save_queue_snapshot(self, payload: dict[str, Any]) -> tuple[AppendResult, int]:
         key = str(payload["idempotency_key"])
-        event = self.append_event(
-            idempotency_key=key,
-            event_type="n8n.queue_snapshot",
-            source=str(payload.get("source") or "n8n"),
-            payload=payload,
-        )
         payload_json = self.canonical_json(payload)
         with self._connect() as conn:
             with conn.cursor() as cur:
+                event = self._append_event_in_cursor(
+                    cur,
+                    idempotency_key=key,
+                    event_type="n8n.queue_snapshot",
+                    source=str(payload.get("source") or "n8n"),
+                    payload=payload,
+                )
                 row = cur.execute(
                     """
                     insert into core_snapshots(idempotency_key, snapshot_type, event_id, source, payload_json, created_at)
