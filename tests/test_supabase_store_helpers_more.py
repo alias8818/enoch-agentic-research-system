@@ -519,6 +519,57 @@ def test_supabase_upsert_paper_rejects_conflicting_paper_identity() -> None:
     assert conn.cursor_obj.insert_attempted is False
 
 
+def test_supabase_upsert_paper_rejects_concurrent_identity_rewrite() -> None:
+    class Result:
+        rowcount = 0
+
+    class Cursor:
+        def __init__(self):
+            self.fetchone_results = [
+                None,
+                {
+                    "project_id": "project-b",
+                    "run_id": "run-2",
+                    "paper_type": "arxiv_draft",
+                    "updated_at": "2026-05-18T12:00:00+00:00",
+                },
+            ]
+            self.insert_sql = ""
+
+        def execute(self, sql: object, params: object = ()):
+            del params
+            normalized = " ".join(str(sql).lower().split())
+            if normalized.startswith("insert into papers"):
+                self.insert_sql = normalized
+                return Result()
+            return self
+
+        def fetchone(self):
+            return self.fetchone_results.pop(0)
+
+    cursor = Cursor()
+    store = SupabaseControlPlaneStore(
+        "postgres://example", connect=lambda: pytest.fail("should not connect")
+    )
+
+    with pytest.raises(s.IdempotencyConflict):
+        store._upsert_paper_in_cursor(
+            cursor,
+            PaperRecord(
+                paper_id="paper-1",
+                project_id="project-a",
+                run_id="run-1",
+                paper_status=PaperStatus.PUBLICATION_DRAFT,
+            ),
+        )
+
+    assert "where papers.project_id=excluded.project_id" in cursor.insert_sql
+    assert "papers.run_id is not distinct from excluded.run_id" in cursor.insert_sql
+    assert "project_id=excluded.project_id" not in cursor.insert_sql.split(
+        "do update set", 1
+    )[1].split(" where ", 1)[0]
+
+
 def test_supabase_upsert_paper_rejects_blank_run_over_existing_paper_run() -> None:
     class Cursor:
         def __init__(self):

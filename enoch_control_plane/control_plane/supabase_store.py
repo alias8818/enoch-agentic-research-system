@@ -5608,16 +5608,19 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             paper.updated_at, existing.get("updated_at")
         ):
             return
-        cur.execute(
+        result = cur.execute(
             """
             insert into papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
             values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             on conflict (paper_id) do update set
-              project_id=excluded.project_id, run_id=excluded.run_id, paper_type=excluded.paper_type,
               paper_status=excluded.paper_status, draft_markdown_path=excluded.draft_markdown_path,
               draft_latex_path=excluded.draft_latex_path, evidence_bundle_path=excluded.evidence_bundle_path,
               claim_ledger_path=excluded.claim_ledger_path, manifest_path=excluded.manifest_path,
               generated_at=excluded.generated_at, updated_at=excluded.updated_at
+            where papers.project_id=excluded.project_id
+              and papers.run_id is not distinct from excluded.run_id
+              and papers.paper_type=excluded.paper_type
+              and not (excluded.updated_at < papers.updated_at)
             """,
             (
                 paper.paper_id,
@@ -5634,6 +5637,24 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 paper.updated_at,
             ),
         )
+        if getattr(result, "rowcount", 1) >= 1:
+            return
+        cur.execute(
+            "select project_id, run_id, paper_type, updated_at from papers where paper_id=%s",
+            (paper.paper_id,),
+        )
+        current = cur.fetchone()
+        current_run_id = (
+            _text(self._row_value(current, "run_id", 1)) if current else ""
+        )
+        if current and (
+            self._row_value(current, "project_id", 0) != _text(paper.project_id)
+            or (current_run_id and current_run_id != _text(paper.run_id))
+            or self._row_value(current, "paper_type", 2) != _text(paper.paper_type)
+        ):
+            raise IdempotencyConflict(
+                f"paper id {paper.paper_id!r} was reused with different paper identity"
+            )
 
     def upsert_paper(self, paper: PaperRecord) -> None:
         with self._connect() as conn:
