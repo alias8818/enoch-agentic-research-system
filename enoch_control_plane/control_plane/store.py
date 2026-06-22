@@ -4310,6 +4310,7 @@ class ControlPlaneStore:
             conflict_placeholders = ",".join("?" for _ in conflict_targets)
             conflict_clause = f" AND lower(replace(replace(trim(coalesce(active.machine_target, '')), '-', '_'), ' ', '_')) IN ({conflict_placeholders})"
             conflict_params = tuple(conflict_targets)
+        claimed_row: dict[str, Any] | None = None
         with self._connect() as conn:
             cur = conn.execute(
                 f"""UPDATE queue_items
@@ -4351,14 +4352,16 @@ class ControlPlaneStore:
                     entity_id=project_id,
                     payload=payload,
                 )
+                claimed_row = self._dispatch_claim_row_in_conn(conn, project_id)
         if not claimed:
             return None
-        return self.queue_row(project_id)
+        return claimed_row
 
     def release_dispatch_claim(
         self, *, project_id: str, run_id: str, reason: str
     ) -> dict[str, Any]:
         now = utc_now()
+        released_row: dict[str, Any] | None = None
         with self._connect() as conn:
             cur = conn.execute(
                 """UPDATE queue_items
@@ -4385,7 +4388,28 @@ class ControlPlaneStore:
                     entity_id=project_id,
                     payload={"run_id": run_id, "reason": reason},
                 )
-        return self.queue_row(project_id) or {}
+                released_row = self._dispatch_claim_row_in_conn(conn, project_id)
+        if released_row is None:
+            return self.queue_row(project_id) or {}
+        return released_row
+
+    def _dispatch_claim_row_in_conn(
+        self, conn: sqlite3.Connection, project_id: str
+    ) -> dict[str, Any] | None:
+        row = conn.execute(
+            """SELECT q.*,
+                p.project_name AS project_name,
+                p.project_dir AS project_dir,
+                p.notion_page_url AS notion_page_url,
+                p.notion_page_id AS notion_page_id,
+                p.origin_idea_status AS origin_idea_status,
+                p.created_at AS project_created_at,
+                p.updated_at AS project_updated_at
+            FROM queue_items q JOIN projects p USING(project_id)
+            WHERE q.project_id=?""",
+            (project_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
     def _persist_notion_intake_candidate(
         self,

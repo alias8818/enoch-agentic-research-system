@@ -2054,6 +2054,48 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(after["current_run_id"], before["current_run_id"])
             self.assertEqual(after["next_action_hint"], before["next_action_hint"])
 
+    def test_dispatch_claim_returns_row_without_second_queue_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            project_id = "idea-claim-same-txn"
+            run_id = "run-claim-same-txn"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="claim-same-txn-import",
+                    queue_rows=[
+                        {
+                            "project_id": project_id,
+                            "project_name": "Claim Same Transaction",
+                            "project_dir": "claim-same-txn",
+                            "status": "queued",
+                        }
+                    ],
+                    paper_rows=[],
+                )
+            )
+
+            with unittest.mock.patch.object(
+                store,
+                "queue_row",
+                side_effect=AssertionError("fresh queue_row read must not be used"),
+            ):
+                claimed = store.claim_dispatch_candidate(
+                    project_id=project_id,
+                    run_id=run_id,
+                    requested_by="test",
+                )
+                released = store.release_dispatch_claim(
+                    project_id=project_id,
+                    run_id=run_id,
+                    reason="worker preflight failed",
+                )
+
+            assert claimed is not None
+            self.assertEqual(claimed["status"], "dispatching")
+            self.assertEqual(claimed["current_run_id"], run_id)
+            self.assertEqual(released["status"], "queued")
+            self.assertEqual(released["current_run_id"], "")
+
     def test_dispatch_claim_release_append_failure_does_not_mutate_queue_state(
         self,
     ) -> None:

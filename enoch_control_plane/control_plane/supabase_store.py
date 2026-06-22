@@ -3119,6 +3119,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             conflict_placeholders = ",".join(["%s"] * len(conflict_targets))
             conflict_clause = f"and lower(replace(replace(trim(coalesce(active.machine_target, '')), '-', '_'), ' ', '_')) in ({conflict_placeholders})"
             conflict_params = tuple(conflict_targets)
+        claimed_row: dict[str, Any] | None = None
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
@@ -3163,14 +3164,16 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         entity_id=project_id,
                         payload=payload,
                     )
+                    claimed_row = self._dispatch_claim_row_in_cursor(cur, project_id)
         if not claimed:
             return None
-        return self.queue_row(project_id)
+        return claimed_row
 
     def release_dispatch_claim(
         self, *, project_id: str, run_id: str, reason: str
     ) -> dict[str, Any]:
         now = utc_now()
+        released_row: dict[str, Any] | None = None
         with self._connect() as conn:
             with conn.cursor() as cur:
                 result = cur.execute(
@@ -3200,7 +3203,28 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                         entity_id=project_id,
                         payload={"run_id": run_id, "reason": reason},
                     )
-        return self.queue_row(project_id) or {}
+                    released_row = self._dispatch_claim_row_in_cursor(cur, project_id)
+        if released_row is None:
+            return self.queue_row(project_id) or {}
+        return released_row
+
+    def _dispatch_claim_row_in_cursor(
+        self, cur: Any, project_id: str
+    ) -> dict[str, Any] | None:
+        row = cur.execute(
+            """select q.*,
+                p.project_name as project_name,
+                p.project_dir as project_dir,
+                p.notion_page_url as notion_page_url,
+                p.notion_page_id as notion_page_id,
+                p.origin_idea_status as origin_idea_status,
+                p.created_at as project_created_at,
+                p.updated_at as project_updated_at
+            from queue_items q join projects p using(project_id)
+            where q.project_id=%s""",
+            (project_id,),
+        ).fetchone()
+        return dict(row) if row else None
 
     def pause(
         self, *, reason: str, paused_by: str, maintenance_mode: bool
