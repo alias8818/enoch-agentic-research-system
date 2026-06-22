@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import re
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from enoch_control_plane.url_safety import secure_default_service_url
+
+
+_SSH_TARGET_RE = re.compile(
+    r"^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*@)?[A-Za-z0-9][A-Za-z0-9_.-]*$"
+)
 
 
 class WorkloadClass(str, Enum):
@@ -112,6 +118,16 @@ class GateConfig(BaseModel):
     enoch_core_store_backend: str = "control_plane"
     supabase_database_url: str = ""
     legacy_notion_api_enabled: bool = False
+
+    @field_validator("paper_evidence_sync_ssh_host")
+    @classmethod
+    def _validate_paper_evidence_sync_ssh_host(cls, value: str) -> str:
+        if not _SSH_TARGET_RE.fullmatch(value):
+            raise ValueError(
+                "paper_evidence_sync_ssh_host must be a safe ssh target "
+                "like user@host or host"
+            )
+        return value
 
     @model_validator(mode="after")
     def _normalize_callback_config(self) -> "GateConfig":
