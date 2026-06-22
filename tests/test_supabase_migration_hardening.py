@@ -170,3 +170,5 @@ def test_native_ideas_indexes_are_concurrent_and_backfill_is_separate() -> None:
         "reset statement_timeout; begin; set local statement_timeout = '5min'; "
         "set local lock_timeout = '30s'; -- backfill native ideas"
     ) in normalized
+    assert "on conflict (idea_id) do update set" not in normalized
+    assert "from latest_rows lr where lr.idea_id <> '' on conflict (idea_id) do nothing" in normalized

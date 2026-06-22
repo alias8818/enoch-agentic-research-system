@@ -197,34 +197,7 @@ select
   now()
 from latest_rows lr
 where lr.idea_id <> ''
-on conflict (idea_id) do update set
-  title = excluded.title,
-  idea_status = excluded.idea_status,
-  category = excluded.category,
-  priority = excluded.priority,
-  source_kind = excluded.source_kind,
-  source_external_id = excluded.source_external_id,
-  source_external_url = excluded.source_external_url,
-  description = excluded.description,
-  implementation = excluded.implementation,
-  baseline_to_beat = excluded.baseline_to_beat,
-  kill_condition = excluded.kill_condition,
-  accessibility_delta = excluded.accessibility_delta,
-  experiment_results = excluded.experiment_results,
-  expected_token_budget = excluded.expected_token_budget,
-  confidence = excluded.confidence,
-  feasibility = excluded.feasibility,
-  leverage = excluded.leverage,
-  novelty_score = excluded.novelty_score,
-  signal_speed = excluded.signal_speed,
-  teacher_dependence = excluded.teacher_dependence,
-  machine_target = excluded.machine_target,
-  model = excluded.model,
-  sandbox = excluded.sandbox,
-  selection_rank = excluded.selection_rank,
-  dispatch_priority = excluded.dispatch_priority,
-  source_payload_json = excluded.source_payload_json,
-  updated_at = now();
+on conflict (idea_id) do nothing;
 
 -- Ensure every existing project has a native idea row even when no historical
 -- rich idea payload is available.
