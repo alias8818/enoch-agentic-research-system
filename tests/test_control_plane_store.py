@@ -22,11 +22,34 @@ from enoch_control_plane.control_plane.models import (
 from enoch_control_plane.control_plane.store import (
     ControlPlaneStore,
     _existing_file_snapshot,
+    _require_current_queue_row,
 )
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
 class ControlPlaneStoreTests(unittest.TestCase):
+    def test_require_current_queue_row_raises_runtime_error_not_assertion(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "missing queue row"):
+            _require_current_queue_row(None, context="unit-test")
+
+    def test_late_terminal_success_missing_queue_row_is_runtime_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            with unittest.mock.patch(
+                "enoch_control_plane.control_plane.store._completed_success_queue_row",
+                return_value=True,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "missing queue row"):
+                    store._try_record_late_terminal_success_worker_callback(  # noqa: SLF001 - assert-free invariant test
+                        payload={"event_type": "question_pending"},
+                        current_queue_row=None,
+                        run_id="run-1",
+                        project_id="project-1",
+                        event_type="question_pending",
+                        idempotency_key="late-terminal-success-test",
+                        received_by="unit-test",
+                    )
+
     def test_append_event_idempotency_key_conflicts_on_different_event_identity(
         self,
     ) -> None:

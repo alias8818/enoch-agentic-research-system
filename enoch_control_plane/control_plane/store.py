@@ -273,6 +273,14 @@ def _completed_success_queue_row(row: dict[str, Any] | None, run_id: str) -> boo
     )
 
 
+def _require_current_queue_row(
+    current_queue_row: dict[str, Any] | None, *, context: str
+) -> dict[str, Any]:
+    if current_queue_row is None:
+        raise RuntimeError(f"invariant violated: missing queue row for {context}")
+    return current_queue_row
+
+
 def _worker_callback_payload(callback: Any) -> dict[str, Any]:
     if hasattr(callback, "model_dump"):
         return callback.model_dump(mode="json")
@@ -2999,9 +3007,13 @@ class ControlPlaneStore:
             and event_type not in TERMINAL_SUCCESS_CALLBACK_STATES
         ):
             return None
-        assert current_queue_row is not None
         event_payload = _late_terminal_success_worker_callback_payload(
-            payload, current_queue_row, received_by=received_by
+            payload,
+            _require_current_queue_row(
+                current_queue_row,
+                context="late terminal success worker callback",
+            ),
+            received_by=received_by,
         )
         return self._emit_worker_callback_side_effect(
             idempotency_key=idempotency_key,

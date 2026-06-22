@@ -765,6 +765,37 @@ def test_sync_worker_http_evidence_skips_empty_worker_paths(tmp_path) -> None:
     assert any(item["status"] == "unsafe_path" for item in result["skipped"])
 
 
+def test_apply_worker_evidence_file_skips_missing_resolver_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from enoch_control_plane.control_plane import worker_evidence_sync as sync
+
+    def missing_target(artifact_root: Path, rel: str):  # noqa: ANN202 - test double
+        del artifact_root, rel
+        return None, None
+
+    monkeypatch.setattr(sync, "_resolve_worker_evidence_target", missing_target)
+    written: list[str] = []
+    skipped: list[dict[str, object]] = []
+
+    sync._apply_worker_evidence_file(
+        tmp_path,
+        "run_notes.md",
+        {"path": "run_notes.md", "content": "notes"},
+        written=written,
+        skipped=skipped,
+    )
+
+    assert written == []
+    assert skipped == [
+        {
+            "path": "run_notes.md",
+            "status": "invalid_target",
+            "error": "worker evidence target resolver returned no target",
+        }
+    ]
+
+
 def test_sync_worker_http_evidence_skips_invalid_worker_path_bytes(tmp_path) -> None:
     from enoch_control_plane.control_plane.router import _sync_worker_http_evidence
     from enoch_control_plane.control_plane.worker_adapter import HttpResult

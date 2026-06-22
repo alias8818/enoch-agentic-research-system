@@ -26,6 +26,55 @@ def test_record_project_decision_gate_is_decided_at_guarded() -> None:
     )
 
 
+def test_supabase_late_terminal_success_missing_queue_row_is_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = s.SupabaseControlPlaneStore(
+        "postgres://example", connect=lambda: pytest.fail("should not connect")
+    )
+
+    def completed_success_queue_row(row: dict[str, object] | None, run_id: str) -> bool:
+        del row, run_id
+        return True
+
+    monkeypatch.setattr(s, "_completed_success_queue_row", completed_success_queue_row)
+
+    with pytest.raises(RuntimeError, match="missing queue row"):
+        store._try_record_late_terminal_success_worker_callback(
+            payload={"event_type": "question_pending"},
+            current_queue_row=None,
+            run_id="run-1",
+            project_id="project-1",
+            event_type="question_pending",
+            idempotency_key="supabase-late-terminal-success-test",
+            received_by="unit-test",
+        )
+
+
+def test_supabase_query_retry_exhaustion_raises_original_transient_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TransientDatabaseError(RuntimeError):
+        pass
+
+    attempts = 0
+
+    def connect():  # noqa: ANN202 - test double
+        nonlocal attempts
+        attempts += 1
+        raise TransientDatabaseError("server closed the connection")
+
+    def no_sleep(delay: float) -> None:
+        del delay
+
+    monkeypatch.setattr(s.time, "sleep", no_sleep)
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=connect)
+
+    with pytest.raises(TransientDatabaseError, match="server closed the connection"):
+        store._query("select 1")
+    assert attempts == 3
+
+
 def test_supabase_project_upserts_preserve_existing_origin_status_on_replay() -> None:
     source = inspect.getsource(s.SupabaseControlPlaneStore) + inspect.getsource(
         s._persist_idea_intake_candidate

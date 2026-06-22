@@ -114,6 +114,12 @@ def _prepare_worker_evidence_artifact_root(
     return resolved, None
 
 
+def _require_worker_evidence_artifact_root(artifact_root: Path | None) -> Path:
+    if artifact_root is None:
+        raise RuntimeError("invariant violated: missing prepared artifact root")
+    return artifact_root
+
+
 def _worker_evidence_skip(path: str, status: str | int, error: str) -> dict[str, Any]:
     return {"path": path, "status": status, "error": error[:300]}
 
@@ -179,7 +185,15 @@ def _apply_worker_evidence_file(
     if skip is not None:
         skipped.append(skip)
         return
-    assert target is not None
+    if target is None:
+        skipped.append(
+            _worker_evidence_skip(
+                rel,
+                "invalid_target",
+                "worker evidence target resolver returned no target",
+            )
+        )
+        return
     try:
         _atomic_write_text(target, content)
     except OSError as exc:
@@ -337,7 +351,7 @@ def _sync_worker_http_evidence(
     )
     if artifact_error is not None:
         return artifact_error
-    assert artifact_root is not None
+    artifact_root = _require_worker_evidence_artifact_root(artifact_root)
     # Read each evidence path independently. The GB10 worker read endpoint is
     # intentionally strict and returns a non-2xx response when any requested
     # path is missing. Most projects only have a subset of the optional
