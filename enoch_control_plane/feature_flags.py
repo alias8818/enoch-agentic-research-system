@@ -53,7 +53,10 @@ class FeatureFlagStore:
         flag = self._flags.get(name)
         if flag is None:
             return default
-        return bool(flag.get("enabled", default))
+        enabled = flag.get("enabled")
+        if enabled is None:
+            return default
+        return enabled is True
 
     def set_flag(
         self, name: str, enabled: bool, description: str = ""
