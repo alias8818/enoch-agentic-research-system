@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ from typing import Any
 from urllib import error, request
 
 from .callback_signing import signature_headers
+from .timeutils import parse_utc_datetime
 from .url_safety import urlopen_validated, validate_http_url
 
 
@@ -25,10 +27,52 @@ MAX_ATTEMPTS = 50
 PERMANENT_HTTP_STATUSES = frozenset(
     status for status in range(400, 500) if status not in {401, 403, 408, 425, 429}
 )
+MAX_RETRY_DELAY_SECONDS = 300.0
 
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_utc_datetime(value: object) -> datetime | None:
+    return parse_utc_datetime(value)
+
+
+def _retry_after_seconds(headers: object, *, now: datetime | None = None) -> float | None:
+    get_header = getattr(headers, "get", None)
+    if not callable(get_header):
+        return None
+    raw = get_header("Retry-After")
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        retry_after_seconds = None
+    if retry_after_seconds is not None:
+        return retry_after_seconds
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    return max(0.0, (retry_at.astimezone(timezone.utc) - current).total_seconds())
+
+
+def _retry_delay_seconds(payload: dict[str, Any], result: DeliveryResult) -> float:
+    if result.retry_after_seconds is not None:
+        return min(result.retry_after_seconds, MAX_RETRY_DELAY_SECONDS)
+    attempt_count = max(1, int(payload.get("attempt_count") or 1))
+    base_delay = min(2 ** min(attempt_count - 1, 8), MAX_RETRY_DELAY_SECONDS)
+    run_id = str(payload.get("run_id") or "")
+    jitter_hash = int(hashlib.blake2s(run_id.encode("utf-8"), digest_size=2).hexdigest(), 16)
+    jitter_factor = 0.8 + (jitter_hash % 4001) / 10000
+    return min(base_delay * jitter_factor, MAX_RETRY_DELAY_SECONDS)
 
 
 def outbox_dir(state_dir: str | Path) -> Path:
@@ -111,6 +155,7 @@ def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
     record.setdefault("outbox_created_at", utc_now())
     record.setdefault("attempt_count", 0)
     record.setdefault("last_attempt_at", "")
+    record.setdefault("next_attempt_at", "")
     record.setdefault("last_error", "")
     path = pending_path(state_dir, run_id)
     if path.exists():
@@ -121,6 +166,7 @@ def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
             )
             record["attempt_count"] = int(existing.get("attempt_count") or 0)
             record["last_attempt_at"] = existing.get("last_attempt_at") or ""
+            record["next_attempt_at"] = existing.get("next_attempt_at") or ""
             record["last_error"] = existing.get("last_error") or ""
         except Exception as exc:
             record["last_error"] = (
@@ -171,6 +217,7 @@ class DeliveryResult:
     status_code: int | None = None
     detail: str = ""
     path: str = ""
+    retry_after_seconds: float | None = None
 
 
 def _dead_letter_pending(
@@ -228,7 +275,12 @@ def deliver_payload(
             )
     except error.HTTPError as exc:
         body = exc.read(4096).decode("utf-8", errors="replace")
-        return DeliveryResult(ok=False, status_code=exc.code, detail=body)
+        return DeliveryResult(
+            ok=False,
+            status_code=exc.code,
+            detail=body,
+            retry_after_seconds=_retry_after_seconds(exc.headers),
+        )
     except Exception as exc:
         return DeliveryResult(ok=False, detail=f"{type(exc).__name__}: {exc}")
 
@@ -282,6 +334,7 @@ def deliver_pending_file(
     if result.ok:
         payload["delivered_at"] = utc_now()
         payload["last_error"] = ""
+        payload["next_attempt_at"] = ""
         dest = delivered_dir(state_dir) / pending.name
         _atomic_write_json(dest, payload)
         try:
@@ -323,12 +376,17 @@ def deliver_pending_file(
             reason="max_attempts",
             result=result,
         )
+    retry_delay_seconds = _retry_delay_seconds(payload, result)
+    payload["next_attempt_at"] = (
+        datetime.now(timezone.utc) + timedelta(seconds=retry_delay_seconds)
+    ).isoformat().replace("+00:00", "Z")
     _atomic_write_json(pending, payload)
     return DeliveryResult(
         ok=False,
         status_code=result.status_code,
         detail=result.detail,
         path=str(pending),
+        retry_after_seconds=result.retry_after_seconds,
     )
 
 
@@ -347,8 +405,20 @@ def replay_pending(
         outbox_dir(state_dir).glob("*.json"), key=lambda p: p.stat().st_mtime
     )[: max(0, limit)]
     results: list[DeliveryResult] = []
+    now = datetime.now(timezone.utc)
     for path in pending:
         try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            next_attempt_at = _parse_utc_datetime(payload.get("next_attempt_at"))
+            if next_attempt_at is not None and next_attempt_at > now:
+                results.append(
+                    DeliveryResult(
+                        ok=False,
+                        detail=f"retry delayed until {payload.get('next_attempt_at')}",
+                        path=str(path),
+                    )
+                )
+                continue
             results.append(
                 deliver_pending_file(
                     path,

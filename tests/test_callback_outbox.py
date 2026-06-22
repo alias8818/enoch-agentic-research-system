@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import io
 import json
+from datetime import datetime, timedelta, timezone
+from email.message import Message
 from pathlib import Path
+from typing import Any
 from urllib import error
 
 from enoch_control_plane import callback_outbox
@@ -119,6 +122,57 @@ def test_failed_delivery_keeps_pending_record(monkeypatch, tmp_path: Path) -> No
     )
     assert data["attempt_count"] == 1
     assert "TimeoutError" in data["last_error"]
+    assert data["next_attempt_at"]
+
+
+def test_rate_limited_delivery_records_retry_after_and_replay_skips_until_due(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    state = tmp_path / "state"
+    callback_outbox.write_pending(state, _payload())
+
+    def rate_limited(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        headers = Message()
+        headers["Retry-After"] = "60"
+        raise error.HTTPError(
+            "http://93.184.216.34/callback",
+            429,
+            "rate limited",
+            headers,
+            io.BytesIO(b"slow down"),
+        )
+
+    monkeypatch.setattr(callback_outbox, "urlopen_validated", rate_limited)
+    result = callback_outbox.deliver_pending_file(
+        callback_outbox.pending_path(state, "run-1"),
+        state_dir=state,
+        url="http://93.184.216.34/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert not result.ok
+    assert result.status_code == 429
+    assert result.retry_after_seconds == 60.0
+    pending = callback_outbox.pending_path(state, "run-1")
+    data = json.loads(pending.read_text(encoding="utf-8"))
+    next_attempt_at = datetime.fromisoformat(
+        data["next_attempt_at"].replace("Z", "+00:00")
+    )
+    assert next_attempt_at > datetime.now(timezone.utc) + timedelta(seconds=30)
+
+    replayed = callback_outbox.replay_pending(
+        state_dir=state,
+        url="http://93.184.216.34/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert len(replayed) == 1
+    assert not replayed[0].ok
+    assert "retry delayed until" in replayed[0].detail
+    assert json.loads(pending.read_text(encoding="utf-8"))["attempt_count"] == 1
 
 
 def test_successful_delivery_moves_to_delivered_and_marks_worker_state(
