@@ -38,7 +38,9 @@ def _parse_utc_datetime(value: object) -> datetime | None:
     return parse_utc_datetime(value)
 
 
-def _retry_after_seconds(headers: object, *, now: datetime | None = None) -> float | None:
+def _retry_after_seconds(
+    headers: object, *, now: datetime | None = None
+) -> float | None:
     get_header = getattr(headers, "get", None)
     if not callable(get_header):
         return None
@@ -70,7 +72,9 @@ def _retry_delay_seconds(payload: dict[str, Any], result: DeliveryResult) -> flo
     attempt_count = max(1, int(payload.get("attempt_count") or 1))
     base_delay = min(2 ** min(attempt_count - 1, 8), MAX_RETRY_DELAY_SECONDS)
     run_id = str(payload.get("run_id") or "")
-    jitter_hash = int(hashlib.blake2s(run_id.encode("utf-8"), digest_size=2).hexdigest(), 16)
+    jitter_hash = int(
+        hashlib.blake2s(run_id.encode("utf-8"), digest_size=2).hexdigest(), 16
+    )
     jitter_factor = 0.8 + (jitter_hash % 4001) / 10000
     return min(base_delay * jitter_factor, MAX_RETRY_DELAY_SECONDS)
 
@@ -378,8 +382,10 @@ def deliver_pending_file(
         )
     retry_delay_seconds = _retry_delay_seconds(payload, result)
     payload["next_attempt_at"] = (
-        datetime.now(timezone.utc) + timedelta(seconds=retry_delay_seconds)
-    ).isoformat().replace("+00:00", "Z")
+        (datetime.now(timezone.utc) + timedelta(seconds=retry_delay_seconds))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     _atomic_write_json(pending, payload)
     return DeliveryResult(
         ok=False,
