@@ -20,13 +20,22 @@ EXCLUDES=(
   --exclude='.omx/*'
   --exclude='.scan-results'
   --exclude='.scan-results/*'
+  --exclude='.codegraph'
+  --exclude='.codegraph/*'
   --exclude='.local'
   --exclude='.local/*'
+  --exclude='__pycache__'
+  --exclude='__pycache__/*'
+  --exclude='*/__pycache__'
+  --exclude='*/__pycache__/*'
   --exclude='private-notes'
   --exclude='private-notes/*'
   --exclude='*.db'
+  --exclude='*.db-*'
   --exclude='*.sqlite'
+  --exclude='*.sqlite-*'
   --exclude='*.sqlite3'
+  --exclude='*.sqlite3-*'
   --exclude='*.log'
   --exclude='.env'
   --exclude='.env.*'
@@ -43,7 +52,7 @@ EXCLUDES=(
 
 tar "${EXCLUDES[@]}" --transform "s#^.#$PREFIX#" -czf "$ARCHIVE_PATH" .
 
-for pattern in '/.git/' '/.venv/' '/.omx/' '/.scan-results/' '/.local/' '/private-notes/' '.db' '.sqlite' '.sqlite3' '.log' '/.env' '/config.json' '/state/' '/logs/' '/secrets/'; do
+for pattern in '/.git/' '/.venv/' '/.omx/' '/.scan-results/' '/.codegraph/' '/.local/' '/__pycache__/' '/private-notes/' '.db' '.db-' '.sqlite' '.sqlite-' '.sqlite3' '.sqlite3-' '.log' '/.env' '/config.json' '/state/' '/logs/' '/secrets/'; do
   if tar -tzf "$ARCHIVE_PATH" | grep -F -- "$pattern" >/dev/null; then
     echo "FAIL archive contains forbidden pattern: $pattern" >&2
     exit 1

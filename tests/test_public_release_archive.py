@@ -33,12 +33,19 @@ def test_public_release_archive_excludes_ignored_secret_state_paths(
             if not directory.exists():
                 directory.mkdir()
                 created_dirs.append(directory)
+        for directory in [ROOT / ".codegraph", ROOT / "__pycache__"]:
+            if not directory.exists():
+                directory.mkdir()
+                created_dirs.append(directory)
 
         payloads = {
             ROOT / "config.json": '{"omx_inbound_bearer_token":"aardvark-secret"}\n',
             ROOT / "secrets" / "aardvark_token.txt": "aardvark-secret\n",
             ROOT / "state" / "aardvark_state.json": '{"token":"aardvark-secret"}\n',
             ROOT / "logs" / "aardvark_events.json": '{"token":"aardvark-secret"}\n',
+            ROOT / ".codegraph" / "codegraph.db-wal": "sqlite wal\n",
+            ROOT / ".codegraph" / "codegraph.db-shm": "sqlite shm\n",
+            ROOT / "__pycache__" / "archive_test.pyc": "bytecode\n",
         }
         for path, content in payloads.items():
             path.write_text(content, encoding="utf-8")
@@ -73,6 +80,15 @@ def test_public_release_archive_excludes_ignored_secret_state_paths(
             assert not any(
                 name.startswith("enoch-agentic-research-system/logs/") for name in names
             )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/.codegraph/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/__pycache__/")
+                for name in names
+            )
+            assert not any(".db-" in name for name in names)
     finally:
         for path in reversed(created_paths):
             path.unlink(missing_ok=True)
