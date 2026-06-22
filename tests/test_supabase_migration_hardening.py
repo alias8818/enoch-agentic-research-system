@@ -84,7 +84,9 @@ def test_latest_research_source_kind_constraint_preserves_prior_values() -> None
     assert "research_synthesis" in values(latest)
 
 
-def test_corpus_import_fingerprint_migration_uses_bounded_backfill_and_concurrent_indexes() -> None:
+def test_corpus_import_fingerprint_migration_uses_bounded_backfill_and_concurrent_indexes() -> (
+    None
+):
     sql = _migration("20260506215306_enoch_corpus_import_ledger_publish_counts.sql")
     normalized = " ".join(sql.lower().split())
 
