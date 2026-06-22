@@ -24,6 +24,7 @@ from typing import Annotated, Any
 from tenacity import RetryError
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import ValidationError
 
 from . import callback_outbox
 from .callbacks import CallbackSender
@@ -183,6 +184,10 @@ _DISPATCH_RESPONSES = _http_responses(
 )
 
 
+class ConfigLoadError(RuntimeError):
+    """Raised when the control-plane config cannot be loaded safely."""
+
+
 def load_config(path: Path | None = None) -> GateConfig:
     env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get(
         "ENOCH_CONTROL_PLANE_CONFIG"
@@ -192,8 +197,11 @@ def load_config(path: Path | None = None) -> GateConfig:
         if env_path
         else (Path(__file__).resolve().parents[1] / "config.example.json")
     )
-    data = json.loads(config_path.read_text())
-    return GateConfig.model_validate(data)
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+        return GateConfig.model_validate(data)
+    except (OSError, json.JSONDecodeError, ValidationError) as exc:
+        raise ConfigLoadError(f"failed to load config {config_path}: {exc}") from exc
 
 
 config = load_config()
