@@ -107,6 +107,17 @@ def test_corpus_import_fingerprint_migration_uses_bounded_backfill_and_concurren
     ) in normalized
 
 
+def test_advisor_hardening_policy_loop_does_not_overwrite_existing_policies() -> None:
+    sql = _migration("20260505234007_enoch_advisor_hardening.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert "drop policy if exists service_role_all" not in normalized
+    assert "from pg_policies policy" in normalized
+    assert "policy.schemaname = 'enoch'" in normalized
+    assert "policy.tablename = pg_tables.tablename" in normalized
+    assert "create policy service_role_all" in normalized
+
+
 def test_followup_branching_migration_uses_safe_locks_and_concurrent_index() -> None:
     sql = _migration("20260507222145_enoch_followup_branching.sql")
     normalized = " ".join(sql.lower().split())

@@ -35,12 +35,14 @@ begin
     select tablename
     from pg_tables
     where schemaname = 'enoch'
+      and not exists (
+        select 1
+        from pg_policies policy
+        where policy.schemaname = 'enoch'
+          and policy.tablename = pg_tables.tablename
+      )
     order by tablename
   loop
-    execute format(
-      'drop policy if exists service_role_all on enoch.%I',
-      table_record.tablename
-    );
     execute format(
       'create policy service_role_all on enoch.%I for all to service_role using (true) with check (true)',
       table_record.tablename
