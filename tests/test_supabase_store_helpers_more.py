@@ -565,9 +565,10 @@ def test_supabase_upsert_paper_rejects_concurrent_identity_rewrite() -> None:
 
     assert "where papers.project_id=excluded.project_id" in cursor.insert_sql
     assert "papers.run_id is not distinct from excluded.run_id" in cursor.insert_sql
-    assert "project_id=excluded.project_id" not in cursor.insert_sql.split(
-        "do update set", 1
-    )[1].split(" where ", 1)[0]
+    assert (
+        "project_id=excluded.project_id"
+        not in cursor.insert_sql.split("do update set", 1)[1].split(" where ", 1)[0]
+    )
 
 
 def test_supabase_upsert_paper_rejects_blank_run_over_existing_paper_run() -> None:

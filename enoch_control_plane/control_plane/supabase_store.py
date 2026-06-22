@@ -5644,9 +5644,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             (paper.paper_id,),
         )
         current = cur.fetchone()
-        current_run_id = (
-            _text(self._row_value(current, "run_id", 1)) if current else ""
-        )
+        current_run_id = _text(self._row_value(current, "run_id", 1)) if current else ""
         if current and (
             self._row_value(current, "project_id", 0) != _text(paper.project_id)
             or (current_run_id and current_run_id != _text(paper.run_id))
