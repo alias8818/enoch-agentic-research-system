@@ -130,12 +130,14 @@ def test_profiling_middleware_samples_and_rate_limits_slow_logs(monkeypatch) -> 
     )
 
     monkeypatch.setattr(
-        "enoch_control_plane.observability.profiling.random.random", lambda: 0.5
+        "enoch_control_plane.observability.profiling._PROFILE_SAMPLER.random",
+        lambda: 0.5,
     )
     assert middleware._should_profile() is False
 
     monkeypatch.setattr(
-        "enoch_control_plane.observability.profiling.random.random", lambda: 0.1
+        "enoch_control_plane.observability.profiling._PROFILE_SAMPLER.random",
+        lambda: 0.1,
     )
     assert middleware._should_profile() is True
     assert middleware._should_log_slow_profile("GET /slow", 100.0) is True

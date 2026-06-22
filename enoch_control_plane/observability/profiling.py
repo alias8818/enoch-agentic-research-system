@@ -4,7 +4,7 @@ import cProfile
 import io
 import logging
 import pstats
-import random
+import secrets
 import time
 from typing import Any, Callable
 
@@ -13,6 +13,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 logger = logging.getLogger("enoch.profiling")
+_PROFILE_SAMPLER = secrets.SystemRandom()
 
 
 class ProfilingMiddleware(BaseHTTPMiddleware):
@@ -43,7 +44,7 @@ class ProfilingMiddleware(BaseHTTPMiddleware):
         return bool(
             self.enabled
             and self.sample_rate > 0.0
-            and random.random() < self.sample_rate
+            and _PROFILE_SAMPLER.random() < self.sample_rate
         )
 
     def _should_log_slow_profile(self, route_key: str, now: float) -> bool:
