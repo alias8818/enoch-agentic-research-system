@@ -38,7 +38,10 @@ def _config(tmp_path) -> GateConfig:
 
 
 def _tar_bytes(
-    entries: dict[str, bytes], *, symlinks: dict[str, str] | None = None
+    entries: dict[str, bytes],
+    *,
+    symlinks: dict[str, str] | None = None,
+    hardlinks: dict[str, str] | None = None,
 ) -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as tf:
@@ -49,6 +52,11 @@ def _tar_bytes(
         for name, target in (symlinks or {}).items():
             info = tarfile.TarInfo(name)
             info.type = tarfile.SYMTYPE
+            info.linkname = target
+            tf.addfile(info)
+        for name, target in (hardlinks or {}).items():
+            info = tarfile.TarInfo(name)
+            info.type = tarfile.LNKTYPE
             info.linkname = target
             tf.addfile(info)
     return buffer.getvalue()
@@ -83,6 +91,30 @@ def test_safe_tar_extract_rejects_traversal_and_symlinks(tmp_path) -> None:
     assert not outside.exists()
     assert any(item["status"] == "unsafe_path" for item in result["skipped"])
     assert any(item["status"] == "unsupported_member" for item in result["skipped"])
+
+
+def test_safe_tar_extract_python311_fallback_rejects_links(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    artifact_root = tmp_path / "artifact"
+    outside = tmp_path / "outside.txt"
+    payload = _tar_bytes(
+        {"run_notes.md": b"safe notes"},
+        symlinks={"nested/link.txt": "../outside.txt"},
+        hardlinks={"nested/hardlink.txt": "run_notes.md"},
+    )
+
+    monkeypatch.delattr(tarfile, "data_filter", raising=False)
+
+    result = _extract_safe_tar_bytes(payload, artifact_root)
+
+    assert result["ok"] is True
+    assert (artifact_root / "run_notes.md").read_text(encoding="utf-8") == "safe notes"
+    assert not outside.exists()
+    assert not (artifact_root / "nested" / "link.txt").exists()
+    assert not (artifact_root / "nested" / "hardlink.txt").exists()
+    assert len(result["skipped"]) == 2
+    assert all(item["status"] == "unsafe_path" for item in result["skipped"])
 
 
 def test_remote_evidence_dir_uses_relative_project_dir_over_project_id(

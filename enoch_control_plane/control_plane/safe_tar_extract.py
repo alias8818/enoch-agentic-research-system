@@ -59,13 +59,30 @@ def _append_tar_skip(
     skipped.append({"path": path, "status": status, "error": error})
 
 
+def _fallback_filter_tar_member(
+    member: tarfile.TarInfo, artifact_root: Path
+) -> tarfile.TarInfo | None:
+    """Reject unsafe tar members when PEP 706 data_filter is unavailable.
+
+    The project supports Python 3.11, where ``tarfile.data_filter`` is not
+    guaranteed to exist.  Keep the Python 3.11 path independently safe instead
+    of returning unfiltered members and relying on later extraction code to
+    catch links or special files.
+    """
+    if _safe_tar_target(artifact_root, member.name) is None:
+        return None
+    if member.isdir() or member.isfile():
+        return member
+    return None
+
+
 def _filter_tar_member(
     member: tarfile.TarInfo, artifact_root: Path
 ) -> tarfile.TarInfo | None:
-    """Apply PEP 706 data filter when available (Python 3.12+)."""
+    """Apply PEP 706 data filter when available, with a safe Python 3.11 fallback."""
     data_filter = getattr(tarfile, "data_filter", None)
     if data_filter is None:
-        return member
+        return _fallback_filter_tar_member(member, artifact_root)
     try:
         return data_filter(member, str(artifact_root))
     except tarfile.FilterError:

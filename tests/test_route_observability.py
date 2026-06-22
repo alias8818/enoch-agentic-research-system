@@ -103,6 +103,24 @@ def test_redact_observation_recurses_into_nested_headers_and_text() -> None:
     assert redacted["safe"] == "value"
 
 
+def test_redact_observation_redacts_api_key_name_variants() -> None:
+    payload = {
+        "api_key": "underscore-secret",
+        "api-key": "hyphen-secret",
+        "api.key": "dot-secret",
+        "apikey": "compact-secret",
+    }
+
+    redacted = _redact_observation(payload)
+    serialized = json.dumps(redacted, sort_keys=True)
+
+    assert "underscore-secret" not in serialized
+    assert "hyphen-secret" not in serialized
+    assert "dot-secret" not in serialized
+    assert "compact-secret" not in serialized
+    assert set(redacted.values()) == {"[REDACTED]"}
+
+
 def test_profiling_middleware_samples_and_rate_limits_slow_logs(monkeypatch) -> None:
     middleware = ProfilingMiddleware(
         app=FastAPI(),
