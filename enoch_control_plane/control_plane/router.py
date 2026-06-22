@@ -4011,12 +4011,25 @@ def _provider_generation_topic(
     ).strip()
 
 
+def _provider_generation_exception_status_code(exc: BaseException) -> int:
+    for attr in ("status_code", "status", "code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+    response = getattr(exc, "response", None)
+    value = getattr(response, "status_code", None)
+    if isinstance(value, int):
+        return value
+    return 0
+
+
 def _provider_generation_failure_kind(exc: Exception) -> str:
+    status_code = _provider_generation_exception_status_code(exc)
+    if status_code == 429:
+        return "rate_limited"
     text = f"{type(exc).__name__}: {exc}".lower()
     if isinstance(exc, TimeoutError) or "timeout" in text or "timed out" in text:
         return "timeout"
-    if "429" in text or "rate limit" in text or "rate_limited" in text:
-        return "rate_limited"
     return "exception"
 
 

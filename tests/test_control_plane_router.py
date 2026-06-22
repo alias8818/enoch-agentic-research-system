@@ -18500,6 +18500,9 @@ def test_provider_generation_records_rate_limit_attempt_event():
         def record_research_facility_plans(self, *_args, **_kwargs) -> dict[str, int]:
             return {}
 
+    class RateLimitError(RuntimeError):
+        status_code = 429
+
     store = _Store()
     params = _ProviderGenerationParams(
         max_provider_requests=1,
@@ -18522,7 +18525,7 @@ def test_provider_generation_records_rate_limit_attempt_event():
         namespace_cls=SimpleNamespace,
         research_provider_generate=SimpleNamespace(
             generate_provider_candidates=lambda **_kwargs: (_ for _ in ()).throw(
-                RuntimeError("provider returned HTTP 429")
+                RateLimitError("provider returned status 429")
             )
         ),
         research_facility=SimpleNamespace(plan_candidates=lambda *_args: []),
@@ -18543,6 +18546,14 @@ def test_provider_generation_records_rate_limit_attempt_event():
     assert payload["failure_kind"] == "rate_limited"
     assert payload["provider_model"] == "gpt-5.5"
     assert payload["lane_key"] == "http://cpu-worker:8787"
+
+
+def test_provider_generation_does_not_substring_match_rate_limit_text():
+    from enoch_control_plane.control_plane.router import _provider_generation_failure_kind
+
+    exc = RuntimeError("generated prompt included phrase: rate limit")
+
+    assert _provider_generation_failure_kind(exc) == "exception"
 
 
 def test_provider_generation_records_timeout_attempt_event():
