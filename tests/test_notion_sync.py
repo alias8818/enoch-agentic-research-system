@@ -16,12 +16,27 @@ from enoch_control_plane.control_plane.notion_sync import (
     query_notion_database,
     run_sync,
     main,
+    _http_retry_delay_seconds,
     _json_request,
 )
 
 
 def json_dumps(value: object) -> str:
     return json.dumps(value)
+
+
+def test_malformed_retry_after_date_uses_exponential_backoff() -> None:
+    headers = Message()
+    headers["Retry-After"] = "Fri, 31 Dec 999999999999999999999 23:59:59 GMT"
+    exc = error.HTTPError(
+        "https://api.notion.com/v1/data_sources/ds/query",
+        429,
+        "rate limited",
+        headers,
+        io.BytesIO(b"slow down"),
+    )
+
+    assert _http_retry_delay_seconds(exc, attempt=3) == 4
 
 
 class FakeTransport:

@@ -181,12 +181,17 @@ class OperatorTrace:
         lock_path = self.path.with_name(self.path.name + ".lock")
         try:
             lock_path.parent.mkdir(parents=True, exist_ok=True)
-            lock_handle = lock_path.open("a", encoding="utf-8")
+            lock_fd = os.open(lock_path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+            os.fchmod(lock_fd, 0o600)
+            lock_handle = os.fdopen(lock_fd, "a", encoding="utf-8")
         except OSError:
             yield
             return
         with lock_handle:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise
             try:
                 yield
             finally:

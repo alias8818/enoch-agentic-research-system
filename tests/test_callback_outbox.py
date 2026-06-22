@@ -61,6 +61,22 @@ def test_write_pending_records_corrupt_existing_metadata(tmp_path: Path) -> None
     assert "existing pending metadata unreadable" in data["last_error"]
 
 
+@pytest.mark.parametrize("bad_json", ["[]", "null"])
+def test_write_pending_recovers_non_object_existing_metadata(
+    tmp_path: Path, bad_json: str
+) -> None:
+    state = tmp_path / "state"
+    path = callback_outbox.write_pending(state, _payload())
+    path.write_text(bad_json, encoding="utf-8")
+
+    path = callback_outbox.write_pending(state, _payload())
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert data["attempt_count"] == 0
+    assert "existing pending metadata unreadable" in data["last_error"]
+    assert "JSON object" in data["last_error"]
+
+
 def test_write_pending_propagates_fatal_existing_metadata_errors(
     monkeypatch: Any, tmp_path: Path
 ) -> None:
@@ -220,6 +236,43 @@ def test_rate_limited_delivery_records_retry_after_and_replay_skips_until_due(
     assert json.loads(pending.read_text(encoding="utf-8"))["attempt_count"] == 1
 
 
+def test_malformed_retry_after_date_falls_back_to_exponential_retry(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    state = tmp_path / "state"
+    callback_outbox.write_pending(state, _payload())
+
+    def malformed_retry_after(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        headers = Message()
+        headers["Retry-After"] = "Fri, 31 Dec 999999999999999999999 23:59:59 GMT"
+        raise error.HTTPError(
+            "http://93.184.216.34/callback",
+            429,
+            "rate limited",
+            headers,
+            io.BytesIO(b"slow down"),
+        )
+
+    monkeypatch.setattr(callback_outbox, "urlopen_validated", malformed_retry_after)
+
+    result = callback_outbox.deliver_pending_file(
+        callback_outbox.pending_path(state, "run-1"),
+        state_dir=state,
+        url="http://93.184.216.34/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert not result.ok
+    assert result.status_code == 429
+    assert result.retry_after_seconds is None
+    pending = callback_outbox.pending_path(state, "run-1")
+    data = json.loads(pending.read_text(encoding="utf-8"))
+    assert data["attempt_count"] == 1
+    assert data["next_attempt_at"]
+
+
 def test_successful_delivery_moves_to_delivered_and_marks_worker_state(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -262,6 +315,33 @@ def test_successful_delivery_moves_to_delivered_and_marks_worker_state(
     worker_state = json.loads((run_dir / "run-1.json").read_text(encoding="utf-8"))
     assert worker_state["gate_state"] == "wake_ready"
     assert worker_state["last_idempotency_key"] == "run-1:wake_ready:codex-runner:done"
+
+
+def test_replay_recovers_orphaned_claimed_callback(monkeypatch: Any, tmp_path: Path) -> None:
+    state = tmp_path / "state"
+    pending = callback_outbox.write_pending(state, _payload())
+    claimed = pending.with_name(f"{pending.name}.claimed")
+    pending.rename(claimed)
+
+    def deliver_ok(
+        payload: dict[str, Any], **kwargs: Any
+    ) -> callback_outbox.DeliveryResult:
+        del payload, kwargs
+        return callback_outbox.DeliveryResult(ok=True, status_code=204, detail="ok")
+
+    monkeypatch.setattr(callback_outbox, "deliver_payload", deliver_ok)
+
+    results = callback_outbox.replay_pending(
+        state_dir=state,
+        url="http://93.184.216.34/callback",
+        token="token",
+        timeout=1,
+    )
+
+    assert len(results) == 1
+    assert results[0].ok
+    assert not claimed.exists()
+    assert (state / callback_outbox.DELIVERED_DIRNAME / "run-1.json").exists()
 
 
 def test_deliver_pending_file_claims_before_delivery(monkeypatch: Any, tmp_path: Path) -> None:

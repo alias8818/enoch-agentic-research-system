@@ -80,7 +80,7 @@ def _retry_after_seconds(
         return retry_after_seconds
     try:
         retry_at = parsedate_to_datetime(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if retry_at.tzinfo is None:
         retry_at = retry_at.replace(tzinfo=timezone.utc)

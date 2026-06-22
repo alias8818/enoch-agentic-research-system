@@ -27,7 +27,7 @@ _SECRET_HEADER_KEYS = {
     "x-api-key",
 }
 _SECRET_VALUE_RE = re.compile(
-    r"(?i)\b(apikey|api[_-]?key|access[_-]?token|jwt|token|secret|password)"
+    r"(?i)\b(apikey|api[._\s-]?key|access[._\s-]?token|auth|authorization|bearer|jwt|key|token|secret|password)"
     r"\s*[:=]\s*"
     r"([^\s,;&\"'{}\[\]<>]+)"
 )

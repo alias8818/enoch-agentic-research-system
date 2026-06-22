@@ -95,9 +95,31 @@ def test_operator_trace_serializes_and_fsyncs_writes(
 
     assert "trace-fsync" in path.read_text(encoding="utf-8")
     assert (tmp_path / "operator_trace.jsonl.lock").exists()
-    assert fcntl.LOCK_EX in locks
+    assert any(operation & fcntl.LOCK_EX for operation in locks)
+    assert any(operation & fcntl.LOCK_NB for operation in locks)
     assert fcntl.LOCK_UN in locks
     assert len(fsynced) >= 2
+
+
+def test_operator_trace_skips_write_when_lock_is_busy(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    from enoch_control_plane import operational_trace
+
+    path = tmp_path / "operator_trace.jsonl"
+
+    def busy_flock(fd: int, operation: int) -> None:
+        del fd
+        if operation & fcntl.LOCK_EX:
+            raise BlockingIOError("lock busy")
+
+    monkeypatch.setattr(operational_trace.fcntl, "flock", busy_flock)
+
+    trace = OperatorTrace(enabled=True, path=path, max_payload_bytes=1024)
+    trace.record("research.run_cycle.start", trace_id="trace-busy")
+
+    assert not path.exists()
+    assert (tmp_path / "operator_trace.jsonl.lock").exists()
 
 
 def test_summarize_lane_snapshot_keeps_operator_relevant_fields_only() -> None:

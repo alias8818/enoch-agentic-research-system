@@ -58,7 +58,7 @@ def _retry_after_seconds(
         return retry_after_seconds
     try:
         retry_at = parsedate_to_datetime(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     if retry_at.tzinfo is None:
         retry_at = retry_at.replace(tzinfo=timezone.utc)
@@ -171,6 +171,8 @@ def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
     if path.exists():
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                raise TypeError("existing pending metadata must be a JSON object")
             record["outbox_created_at"] = (
                 existing.get("outbox_created_at") or record["outbox_created_at"]
             )
@@ -326,25 +328,31 @@ def deliver_pending_file(
             detail="pending callback path is outside callback outbox",
             path=str(pending),
         )
-    claimed = pending.with_name(f"{pending.name}.claimed")
-    try:
-        pending.rename(claimed)
-        _fsync_dir(pending.parent)
-    except FileNotFoundError:
-        return DeliveryResult(
-            ok=False,
-            detail="pending callback already claimed or missing",
-            path=str(pending),
-        )
-    except OSError as exc:
-        return DeliveryResult(
-            ok=False,
-            detail=f"pending callback claim failed: {type(exc).__name__}: {exc}",
-            path=str(pending),
-        )
+    if pending.name.endswith(".json.claimed"):
+        claimed = pending
+        pending = pending.with_name(pending.name.removesuffix(".claimed"))
+    else:
+        claimed = pending.with_name(f"{pending.name}.claimed")
+        try:
+            pending.rename(claimed)
+            _fsync_dir(pending.parent)
+        except FileNotFoundError:
+            return DeliveryResult(
+                ok=False,
+                detail="pending callback already claimed or missing",
+                path=str(pending),
+            )
+        except OSError as exc:
+            return DeliveryResult(
+                ok=False,
+                detail=f"pending callback claim failed: {type(exc).__name__}: {exc}",
+                path=str(pending),
+            )
     try:
         payload = json.loads(claimed.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        if not isinstance(payload, dict):
+            raise TypeError("pending callback payload must be a JSON object")
+    except (OSError, json.JSONDecodeError, TypeError) as exc:
         try:
             claimed.rename(pending)
             _fsync_dir(pending.parent)
@@ -439,7 +447,11 @@ def replay_pending(
     if not url or not token:
         return []
     pending = sorted(
-        outbox_dir(state_dir).glob("*.json"), key=lambda p: p.stat().st_mtime
+        [
+            *outbox_dir(state_dir).glob("*.json"),
+            *outbox_dir(state_dir).glob("*.json.claimed"),
+        ],
+        key=lambda p: p.stat().st_mtime,
     )[: max(0, limit)]
     results: list[DeliveryResult] = []
     now = datetime.now(timezone.utc)
