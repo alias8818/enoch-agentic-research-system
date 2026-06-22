@@ -3,20 +3,119 @@
 -- work unless the follow-up run independently produces a positive decision.
 
 begin;
+set local statement_timeout = '60s';
+set local lock_timeout = '5s';
 
 alter table enoch.project_decisions
-  add column if not exists followup_recommended boolean not null default false,
-  add column if not exists followup_type text not null default '' check (followup_type in ('', 'deepen', 'branch', 'retry')),
-  add column if not exists followup_title text not null default '',
-  add column if not exists followup_hypothesis text not null default '',
-  add column if not exists followup_required_evidence jsonb not null default '[]'::jsonb,
-  add column if not exists followup_success_threshold text not null default '',
-  add column if not exists followup_stop_condition text not null default '',
-  add column if not exists followup_depth integer not null default 0 check (followup_depth >= 0);
+  add column if not exists followup_recommended boolean default false,
+  add column if not exists followup_type text default '',
+  add column if not exists followup_title text default '',
+  add column if not exists followup_hypothesis text default '',
+  add column if not exists followup_required_evidence jsonb default '[]'::jsonb,
+  add column if not exists followup_success_threshold text default '',
+  add column if not exists followup_stop_condition text default '',
+  add column if not exists followup_depth integer default 0;
 
-create index if not exists idx_project_decisions_followup
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_decisions_followup_recommended_not_null'
+  ) then
+    alter table enoch.project_decisions
+      add constraint project_decisions_followup_recommended_not_null
+      check (followup_recommended is not null) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_decisions_followup_type_check'
+  ) then
+    alter table enoch.project_decisions
+      add constraint project_decisions_followup_type_check
+      check (followup_type in ('', 'deepen', 'branch', 'retry')) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_decisions_followup_title_not_null'
+  ) then
+    alter table enoch.project_decisions
+      add constraint project_decisions_followup_title_not_null
+      check (followup_title is not null) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_decisions_followup_hypothesis_not_null'
+  ) then
+    alter table enoch.project_decisions
+      add constraint project_decisions_followup_hypothesis_not_null
+      check (followup_hypothesis is not null) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_decisions_followup_required_evidence_not_null'
+  ) then
+    alter table enoch.project_decisions
+      add constraint project_decisions_followup_required_evidence_not_null
+      check (followup_required_evidence is not null) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_decisions_followup_success_threshold_not_null'
+  ) then
+    alter table enoch.project_decisions
+      add constraint project_decisions_followup_success_threshold_not_null
+      check (followup_success_threshold is not null) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_decisions_followup_stop_condition_not_null'
+  ) then
+    alter table enoch.project_decisions
+      add constraint project_decisions_followup_stop_condition_not_null
+      check (followup_stop_condition is not null) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint where conname = 'project_decisions_followup_depth_check'
+  ) then
+    alter table enoch.project_decisions
+      add constraint project_decisions_followup_depth_check
+      check (followup_depth is not null and followup_depth >= 0) not valid;
+  end if;
+end $$;
+
+alter table enoch.project_decisions
+  validate constraint project_decisions_followup_recommended_not_null,
+  validate constraint project_decisions_followup_type_check,
+  validate constraint project_decisions_followup_title_not_null,
+  validate constraint project_decisions_followup_hypothesis_not_null,
+  validate constraint project_decisions_followup_required_evidence_not_null,
+  validate constraint project_decisions_followup_success_threshold_not_null,
+  validate constraint project_decisions_followup_stop_condition_not_null,
+  validate constraint project_decisions_followup_depth_check,
+  alter column followup_recommended set not null,
+  alter column followup_type set not null,
+  alter column followup_title set not null,
+  alter column followup_hypothesis set not null,
+  alter column followup_required_evidence set not null,
+  alter column followup_success_threshold set not null,
+  alter column followup_stop_condition set not null,
+  alter column followup_depth set not null;
+
+commit;
+
+set statement_timeout = '60s';
+set lock_timeout = '5s';
+
+create index concurrently if not exists idx_project_decisions_followup
   on enoch.project_decisions(project_id, followup_recommended, followup_depth, decided_at desc)
   where followup_recommended;
+
+reset lock_timeout;
+reset statement_timeout;
+
+begin;
+set local statement_timeout = '60s';
+set local lock_timeout = '5s';
 
 create or replace view enoch.paper_eligibility
 with (security_invoker = true) as

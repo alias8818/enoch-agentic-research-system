@@ -82,3 +82,41 @@ def test_latest_research_source_kind_constraint_preserves_prior_values() -> None
     assert values(initial) <= values(latest)
     assert values(followup) <= values(latest)
     assert "research_synthesis" in values(latest)
+
+
+def test_corpus_import_fingerprint_migration_uses_bounded_backfill_and_concurrent_indexes() -> None:
+    sql = _migration("20260506215306_enoch_corpus_import_ledger_publish_counts.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert "set local statement_timeout = '60s'" in normalized
+    assert "set local lock_timeout = '5s'" in normalized
+    assert "limit 1000" in normalized
+    assert "get diagnostics rows_updated = row_count" in normalized
+    assert "raise exception" in normalized
+    assert "paper_id ||" in normalized
+    assert "|| corpus_repo" in normalized
+    assert "digest(paper_id, 'sha256')" not in normalized
+    assert (
+        "create unique index concurrently if not exists "
+        "idx_corpus_imports_source_fingerprint"
+    ) in normalized
+    assert (
+        "create index concurrently if not exists idx_corpus_imports_hf_dataset_synced"
+    ) in normalized
+
+
+def test_followup_branching_migration_uses_safe_locks_and_concurrent_index() -> None:
+    sql = _migration("20260507222145_enoch_followup_branching.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert "set local statement_timeout = '60s'" in normalized
+    assert "set local lock_timeout = '5s'" in normalized
+    assert "add column if not exists followup_type text default ''" in normalized
+    assert "followup_type text not null default" not in normalized
+    assert "add constraint project_decisions_followup_type_check" in normalized
+    assert "not valid" in normalized
+    assert "validate constraint project_decisions_followup_type_check" in normalized
+    assert (
+        "commit; set statement_timeout = '60s'; set lock_timeout = '5s'; "
+        "create index concurrently if not exists idx_project_decisions_followup"
+    ) in normalized
