@@ -35,7 +35,9 @@ Clock = Callable[[], float]
 
 
 class _RequestRateLimiter:
-    def __init__(self, min_interval_sec: float, *, sleep: Sleeper, clock: Clock) -> None:
+    def __init__(
+        self, min_interval_sec: float, *, sleep: Sleeper, clock: Clock
+    ) -> None:
         self._min_interval_sec = max(0.0, min_interval_sec)
         self._sleep = sleep
         self._clock = clock
@@ -61,7 +63,9 @@ def _is_non_retryable_http_error(
     return not retryable or attempt >= max_attempts
 
 
-def _retry_after_seconds(exc: error.HTTPError, *, now: float | None = None) -> float | None:
+def _retry_after_seconds(
+    exc: error.HTTPError, *, now: float | None = None
+) -> float | None:
     raw = exc.headers.get("Retry-After") if exc.headers else None
     if raw is None:
         return None

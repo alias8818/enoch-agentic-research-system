@@ -358,7 +358,9 @@ class NotionSyncTests(unittest.TestCase):
         self.assertFalse(result[0]["ok"])
         self.assertEqual(result[0]["reason"], "page property probe failed")
 
-    def test_apply_execution_updates_rate_limits_and_caches_property_probes(self) -> None:
+    def test_apply_execution_updates_rate_limits_and_caches_property_probes(
+        self,
+    ) -> None:
         calls: list[tuple[str, str]] = []
 
         def transport(
