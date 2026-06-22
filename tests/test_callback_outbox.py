@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib import error
 
+import pytest
+
 from enoch_control_plane import callback_outbox
 
 
@@ -57,6 +59,49 @@ def test_write_pending_records_corrupt_existing_metadata(tmp_path: Path) -> None
 
     assert data["attempt_count"] == 0
     assert "existing pending metadata unreadable" in data["last_error"]
+
+
+def test_write_pending_propagates_fatal_existing_metadata_errors(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    state = tmp_path / "state"
+    pending = callback_outbox.write_pending(state, _payload())
+    original_read_text = Path.read_text
+
+    def fatal_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self == pending:
+            raise MemoryError("deeply nested callback metadata")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fatal_read_text)
+
+    with pytest.raises(MemoryError, match="deeply nested callback metadata"):
+        callback_outbox.write_pending(state, _payload())
+
+
+def test_write_pending_sanitizes_existing_metadata_error(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    state = tmp_path / "state"
+    pending = callback_outbox.write_pending(state, _payload())
+    original_read_text = Path.read_text
+    fail_once = True
+
+    def noisy_read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        nonlocal fail_once
+        if self == pending and fail_once:
+            fail_once = False
+            raise OSError("bad\n\x1b[31m" + "x" * 300)
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", noisy_read_text)
+
+    path = callback_outbox.write_pending(state, _payload())
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert "\n" not in data["last_error"]
+    assert "\x1b" not in data["last_error"]
+    assert len(data["last_error"]) <= 200
 
 
 def test_write_pending_updates_local_worker_state_for_terminal_gate_error(

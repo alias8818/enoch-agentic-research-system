@@ -79,6 +79,12 @@ def _retry_delay_seconds(payload: dict[str, Any], result: DeliveryResult) -> flo
     return min(base_delay * jitter_factor, MAX_RETRY_DELAY_SECONDS)
 
 
+def _metadata_error_detail(exc: Exception) -> str:
+    detail = f"existing pending metadata unreadable: {type(exc).__name__}: {exc}"
+    sanitized = "".join(ch if ch.isprintable() else " " for ch in detail)
+    return " ".join(sanitized.split())[:200]
+
+
 def outbox_dir(state_dir: str | Path) -> Path:
     path = Path(state_dir).expanduser() / OUTBOX_DIRNAME
     path.mkdir(parents=True, exist_ok=True)
@@ -172,10 +178,8 @@ def write_pending(state_dir: str | Path, payload: dict[str, Any]) -> Path:
             record["last_attempt_at"] = existing.get("last_attempt_at") or ""
             record["next_attempt_at"] = existing.get("next_attempt_at") or ""
             record["last_error"] = existing.get("last_error") or ""
-        except Exception as exc:
-            record["last_error"] = (
-                f"existing pending metadata unreadable: {type(exc).__name__}: {exc}"
-            )
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            record["last_error"] = _metadata_error_detail(exc)
     _atomic_write_json(path, record)
     _update_local_worker_state(state_dir, record)
     return path
