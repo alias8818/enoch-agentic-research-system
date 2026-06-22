@@ -1430,13 +1430,48 @@ def _checklist_progress(checklist: dict[str, Any]) -> dict[str, int]:
     )
 
 
-def _audit_rows(source_audit_path: str) -> dict[str, dict[str, Any]]:
+def _path_has_symlink_component(path: Path, *, root: Path) -> bool:
+    try:
+        relative_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    current = root
+    for part in relative_parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
+def _safe_audit_source_path(source_audit_path: str, *, root: Path) -> Path | None:
     if not source_audit_path:
-        return {}
+        return None
+    raw_path = Path(source_audit_path)
+    if ".." in raw_path.parts:
+        return None
     path = _expanduser_or_none(source_audit_path)
     if path is None:
-        return {}
-    if not path.exists():
+        return None
+    root = root.expanduser().resolve()
+    candidate = path if path.is_absolute() else root / path
+    if not candidate.exists():
+        return None
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        return None
+    if _path_has_symlink_component(candidate.absolute(), root=root):
+        return None
+    return resolved
+
+
+def _audit_rows(source_audit_path: str, *, root: Path) -> dict[str, dict[str, Any]]:
+    path = _safe_audit_source_path(source_audit_path, root=root)
+    if path is None:
         return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -2786,7 +2821,9 @@ class ControlPlaneStore:
     def backfill_paper_reviews(
         self, request: PaperReviewBackfillRequest
     ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
-        audit_by_paper = _audit_rows(request.source_audit_path)
+        audit_by_paper = _audit_rows(
+            request.source_audit_path, root=self.path.parent
+        )
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
         for paper in self._papers_for_review_backfill(request):

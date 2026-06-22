@@ -3561,7 +3561,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
     def backfill_paper_reviews(
         self, request: PaperReviewBackfillRequest
     ) -> tuple[bool, int, int, int, list[dict[str, Any]]]:
-        audit_by_paper = _audit_rows(request.source_audit_path)
+        audit_by_paper = _audit_rows(
+            request.source_audit_path, root=_default_supabase_finalization_root()
+        )
         papers = self._papers_for_review_backfill(request)
         candidates, errors = self._paper_review_backfill_candidates(
             papers,

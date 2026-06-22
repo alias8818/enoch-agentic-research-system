@@ -21,6 +21,7 @@ from enoch_control_plane.control_plane.models import (
 )
 from enoch_control_plane.control_plane.store import (
     ControlPlaneStore,
+    _audit_rows,
     _existing_file_snapshot,
     _require_current_queue_row,
 )
@@ -49,6 +50,46 @@ class ControlPlaneStoreTests(unittest.TestCase):
                         idempotency_key="late-terminal-success-test",
                         received_by="unit-test",
                     )
+
+    def test_audit_rows_rejects_paths_outside_allowed_root(self) -> None:
+        with tempfile.TemporaryDirectory() as root_tmp:
+            with tempfile.TemporaryDirectory() as outside_tmp:
+                root = Path(root_tmp)
+                outside = Path(outside_tmp) / "audit.json"
+                outside.write_text(
+                    '{"papers":[{"paper_id":"p1","ready":true}]}',
+                    encoding="utf-8",
+                )
+
+                self.assertEqual(_audit_rows(str(outside), root=root), {})
+
+    def test_audit_rows_rejects_symlink_escape_inside_allowed_root(self) -> None:
+        with tempfile.TemporaryDirectory() as root_tmp:
+            with tempfile.TemporaryDirectory() as outside_tmp:
+                root = Path(root_tmp)
+                outside = Path(outside_tmp) / "audit.json"
+                outside.write_text(
+                    '{"papers":[{"paper_id":"p1","ready":true}]}',
+                    encoding="utf-8",
+                )
+                link = root / "audit-link.json"
+                link.symlink_to(outside)
+
+                self.assertEqual(_audit_rows(str(link), root=root), {})
+
+    def test_audit_rows_accepts_relative_path_under_allowed_root(self) -> None:
+        with tempfile.TemporaryDirectory() as root_tmp:
+            root = Path(root_tmp)
+            audit = root / "audit.json"
+            audit.write_text(
+                '{"papers":[{"paper_id":"p1","ready":true}]}',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(
+                _audit_rows("audit.json", root=root),
+                {"p1": {"paper_id": "p1", "ready": True}},
+            )
 
     def test_append_event_idempotency_key_conflicts_on_different_event_identity(
         self,
