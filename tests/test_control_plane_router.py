@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from enoch_control_plane.config import GateConfig
+from enoch_control_plane.control_plane import router as control_plane_router
 from enoch_control_plane.control_plane.router import (
     MAINTENANCE_AUTOMATION_TIMERS,
     MAINTENANCE_RESUME_TIMERS,
@@ -2335,6 +2336,37 @@ class ControlPlaneRouterTests(unittest.TestCase):
                     f"/control/dashboard-v2/assets/{path}", headers=headers
                 )
                 self.assertEqual(response.status_code, 404)
+
+    def test_control_dashboard_v2_asset_route_rejects_symlink_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp) / "dashboard_dist"
+            asset_root = dist / "assets"
+            asset_root.mkdir(parents=True)
+            (dist / "index.html").write_text(
+                '<script src="/control/dashboard-v2/assets/escape.txt"></script>',
+                encoding="utf-8",
+            )
+            outside = Path(tmp) / "outside-secret.txt"
+            outside.write_text("outside secret", encoding="utf-8")
+            (asset_root / "escape.txt").symlink_to(outside)
+            (asset_root / "safe.txt").write_text("safe asset", encoding="utf-8")
+            (asset_root / "internal-link.txt").symlink_to(asset_root / "safe.txt")
+
+            with patch.object(control_plane_router, "DASHBOARD_V2_DIST_PATH", dist):
+                client = _client(tmp)
+                response = client.get(
+                    "/control/dashboard-v2/assets/escape.txt",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+                internal_response = client.get(
+                    "/control/dashboard-v2/assets/internal-link.txt",
+                    headers={"Authorization": f"Bearer {TOKEN}"},
+                )
+
+            self.assertEqual(response.status_code, 404)
+            self.assertNotIn("outside secret", response.text)
+            self.assertEqual(internal_response.status_code, 404)
+            self.assertNotIn("safe asset", internal_response.text)
 
     def test_control_dashboard_legacy_redirects_while_v2_shell_served(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
