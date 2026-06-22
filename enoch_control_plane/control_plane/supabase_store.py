@@ -49,6 +49,7 @@ from .store import (
     QueueStatus,
     TERMINAL_SUCCESS_CALLBACK_STATES,
     WORKER_CALLBACK_AUDIT_KEYS,
+    audit_event_idempotency_key,
     _atomic_write_text,
     _audit_rows,
     _bool,
@@ -3225,7 +3226,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
                 event_id, _ = self._append_event_in_cursor(
                     cur,
-                    idempotency_key=f"pause:{now}",
+                    idempotency_key=audit_event_idempotency_key("pause", now=now),
                     event_type="control.pause",
                     entity_type="control",
                     entity_id="queue",
@@ -3257,7 +3258,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
                 event_id, _ = self._append_event_in_cursor(
                     cur,
-                    idempotency_key=f"resume:{now}",
+                    idempotency_key=audit_event_idempotency_key("resume", now=now),
                     event_type="control.resume",
                     entity_type="control",
                     entity_id="queue",
@@ -5600,7 +5601,9 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                     return False
                 self._append_event_in_cursor(
                     cur,
-                    idempotency_key=f"queue-item-paused:{project_id}:{now}",
+                    idempotency_key=audit_event_idempotency_key(
+                        "queue-item-paused", project_id, now=now
+                    ),
                     event_type="queue.item_paused",
                     entity_type="project",
                     entity_id=project_id,

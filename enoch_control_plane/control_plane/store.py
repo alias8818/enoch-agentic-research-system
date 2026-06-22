@@ -7,6 +7,7 @@ import re
 import sqlite3
 import tempfile
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -145,6 +146,11 @@ def _existing_file_snapshot(path: Path, *, label: str) -> tuple[bool, bytes]:
 
 def _hash(payload: Any) -> str:
     return hashlib.sha256(_json(payload).encode("utf-8")).hexdigest()
+
+
+def audit_event_idempotency_key(prefix: str, *parts: Any, now: str) -> str:
+    stable_parts = [prefix, *(str(part) for part in parts), now]
+    return ":".join([*stable_parts, uuid.uuid4().hex])
 
 
 def _required_lastrowid(cursor: sqlite3.Cursor, *, operation: str) -> int:
@@ -2050,7 +2056,7 @@ class ControlPlaneStore:
             flags = self._flags_from_conn(conn)
             event_id, _ = self._append_event_in_conn(
                 conn,
-                idempotency_key=f"pause:{now}",
+                idempotency_key=audit_event_idempotency_key("pause", now=now),
                 event_type="control.pause",
                 entity_type="control",
                 entity_id="queue",
@@ -2070,7 +2076,7 @@ class ControlPlaneStore:
             flags = self._flags_from_conn(conn)
             event_id, _ = self._append_event_in_conn(
                 conn,
-                idempotency_key=f"resume:{now}",
+                idempotency_key=audit_event_idempotency_key("resume", now=now),
                 event_type="control.resume",
                 entity_type="control",
                 entity_id="queue",
@@ -5023,7 +5029,9 @@ class ControlPlaneStore:
                 return False
             self._append_event_in_conn(
                 conn,
-                idempotency_key=f"queue-item-paused:{project_id}:{now}",
+                idempotency_key=audit_event_idempotency_key(
+                    "queue-item-paused", project_id, now=now
+                ),
                 event_type="queue.item_paused",
                 entity_type="project",
                 entity_id=project_id,
