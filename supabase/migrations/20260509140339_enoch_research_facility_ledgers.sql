@@ -6,6 +6,8 @@
 -- "why did this get queued?" without reading provider logs.
 
 begin;
+set local statement_timeout = '5min';
+set local lock_timeout = '30s';
 
 create table if not exists enoch.research_sources (
   source_id text primary key check (length(source_id) > 0),
@@ -137,32 +139,6 @@ create table if not exists enoch.research_lineage (
   created_at timestamptz not null default now()
 );
 
-create unique index if not exists idx_research_sources_kind_external
-  on enoch.research_sources(source_kind, external_id)
-  where external_id <> '';
-
-create unique index if not exists idx_research_candidates_dedupe_key
-  on enoch.research_candidates(dedupe_key);
-
-create index if not exists idx_research_candidates_status_score
-  on enoch.research_candidates(status, total_score desc, updated_at desc);
-
-create index if not exists idx_research_candidates_mode_score
-  on enoch.research_candidates(generation_mode, total_score desc, updated_at desc);
-
-create index if not exists idx_research_candidates_parent
-  on enoch.research_candidates(parent_project_id, parent_run_id)
-  where parent_project_id <> '' or parent_run_id <> '';
-
-create index if not exists idx_research_admissions_candidate
-  on enoch.research_admissions(candidate_id, created_at desc);
-
-create index if not exists idx_research_lineage_source
-  on enoch.research_lineage(source_type, source_id, created_at desc);
-
-create index if not exists idx_research_lineage_target
-  on enoch.research_lineage(target_type, target_id, created_at desc);
-
 drop trigger if exists trg_research_sources_updated_at on enoch.research_sources;
 create trigger trg_research_sources_updated_at
 before update on enoch.research_sources
@@ -255,3 +231,35 @@ comment on view enoch.research_facility_workbench is
   'Operator-facing Research Facility workbench view for generated candidates and latest admission/queue state.';
 
 commit;
+
+set statement_timeout = '30min';
+set lock_timeout = '30s';
+
+create unique index concurrently if not exists idx_research_sources_kind_external
+  on enoch.research_sources(source_kind, external_id)
+  where external_id <> '';
+
+create unique index concurrently if not exists idx_research_candidates_dedupe_key
+  on enoch.research_candidates(dedupe_key);
+
+create index concurrently if not exists idx_research_candidates_status_score
+  on enoch.research_candidates(status, total_score desc, updated_at desc);
+
+create index concurrently if not exists idx_research_candidates_mode_score
+  on enoch.research_candidates(generation_mode, total_score desc, updated_at desc);
+
+create index concurrently if not exists idx_research_candidates_parent
+  on enoch.research_candidates(parent_project_id, parent_run_id)
+  where parent_project_id <> '' or parent_run_id <> '';
+
+create index concurrently if not exists idx_research_admissions_candidate
+  on enoch.research_admissions(candidate_id, created_at desc);
+
+create index concurrently if not exists idx_research_lineage_source
+  on enoch.research_lineage(source_type, source_id, created_at desc);
+
+create index concurrently if not exists idx_research_lineage_target
+  on enoch.research_lineage(target_type, target_id, created_at desc);
+
+reset lock_timeout;
+reset statement_timeout;

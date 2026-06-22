@@ -122,3 +122,51 @@ def test_followup_branching_migration_uses_safe_locks_and_concurrent_index() -> 
         "commit; set statement_timeout = '60s'; set lock_timeout = '5s'; "
         "create index concurrently if not exists idx_project_decisions_followup"
     ) in normalized
+
+
+def test_dashboard_read_model_indexes_build_concurrently_outside_transaction() -> None:
+    sql = _migration("20260506232438_enoch_dashboard_read_model_indexes.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert "begin;" not in normalized
+    assert "set statement_timeout = '30min'" in normalized
+    assert "set lock_timeout = '30s'" in normalized
+    assert normalized.count("create index concurrently if not exists") == 7
+    assert "create index if not exists" not in normalized
+
+
+def test_research_facility_indexes_build_concurrently_after_schema_transaction() -> None:
+    sql = _migration("20260509140339_enoch_research_facility_ledgers.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert "set local statement_timeout = '5min'" in normalized
+    assert "set local lock_timeout = '30s'" in normalized
+    assert "commit; set statement_timeout = '30min'; set lock_timeout = '30s'" in normalized
+    assert normalized.count("create index concurrently if not exists") == 6
+    assert normalized.count("create unique index concurrently if not exists") == 2
+    assert "create index if not exists idx_research" not in normalized
+    assert "create unique index if not exists idx_research" not in normalized
+
+
+def test_research_janitor_status_constraint_migration_is_transactional() -> None:
+    sql = _migration("20260515001000_research_candidate_janitor_statuses.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert normalized.startswith("begin; set local statement_timeout = '5min'")
+    assert "set local lock_timeout = '30s'" in normalized
+    assert normalized.endswith("commit;")
+
+
+def test_native_ideas_indexes_are_concurrent_and_backfill_is_separate() -> None:
+    sql = _migration("20260506122514_enoch_native_ideas.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert "set local statement_timeout = '5min'" in normalized
+    assert "set local lock_timeout = '30s'" in normalized
+    assert "commit; set statement_timeout = '30min'; set lock_timeout = '30s'" in normalized
+    assert normalized.count("create index concurrently if not exists idx_idea") == 3
+    assert "create index if not exists idx_idea" not in normalized
+    assert (
+        "reset statement_timeout; begin; set local statement_timeout = '5min'; "
+        "set local lock_timeout = '30s'; -- backfill native ideas"
+    ) in normalized

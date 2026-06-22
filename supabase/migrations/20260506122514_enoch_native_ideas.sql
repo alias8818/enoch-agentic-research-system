@@ -6,6 +6,8 @@
 -- editable/operator ledger after cutover.
 
 begin;
+set local statement_timeout = '5min';
+set local lock_timeout = '30s';
 
 create table if not exists enoch.ideas (
   idea_id text primary key check (length(idea_id) > 0),
@@ -47,16 +49,6 @@ create table if not exists enoch.idea_events (
   payload_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
-
-create index if not exists idx_ideas_status_priority
-  on enoch.ideas(idea_status, dispatch_priority asc, selection_rank asc, updated_at desc);
-
-create index if not exists idx_ideas_source_external
-  on enoch.ideas(source_kind, source_external_id)
-  where source_external_id <> '';
-
-create index if not exists idx_idea_events_idea
-  on enoch.idea_events(idea_id, created_at desc);
 
 drop trigger if exists trg_ideas_updated_at on enoch.ideas;
 create trigger trg_ideas_updated_at
@@ -100,6 +92,49 @@ left join lateral (
   order by paper.updated_at desc
   limit 1
 ) pa on true;
+
+alter table enoch.ideas enable row level security;
+alter table enoch.idea_events enable row level security;
+
+grant select, insert, update, delete on enoch.ideas to service_role;
+grant select, insert, update, delete on enoch.idea_events to service_role;
+grant usage, select on sequence enoch.idea_events_idea_event_id_seq to service_role;
+
+drop policy if exists service_role_all on enoch.ideas;
+create policy service_role_all on enoch.ideas
+  for all to service_role using (true) with check (true);
+
+drop policy if exists service_role_all on enoch.idea_events;
+create policy service_role_all on enoch.idea_events
+  for all to service_role using (true) with check (true);
+
+comment on table enoch.ideas is
+  'Supabase-native canonical idea workbench. Historical Notion IDs/URLs are source provenance only; runtime no longer depends on Notion as the editable ledger.';
+comment on table enoch.idea_events is
+  'Append-only events for Supabase-native idea lifecycle changes.';
+comment on view enoch.idea_workbench is
+  'Operator workbench view joining native ideas to project, queue, and latest paper state.';
+commit;
+
+set statement_timeout = '30min';
+set lock_timeout = '30s';
+
+create index concurrently if not exists idx_ideas_status_priority
+  on enoch.ideas(idea_status, dispatch_priority asc, selection_rank asc, updated_at desc);
+
+create index concurrently if not exists idx_ideas_source_external
+  on enoch.ideas(source_kind, source_external_id)
+  where source_external_id <> '';
+
+create index concurrently if not exists idx_idea_events_idea
+  on enoch.idea_events(idea_id, created_at desc);
+
+reset lock_timeout;
+reset statement_timeout;
+
+begin;
+set local statement_timeout = '5min';
+set local lock_timeout = '30s';
 
 -- Backfill native ideas from the latest imported Notion payloads retained in
 -- control_events. This captures richer idea fields that projects/queue rows do
@@ -231,27 +266,5 @@ where not exists (
   where e.idea_id = i.idea_id
     and e.event_type = 'idea.migrated_from_existing_control_plane'
 );
-
-alter table enoch.ideas enable row level security;
-alter table enoch.idea_events enable row level security;
-
-grant select, insert, update, delete on enoch.ideas to service_role;
-grant select, insert, update, delete on enoch.idea_events to service_role;
-grant usage, select on sequence enoch.idea_events_idea_event_id_seq to service_role;
-
-drop policy if exists service_role_all on enoch.ideas;
-create policy service_role_all on enoch.ideas
-  for all to service_role using (true) with check (true);
-
-drop policy if exists service_role_all on enoch.idea_events;
-create policy service_role_all on enoch.idea_events
-  for all to service_role using (true) with check (true);
-
-comment on table enoch.ideas is
-  'Supabase-native canonical idea workbench. Historical Notion IDs/URLs are source provenance only; runtime no longer depends on Notion as the editable ledger.';
-comment on table enoch.idea_events is
-  'Append-only events for Supabase-native idea lifecycle changes.';
-comment on view enoch.idea_workbench is
-  'Operator workbench view joining native ideas to project, queue, and latest paper state.';
 
 commit;

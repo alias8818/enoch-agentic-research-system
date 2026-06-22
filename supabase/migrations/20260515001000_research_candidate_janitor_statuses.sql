@@ -1,3 +1,7 @@
+begin;
+set local statement_timeout = '5min';
+set local lock_timeout = '30s';
+
 -- Allow the Research Facility LLM janitor to close review loops without losing
 -- operator meaning. These statuses keep rejected rows distinct from candidates
 -- that need a rewrite or are safe to defer.
@@ -15,3 +19,5 @@ alter table enoch.research_admissions
 alter table enoch.research_admissions
   add constraint research_admissions_admission_decision_check
   check (admission_decision in ('admitted', 'rejected', 'needs_review', 'merged', 'rewrite_needed', 'deferred'));
+
+commit;
