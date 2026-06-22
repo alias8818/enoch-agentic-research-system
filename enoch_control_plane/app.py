@@ -3437,8 +3437,16 @@ async def _replay_callback_outbox_once() -> None:
 
 
 async def _reap_and_log_stale_project_processes(record: RunRecord) -> None:
+    term_signaled = await asyncio.to_thread(
+        gate.begin_stale_project_process_reap, record
+    )
+    if not term_signaled:
+        return
+    term_grace_sec = config.stale_project_process_term_grace_sec
+    if term_grace_sec > 0:
+        await asyncio.sleep(term_grace_sec)
     reaped_processes = await asyncio.to_thread(
-        gate.reap_stale_project_processes, record
+        gate.finish_stale_project_process_reap, term_signaled
     )
     if not reaped_processes:
         return

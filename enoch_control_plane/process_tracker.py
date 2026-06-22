@@ -413,6 +413,65 @@ class ProcessTracker:
                 continue
         return term_signaled
 
+    @staticmethod
+    def _term_signaled_candidates_alive(candidates: list[ProcessInfo]) -> bool:
+        if psutil is None:
+            return False
+        for info in candidates:
+            try:
+                proc = psutil.Process(info.pid)
+                same_process = ProcessTracker._same_process(proc, info)
+                if (
+                    same_process is True
+                    and proc.is_running()
+                    and proc.status() != psutil.STATUS_ZOMBIE
+                ):
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
+                continue
+        return False
+
+    def _wait_for_stale_reap_term_grace(
+        self, term_signaled: list[ProcessInfo], *, term_grace_sec: float
+    ) -> None:
+        if term_grace_sec <= 0 or not term_signaled:
+            return
+        deadline = time.monotonic() + term_grace_sec
+        while time.monotonic() < deadline:
+            if not self._term_signaled_candidates_alive(term_signaled):
+                return
+            time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+
+    def begin_stale_project_process_reap(
+        self,
+        record: RunRecord,
+        *,
+        gpu_compute_pids: list[int] | None = None,
+        stale_after_sec: int,
+        command_markers: list[str],
+    ) -> list[ProcessInfo]:
+        """TERM stale project processes without blocking for the grace window."""
+        candidates = self.stale_reap_candidates(
+            record,
+            gpu_compute_pids=gpu_compute_pids,
+            stale_after_sec=stale_after_sec,
+            command_markers=command_markers,
+        )
+        if not candidates:
+            return []
+        return self._send_term_to_stale_candidates(candidates)
+
+    def finish_stale_project_process_reap(
+        self, term_signaled: list[ProcessInfo]
+    ) -> list[ProcessInfo]:
+        """Finalize a prior TERM pass after the caller's grace window elapses."""
+        reaped: list[ProcessInfo] = []
+        for info in term_signaled:
+            result = self._finalize_stale_reap(info)
+            if result is not None:
+                reaped.append(result)
+        return reaped
+
     def _finalize_stale_reap(self, info: ProcessInfo) -> ProcessInfo | None:
         """Reap one TERM-signaled process; return info if reaped, None if skipped."""
         try:
@@ -444,22 +503,15 @@ class ProcessTracker:
         command_markers: list[str],
         term_grace_sec: float = 5.0,
     ) -> list[ProcessInfo]:
-        candidates = self.stale_reap_candidates(
+        term_signaled = self.begin_stale_project_process_reap(
             record,
             gpu_compute_pids=gpu_compute_pids,
             stale_after_sec=stale_after_sec,
             command_markers=command_markers,
         )
-        if not candidates:
+        if not term_signaled:
             return []
-
-        term_signaled = self._send_term_to_stale_candidates(candidates)
-        if term_grace_sec > 0:
-            time.sleep(term_grace_sec)
-
-        reaped: list[ProcessInfo] = []
-        for info in term_signaled:
-            result = self._finalize_stale_reap(info)
-            if result is not None:
-                reaped.append(result)
-        return reaped
+        self._wait_for_stale_reap_term_grace(
+            term_signaled, term_grace_sec=term_grace_sec
+        )
+        return self.finish_stale_project_process_reap(term_signaled)

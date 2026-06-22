@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import hashlib
 import inspect
@@ -19538,7 +19539,7 @@ def test_wait_for_completion_extracted_no_duplication_in_giant():
     src = Path("enoch_control_plane/control_plane/router.py").read_text(
         encoding="utf-8"
     )
-    assert "def _wait_for_completion(" in src, (
+    assert "async def _wait_for_completion(" in src, (
         "_wait_for_completion helper missing (wait-for-completion logic still inline in the giant)"
     )
 
@@ -19577,8 +19578,11 @@ def test_wait_for_completion_refills_idle_lanes_while_other_lane_runs(monkeypatc
         refills.append(1)
         return 1
 
+    async def fake_sleep(_: float) -> None:
+        return None
+
     monkeypatch.setattr(
-        "enoch_control_plane.control_plane.router.time.sleep", lambda _: None
+        "enoch_control_plane.control_plane.router.asyncio.sleep", fake_sleep
     )
     response = {
         "dispatch_started": True,
@@ -19586,13 +19590,15 @@ def test_wait_for_completion_refills_idle_lanes_while_other_lane_runs(monkeypatc
         "stages": [],
     }
 
-    result = _wait_for_completion(
-        store=FakeStore(),
-        response=response,
-        wait_for_completion=True,
-        max_wait_seconds=30,
-        poll_interval_seconds=1,
-        refill_idle_lanes=refill_idle_lanes,
+    result = asyncio.run(
+        _wait_for_completion(
+            store=FakeStore(),
+            response=response,
+            wait_for_completion=True,
+            max_wait_seconds=30,
+            poll_interval_seconds=1,
+            refill_idle_lanes=refill_idle_lanes,
+        )
     )
 
     assert result["action"] == "completed"

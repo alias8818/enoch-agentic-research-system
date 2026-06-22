@@ -9,6 +9,7 @@ from .models import (
     ControlPlaneEvent,
     GateCallback,
     GateState,
+    ProcessInfo,
     ProcessSnapshot,
     RunRecord,
     TelemetrySample,
@@ -339,6 +340,32 @@ class WakeGate:
             command_markers=self.config.stale_project_process_command_markers,
             term_grace_sec=self.config.stale_project_process_term_grace_sec,
         )
+        return [process.model_dump() for process in reaped]
+
+    def begin_stale_project_process_reap(self, record: RunRecord) -> list[ProcessInfo]:
+        if not self.config.stale_project_process_reaper_enabled:
+            return []
+        if record.gate_state not in {
+            GateState.RUNNING,
+            GateState.PENDING_IDLE_GATE,
+            GateState.WAITING_FOR_PROCESS_EXIT,
+            GateState.WAITING_FOR_QUIET_WINDOW,
+            GateState.FINISHED_PENDING_GATE,
+        }:
+            return []
+
+        sample = self.telemetry.sample()
+        return self.process_tracker.begin_stale_project_process_reap(
+            record,
+            gpu_compute_pids=sample.gpu_compute_pids,
+            stale_after_sec=self.config.stale_project_process_grace_sec,
+            command_markers=self.config.stale_project_process_command_markers,
+        )
+
+    def finish_stale_project_process_reap(
+        self, term_signaled: list[ProcessInfo]
+    ) -> list[dict[str, Any]]:
+        reaped = self.process_tracker.finish_stale_project_process_reap(term_signaled)
         return [process.model_dump() for process in reaped]
 
     def is_timed_out(self, record: RunRecord) -> bool:

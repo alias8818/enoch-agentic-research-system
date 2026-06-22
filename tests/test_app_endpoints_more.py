@@ -70,6 +70,14 @@ class FakeTracker:
     def reap_stale_project_processes(self, *args, **kwargs):
         return []
 
+    def begin_stale_project_process_reap(self, *args: Any, **kwargs: Any) -> list[Any]:
+        return []
+
+    def finish_stale_project_process_reap(
+        self, term_signaled: list[Any]
+    ) -> list[dict[str, Any]]:
+        return []
+
 
 def _client(tmp_path: Path, monkeypatch) -> TestClient:
     token = appmod.config.control_api_bearer_token
@@ -616,19 +624,52 @@ def test_callback_outbox_replay_and_reaper_async_helpers(
     asyncio.run(appmod._replay_callback_outbox_once())
     assert fake_store.events[-1]["kind"] == "callback_outbox_replay"
 
+    term_signaled = [
+        ProcessInfo(
+            pid=99,
+            ppid=1,
+            pgid=1,
+            elapsed_sec=900,
+            cmdline="python",
+            create_time=1.0,
+        )
+    ]
+
+    def begin_reap(record: RunRecord) -> list[ProcessInfo]:
+        return term_signaled
+
+    def finish_reap(pending: list[ProcessInfo]) -> list[dict[str, Any]]:
+        return [{"pid": pending[0].pid, "cmdline": pending[0].cmdline}]
+
     monkeypatch.setattr(
         appmod.gate,
-        "reap_stale_project_processes",
-        lambda record: [{"pid": 99, "cmdline": "python"}],
+        "begin_stale_project_process_reap",
+        begin_reap,
     )
+    monkeypatch.setattr(
+        appmod.gate,
+        "finish_stale_project_process_reap",
+        finish_reap,
+    )
+    monkeypatch.setattr(appmod.config, "stale_project_process_term_grace_sec", 0.01)
+    slept: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr(appmod.asyncio, "sleep", fake_sleep)
     asyncio.run(
         appmod._reap_and_log_stale_project_processes(
             RunRecord(run_id="run", session_id="s", project_id="p")
         )
     )
+    assert slept == [0.01]
     assert fake_store.events[-1]["kind"] == "stale_project_process_reaped"
 
-    monkeypatch.setattr(appmod.gate, "reap_stale_project_processes", lambda record: [])
+    def no_reap(record: RunRecord) -> list[ProcessInfo]:
+        return []
+
+    monkeypatch.setattr(appmod.gate, "begin_stale_project_process_reap", no_reap)
     count = len(fake_store.events)
     asyncio.run(
         appmod._reap_and_log_stale_project_processes(
@@ -957,7 +998,9 @@ def test_evaluator_registry_cancels_stale_running_task(monkeypatch: Any) -> None
     created = NewTask()
     appmod.evaluation_tasks["run"] = cast(Any, stale)
     appmod.evaluation_task_started_at["run"] = 100.0
-    monkeypatch.setattr(appmod.time, "monotonic", lambda: 100.0 + appmod.EVALUATION_TASK_TTL_SECONDS + 1)
+    monkeypatch.setattr(
+        appmod.time, "monotonic", lambda: 100.0 + appmod.EVALUATION_TASK_TTL_SECONDS + 1
+    )
 
     def create_task(coro: object) -> NewTask:
         close = getattr(coro, "close", None)
@@ -971,7 +1014,10 @@ def test_evaluator_registry_cancels_stale_running_task(monkeypatch: Any) -> None
 
     assert stale.canceled is True
     assert appmod.evaluation_tasks["run"] is created
-    assert appmod.evaluation_task_started_at["run"] == 100.0 + appmod.EVALUATION_TASK_TTL_SECONDS + 1
+    assert (
+        appmod.evaluation_task_started_at["run"]
+        == 100.0 + appmod.EVALUATION_TASK_TTL_SECONDS + 1
+    )
     appmod.evaluation_tasks.pop("run", None)
     appmod.evaluation_task_started_at.pop("run", None)
 
