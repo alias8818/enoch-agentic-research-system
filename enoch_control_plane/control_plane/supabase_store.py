@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import random
 import threading
 import time
 from pathlib import Path
@@ -1662,6 +1663,40 @@ class SupabaseReadOnlyControlPlaneStore:
             )
         )
 
+    @staticmethod
+    def _is_retryable_database_error(exc: Exception) -> bool:
+        sqlstate = str(
+            getattr(exc, "sqlstate", "") or getattr(exc, "pgcode", "") or ""
+        )
+        if sqlstate in {"40001", "40P01", "55P03"}:
+            return True
+        text = f"{type(exc).__name__}: {exc}".lower()
+        return any(
+            token in text
+            for token in (
+                "serializationfailure",
+                "serialization failure",
+                "deadlockdetected",
+                "deadlock detected",
+                "locknotavailable",
+                "lock not available",
+                "too many requests",
+                "rate limit",
+                "http 429",
+                "status 429",
+            )
+        )
+
+    @classmethod
+    def _is_retryable_query_error(cls, exc: Exception) -> bool:
+        return cls._is_transient_connection_error(
+            exc
+        ) or cls._is_retryable_database_error(exc)
+
+    @staticmethod
+    def _retry_sleep_seconds(attempt: int) -> float:
+        return min(0.25 * (attempt + 1), 2.0) + random.uniform(0.0, 0.1)
+
     def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
         last_exc: Exception | None = None
         for attempt in range(3):
@@ -1673,8 +1708,8 @@ class SupabaseReadOnlyControlPlaneStore:
                 return [dict(row) for row in rows]
             except Exception as exc:
                 last_exc = exc
-                if attempt < 2 and self._is_transient_connection_error(exc):
-                    time.sleep(0.25 * (attempt + 1))
+                if attempt < 2 and self._is_retryable_query_error(exc):
+                    time.sleep(self._retry_sleep_seconds(attempt))
                     continue
                 raise
         if last_exc is None:
@@ -2594,8 +2629,8 @@ class SupabaseReadOnlyControlPlaneStore:
                         )
             except Exception as exc:
                 last_exc = exc
-                if attempt < 2 and self._is_transient_connection_error(exc):
-                    time.sleep(0.25 * (attempt + 1))
+                if attempt < 2 and self._is_retryable_query_error(exc):
+                    time.sleep(self._retry_sleep_seconds(attempt))
                     continue
                 raise
         if last_exc is None:

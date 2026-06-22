@@ -58,21 +58,55 @@ def test_supabase_query_retry_exhaustion_raises_original_transient_exception(
         pass
 
     attempts = 0
+    sleeps: list[float] = []
 
     def connect():  # noqa: ANN202 - test double
         nonlocal attempts
         attempts += 1
         raise TransientDatabaseError("server closed the connection")
 
-    def no_sleep(delay: float) -> None:
-        del delay
+    def jitter(lower: float, upper: float) -> float:
+        del lower, upper
+        return 0.05
 
-    monkeypatch.setattr(s.time, "sleep", no_sleep)
+    monkeypatch.setattr(s.random, "uniform", jitter)
+    monkeypatch.setattr(s.time, "sleep", sleeps.append)
     store = s.SupabaseControlPlaneStore("postgres://example", connect=connect)
 
     with pytest.raises(TransientDatabaseError, match="server closed the connection"):
         store._query("select 1")
     assert attempts == 3
+    assert sleeps == [0.3, 0.55]
+
+
+def test_supabase_query_retries_transaction_conflicts_with_jitter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SerializationFailure(RuntimeError):
+        sqlstate = "40001"
+
+    attempts = 0
+    sleeps: list[float] = []
+
+    def connect():  # noqa: ANN202 - test double
+        nonlocal attempts
+        attempts += 1
+        raise SerializationFailure("could not serialize access")
+
+    def jitter(lower: float, upper: float) -> float:
+        del lower, upper
+        return 0.02
+
+    monkeypatch.setattr(s.random, "uniform", jitter)
+    monkeypatch.setattr(s.time, "sleep", sleeps.append)
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=connect)
+
+    with pytest.raises(SerializationFailure, match="serialize"):
+        store._query("select 1")
+
+    assert attempts == 3
+    assert sleeps == [0.27, 0.52]
+    assert store._is_retryable_database_error(SerializationFailure("again"))
 
 
 def test_supabase_project_upserts_preserve_existing_origin_status_on_replay() -> None:
