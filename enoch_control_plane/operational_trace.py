@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
+import fcntl
 import json
+import os
 from pathlib import Path
 import re
 import uuid
@@ -160,11 +163,46 @@ class OperatorTrace:
         }
         safe_record = _fit_record(_redact_value(record), self.max_payload_bytes)
         try:
-            self._rotate_if_needed()
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(safe_record, sort_keys=True) + "\n")
+            with self._exclusive_writer_lock():
+                self._rotate_if_needed()
+                with self.path.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(safe_record, sort_keys=True) + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                self._fsync_parent_dir()
         except OSError:
             return
+
+    @contextmanager
+    def _exclusive_writer_lock(self):
+        if self.path is None:
+            yield
+            return
+        lock_path = self.path.with_name(self.path.name + ".lock")
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_handle = lock_path.open("a", encoding="utf-8")
+        except OSError:
+            yield
+            return
+        with lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+    def _fsync_parent_dir(self) -> None:
+        if self.path is None:
+            return
+        try:
+            dir_fd = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            return
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
 
     def _rotate_if_needed(self) -> None:
         if self.path is None or not self.path.exists():
@@ -176,6 +214,7 @@ class OperatorTrace:
             if rotated.exists():
                 rotated.unlink()
             self.path.rename(rotated)
+            self._fsync_parent_dir()
         except OSError:
             return
 

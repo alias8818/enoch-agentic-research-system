@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import fcntl
 from pathlib import Path
+
+from pytest import MonkeyPatch
 
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.operational_trace import OperatorTrace, summarize_lane_snapshot
@@ -63,6 +66,38 @@ def test_operator_trace_rotates_bounded_jsonl_file(tmp_path: Path, monkeypatch) 
         .startswith("old-line")
     )
     assert "trace-rotate" in path.read_text(encoding="utf-8")
+
+
+def test_operator_trace_serializes_and_fsyncs_writes(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    from enoch_control_plane import operational_trace
+
+    path = tmp_path / "operator_trace.jsonl"
+    fsynced: list[int] = []
+    locks: list[int] = []
+
+    def fake_fsync(fd: int) -> None:
+        fsynced.append(fd)
+
+    def fake_flock(fd: int, operation: int) -> None:
+        locks.append(operation)
+
+    monkeypatch.setattr(operational_trace.os, "fsync", fake_fsync)
+    monkeypatch.setattr(
+        operational_trace.fcntl,
+        "flock",
+        fake_flock,
+    )
+
+    trace = OperatorTrace(enabled=True, path=path, max_payload_bytes=1024)
+    trace.record("research.run_cycle.start", trace_id="trace-fsync")
+
+    assert "trace-fsync" in path.read_text(encoding="utf-8")
+    assert (tmp_path / "operator_trace.jsonl.lock").exists()
+    assert fcntl.LOCK_EX in locks
+    assert fcntl.LOCK_UN in locks
+    assert len(fsynced) >= 2
 
 
 def test_summarize_lane_snapshot_keeps_operator_relevant_fields_only() -> None:
