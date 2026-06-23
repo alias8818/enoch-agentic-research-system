@@ -4038,8 +4038,8 @@ def _provider_api_key_for_base_url(base_url: str) -> str:
         return ""
     try:
         settings = read_llm_settings(_ROUTER_GATE_CONFIG)
-    except Exception:
-        return ""
+    except Exception as exc:
+        raise RuntimeError("research provider settings could not be loaded") from exc
     normalized_base = str(base_url or "").rstrip("/")
     for provider in settings.providers:
         if provider.base_url.rstrip("/") == normalized_base:

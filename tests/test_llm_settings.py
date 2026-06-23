@@ -555,6 +555,29 @@ def test_research_provider_api_key_resolves_dashboard_secret_file() -> None:
         )
 
 
+def test_research_provider_api_key_surfaces_settings_load_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        config = _config(tmp)
+        create_control_plane_router(config, lambda token: None)
+
+        def fail_read_settings(_config: GateConfig) -> LLMSettings:
+            raise ValueError("corrupt llm settings")
+
+        monkeypatch.setattr(
+            "enoch_control_plane.control_plane.router.read_llm_settings",
+            fail_read_settings,
+        )
+
+        with pytest.raises(
+            RuntimeError, match="research provider settings could not be loaded"
+        ) as exc_info:
+            _provider_api_key_for_base_url("https://openrouter.ai/api/v1")
+
+        assert isinstance(exc_info.value.__cause__, ValueError)
+
+
 def test_llm_settings_api_persists_valid_updates() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         config = _config(tmp)
