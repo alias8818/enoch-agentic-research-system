@@ -2,13 +2,15 @@
 """Bump the project version in VERSION, pyproject.toml, and CHANGELOG.md.
 
 Usage:
-    python3 scripts/bump_version.py patch   # 0.3.0 -> 0.3.1
-    python3 scripts/bump_version.py minor   # 0.3.0 -> 0.4.0
-    python3 scripts/bump_version.py major   # 0.3.0 -> 1.0.0
+    python3 scripts/bump_version.py patch             # 0.3.0 -> 0.3.1
+    python3 scripts/bump_version.py minor --dry-run   # show diff only
+    python3 scripts/bump_version.py major --confirm-major
 """
 
 from __future__ import annotations
 
+import argparse
+import difflib
 import re
 import sys
 from datetime import datetime, timezone
@@ -40,6 +42,14 @@ def current_version() -> str:
     return read_version_file_text(VERSION_FILE.read_text(encoding="utf-8"))
 
 
+def pyproject_version() -> str:
+    content = PYPROJECT_FILE.read_text(encoding="utf-8")
+    matches = re.findall(r'^version\s*=\s*"([^"]+)"\s*$', content, re.MULTILINE)
+    if len(matches) != 1:
+        raise RuntimeError("pyproject.toml must contain exactly one project version")
+    return matches[0]
+
+
 def bump_version(current: str, part: str) -> str:
     major, minor, patch = (int(x) for x in current.split("."))
     if part == "major":
@@ -52,43 +62,121 @@ def bump_version(current: str, part: str) -> str:
         raise ValueError(f"Unknown bump part: {part}")
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def updated_version_file_text(new_version: str) -> str:
+    return format_version_file(new_version)
+
+
 def update_version_file(new_version: str) -> None:
-    VERSION_FILE.write_text(format_version_file(new_version), encoding="utf-8")
+    _atomic_write_text(VERSION_FILE, updated_version_file_text(new_version))
+
+
+def updated_pyproject_text(new_version: str, old_version: str) -> str:
+    content = PYPROJECT_FILE.read_text(encoding="utf-8")
+    pattern = re.compile(
+        rf'^(version\s*=\s*"){re.escape(old_version)}("\s*)$', re.MULTILINE
+    )
+    content, replacements = pattern.subn(rf"\g<1>{new_version}\2", content, count=1)
+    if replacements != 1:
+        raise RuntimeError(
+            f'pyproject.toml does not contain exactly one version = "{old_version}" entry'
+        )
+    return content
 
 
 def update_pyproject(new_version: str, old_version: str) -> None:
-    content = PYPROJECT_FILE.read_text()
-    content = content.replace(
-        f'version = "{old_version}"', f'version = "{new_version}"', 1
-    )
-    PYPROJECT_FILE.write_text(content)
+    _atomic_write_text(PYPROJECT_FILE, updated_pyproject_text(new_version, old_version))
+
+
+def updated_changelog_text(new_version: str) -> str:
+    content = CHANGELOG_FILE.read_text(encoding="utf-8")
+    if not content.startswith("# "):
+        raise RuntimeError("CHANGELOG.md must start with a top-level '# ' heading")
+    if re.search(rf"^## \[{re.escape(new_version)}\]", content, re.MULTILINE):
+        raise RuntimeError(f"CHANGELOG.md already contains version {new_version}")
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    entry = f"\n## [{new_version}] - {today}\n\n- Release {new_version}.\n\n"
+    first_newline = content.index("\n")
+    return content[: first_newline + 1] + entry + content[first_newline + 1 :]
 
 
 def update_changelog(new_version: str) -> None:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    entry = f"\n## [{new_version}] - {today}\n\n- Release {new_version}.\n\n"
-    content = CHANGELOG_FILE.read_text()
-    # Insert after the header
-    if content.startswith("# "):
-        first_newline = content.index("\n")
-        content = content[: first_newline + 1] + entry + content[first_newline + 1 :]
-    else:
-        content = entry + content
-    CHANGELOG_FILE.write_text(content)
+    _atomic_write_text(CHANGELOG_FILE, updated_changelog_text(new_version))
+
+
+def planned_updates(new_version: str, old_version: str) -> dict[Path, str]:
+    return {
+        VERSION_FILE: updated_version_file_text(new_version),
+        PYPROJECT_FILE: updated_pyproject_text(new_version, old_version),
+        CHANGELOG_FILE: updated_changelog_text(new_version),
+    }
+
+
+def print_diff(updates: dict[Path, str]) -> None:
+    for path, new_text in updates.items():
+        old_text = path.read_text(encoding="utf-8")
+        sys.stdout.writelines(
+            difflib.unified_diff(
+                old_text.splitlines(keepends=True),
+                new_text.splitlines(keepends=True),
+                fromfile=str(path.relative_to(REPO_ROOT)),
+                tofile=str(path.relative_to(REPO_ROOT)),
+            )
+        )
+
+
+def verify_release_metadata_matches() -> str:
+    version = current_version()
+    pyproject = pyproject_version()
+    if version != pyproject:
+        raise RuntimeError(
+            f"VERSION ({version}) and pyproject.toml ({pyproject}) are out of sync"
+        )
+    return version
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Bump VERSION, pyproject.toml, and CHANGELOG.md together."
+    )
+    parser.add_argument("part", choices=("patch", "minor", "major"))
+    parser.add_argument(
+        "--dry-run", action="store_true", help="print the planned unified diff only"
+    )
+    parser.add_argument(
+        "--confirm-major",
+        action="store_true",
+        help="required when bumping the major version",
+    )
+    return parser
 
 
 def main() -> int:
-    if len(sys.argv) != 2 or sys.argv[1] not in ("patch", "minor", "major"):
-        print("Usage: python3 scripts/bump_version.py [patch|minor|major]")
-        return 1
+    args = build_parser().parse_args()
+    if args.part == "major" and not args.confirm_major:
+        print("Refusing major bump without --confirm-major", file=sys.stderr)
+        return 2
 
-    part = sys.argv[1]
-    old = current_version()
+    old = verify_release_metadata_matches()
+    part = args.part
     new = bump_version(old, part)
+    updates = planned_updates(new, old)
 
-    update_version_file(new)
-    update_pyproject(new, old)
-    update_changelog(new)
+    print_diff(updates)
+    if args.dry_run:
+        print(f"Dry run: version would be bumped: {old} -> {new}")
+        return 0
+
+    for path, content in updates.items():
+        _atomic_write_text(path, content)
+    if verify_release_metadata_matches() != new:
+        raise RuntimeError("release metadata verification failed after bump")
 
     print(f"Version bumped: {old} -> {new}")
     return 0
