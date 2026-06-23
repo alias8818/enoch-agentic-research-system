@@ -19,6 +19,14 @@ export function saveToken(token: string): void {
   browserStorage()?.setItem(TOKEN_STORAGE_KEY, fallbackToken)
 }
 
+function authHeaders(token: string): { Authorization?: string } {
+  const trimmed = token.trim()
+  if (!trimmed) {
+    return {}
+  }
+  return { Authorization: `Bearer ${trimmed}` }
+}
+
 function stringifyApiDetail(value: unknown): string {
   if (typeof value === 'string') return value
   if (value === null || value === undefined) return ''
@@ -53,7 +61,7 @@ async function errorMessageForResponse(path: string, response: Response): Promis
 export async function apiGet<T>(path: string, token = getSavedToken()): Promise<T> {
   const response = await fetch(path, {
     cache: 'no-store',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: authHeaders(token),
   })
   if (!response.ok) {
     throw new Error(await errorMessageForResponse(path, response))
@@ -65,7 +73,7 @@ export async function apiPost<T>(path: string, payload: unknown, token = getSave
   const response = await fetch(path, {
     method: 'POST',
     cache: 'no-store',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
   if (!response.ok) {

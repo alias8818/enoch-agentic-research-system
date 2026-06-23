@@ -6,24 +6,44 @@ afterEach(() => {
   saveToken('')
 })
 
-it('includes API error detail from failed writes', async () => {
-  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-    detail: "workflow 'research_generation' references unknown models: openrouter/auto",
-  }), { status: 400 }))
+it('omits Authorization instead of sending a bogus bearer when token is missing', async () => {
+  const fetchMock = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
 
-  await expect(apiPost('/control/api/settings/llm', { settings: {} })).rejects.toThrow(
-    "/control/api/settings/llm -> 400: workflow 'research_generation' references unknown models: openrouter/auto",
-  )
+  await apiGet('/control/api/v1/overview', '')
+  await apiPost('/control/api/preflight', {}, '   ')
+
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/overview', {
+    cache: 'no-store',
+    headers: {},
+  })
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/preflight', {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
 })
 
-it('sends the saved bearer token on API reads', async () => {
-  saveToken('test-token')
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+it('trims token before building the Authorization header', async () => {
+  const fetchMock = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
 
-  await apiGet('/control/api/v1/overview')
+  await apiGet('/control/api/v1/overview', '  operator-token  ')
+  await apiPost('/control/api/preflight', { dry_run: true }, '  operator-token  ')
 
-  expect(fetchMock).toHaveBeenCalledWith('/control/api/v1/overview', expect.objectContaining({
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/overview', {
     cache: 'no-store',
-    headers: { Authorization: 'Bearer test-token' },
-  }))
+    headers: { Authorization: 'Bearer operator-token' },
+  })
+  expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/preflight', {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { Authorization: 'Bearer operator-token', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dry_run: true }),
+  })
 })
