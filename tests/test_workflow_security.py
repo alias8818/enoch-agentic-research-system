@@ -1,6 +1,36 @@
 from pathlib import Path
+import re
 
 from scripts.validate_promising_signals_release import validate_promising_signals
+
+
+PINNED_SHA_REF = re.compile(r"@[0-9a-f]{40}(?:\s+#\s+v[\w.-]+)?$")
+
+
+def _workflow_uses(workflow: str) -> list[str]:
+    return [
+        line.strip().removeprefix("uses: ")
+        for line in workflow.splitlines()
+        if line.strip().startswith("uses: ")
+    ]
+
+
+def test_security_sensitive_workflows_pin_actions_to_commit_shas() -> None:
+    workflows = [
+        Path(".github/workflows/ci.yml"),
+        Path(".github/workflows/dast.yml"),
+        Path(".github/workflows/error-to-issue.yml"),
+    ]
+
+    action_refs = [
+        ref
+        for workflow in workflows
+        for ref in _workflow_uses(workflow.read_text(encoding="utf-8"))
+        if "/" in ref.split("@", 1)[0]
+    ]
+
+    assert action_refs
+    assert all(PINNED_SHA_REF.search(ref) for ref in action_refs)
 
 
 def test_public_release_integrity_scopes_supabase_secret_to_trusted_push() -> None:
