@@ -28,6 +28,18 @@ def test_record_project_decision_gate_is_decided_at_guarded() -> None:
     )
 
 
+def test_supabase_import_queue_upsert_guards_active_runtime_rows() -> None:
+    source = inspect.getsource(s._supabase_upsert_import_queue_item)
+
+    assert "where queue_items.status not in" in source
+    assert "excluded.status in" in source
+    assert (
+        "coalesce(queue_items.current_run_id, '') = coalesce(excluded.current_run_id, '')"
+        in source
+    )
+    assert 'rowcount = getattr(cur, "rowcount", 1)' in source
+
+
 def test_supabase_late_terminal_success_missing_queue_row_is_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

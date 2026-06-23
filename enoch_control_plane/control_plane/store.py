@@ -699,10 +699,40 @@ def _preserve_active_runtime_on_import(
     qi.stale_after = existing_queue["stale_after"]
 
 
-def _upsert_import_queue_item(conn: sqlite3.Connection, qi: QueueItemRecord) -> None:
-    conn.execute(
-        """INSERT OR REPLACE INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+def _upsert_import_queue_item(conn: sqlite3.Connection, qi: QueueItemRecord) -> int:
+    result = conn.execute(
+        """INSERT INTO queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(project_id) DO UPDATE SET
+            status=excluded.status,
+            selection_rank=excluded.selection_rank,
+            dispatch_priority=excluded.dispatch_priority,
+            auto_continue=excluded.auto_continue,
+            continue_count=excluded.continue_count,
+            max_continues=excluded.max_continues,
+            retry_count=excluded.retry_count,
+            max_retries=excluded.max_retries,
+            current_run_id=excluded.current_run_id,
+            current_session_id=excluded.current_session_id,
+            last_run_state=excluded.last_run_state,
+            last_event_type=excluded.last_event_type,
+            next_action_hint=excluded.next_action_hint,
+            manual_review_required=excluded.manual_review_required,
+            blocked_reason=excluded.blocked_reason,
+            last_error=excluded.last_error,
+            last_result_summary=excluded.last_result_summary,
+            machine_target=excluded.machine_target,
+            model=excluded.model,
+            sandbox=excluded.sandbox,
+            last_dispatch_at=excluded.last_dispatch_at,
+            last_callback_at=excluded.last_callback_at,
+            stale_after=excluded.stale_after,
+            updated_at=excluded.updated_at
+        WHERE queue_items.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received')
+           OR (
+                excluded.status IN ('awaiting_wake','dispatching','reconciling','running','wake_received')
+                AND coalesce(queue_items.current_run_id, '') = coalesce(excluded.current_run_id, '')
+              )""",
         (
             qi.project_id,
             qi.status.value,
@@ -731,6 +761,7 @@ def _upsert_import_queue_item(conn: sqlite3.Connection, qi: QueueItemRecord) -> 
             qi.updated_at,
         ),
     )
+    return int(result.rowcount or 0)
 
 
 def _import_queue_row(conn: sqlite3.Connection, raw: dict[str, Any]) -> tuple[int, int]:
@@ -748,8 +779,7 @@ def _import_queue_row(conn: sqlite3.Connection, raw: dict[str, Any]) -> tuple[in
         return projects, 0
     if existing_queue:
         _preserve_active_runtime_on_import(qi, existing_queue, raw)
-    _upsert_import_queue_item(conn, qi)
-    return projects, 1
+    return projects, _upsert_import_queue_item(conn, qi)
 
 
 def _paper_status_from_import_raw(raw: dict[str, Any]) -> str:

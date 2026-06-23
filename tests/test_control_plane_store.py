@@ -24,7 +24,9 @@ from enoch_control_plane.control_plane.store import (
     _audit_rows,
     _existing_file_snapshot,
     _load_bounded_json_dict,
+    _queue_item_record_from_import_raw,
     _require_current_queue_row,
+    _upsert_import_queue_item,
 )
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
@@ -493,6 +495,71 @@ class ControlPlaneStoreTests(unittest.TestCase):
 
             self.assertEqual(store.recent_events(10), [])
             self.assertEqual(store.queue_rows(), [])
+
+    def test_import_queue_upsert_refuses_to_clobber_concurrently_active_row(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-race-active-seed",
+                    queue_rows=[
+                        {
+                            "project_id": "race-project",
+                            "project_name": "Race Project",
+                            "project_dir": "race-project",
+                            "status": "dispatching",
+                            "current_run_id": "run-active",
+                            "current_session_id": "session-active",
+                            "last_run_state": "dispatch_accepted",
+                            "updated_at": "2026-05-18T12:00:00+00:00",
+                        }
+                    ],
+                )
+            )
+            stale_queued = _queue_item_record_from_import_raw(
+                {
+                    "project_id": "race-project",
+                    "project_name": "Race Project",
+                    "project_dir": "race-project",
+                    "status": "queued",
+                    "current_run_id": "",
+                    "updated_at": "2026-05-18T13:00:00+00:00",
+                },
+                "race-project",
+            )
+
+            with store._connect() as conn:  # noqa: SLF001 - simulate stale import write
+                rowcount = _upsert_import_queue_item(conn, stale_queued)
+
+            row = store.queue_row("race-project")
+            if row is None:
+                self.fail("expected queue row")
+            self.assertEqual(rowcount, 0)
+            self.assertEqual(row["status"], "dispatching")
+            self.assertEqual(row["current_run_id"], "run-active")
+
+            stale_active = _queue_item_record_from_import_raw(
+                {
+                    "project_id": "race-project",
+                    "project_name": "Race Project",
+                    "project_dir": "race-project",
+                    "status": "dispatching",
+                    "current_run_id": "run-stale",
+                    "updated_at": "2026-05-18T14:00:00+00:00",
+                },
+                "race-project",
+            )
+            with store._connect() as conn:  # noqa: SLF001 - simulate stale import write
+                active_rowcount = _upsert_import_queue_item(conn, stale_active)
+
+            row = store.queue_row("race-project")
+            if row is None:
+                self.fail("expected queue row")
+            self.assertEqual(active_rowcount, 0)
+            self.assertEqual(row["status"], "dispatching")
+            self.assertEqual(row["current_run_id"], "run-active")
 
     def test_import_snapshot_rejects_conflicting_duplicate_queue_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

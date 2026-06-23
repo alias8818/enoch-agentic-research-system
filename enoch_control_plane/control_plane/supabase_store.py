@@ -6021,7 +6021,7 @@ def _supabase_upsert_import_queue_item(
     project_id: str,
     updated_at: str,
     runtime: dict[str, Any],
-) -> None:
+) -> int:
     cur.execute(
         """
         insert into queue_items(project_id,status,selection_rank,dispatch_priority,auto_continue,continue_count,max_continues,retry_count,max_retries,current_run_id,current_session_id,last_run_state,last_event_type,next_action_hint,manual_review_required,blocked_reason,last_error,last_result_summary,machine_target,model,sandbox,last_dispatch_at,last_callback_at,stale_after,updated_at)
@@ -6035,6 +6035,11 @@ def _supabase_upsert_import_queue_item(
           last_error=excluded.last_error, last_result_summary=excluded.last_result_summary, machine_target=excluded.machine_target,
           model=excluded.model, sandbox=excluded.sandbox, last_dispatch_at=excluded.last_dispatch_at,
           last_callback_at=excluded.last_callback_at, stale_after=excluded.stale_after, updated_at=excluded.updated_at
+        where queue_items.status not in ('awaiting_wake','dispatching','reconciling','running','wake_received')
+           or (
+                excluded.status in ('awaiting_wake','dispatching','reconciling','running','wake_received')
+                and coalesce(queue_items.current_run_id, '') = coalesce(excluded.current_run_id, '')
+              )
         """,
         (
             project_id,
@@ -6064,6 +6069,8 @@ def _supabase_upsert_import_queue_item(
             updated_at,
         ),
     )
+    rowcount = getattr(cur, "rowcount", 1)
+    return int(rowcount if rowcount is not None else 1)
 
 
 def _supabase_import_queue_row(cur: Any, raw: dict[str, Any]) -> tuple[int, int]:
@@ -6088,10 +6095,10 @@ def _supabase_import_queue_row(cur: Any, raw: dict[str, Any]) -> tuple[int, int]
     runtime = _supabase_queue_runtime_fields_for_import(
         existing_queue, raw, status_value
     )
-    _supabase_upsert_import_queue_item(
+    rowcount = _supabase_upsert_import_queue_item(
         cur, raw, project_id=project_id, updated_at=updated_at, runtime=runtime
     )
-    return projects, 1
+    return projects, rowcount
 
 
 def _supabase_ensure_import_project_for_paper(
