@@ -45,7 +45,20 @@ def test_public_release_integrity_scopes_supabase_secret_to_trusted_push() -> No
         "ENOCH_SUPABASE_DATABASE_URL: ${{ secrets.ENOCH_SUPABASE_DATABASE_URL }}"
         in workflow
     )
-    assert "is not configured; skipping live ledger validation" in workflow
+    assert "::error::ENOCH_SUPABASE_DATABASE_URL is required" in workflow
+    assert "is not configured; skipping live ledger validation" not in workflow
+    missing_secret_branch = workflow.split(
+        'if [ -z "${ENOCH_SUPABASE_DATABASE_URL:-}" ]; then', 1
+    )[1].split("fi", 1)[0]
+    assert "exit 1" in missing_secret_branch
+    assert "exit 0" not in missing_secret_branch
+
+
+def test_ci_main_pushes_use_ephemeral_runners() -> None:
+    workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert "self-hosted" not in workflow
+    assert "runs-on: ubuntu-latest" in workflow
 
 
 def test_public_release_integrity_authenticates_github_metadata_fetches() -> None:
