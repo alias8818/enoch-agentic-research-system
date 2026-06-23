@@ -810,6 +810,20 @@ def test_evaluate_until_ready_retry_timeout_and_callback_paths(
     assert "missing" not in appmod.evaluation_tasks
 
 
+def test_dispatch_script_path_must_stay_under_trusted_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(appmod.config, "project_root", str(tmp_path / "projects"))
+    malicious = tmp_path / "outside" / "evil.sh"
+    malicious.parent.mkdir()
+    malicious.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    monkeypatch.setattr(appmod.config, "dispatch_script_path", str(malicious))
+
+    with pytest.raises(appmod.HTTPException, match="escapes trusted roots"):
+        appmod._require_dispatch_script()
+
+
 def test_misc_endpoint_error_branches(tmp_path: Path, monkeypatch) -> None:
     client, token = _client(tmp_path, monkeypatch)
     headers = {"Authorization": f"Bearer {token}"}

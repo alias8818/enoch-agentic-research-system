@@ -189,6 +189,9 @@ class ConfigLoadError(RuntimeError):
     """Raised when the control-plane config cannot be loaded safely."""
 
 
+_APP_ROOT = Path(__file__).resolve().parents[1]
+
+
 def load_config(path: Path | None = None) -> GateConfig:
     env_path = os.environ.get("ENOCH_CONFIG") or os.environ.get(
         "ENOCH_CONTROL_PLANE_CONFIG"
@@ -196,7 +199,7 @@ def load_config(path: Path | None = None) -> GateConfig:
     config_path = path or (
         Path(env_path).expanduser()
         if env_path
-        else (Path(__file__).resolve().parents[1] / "config.example.json")
+        else (_APP_ROOT / "config.example.json")
     )
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))
@@ -3180,8 +3183,38 @@ async def write_project_paper(
     }
 
 
+def _path_is_under(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _resolve_dispatch_script_path(raw_path: str) -> Path:
+    try:
+        raw = Path(raw_path).expanduser()
+        candidate = raw if raw.is_absolute() else _APP_ROOT / raw
+        script_path = candidate.resolve(strict=False)
+        trusted_roots = (
+            _APP_ROOT.resolve(strict=False),
+            config.expanded_project_root.resolve(strict=False),
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="dispatch script path could not be resolved under a trusted root",
+        ) from exc
+    if not any(_path_is_under(script_path, root) for root in trusted_roots):
+        raise HTTPException(
+            status_code=500,
+            detail="dispatch script path escapes trusted roots",
+        )
+    return script_path
+
+
 def _require_dispatch_script() -> Path:
-    script_path = Path(config.dispatch_script_path).expanduser()
+    script_path = _resolve_dispatch_script_path(config.dispatch_script_path)
     if not script_path.exists():
         raise HTTPException(
             status_code=500, detail=f"dispatch script not found: {script_path}"
