@@ -2032,23 +2032,8 @@ class ControlPlaneStore:
     ) -> tuple[int, bool]:
         payload_json = _json(payload)
         payload_hash = _hash(payload)
-        row = conn.execute(
-            "SELECT event_id, event_type, entity_type, entity_id, payload_hash FROM events WHERE idempotency_key = ?",
-            (idempotency_key,),
-        ).fetchone()
-        if row:
-            if (
-                row["event_type"] != event_type
-                or row["entity_type"] != entity_type
-                or row["entity_id"] != entity_id
-                or row["payload_hash"] != payload_hash
-            ):
-                raise IdempotencyConflict(
-                    f"idempotency key {idempotency_key!r} was reused with different payload"
-                )
-            return int(row["event_id"]), False
         cur = conn.execute(
-            "INSERT INTO events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at) VALUES (?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO events(idempotency_key,event_type,entity_type,entity_id,payload_json,payload_hash,created_at) VALUES (?,?,?,?,?,?,?)",
             (
                 idempotency_key,
                 event_type,
@@ -2059,7 +2044,26 @@ class ControlPlaneStore:
                 utc_now(),
             ),
         )
-        return _required_lastrowid(cur, operation="append_event"), True
+        if cur.rowcount == 1:
+            return _required_lastrowid(cur, operation="append_event"), True
+        row = conn.execute(
+            "SELECT event_id, event_type, entity_type, entity_id, payload_hash FROM events WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"event idempotency key {idempotency_key!r} conflicted but row was not readable"
+            )
+        if (
+            row["event_type"] != event_type
+            or row["entity_type"] != entity_type
+            or row["entity_id"] != entity_id
+            or row["payload_hash"] != payload_hash
+        ):
+            raise IdempotencyConflict(
+                f"idempotency key {idempotency_key!r} was reused with different payload"
+            )
+        return int(row["event_id"]), False
 
     def append_event(
         self,

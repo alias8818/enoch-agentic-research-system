@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 import tempfile
 import unittest
@@ -161,6 +162,14 @@ class ControlPlaneStoreTests(unittest.TestCase):
                     entity_id="run-1",
                     payload={"same": True},
                 )
+
+    def test_append_event_inserts_before_idempotency_lookup(self) -> None:
+        source = inspect.getsource(ControlPlaneStore._append_event_in_conn)  # noqa: SLF001
+        insert_pos = source.index("INSERT OR IGNORE INTO events")
+        select_pos = source.index("SELECT event_id, event_type")
+
+        self.assertLess(insert_pos, select_pos)
+        self.assertNotIn("INSERT INTO events(idempotency_key", source)
 
     def test_replayed_event_id_conflicts_on_different_event_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
