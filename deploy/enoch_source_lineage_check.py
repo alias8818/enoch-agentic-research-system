@@ -68,6 +68,10 @@ def _get_control_status(config: GateConfig) -> dict[str, Any]:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _exception_summary(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:500]}"
+
+
 def _control_hold_skip_result(config: GateConfig) -> dict[str, Any] | None:
     if os.environ.get("ENOCH_SOURCE_LINEAGE_RUN_WHILE_HELD", "").lower() in {
         "1",
@@ -78,8 +82,14 @@ def _control_hold_skip_result(config: GateConfig) -> dict[str, Any] | None:
         return None
     try:
         status = _get_control_status(config)
-    except Exception:
-        return None
+    except OSError as exc:
+        return {
+            "ok": True,
+            "action": "skipped",
+            "reason": "source-lineage check skipped because control-plane hold status could not be verified",
+            "control_status_unreachable": True,
+            "error": _exception_summary(exc),
+        }
     flags = status.get("flags") if isinstance(status, dict) else {}
     if not isinstance(flags, dict):
         return None

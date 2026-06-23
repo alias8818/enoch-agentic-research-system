@@ -442,6 +442,39 @@ def test_research_autopilot_skips_run_cycle_during_control_hold(
     assert rows[-1]["reason"] == result["reason"]
 
 
+def test_research_autopilot_skips_run_cycle_when_hold_status_unreachable(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps({"control_api_bearer_token": "token"}), encoding="utf-8"
+    )
+    history = tmp_path / "history.jsonl"
+    monkeypatch.setenv("ENOCH_CONFIG", str(config))
+    monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(history))
+
+    with (
+        patch.object(autopilot, "_get_json", side_effect=OSError("offline")),
+        patch.object(autopilot, "_post_json") as post_json,
+        patch.object(autopilot, "refresh_research_quality_report") as refresh,
+        patch.object(autopilot, "run_quota_gated_janitor_llm_review") as janitor,
+    ):
+        assert autopilot.main() == 0
+
+    post_json.assert_not_called()
+    refresh.assert_not_called()
+    janitor.assert_not_called()
+    result = json.loads(capsys.readouterr().out)
+    assert result["action"] == "skipped"
+    assert result["control_status_unreachable"] is True
+    assert "could not be verified" in result["reason"]
+    rows = [
+        json.loads(line) for line in history.read_text(encoding="utf-8").splitlines()
+    ]
+    assert rows[-1]["reason"] == result["reason"]
+
+
 def test_research_autopilot_hold_skip_can_be_overridden(tmp_path, monkeypatch):
     config = tmp_path / "config.json"
     config.write_text(
@@ -503,6 +536,7 @@ def test_research_quality_refresh_only_runs_read_only_report(
         return Mock(returncode=0, stdout='{"ok": true}', stderr="")
 
     monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REFRESH_ONLY", "1")
+    monkeypatch.setenv("ENOCH_RESEARCH_QUALITY_REFRESH_RUN_WHILE_HELD", "1")
     monkeypatch.setenv(
         "ENOCH_SUPABASE_DATABASE_URL", "postgresql://user:secret@host/db"
     )
@@ -651,6 +685,7 @@ def test_research_autopilot_includes_quality_refresh_result(
     )
     monkeypatch.setenv("ENOCH_CONFIG", str(config))
     monkeypatch.setenv("ENOCH_ENABLE_RESEARCH_AUTOPILOT", "1")
+    monkeypatch.setenv("ENOCH_RESEARCH_AUTOPILOT_RUN_WHILE_HELD", "1")
     monkeypatch.setenv(
         "ENOCH_RESEARCH_AUTOPILOT_HISTORY_PATH", str(tmp_path / "history.jsonl")
     )

@@ -897,6 +897,10 @@ def _resolve_control_token(config: dict) -> str:
     )
 
 
+def _exception_summary(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc)[:500]}"
+
+
 def _control_hold_skip_result(
     base_url: str,
     token: str,
@@ -908,8 +912,14 @@ def _control_hold_skip_result(
         return None
     try:
         status = _get_json(base_url, "/control/api/status", token, timeout=10)
-    except Exception:
-        return None
+    except OSError as exc:
+        return {
+            "ok": True,
+            "action": "skipped",
+            "reason": f"{component} skipped because control-plane hold status could not be verified",
+            "control_status_unreachable": True,
+            "error": _exception_summary(exc),
+        }
     flags = status.get("flags") if isinstance(status, dict) else {}
     if not isinstance(flags, dict):
         return None

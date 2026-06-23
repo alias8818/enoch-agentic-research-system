@@ -582,8 +582,14 @@ def _control_hold_skip_result(base_url: str, token: str) -> dict[str, Any] | Non
         return None
     try:
         status = _get_json(base_url, "/control/api/status", token, timeout=10)
-    except Exception:
-        return None
+    except OSError as exc:
+        return {
+            "ok": True,
+            "action": "skipped",
+            "reason": "corpus import autopilot skipped because control-plane hold status could not be verified",
+            "control_status_unreachable": True,
+            "error": _exception_summary(exc),
+        }
     flags = status.get("flags") if isinstance(status, dict) else {}
     if not isinstance(flags, dict):
         return None

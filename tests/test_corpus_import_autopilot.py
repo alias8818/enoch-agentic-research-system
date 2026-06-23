@@ -90,6 +90,38 @@ def test_corpus_import_autopilot_skips_before_repo_work_during_control_hold(
     assert output["hold_state"]["maintenance_mode"] is True
 
 
+def test_corpus_import_autopilot_skips_when_hold_status_unreachable(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT", "1")
+
+    with (
+        patch.object(
+            autopilot,
+            "_load_config",
+            return_value={"control_api_bearer_token": "token"},
+        ),
+        patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
+        patch.object(autopilot, "_get_json", side_effect=OSError("offline")),
+        patch.object(
+            autopilot,
+            "_release_root",
+            side_effect=AssertionError("release root must not be inspected"),
+        ),
+        patch.object(
+            autopilot,
+            "_run",
+            side_effect=AssertionError("import commands must not run"),
+        ),
+    ):
+        assert autopilot.main() == 0
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["action"] == "skipped"
+    assert output["control_status_unreachable"] is True
+    assert "could not be verified" in output["reason"]
+
+
 def test_dry_run_transient_failure_retries_before_blocking(tmp_path, capsys):
     for name in autopilot.REPO_NAMES:
         (tmp_path / name).mkdir()
@@ -124,6 +156,7 @@ def test_dry_run_transient_failure_retries_before_blocking(tmp_path, capsys):
             {
                 "ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1",
                 "ENOCH_CORPUS_IMPORT_SYNC_LEDGER": "0",
+                "ENOCH_CORPUS_IMPORT_RUN_WHILE_HELD": "1",
                 "ENOCH_CORPUS_IMPORT_DRY_RUN_RETRIES": "2",
                 "ENOCH_CORPUS_IMPORT_DRY_RUN_RETRY_DELAY_SEC": "0",
             },
@@ -168,6 +201,7 @@ def test_dry_run_failure_redacts_control_token(tmp_path, capsys):
             {
                 "ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1",
                 "ENOCH_CORPUS_IMPORT_DRY_RUN_RETRIES": "1",
+                "ENOCH_CORPUS_IMPORT_RUN_WHILE_HELD": "1",
             },
             clear=False,
         ),
@@ -248,6 +282,7 @@ def test_clean_noop_syncs_ledger_when_enabled(tmp_path, capsys):
             {
                 "ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1",
                 "ENOCH_CORPUS_IMPORT_SYNC_LEDGER": "1",
+                "ENOCH_CORPUS_IMPORT_RUN_WHILE_HELD": "1",
             },
             clear=False,
         ),
@@ -296,6 +331,7 @@ def test_preflight_none_fails_closed_without_assert(
             {
                 "ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1",
                 "ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY": "1",
+                "ENOCH_CORPUS_IMPORT_RUN_WHILE_HELD": "1",
             },
             clear=False,
         ),
@@ -344,6 +380,7 @@ def test_clean_noop_does_not_sync_ledger_without_opt_in(tmp_path, capsys):
             {
                 "ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1",
                 "ENOCH_CORPUS_IMPORT_SYNC_LEDGER": "0",
+                "ENOCH_CORPUS_IMPORT_RUN_WHILE_HELD": "1",
             },
             clear=False,
         ),

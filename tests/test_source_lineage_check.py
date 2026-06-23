@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from deploy import enoch_source_lineage_check as check
 
 
@@ -59,6 +61,52 @@ def test_main_skips_source_lineage_sidecar_during_control_hold(
     assert payload["action"] == "skipped"
     assert payload["hold_state"]["queue_paused"] is True
     assert payload["hold_state"]["maintenance_mode"] is True
+
+
+def test_main_skips_source_lineage_sidecar_when_hold_status_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(
+        json.dumps(
+            {
+                "state_dir": str(tmp_path / "state"),
+                "project_root": str(tmp_path / "projects"),
+                "dispatch_script_path": str(tmp_path / "dispatch.sh"),
+                "control_api_bearer_token": "token",
+                "completion_callback_url": "http://example.invalid/callback",
+                "completion_callback_token": "callback-token",
+                "supabase_database_url": "postgres://example",
+            }
+        ),
+        encoding="utf-8",
+    )
+    def unreachable_status(_config: object) -> dict[str, object]:
+        raise OSError("offline")
+
+    def forbidden_build_report(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("source-lineage report must not run without hold status")
+
+    monkeypatch.setattr(check, "_get_control_status", unreachable_status)
+    monkeypatch.setattr(check, "_build_report", forbidden_build_report)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "enoch_source_lineage_check.py",
+            "--config",
+            str(config),
+            "--json",
+        ],
+    )
+
+    assert check.main() == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["action"] == "skipped"
+    assert payload["control_status_unreachable"] is True
+    assert "could not be verified" in payload["reason"]
 
 
 def test_run_check_writes_report_and_does_not_alert_when_clean(
