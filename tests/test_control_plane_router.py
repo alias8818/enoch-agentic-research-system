@@ -19954,6 +19954,43 @@ def test_register_control_plane_http_route_handlers_is_thin_orchestrator():
     assert callable(_register_control_plane_http_route_handlers)
 
 
+def test_control_plane_http_bindings_are_static_python_not_exec_strings():
+    """Route binding logic must remain visible to ruff/pyright/coverage/SAST."""
+    import ast
+    from pathlib import Path
+
+    router_src = Path("enoch_control_plane/control_plane/router.py").read_text(
+        encoding="utf-8"
+    )
+    router_tree = ast.parse(router_src)
+    exec_calls = [
+        node.lineno
+        for node in ast.walk(router_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "exec"
+    ]
+    assert exec_calls == []
+    assert "_HTTP_ROUTE_REGISTRAR_SRC" not in router_src
+
+    legacy_src = Path(
+        "enoch_control_plane/control_plane/router_http_prepare_bindings_src.py"
+    ).read_text(encoding="utf-8")
+    assert "def authorize" not in legacy_src
+    assert "@router." not in legacy_src
+
+    bindings_src = Path(
+        "enoch_control_plane/control_plane/router_http_bindings.py"
+    ).read_text(encoding="utf-8")
+    bindings_tree = ast.parse(bindings_src)
+    binding_functions = {
+        node.name for node in bindings_tree.body if isinstance(node, ast.FunctionDef)
+    }
+    assert "_prepare_control_plane_http_bindings_core" in binding_functions
+    assert "_register_control_plane_operator_legacy_routes" in binding_functions
+    assert "@router." in bindings_src
+
+
 def test_router_no_redundant_response_model_fastapi_style():
     """AGENTS.md test-first validator for top BLOCKERs (S8409/S8410, ~49 instances in router.py).
 
