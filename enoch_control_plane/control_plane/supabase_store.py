@@ -3640,6 +3640,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         now = utc_now()
         with self._connect() as conn:
             with conn.cursor() as cur:
+                cur.execute(
+                    "select pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    ("paper_review.backfill",),
+                )
                 _, inserted = self._append_event_in_cursor(
                     cur,
                     idempotency_key=request.idempotency_key,

@@ -1795,6 +1795,7 @@ def test_supabase_backfill_paper_reviews_row_failure_does_not_consume_idempotenc
     monkeypatch.setattr(store, "queue_row", lambda _project_id: {})
     events: dict[str, tuple[int, str]] = {}
     reviews: dict[str, dict] = {}
+    lock_calls: list[tuple[object, ...]] = []
     fail_review_insert = True
 
     class Cursor:
@@ -1818,6 +1819,9 @@ def test_supabase_backfill_paper_reviews_row_failure_does_not_consume_idempotenc
                     if event is None
                     else {"event_id": event[0], "payload_hash": event[1]}
                 )
+            elif normalized.startswith("select pg_advisory_xact_lock"):
+                lock_calls.append(tuple(params))
+                self._next = None
             elif normalized.startswith("insert into control_events"):
                 event_id = len(self.conn.pending_events) + 1
                 self.conn.pending_events[params[0]] = (event_id, params[5])
@@ -1871,6 +1875,7 @@ def test_supabase_backfill_paper_reviews_row_failure_does_not_consume_idempotenc
     assert (created, updated, skipped) == (1, 0, 0)
     assert errors == []
     assert reviews[paper_id]["automation_status"] == "queued"
+    assert lock_calls == [("paper_review.backfill",), ("paper_review.backfill",)]
 
 
 def test_supabase_store_resolved_artifact_rejects_paths_outside_project(
