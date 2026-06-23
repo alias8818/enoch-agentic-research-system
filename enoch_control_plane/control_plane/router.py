@@ -1276,7 +1276,7 @@ def _remote_evidence_dir_for_source(
         try:
             source_path.resolve().relative_to(local_root)
         except (OSError, RuntimeError, ValueError):
-            return source
+            return _remote_evidence_dir_fallback(remote_root, project_id)
         return None
     if not remote_source.is_absolute():
         return f"{remote_root}/{remote_source.as_posix()}"

@@ -115,6 +115,19 @@ def test_remote_evidence_dir_never_contains_parent_traversal(
         assert ".." not in Path(remote).parts
 
 
+def test_remote_evidence_dir_rejects_absolute_source_outside_project_root() -> None:
+    with TemporaryDirectory() as tmp:
+        config = _config(Path(tmp))
+
+        remote = _remote_evidence_dir(
+            config,
+            project_id="safe-project",
+            source_project_dir="/var/log/enoch",
+        )
+
+        assert remote == "/remote/projects/safe-project"
+
+
 run_id_text = st.from_regex(r"[A-Za-z0-9][A-Za-z0-9._-]{0,31}", fullmatch=True)
 
 
