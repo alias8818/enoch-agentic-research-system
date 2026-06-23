@@ -118,6 +118,16 @@ ConnectionFactory = Callable[[], Any]
 SUPABASE_CONN_LOCK_TIMEOUT_SEC = float(
     os.getenv("ENOCH_SUPABASE_CONN_LOCK_TIMEOUT_SEC", "10.0")
 )
+SUPABASE_QUERY_RETRY_ATTEMPTS = 3
+SUPABASE_QUERY_RETRY_DEADLINE_SEC = float(
+    os.getenv("ENOCH_SUPABASE_QUERY_RETRY_DEADLINE_SEC", "10.0")
+)
+SUPABASE_QUERY_CIRCUIT_FAILURE_THRESHOLD = int(
+    os.getenv("ENOCH_SUPABASE_QUERY_CIRCUIT_FAILURE_THRESHOLD", "3")
+)
+SUPABASE_QUERY_CIRCUIT_OPEN_SEC = float(
+    os.getenv("ENOCH_SUPABASE_QUERY_CIRCUIT_OPEN_SEC", "30.0")
+)
 
 _NEGATIVE_DECISION_GATE_TOKENS = (
     "negative",
@@ -1567,6 +1577,12 @@ class SupabaseReadOnlyControlPlaneStore:
         self._conn: Any | None = None
         self._conn_lock = threading.Lock()
         self._conn_lock_timeout_sec = SUPABASE_CONN_LOCK_TIMEOUT_SEC
+        self._retry_attempts = SUPABASE_QUERY_RETRY_ATTEMPTS
+        self._retry_deadline_seconds = SUPABASE_QUERY_RETRY_DEADLINE_SEC
+        self._retry_circuit_failure_threshold = SUPABASE_QUERY_CIRCUIT_FAILURE_THRESHOLD
+        self._retry_circuit_open_seconds = SUPABASE_QUERY_CIRCUIT_OPEN_SEC
+        self._retry_circuit_failures = 0
+        self._retry_circuit_open_until = 0.0
 
     def _psycopg_connect(self) -> Any:
         try:
@@ -1660,8 +1676,17 @@ class SupabaseReadOnlyControlPlaneStore:
             for token in (
                 "connection is lost",
                 "connection to database closed",
+                "connection pool timeout",
+                "connection refused",
                 "edbhandlerexited",
+                "interfaceerror",
+                "operationalerror",
+                "pool timeout",
+                "poolerror",
+                "reset by peer",
                 "server closed the connection",
+                "temporarily unavailable",
+                "timeout expired",
             )
         )
 
@@ -1695,18 +1720,64 @@ class SupabaseReadOnlyControlPlaneStore:
 
     @staticmethod
     def _retry_sleep_seconds(attempt: int) -> float:
-        return min(0.25 * (attempt + 1), 2.0) + random.uniform(0.0, 0.1)
+        return min(0.25 * (2**attempt), 2.0) + random.uniform(0.0, 0.1)
+
+    def _raise_if_retry_circuit_open(self) -> None:
+        now = time.monotonic()
+        if self._retry_circuit_open_until <= now:
+            return
+        remaining = self._retry_circuit_open_until - now
+        raise RuntimeError(
+            "supabase query retry circuit is open; "
+            f"fast-failing for {remaining:.1f}s after repeated transient failures"
+        )
+
+    def _record_retry_success(self) -> None:
+        self._retry_circuit_failures = 0
+        self._retry_circuit_open_until = 0.0
+
+    def _record_retry_failure(self, exc: Exception) -> None:
+        if not self._is_retryable_query_error(exc):
+            return
+        self._retry_circuit_failures += 1
+        if self._retry_circuit_failures >= self._retry_circuit_failure_threshold:
+            self._retry_circuit_open_until = (
+                time.monotonic() + self._retry_circuit_open_seconds
+            )
+
+    def _should_retry_query_error(
+        self, exc: Exception, *, attempt: int, started_at: float, sleep_seconds: float
+    ) -> bool:
+        if attempt >= self._retry_attempts - 1:
+            return False
+        if not self._is_retryable_query_error(exc):
+            return False
+        return (
+            time.monotonic() + sleep_seconds - started_at
+            <= self._retry_deadline_seconds
+        )
 
     def _with_retry(self, operation: Callable[[], Any]) -> Any:
         last_exc: Exception | None = None
-        for attempt in range(3):
+        self._raise_if_retry_circuit_open()
+        started_at = time.monotonic()
+        for attempt in range(self._retry_attempts):
             try:
-                return operation()
+                result = operation()
+                self._record_retry_success()
+                return result
             except Exception as exc:
                 last_exc = exc
-                if attempt < 2 and self._is_retryable_query_error(exc):
-                    time.sleep(self._retry_sleep_seconds(attempt))
+                sleep_seconds = self._retry_sleep_seconds(attempt)
+                if self._should_retry_query_error(
+                    exc,
+                    attempt=attempt,
+                    started_at=started_at,
+                    sleep_seconds=sleep_seconds,
+                ):
+                    time.sleep(sleep_seconds)
                     continue
+                self._record_retry_failure(exc)
                 raise
         if last_exc is None:
             raise RuntimeError(

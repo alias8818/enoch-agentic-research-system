@@ -93,6 +93,99 @@ def test_supabase_query_retry_exhaustion_raises_original_transient_exception(
     assert sleeps == [0.3, 0.55]
 
 
+def test_supabase_query_retries_common_pool_and_timeout_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PoolError(RuntimeError):
+        pass
+
+    errors = [
+        PoolError("connection pool timeout"),
+        RuntimeError("OperationalError: timeout expired"),
+    ]
+    sleeps: list[float] = []
+
+    def connect():  # noqa: ANN202 - test double
+        if errors:
+            raise errors.pop(0)
+        raise RuntimeError("done")
+
+    def no_jitter(_lower: float, _upper: float) -> float:
+        return 0.0
+
+    monkeypatch.setattr(s.random, "uniform", no_jitter)
+    monkeypatch.setattr(s.time, "sleep", sleeps.append)
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=connect)
+
+    with pytest.raises(RuntimeError, match="done"):
+        store._query("select 1")
+
+    assert sleeps == [0.25, 0.5]
+
+
+def test_supabase_query_retry_deadline_caps_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TransientDatabaseError(RuntimeError):
+        pass
+
+    attempts = 0
+    sleeps: list[float] = []
+
+    def connect():  # noqa: ANN202 - test double
+        nonlocal attempts
+        attempts += 1
+        raise TransientDatabaseError("server closed the connection")
+
+    def no_jitter(_lower: float, _upper: float) -> float:
+        return 0.0
+
+    monkeypatch.setattr(s.random, "uniform", no_jitter)
+    monkeypatch.setattr(s.time, "sleep", sleeps.append)
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=connect)
+    store._retry_deadline_seconds = 0.1
+
+    with pytest.raises(TransientDatabaseError, match="server closed"):
+        store._query("select 1")
+
+    assert attempts == 1
+    assert sleeps == []
+
+
+def test_supabase_query_retry_circuit_fast_fails_after_repeated_transients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TransientDatabaseError(RuntimeError):
+        pass
+
+    attempts = 0
+
+    def connect():  # noqa: ANN202 - test double
+        nonlocal attempts
+        attempts += 1
+        raise TransientDatabaseError("server closed the connection")
+
+    def no_jitter(_lower: float, _upper: float) -> float:
+        return 0.0
+
+    def skip_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(s.random, "uniform", no_jitter)
+    monkeypatch.setattr(s.time, "sleep", skip_sleep)
+    store = s.SupabaseControlPlaneStore("postgres://example", connect=connect)
+    store._retry_circuit_failure_threshold = 1
+
+    with pytest.raises(TransientDatabaseError, match="server closed"):
+        store._query("select 1")
+    attempts_after_open = attempts
+
+    with pytest.raises(RuntimeError, match="retry circuit is open"):
+        store._query("select 1")
+
+    assert attempts == attempts_after_open
+
+
 def test_supabase_query_retries_transaction_conflicts_with_jitter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
