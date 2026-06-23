@@ -63,6 +63,42 @@ def test_lifespan_restarts_failed_reconcile_task(monkeypatch: Any) -> None:
     asyncio.run(run_lifespan())
 
 
+def test_readyz_requires_running_reconcile_task(monkeypatch: Any) -> None:
+    monkeypatch.setattr(appmod, "reconcile_task", None)
+
+    with pytest.raises(HTTPException) as raised:
+        appmod.readyz()
+
+    assert raised.value.status_code == 503
+    assert "reconcile task is not running" in str(raised.value.detail)
+
+
+def test_readyz_reports_state_store_failure(monkeypatch: Any) -> None:
+    async def running() -> None:
+        await asyncio.Event().wait()
+
+    async def run_check() -> None:
+        task = asyncio.create_task(running())
+        monkeypatch.setattr(appmod, "reconcile_task", task)
+
+        def list_runs() -> list[Any]:
+            raise RuntimeError("state root unavailable")
+
+        monkeypatch.setattr(appmod.store, "list_runs", list_runs)
+        try:
+            with pytest.raises(HTTPException) as raised:
+                appmod.readyz()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+        assert raised.value.status_code == 503
+        assert "state root unavailable" in str(raised.value.detail)
+
+    asyncio.run(run_check())
+    monkeypatch.setattr(appmod, "reconcile_task", None)
+
+
 def test_healthz_reports_failed_reconcile_task(monkeypatch: Any) -> None:
     async def fail() -> None:
         raise RuntimeError("reconcile dead")

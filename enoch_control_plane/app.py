@@ -249,17 +249,40 @@ def _start_reconcile_task() -> asyncio.Task[None]:
     return task
 
 
-def _reconcile_task_failure_detail() -> str:
+def _reconcile_task_readiness_error() -> str:
     task = reconcile_task
-    if task is None or not task.done() or task.cancelled():
+    if task is None:
+        return "reconcile task is not running"
+    if task.cancelled():
+        return "reconcile task is cancelled"
+    if not task.done():
         return ""
     try:
         exc = task.exception()
     except asyncio.CancelledError:
-        return ""
+        return "reconcile task is cancelled"
     if exc is None:
-        return ""
+        return "reconcile task stopped"
     return f"{type(exc).__name__}: {exc}"
+
+
+def _state_store_readiness_error() -> str:
+    try:
+        store.list_runs()
+    except Exception as exc:
+        return f"state store unavailable: {type(exc).__name__}: {exc}"
+    return ""
+
+
+def _readiness_errors() -> list[str]:
+    errors = []
+    reconcile_error = _reconcile_task_readiness_error()
+    if reconcile_error:
+        errors.append(reconcile_error)
+    store_error = _state_store_readiness_error()
+    if store_error:
+        errors.append(store_error)
+    return errors
 
 
 @asynccontextmanager
@@ -1137,27 +1160,39 @@ DASHBOARD_HTML = """
 """
 
 
-@app.get("/healthz")
-def healthz() -> dict:
-    task_error = _reconcile_task_failure_detail()
-    if task_error:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "ok": False,
-                "service": "enoch_worker_gate",
-                "timestamp": utc_now(),
-                "reconcile_task": task_error,
-            },
-        )
+def _readiness_payload() -> dict[str, Any]:
+    errors = _readiness_errors()
     return {
-        "ok": True,
+        "ok": not errors,
         "service": "enoch_worker_gate",
         "timestamp": utc_now(),
         "reconcile_task": "running"
         if reconcile_task is not None and not reconcile_task.done()
-        else "not_started",
+        else "not_ready",
+        "checks": {
+            "reconcile_task": not any("reconcile task" in error for error in errors),
+            "state_store": not any("state store" in error for error in errors),
+        },
+        "errors": errors,
     }
+
+
+@app.get("/livez")
+def livez() -> dict[str, Any]:
+    return {"ok": True, "service": "enoch_worker_gate", "timestamp": utc_now()}
+
+
+@app.get("/readyz")
+def readyz() -> dict[str, Any]:
+    payload = _readiness_payload()
+    if not payload["ok"]:
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
+
+
+@app.get("/healthz")
+def healthz() -> dict[str, Any]:
+    return readyz()
 
 
 def _require_local_bearer(authorization: str | None) -> None:

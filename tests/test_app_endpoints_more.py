@@ -827,7 +827,8 @@ def test_dispatch_script_path_must_stay_under_trusted_roots(
 def test_misc_endpoint_error_branches(tmp_path: Path, monkeypatch) -> None:
     client, token = _client(tmp_path, monkeypatch)
     headers = {"Authorization": f"Bearer {token}"}
-    assert client.get("/healthz").json()["ok"] is True
+    assert client.get("/livez").json()["ok"] is True
+    assert client.get("/healthz").status_code == 503
     assert client.get("/dashboard").status_code == 401
     assert client.get("/dashboard", headers=headers).status_code == 200
     assert client.get("/favicon.ico").status_code in {200, 204}
