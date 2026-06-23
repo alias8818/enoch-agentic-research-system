@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Callable
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
@@ -210,8 +211,6 @@ class EnochCoreSupabaseBackendRoutingTests(unittest.TestCase):
                 if authorization != "Bearer secret":
                     raise HTTPException(status_code=401, detail="invalid bearer token")
 
-            from unittest.mock import patch
-
             with patch(
                 "enoch_control_plane.enoch_core.router.SupabaseEnochCoreStore",
                 return_value=FakeStore(),
@@ -227,6 +226,63 @@ class EnochCoreSupabaseBackendRoutingTests(unittest.TestCase):
             )
             self.assertEqual(response.store_backend, "supabase")
             self.assertEqual(response.db_path, "supabase")
+
+    def test_control_plane_readonly_backend_keeps_enoch_core_sqlite(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = GateConfig(
+                state_dir=tmp,
+                project_root=tmp,
+                dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
+                control_api_bearer_token="secret",
+                completion_callback_url="http://127.0.0.1/callback",
+                completion_callback_token="callback-token",
+                control_plane_store_backend="supabase_readonly",
+                supabase_database_url="postgresql://example.invalid/postgres",
+            )
+
+            def require_bearer(authorization: str | None) -> None:
+                if authorization != "Bearer secret":
+                    raise HTTPException(status_code=401, detail="invalid bearer token")
+
+            with patch(
+                "enoch_control_plane.enoch_core.router.SupabaseEnochCoreStore"
+            ) as supabase_store:
+                router = create_enoch_core_router(config, require_bearer)
+                endpoints = {route.path: route.endpoint for route in router.routes}  # type: ignore[attr-defined]
+                response = endpoints["/enoch-core/health"](
+                    authorization="Bearer secret"
+                )
+
+            supabase_store.assert_not_called()
+            self.assertEqual(response.store_backend, "sqlite")
+            self.assertTrue(response.db_path.endswith("enoch_core.sqlite3"))
+
+    def test_enoch_core_query_mode_rejects_invalid_direct_override(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = GateConfig(
+                state_dir=tmp,
+                project_root=tmp,
+                dispatch_script_path=str(Path(tmp) / "dispatch.sh"),
+                control_api_bearer_token="secret",
+                completion_callback_url="http://127.0.0.1/callback",
+                completion_callback_token="callback-token",
+                enoch_core_store_backend="sqlite",
+            )
+
+            def require_bearer(authorization: str | None) -> None:
+                if authorization != "Bearer secret":
+                    raise HTTPException(status_code=401, detail="invalid bearer token")
+
+            router = create_enoch_core_router(config, require_bearer)
+            endpoints = {route.path: route.endpoint for route in router.routes}  # type: ignore[attr-defined]
+
+            with self.assertRaises(HTTPException) as raised:
+                endpoints["/enoch-core/projections/queue"](
+                    authorization="Bearer secret", mode="bogus"
+                )
+
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertIn("invalid enoch core mode", str(raised.exception.detail))
 
     def test_enoch_core_backend_can_be_pinned_to_sqlite_during_tests(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

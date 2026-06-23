@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Annotated, Callable
+from typing import Annotated, Callable, cast
 
 from fastapi import APIRouter, Header, HTTPException, Query
 
@@ -26,6 +26,9 @@ from .store import EnochCoreStore, IdempotencyConflict
 from .supabase_store import SupabaseEnochCoreStore
 
 RequireBearer = Callable[[str | None], None]
+_VALID_ENOCH_CORE_MODES: frozenset[str] = frozenset(
+    {"off", "shadow", "compare", "enforce"}
+)
 
 _HTTP_409_IDEMPOTENCY_CONFLICT: dict[int, dict[str, str]] = {
     409: {"description": "Idempotency key reused with a different payload"},
@@ -34,9 +37,18 @@ _HTTP_409_IDEMPOTENCY_CONFLICT: dict[int, dict[str, str]] = {
 
 def _mode_from_env(default: EnochCoreMode = "shadow") -> EnochCoreMode:
     value = os.environ.get("ENOCH_CORE_MODE", default).strip().lower()
-    if value in {"off", "shadow", "compare", "enforce"}:
-        return value  # type: ignore[return-value]
+    if value in _VALID_ENOCH_CORE_MODES:
+        return cast(EnochCoreMode, value)
     return default
+
+
+def _mode_from_override(override: EnochCoreMode | str | None) -> EnochCoreMode | None:
+    if override is None:
+        return None
+    value = str(override).strip().lower()
+    if value not in _VALID_ENOCH_CORE_MODES:
+        raise HTTPException(status_code=400, detail=f"invalid enoch core mode: {value}")
+    return cast(EnochCoreMode, value)
 
 
 def create_enoch_core_router(
@@ -48,7 +60,7 @@ def create_enoch_core_router(
     if backend == "control_plane":
         backend = (
             "supabase"
-            if config.control_plane_store_backend in {"supabase", "supabase_readonly"}
+            if config.control_plane_store_backend == "supabase"
             else "sqlite"
         )
     if backend == "supabase":
@@ -63,8 +75,8 @@ def create_enoch_core_router(
     def authorize(authorization: str | None) -> None:
         require_bearer(authorization)
 
-    def current_mode(override: EnochCoreMode | None = None) -> EnochCoreMode:
-        return override or _mode_from_env()
+    def current_mode(override: EnochCoreMode | str | None = None) -> EnochCoreMode:
+        return _mode_from_override(override) or _mode_from_env()
 
     def latest_snapshot_or_empty() -> dict:
         return store.rebuild_queue_projection()
