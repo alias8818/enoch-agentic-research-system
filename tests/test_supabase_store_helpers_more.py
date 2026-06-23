@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -260,14 +261,14 @@ def test_load_manifest_treats_filesystem_access_failure_as_empty(
     store = s.SupabaseControlPlaneStore(
         "postgres://example", connect=lambda: pytest.fail("should not connect")
     )
-    real_exists = Path.exists
+    real_open = Path.open
 
-    def blocked_exists(path: Path) -> bool:
+    def blocked_open(path: Path, *args: Any, **kwargs: Any) -> Any:
         if path == manifest_path:
             raise PermissionError("simulated manifest access failure")
-        return real_exists(path)
+        return real_open(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "exists", blocked_exists)
+    monkeypatch.setattr(Path, "open", blocked_open)
 
     assert store._load_manifest(str(manifest_path)) == {}
 

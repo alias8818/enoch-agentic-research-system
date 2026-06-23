@@ -75,6 +75,7 @@ from .store import (
     _is_older_timestamp,
     _json,
     _json_dict,
+    _load_bounded_json_dict,
     _json_list,
     _NOTION_EXECUTION_STATE_MAP,
     _notion_execution_update_row,
@@ -3906,10 +3907,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         if not package_path:
             return {}
         path = Path(package_path)
-        try:
-            return _json_dict(path.read_text(encoding="utf-8")) if path.exists() else {}
-        except OSError:
-            return {}
+        return _load_bounded_json_dict(path)
 
     def _replay_prepare_finalization_package(
         self,

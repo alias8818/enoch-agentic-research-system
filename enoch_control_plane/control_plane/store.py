@@ -1334,6 +1334,25 @@ def _json_dict(value: Any) -> dict[str, Any]:
     return dict(parsed) if isinstance(parsed, dict) else {}
 
 
+_FINALIZATION_MANIFEST_MAX_BYTES = 1_048_576
+
+
+def _load_bounded_json_dict(
+    path: Path, *, max_bytes: int = _FINALIZATION_MANIFEST_MAX_BYTES
+) -> dict[str, Any]:
+    try:
+        with path.open("rb") as handle:
+            payload = handle.read(max_bytes + 1)
+    except OSError:
+        return {}
+    if len(payload) > max_bytes:
+        return {}
+    try:
+        return _json_dict(payload.decode("utf-8"))
+    except UnicodeDecodeError:
+        return {}
+
+
 def _progress_for_items(items: list[dict[str, Any]]) -> dict[str, int]:
     counts = {
         "passed": 0,
@@ -3485,10 +3504,7 @@ class ControlPlaneStore:
         if not package_path:
             return {}
         path = Path(package_path)
-        try:
-            return _json_dict(path.read_text(encoding="utf-8")) if path.exists() else {}
-        except OSError:
-            return {}
+        return _load_bounded_json_dict(path)
 
     def _replay_paper_review_finalization_if_any(
         self,

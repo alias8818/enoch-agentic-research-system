@@ -23,12 +23,39 @@ from enoch_control_plane.control_plane.store import (
     ControlPlaneStore,
     _audit_rows,
     _existing_file_snapshot,
+    _load_bounded_json_dict,
     _require_current_queue_row,
 )
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 
 
 class ControlPlaneStoreTests(unittest.TestCase):
+    def test_load_bounded_json_dict_rejects_oversized_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = Path(tmp) / "manifest.json"
+            manifest.write_text('{"ok": true}\n', encoding="utf-8")
+            self.assertEqual(
+                _load_bounded_json_dict(manifest, max_bytes=manifest.stat().st_size),
+                {"ok": True},
+            )
+            self.assertEqual(
+                _load_bounded_json_dict(
+                    manifest, max_bytes=manifest.stat().st_size - 1
+                ),
+                {},
+            )
+
+    def test_load_manifest_uses_bounded_reader(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            manifest = Path(tmp) / "manifest.json"
+            manifest.write_text('{"evidence_file_count": 1}\n', encoding="utf-8")
+
+            self.assertEqual(
+                store._load_manifest(str(manifest)),  # noqa: SLF001 - manifest cap regression
+                {"evidence_file_count": 1},
+            )
+
     def test_require_current_queue_row_raises_runtime_error_not_assertion(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "missing queue row"):
             _require_current_queue_row(None, context="unit-test")
