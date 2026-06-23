@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -3345,6 +3346,33 @@ def test_supabase_worker_callback_idempotency_rejects_payload_subset_reuse(
         pass
     else:
         raise AssertionError("subset callback reused idempotency key")
+
+
+def test_supabase_paper_review_row_uses_targeted_join_lookup() -> None:
+    calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    class Store(SupabaseControlPlaneStore):
+        def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+            calls.append((sql, tuple(params)))
+            return [
+                {
+                    "paper_id": "paper-targeted",
+                    "project_id": "project-targeted",
+                    "paper_status": "draft_review",
+                    "paper_type": "arxiv_draft",
+                    "review_status": "queued",
+                    "updated_at": "2026-04-28T10:00:00+00:00",
+                }
+            ]
+
+    row = Store("postgres://example", connect=lambda: None).paper_review_row(
+        "paper-targeted"
+    )
+
+    assert row is not None
+    assert row["paper_id"] == "paper-targeted"
+    assert calls == [(calls[0][0], ("paper-targeted",))]
+    assert "where rv.paper_id = %s" in calls[0][0]
 
 
 def test_supabase_import_snapshot_retries_serialization_failure(

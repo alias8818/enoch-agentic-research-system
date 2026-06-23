@@ -2973,6 +2973,42 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertIn("readiness audit passed +20", rows[0]["rank_reasons"])
             self.assertEqual(rows[0]["checklist_progress"]["pending"], 9)
 
+    def test_paper_review_row_uses_targeted_join_lookup(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            paper_id = "targeted:run-1:arxiv_draft"
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="paper-review-targeted-import",
+                    paper_rows=[
+                        {
+                            "paper_id": paper_id,
+                            "project_id": "targeted",
+                            "run_id": "run-1",
+                            "paper_status": "draft_review",
+                            "updated_at": "2026-04-28T10:00:00+00:00",
+                        }
+                    ],
+                )
+            )
+            store.backfill_paper_reviews(
+                PaperReviewBackfillRequest(
+                    idempotency_key="paper-review-targeted-backfill", dry_run=False
+                )
+            )
+
+            with unittest.mock.patch.object(
+                store,
+                "_paper_review_join_rows",
+                wraps=store._paper_review_join_rows,
+            ) as join_rows:
+                row = store.paper_review_row(paper_id)
+
+            if row is None:
+                self.fail("expected paper review row")
+            self.assertEqual(row["paper_id"], paper_id)
+            join_rows.assert_called_once_with(paper_id=paper_id)
+
     def test_paper_review_backfill_upserts_stale_ranking_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

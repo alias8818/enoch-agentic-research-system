@@ -3366,9 +3366,13 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "dry-run dispatch selected candidate",
         )
 
-    def _paper_review_join_rows(self) -> list[dict[str, Any]]:
+    def _paper_review_join_rows(
+        self, paper_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        where_clause = "where rv.paper_id = %s" if paper_id is not None else ""
+        params = (paper_id,) if paper_id is not None else ()
         return self._query(
-            """
+            f"""
             select
               pa.*,
               p.project_name,
@@ -3398,8 +3402,10 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             join papers pa using(paper_id)
             left join projects p using(project_id)
             left join queue_items q using(project_id)
+            {where_clause}
             order by rv.rank_score desc, pa.updated_at desc, pa.paper_id asc
-            """
+            """,
+            params,
         )
 
     def _review_queue_item_from_row(
@@ -3461,11 +3467,11 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
     def paper_review_row(
         self, paper_id: str, *, include_rank_reasons: bool = True
     ) -> dict[str, Any] | None:
-        for row in self._paper_review_join_rows():
-            if row.get("paper_id") == paper_id:
-                return self._review_queue_item_from_row(
-                    row, include_rank_reasons=include_rank_reasons
-                )
+        rows = self._paper_review_join_rows(paper_id=paper_id)
+        if rows:
+            return self._review_queue_item_from_row(
+                rows[0], include_rank_reasons=include_rank_reasons
+            )
         return None
 
     def _raw_paper_review_row(self, paper_id: str) -> dict[str, Any] | None:
