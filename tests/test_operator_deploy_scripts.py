@@ -39,6 +39,21 @@ def test_sync_codex_worker_config_has_archive_safety_contract() -> None:
     assert "config.toml must be a regular file" in text
 
 
+def test_sync_codex_worker_config_contains_destination_paths_before_delete() -> None:
+    text = (ROOT / "scripts" / "sync-codex-worker-config.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "rejecting unsafe sync payload path" in text
+    assert r"root=\$(realpath -m '$cpu_codex_home')" in text
+    assert r"target=\$(realpath -m '$cpu_codex_home/'\"\$path\")" in text
+    assert r"source=\$(realpath -m \"\$stage/\$path\")" in text
+    assert r"\"\$root\"/*)" in text
+    assert r"\"\$stage_root\"/*)" in text
+    assert r"rm -rf -- \"\$target\"" in text
+    assert "rm -rf '$cpu_codex_home/'\"\\$path\"" not in text
+
+
 def test_sync_codex_worker_config_rejects_source_symlinks(tmp_path) -> None:
     source = tmp_path / "gb10-codex"
     dest = tmp_path / "cpu-codex"
