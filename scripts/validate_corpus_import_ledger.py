@@ -17,6 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 try:
     from sync_corpus_import_ledger import (
@@ -129,6 +130,45 @@ def _run_supabase_query(sql_path: Path, *, linked: bool, db_url: str) -> dict[st
         ) from exc
 
 
+def _is_postgres_url(db_url: str) -> bool:
+    scheme = urlsplit(db_url.strip()).scheme.lower()
+    return scheme in {"postgres", "postgresql"}
+
+
+def _run_postgres_query(sql: str, *, db_url: str) -> dict[str, Any]:
+    try:
+        import psycopg
+    except ModuleNotFoundError as exc:  # pragma: no cover - dependency guard
+        raise SystemExit(
+            "psycopg is required for direct Postgres ledger validation; "
+            "run via `uv run` or install psycopg[binary]"
+        ) from exc
+
+    metrics: dict[str, Any] | None = None
+    with psycopg.connect(db_url, connect_timeout=10) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(sql)
+            while True:
+                if cursor.description:
+                    row = cursor.fetchone()
+                    if row is not None:
+                        columns = [column.name for column in cursor.description]
+                        metrics = dict(zip(columns, row, strict=True))
+                if not cursor.nextset():
+                    break
+    if metrics is None:
+        raise SystemExit("ledger validation query returned no rows")
+    return {"rows": [metrics]}
+
+
+def _run_validation_query(
+    sql: str, sql_path: Path, *, linked: bool, db_url: str
+) -> dict[str, Any]:
+    if not linked and _is_postgres_url(db_url):
+        return _run_postgres_query(sql, db_url=db_url)
+    return _run_supabase_query(sql_path, linked=linked, db_url=db_url)
+
+
 def validate_metrics(row: dict[str, Any]) -> list[str]:
     public_rows = int(row.get("public_index_rows") or 0)
     imports_total = int(row.get("corpus_imports_total") or 0)
@@ -190,8 +230,11 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="enoch-ledger-validate-") as tmp:
         sql_path = Path(tmp) / "validate-corpus-import-ledger.sql"
         sql_path.write_text(sql, encoding="utf-8")
-        payload = _run_supabase_query(
-            sql_path, linked=bool(args.linked), db_url=str(args.db_url or "")
+        payload = _run_validation_query(
+            sql,
+            sql_path,
+            linked=bool(args.linked),
+            db_url=str(args.db_url or ""),
         )
     rows = payload.get("rows") or []
     if not rows:

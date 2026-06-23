@@ -49,11 +49,13 @@ def test_public_release_integrity_scopes_supabase_secret_to_trusted_push() -> No
     )
     assert "::error::ENOCH_SUPABASE_DATABASE_URL is not configured" in workflow
     assert "skipping live ledger validation" not in workflow
+    live_step = workflow.split(
+        "- name: Validate live Supabase corpus import ledger", 1
+    )[1]
+    assert "exit 0" not in live_step
     assert (
-        "exit 0"
-        not in workflow.split("- name: Validate live Supabase corpus import ledger", 1)[
-            1
-        ]
+        "uv run python3 scripts/validate_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus"
+        in live_step
     )
 
 

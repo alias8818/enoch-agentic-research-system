@@ -85,4 +85,4 @@ jobs:
             echo "::error::ENOCH_SUPABASE_DATABASE_URL is not configured; cannot validate live corpus ledger."
             exit 1
           fi
-          python3 scripts/validate_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus
+          uv run python3 scripts/validate_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus

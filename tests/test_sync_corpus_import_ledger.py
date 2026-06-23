@@ -12,6 +12,7 @@ from scripts.sync_corpus_import_ledger import (
     sync_records,
 )
 from scripts.validate_corpus_import_ledger import (
+    _run_validation_query,
     render_validation_sql,
     validate_metrics,
 )
@@ -248,6 +249,32 @@ def test_validate_corpus_import_ledger_metrics_fail_on_drift() -> None:
     assert "dashboard_corpus_imported 493 != public_index_rows 376" in failures
     assert "stale_corpus_imports 117 != 0" in failures
     assert "missing_public_records 1 != 0" in failures
+
+
+def test_validate_corpus_import_ledger_uses_direct_postgres_for_postgres_urls(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from scripts import validate_corpus_import_ledger as module
+
+    sql_path = tmp_path / "validate.sql"
+    calls: list[tuple[str, str]] = []
+
+    def fake_postgres(sql: str, *, db_url: str) -> dict[str, object]:
+        calls.append((sql, db_url))
+        return {"rows": [{"public_index_rows": 1}]}
+
+    def fake_supabase(*_args, **_kwargs):
+        raise AssertionError("postgres URLs must not go through Supabase CLI")
+
+    monkeypatch.setattr(module, "_run_postgres_query", fake_postgres)
+    monkeypatch.setattr(module, "_run_supabase_query", fake_supabase)
+
+    payload = _run_validation_query(
+        "select 1", sql_path, linked=False, db_url="postgresql://example/db"
+    )
+
+    assert payload == {"rows": [{"public_index_rows": 1}]}
+    assert calls == [("select 1", "postgresql://example/db")]
 
 
 def test_render_supabase_cli_sql_guards_public_placeholder_identity() -> None:
