@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any
 
 from enoch_control_plane.control_plane.models import (
     ControlFlags,
@@ -422,8 +423,15 @@ class WorkerPreflightTests(unittest.TestCase):
     def test_post_worker_json_uses_bearer_and_json_transport(self) -> None:
         calls = []
 
-        def transport(method, url, headers, payload):
-            calls.append((method, url, headers, payload))
+        def transport(
+            method: str,
+            url: str,
+            headers: dict[str, str],
+            payload: dict[str, Any],
+            *,
+            timeout: float,
+        ) -> HttpResult:
+            calls.append((method, url, headers, payload, timeout))
             return HttpResult(ok=True, status=200, body={"accepted": True})
 
         response = post_worker_json(
@@ -438,6 +446,64 @@ class WorkerPreflightTests(unittest.TestCase):
         self.assertEqual(calls[0][1], "http://worker:8787/prepare-project")
         self.assertEqual(calls[0][2]["Authorization"], "Bearer secret")
         self.assertEqual(calls[0][3], {"x": 1})
+        self.assertEqual(calls[0][4], 5)
+
+    def test_post_worker_json_rejects_transports_without_timeout(self) -> None:
+        calls = []
+
+        def transport(
+            method: str,
+            url: str,
+            headers: dict[str, str],
+            payload: dict[str, Any],
+        ) -> HttpResult:
+            calls.append((method, url, headers, payload))
+            return HttpResult(ok=True, status=200, body={"accepted": True})
+
+        with self.assertRaises(TypeError):
+            post_worker_json(
+                "http://worker:8787/",
+                "/prepare-project",
+                "secret",
+                {"x": 1},
+                transport=transport,
+            )
+        self.assertEqual(calls, [])
+
+
+def test_http_request_json_retries_transient_urlopen_failures(monkeypatch: Any) -> None:
+    from enoch_control_plane.control_plane import worker_adapter
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: Any) -> None:
+            return None
+
+        def read(self):
+            return b'{"ok": true}'
+
+    calls: list[float] = []
+
+    def fake_urlopen(*_args: Any, **kwargs: Any) -> Response:
+        calls.append(kwargs["timeout"])
+        if len(calls) == 1:
+            raise TimeoutError("cold worker boot")
+        return Response()
+
+    monkeypatch.setattr(worker_adapter, "urlopen_validated", fake_urlopen)
+
+    result = worker_adapter._http_request_json(
+        "GET", "http://worker.example/healthz", {}, None, timeout=7
+    )
+
+    assert result.ok is True
+    assert result.status == 200
+    assert result.body == {"ok": True}
+    assert calls == [7, 7]
 
 
 if __name__ == "__main__":
@@ -466,7 +532,7 @@ def test_http_request_json_rejects_non_object_json(monkeypatch) -> None:
         def __enter__(self):
             return self
 
-        def __exit__(self, *_args):
+        def __exit__(self, *_args: Any) -> None:
             return None
 
         def read(self):

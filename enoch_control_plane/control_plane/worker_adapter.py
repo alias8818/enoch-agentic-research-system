@@ -7,6 +7,13 @@ from dataclasses import dataclass
 from typing import Any, Callable
 from urllib import error, request
 
+from tenacity import (
+    Retrying,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_random_exponential,
+)
+
 from ..url_safety import urlopen_validated, validate_http_url
 from .models import (
     ControlFlags,
@@ -27,6 +34,23 @@ class HttpResult:
 Transport = Callable[[str, dict[str, str]], HttpResult]
 JsonTransport = Callable[..., HttpResult]
 
+_TRANSIENT_HTTP_EXCEPTIONS = (TimeoutError, error.URLError, OSError)
+
+
+def _is_retryable_worker_http_exception(exc: BaseException) -> bool:
+    return isinstance(exc, _TRANSIENT_HTTP_EXCEPTIONS) and not isinstance(
+        exc, error.HTTPError
+    )
+
+
+def _transient_worker_http_retry() -> Retrying:
+    return Retrying(
+        reraise=True,
+        retry=retry_if_exception(_is_retryable_worker_http_exception),
+        stop=stop_after_attempt(2),
+        wait=wait_random_exponential(multiplier=0.1, max=1.0),
+    )
+
 
 def _http_request_json(
     method: str,
@@ -43,10 +67,15 @@ def _http_request_json(
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     merged_headers = {"Content-Type": "application/json", **headers}
     req = request.Request(safe_url, data=data, headers=merged_headers, method=method)
-    try:
-        with urlopen_validated(
-            req, timeout=timeout, field_name="worker url", allow_private=True
-        ) as resp:
+
+    def send_once() -> HttpResult:
+        try:
+            response_context = urlopen_validated(
+                req, timeout=timeout, field_name="worker url", allow_private=True
+            )
+        except _TRANSIENT_HTTP_EXCEPTIONS:
+            raise
+        with response_context as resp:
             raw = resp.read().decode("utf-8")
             body = json.loads(raw) if raw else {}
             if not isinstance(body, dict):
@@ -59,13 +88,25 @@ def _http_request_json(
             return HttpResult(
                 ok=200 <= resp.status < 300, status=resp.status, body=body
             )
+
+    try:
+        for attempt in _transient_worker_http_retry():
+            with attempt:
+                return send_once()
     except error.HTTPError as exc:
         raw = exc.read().decode("utf-8")
         return HttpResult(ok=False, status=exc.code, body=None, error=raw or str(exc))
+    except _TRANSIENT_HTTP_EXCEPTIONS as exc:
+        return HttpResult(
+            ok=False, status=None, body=None, error=f"{type(exc).__name__}: {exc}"
+        )
     except Exception as exc:  # pragma: no cover - exercised in deployment
         return HttpResult(
             ok=False, status=None, body=None, error=f"{type(exc).__name__}: {exc}"
         )
+    return HttpResult(
+        ok=False, status=None, body=None, error="worker request did not run"
+    )
 
 
 def _http_get_json(url: str, headers: dict[str, str]) -> HttpResult:
@@ -81,20 +122,13 @@ def post_worker_json(
     timeout: float = 5,
     transport: JsonTransport = _http_request_json,
 ) -> HttpResult:
-    try:
-        return transport(
-            "POST",
-            base_url.rstrip("/") + path,
-            _auth_headers(token),
-            payload,
-            timeout=timeout,
-        )
-    except TypeError as exc:
-        if "timeout" not in str(exc):
-            raise
-        return transport(
-            "POST", base_url.rstrip("/") + path, _auth_headers(token), payload
-        )
+    return transport(
+        "POST",
+        base_url.rstrip("/") + path,
+        _auth_headers(token),
+        payload,
+        timeout=timeout,
+    )
 
 
 def _check(
