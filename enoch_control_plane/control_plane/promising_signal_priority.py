@@ -158,6 +158,20 @@ def _scoring_signal_from_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _has_promising_signal_fields(row: dict[str, Any]) -> bool:
+    return any(
+        _text(row.get(key))
+        for key in (
+            "research_outcome",
+            "hypothesis_status",
+            "evidence_strength",
+            "claim_scope",
+            "scale_limits",
+            "useful_signal_summary",
+        )
+    )
+
+
 def promising_signal_score(row: dict[str, Any]) -> int:
     """Return the deterministic 0-100 promising-signal score for a queue row."""
 
@@ -167,7 +181,12 @@ def promising_signal_score(row: dict[str, Any]) -> int:
 def promising_signal_bucket(row: dict[str, Any]) -> str:
     """Bucket a persisted row using the same deterministic ranking contract as export."""
 
-    return str(rank_signal(_scoring_signal_from_row(row))["bucket"])
+    bucket = str(rank_signal(_scoring_signal_from_row(row))["bucket"])
+    if bucket == LIKELY_STALE_LOW_VALUE_ARCHIVE and not _has_promising_signal_fields(
+        row
+    ):
+        return WEAK_LOCAL_ONLY_PRESERVED
+    return bucket
 
 
 def _followup_exceeds_local_compute(row: dict[str, Any]) -> bool:
