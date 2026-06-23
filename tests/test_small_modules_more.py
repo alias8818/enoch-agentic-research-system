@@ -12,6 +12,7 @@ from enoch_control_plane.config import GateConfig
 from enoch_control_plane.models import GateCallback, ProcessSnapshot, RunRecord
 from enoch_control_plane.state_store import StateStore
 from enoch_control_plane.research_quality import dspy_programs
+from scripts import research_provider_budget
 
 
 def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
@@ -120,6 +121,22 @@ def test_callback_retry_wait_uses_jitter() -> None:
     assert type(wait_strategy).__name__ == "wait_random_exponential"
     assert wait_strategy.min == 0.5
     assert wait_strategy.max == 8.0
+
+
+def test_research_provider_budget_missing_payload_raises_runtime_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing_payload(_args: object) -> tuple[None, None]:
+        return None, None
+
+    monkeypatch.setattr(
+        research_provider_budget,
+        "_resolve_quota_payload",
+        missing_payload,
+    )
+
+    with pytest.raises(RuntimeError, match="quota payload unavailable"):
+        research_provider_budget.main(["--no-auth"])
 
 
 def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None:

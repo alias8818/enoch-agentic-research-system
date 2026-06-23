@@ -307,7 +307,8 @@ def main(argv: list[str] | None = None) -> int:
     payload, early_exit = _resolve_quota_payload(args)
     if early_exit is not None:
         return early_exit
-    assert payload is not None
+    if payload is None:
+        raise RuntimeError("quota payload unavailable after provider budget resolution")
     result = _budget_report(args, payload)
     _emit_result(result, args.output)
     return 0 if result["ok"] else 1
