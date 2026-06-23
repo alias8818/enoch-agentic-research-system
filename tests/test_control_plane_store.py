@@ -469,6 +469,31 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(candidates[0]["machine_target"], "gb10")
             self.assertEqual(candidates[0]["workload_class"], "gpu_required")
 
+    def test_import_snapshot_rejects_oversized_queue_snapshot_before_write(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            oversized_rows = [
+                {
+                    "project_id": f"project-{index}",
+                    "project_name": f"Project {index}",
+                    "status": "queued",
+                }
+                for index in range(5001)
+            ]
+
+            with self.assertRaisesRegex(ValueError, "queue row limit exceeded"):
+                store.import_snapshot(
+                    ImportSnapshotRequest(
+                        idempotency_key="oversized-queue-import",
+                        queue_rows=oversized_rows,
+                    )
+                )
+
+            self.assertEqual(store.recent_events(10), [])
+            self.assertEqual(store.queue_rows(), [])
+
     def test_import_snapshot_rejects_conflicting_duplicate_queue_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")

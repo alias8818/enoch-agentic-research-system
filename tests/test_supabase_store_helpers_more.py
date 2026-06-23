@@ -3523,6 +3523,30 @@ def test_supabase_import_snapshot_retries_serialization_failure(
     assert sleeps == [0.25]
 
 
+def test_supabase_import_snapshot_rejects_oversized_queue_snapshot_before_connect() -> (
+    None
+):
+    store = SupabaseControlPlaneStore(
+        "postgres://example", connect=lambda: pytest.fail("should not connect")
+    )
+    oversized_rows = [
+        {
+            "project_id": f"project-{index}",
+            "project_name": f"Project {index}",
+            "status": "queued",
+        }
+        for index in range(5001)
+    ]
+
+    with pytest.raises(ValueError, match="queue row limit exceeded"):
+        store.import_snapshot(
+            ImportSnapshotRequest(
+                idempotency_key="supabase-oversized-queue-import",
+                queue_rows=oversized_rows,
+            )
+        )
+
+
 def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_run(
     monkeypatch,
 ) -> None:

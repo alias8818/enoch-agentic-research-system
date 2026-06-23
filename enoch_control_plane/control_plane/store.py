@@ -450,6 +450,25 @@ def _snapshot_rows(
     return _snapshot_rows_from_dict(snapshot, paper=paper)
 
 
+_MAX_IMPORT_SNAPSHOT_QUEUE_ROWS = 5_000
+_MAX_IMPORT_SNAPSHOT_PAPER_ROWS = 5_000
+
+
+def _enforce_import_snapshot_row_limits(
+    queue_rows: list[dict[str, Any]], paper_rows: list[dict[str, Any]]
+) -> None:
+    if len(queue_rows) > _MAX_IMPORT_SNAPSHOT_QUEUE_ROWS:
+        raise ValueError(
+            "import snapshot queue row limit exceeded: "
+            f"{len(queue_rows)} > {_MAX_IMPORT_SNAPSHOT_QUEUE_ROWS}"
+        )
+    if len(paper_rows) > _MAX_IMPORT_SNAPSHOT_PAPER_ROWS:
+        raise ValueError(
+            "import snapshot paper row limit exceeded: "
+            f"{len(paper_rows)} > {_MAX_IMPORT_SNAPSHOT_PAPER_ROWS}"
+        )
+
+
 def _reject_conflicting_snapshot_rows(
     rows: list[dict[str, Any]],
     *,
@@ -501,6 +520,7 @@ def _paper_identity_conflicts(
 def _validate_import_snapshot_rows(
     queue_rows: list[dict[str, Any]], paper_rows: list[dict[str, Any]]
 ) -> None:
+    _enforce_import_snapshot_row_limits(queue_rows, paper_rows)
     _reject_conflicting_snapshot_rows(
         queue_rows,
         key_fields=("project_id",),
