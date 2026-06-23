@@ -4540,69 +4540,114 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
 
         with self._connect() as conn:
             with conn.cursor() as cur:
-                workbench = cur.execute(
-                    """
-                    select candidate_id, status, title, admission_decision, admission_reason, admitted_idea_id,
-                           admitted_queue_status, admitted_current_run_id, admitted_project_name
-                    from research_facility_workbench
-                    where candidate_id = %s
-                    """,
-                    (candidate_id,),
-                ).fetchone()
-                if not workbench:
-                    return _promote_research_candidate_blocked(
-                        candidate_id, "candidate not found"
-                    )
-                wb = dict(workbench)
-                gate_response = _promote_research_workbench_gate(
-                    wb, candidate_id=candidate_id, dry_run=dry_run
-                )
-                if gate_response is not None:
-                    return gate_response
-
-                row = cur.execute(
-                    """
-                    select candidate_id, title, category, priority, source_urls, description, hypothesis,
-                           implementation, baseline_to_beat, kill_condition, accessibility_delta,
-                           expected_token_budget, novelty_score, machine_target, model, sandbox,
-                           score_breakdown, raw_candidate_json
-                    from research_candidates
-                    where candidate_id = %s
-                    """,
-                    (candidate_id,),
-                ).fetchone()
-                if not row:
-                    return _promote_research_candidate_blocked(
-                        candidate_id, "candidate row not found"
-                    )
-                candidate = dict(row)
-                fields = _promote_research_candidate_context(
-                    candidate, candidate_id, requested_by
-                )
-                response = _promote_research_candidate_ok_response(
-                    dry_run=dry_run,
-                    candidate_id=candidate_id,
-                    idea_id=str(fields["idea_id"]),
-                    title=str(fields["title"]),
-                    queued_count=0 if dry_run else 1,
-                    dispatch_started=False,
-                    reason="candidate is admitted and promotable",
-                )
-                if dry_run:
-                    return response
-
-                write_result = self._write_promoted_research_candidate_rows(
+                return self._promote_research_candidate_in_cursor(
                     cur,
                     candidate_id=candidate_id,
-                    candidate=candidate,
-                    wb=wb,
-                    fields=fields,
                     requested_by=requested_by,
+                    dry_run=dry_run,
                 )
-                response["queue_upserted"] = write_result["queue_rowcount"]
-                response["admission_inserted"] = write_result["admission_inserted"]
-                response["lineage_inserted"] = write_result["lineage_inserted"]
-                return response
+
+    def promote_research_candidates_batch(
+        self,
+        candidate_ids: Sequence[str],
+        *,
+        requested_by: str,
+        dry_run: bool = True,
+    ) -> list[dict[str, Any]]:
+        requested_by = (_text(requested_by) or "dashboard")[:80]
+        results: list[dict[str, Any]] = []
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                for raw_candidate_id in candidate_ids:
+                    candidate_id = _text(raw_candidate_id).strip()
+                    if not candidate_id:
+                        results.append(
+                            _promote_research_candidate_blocked(
+                                "", "candidate_id is required"
+                            )
+                        )
+                        continue
+                    results.append(
+                        self._promote_research_candidate_in_cursor(
+                            cur,
+                            candidate_id=candidate_id,
+                            requested_by=requested_by,
+                            dry_run=dry_run,
+                        )
+                    )
+        return results
+
+    def _promote_research_candidate_in_cursor(
+        self,
+        cur: Any,
+        *,
+        candidate_id: str,
+        requested_by: str,
+        dry_run: bool,
+    ) -> dict[str, Any]:
+        workbench = cur.execute(
+            """
+            select candidate_id, status, title, admission_decision, admission_reason, admitted_idea_id,
+                   admitted_queue_status, admitted_current_run_id, admitted_project_name
+            from research_facility_workbench
+            where candidate_id = %s
+            """,
+            (candidate_id,),
+        ).fetchone()
+        if not workbench:
+            return _promote_research_candidate_blocked(
+                candidate_id, "candidate not found"
+            )
+        wb = dict(workbench)
+        gate_response = _promote_research_workbench_gate(
+            wb, candidate_id=candidate_id, dry_run=dry_run
+        )
+        if gate_response is not None:
+            return gate_response
+
+        row = cur.execute(
+            """
+            select candidate_id, title, category, priority, source_urls, description, hypothesis,
+                   implementation, baseline_to_beat, kill_condition, accessibility_delta,
+                   expected_token_budget, novelty_score, machine_target, model, sandbox,
+                   score_breakdown, raw_candidate_json
+            from research_candidates
+            where candidate_id = %s
+            """,
+            (candidate_id,),
+        ).fetchone()
+        if not row:
+            return _promote_research_candidate_blocked(
+                candidate_id, "candidate row not found"
+            )
+        candidate = dict(row)
+        fields = _promote_research_candidate_context(
+            candidate, candidate_id, requested_by
+        )
+        response = _promote_research_candidate_ok_response(
+            dry_run=dry_run,
+            candidate_id=candidate_id,
+            idea_id=str(fields["idea_id"]),
+            title=str(fields["title"]),
+            queued_count=0 if dry_run else 1,
+            dispatch_started=False,
+            reason="candidate is admitted and promotable",
+        )
+        if dry_run:
+            return response
+
+        write_result = self._write_promoted_research_candidate_rows(
+            cur,
+            candidate_id=candidate_id,
+            candidate=candidate,
+            wb=wb,
+            fields=fields,
+            requested_by=requested_by,
+        )
+        response["queue_upserted"] = write_result["queue_rowcount"]
+        response["admission_inserted"] = write_result["admission_inserted"]
+        response["lineage_inserted"] = write_result["lineage_inserted"]
+        return response
 
     def _upsert_research_source_record(
         self, cur: Any, source: dict[str, Any], candidate: dict[str, Any]

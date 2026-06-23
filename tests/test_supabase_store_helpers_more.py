@@ -4181,6 +4181,57 @@ def test_supabase_promote_candidate_conflicts_on_reused_admission_key_with_diffe
         )
 
 
+def test_supabase_promote_research_candidates_batch_reuses_one_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    cursor = object()
+    cursor_ids: list[int] = []
+
+    class CursorContext:
+        def __enter__(self):
+            return cursor
+
+        def __exit__(self, *args: object):
+            return None
+
+    class BatchConn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object):
+            return None
+
+        def cursor(self):
+            return CursorContext()
+
+    def promote_in_cursor(
+        cur: object, *, candidate_id: str, requested_by: str, dry_run: bool
+    ) -> dict[str, object]:
+        cursor_ids.append(id(cur))
+        return {
+            "ok": True,
+            "candidate_id": candidate_id,
+            "requested_by": requested_by,
+            "dry_run": dry_run,
+        }
+
+    monkeypatch.setattr(store, "_connect", lambda: BatchConn())
+    monkeypatch.setattr(
+        store, "_promote_research_candidate_in_cursor", promote_in_cursor
+    )
+
+    results = store.promote_research_candidates_batch(
+        ["candidate-a", "candidate-b"], requested_by="unit", dry_run=False
+    )
+
+    assert [result["candidate_id"] for result in results] == [
+        "candidate-a",
+        "candidate-b",
+    ]
+    assert len(set(cursor_ids)) == 1
+
+
 def test_supabase_followup_launch_conflicts_on_reused_idea_id_with_different_payload(
     monkeypatch,
 ) -> None:

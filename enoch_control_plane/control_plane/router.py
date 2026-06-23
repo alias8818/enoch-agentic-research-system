@@ -18,7 +18,7 @@ import shlex
 import subprocess
 import tempfile
 import time
-from typing import Annotated, Any, Callable, Mapping
+from typing import Annotated, Any, Callable, Mapping, cast
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
@@ -4512,11 +4512,23 @@ def _promote_research_rows(
     max_promotions: int,
     requested_by: str,
 ) -> list[dict[str, Any]]:
-    """Run store.promote_research_candidate for up to max_promotions rows."""
+    """Promote up to max_promotions rows, batching when the store supports it."""
+    selected_candidate_ids = [
+        _validate_research_candidate_id(str(row.get("candidate_id")))
+        for row in promotion_candidates[:max_promotions]
+    ]
+    batch_promote = getattr(store, "promote_research_candidates_batch", None)
+    if callable(batch_promote):
+        batch_promote_fn = cast(Callable[..., list[dict[str, Any]]], batch_promote)
+        return batch_promote_fn(
+            selected_candidate_ids,
+            requested_by=requested_by,
+            dry_run=False,
+        )
     promoted: list[dict[str, Any]] = []
-    for row in promotion_candidates[:max_promotions]:
+    for candidate_id in selected_candidate_ids:
         result = store.promote_research_candidate(
-            _validate_research_candidate_id(str(row.get("candidate_id"))),
+            candidate_id,
             requested_by=requested_by,
             dry_run=False,
         )

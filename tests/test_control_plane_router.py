@@ -31,6 +31,7 @@ from enoch_control_plane.control_plane.router import (
     _paper_material_graph_response,
     _pause_automation_for_control_pause,
     _project_prompt,
+    _promote_research_rows,
     _register_control_plane_maintenance_routes,
     _resume_automation_after_control_resume,
     _run_resume_systemctl,
@@ -4461,6 +4462,52 @@ class ControlPlaneRouterTests(unittest.TestCase):
         self.assertEqual(
             body["reason"],
             "active worker lane already exists and no promotable candidate targets an idle lane",
+        )
+
+    def test_promote_research_rows_uses_store_batch_when_available(self) -> None:
+        class Store:
+            def __init__(self) -> None:
+                self.batches: list[tuple[list[str], str, bool]] = []
+
+            def promote_research_candidates_batch(
+                self,
+                candidate_ids: list[str],
+                *,
+                requested_by: str,
+                dry_run: bool = True,
+            ) -> list[dict[str, object]]:
+                self.batches.append((candidate_ids, requested_by, dry_run))
+                return [
+                    {"ok": True, "candidate_id": candidate_id}
+                    for candidate_id in candidate_ids
+                ]
+
+            def promote_research_candidate(self, *_args: object, **_kwargs: object):
+                raise AssertionError(
+                    "batched promotion must not fall back to per-row calls"
+                )
+
+        store = Store()
+        promoted = _promote_research_rows(
+            store=store,
+            promotion_candidates=[
+                {"candidate_id": "candidate-a"},
+                {"candidate_id": "candidate-b"},
+                {"candidate_id": "candidate-c"},
+            ],
+            max_promotions=2,
+            requested_by="unit-test",
+        )
+
+        self.assertEqual(
+            store.batches, [(["candidate-a", "candidate-b"], "unit-test", False)]
+        )
+        self.assertEqual(
+            promoted,
+            [
+                {"ok": True, "candidate_id": "candidate-a"},
+                {"ok": True, "candidate_id": "candidate-b"},
+            ],
         )
 
     def test_research_facility_run_cycle_live_generates_and_promotes_without_dispatch(
@@ -18549,7 +18596,9 @@ def test_provider_generation_records_rate_limit_attempt_event():
 
 
 def test_provider_generation_does_not_substring_match_rate_limit_text():
-    from enoch_control_plane.control_plane.router import _provider_generation_failure_kind
+    from enoch_control_plane.control_plane.router import (
+        _provider_generation_failure_kind,
+    )
 
     exc = RuntimeError("generated prompt included phrase: rate limit")
 
