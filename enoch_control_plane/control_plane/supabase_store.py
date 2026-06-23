@@ -4281,13 +4281,35 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         return inserted, created, updated, len(skipped_rows), candidates, skipped_rows
 
     def notion_execution_update_projection(self) -> list[dict[str, Any]]:
-        paper_by_project = {
-            paper.get("project_id"): paper for paper in self.paper_rows()
-        }
+        projection_rows = self._query(
+            """
+            select q.*,
+              p.project_name,
+              p.project_dir,
+              p.notion_page_url,
+              p.notion_page_id,
+              p.origin_idea_status,
+              pa.paper_id,
+              pa.paper_status,
+              pa.paper_type,
+              pa.draft_markdown_path,
+              pa.updated_at as paper_updated_at
+            from queue_items q
+            join projects p using(project_id)
+            left join lateral (
+              select paper_id, paper_status, paper_type, draft_markdown_path, updated_at
+              from papers pa
+              where pa.project_id = q.project_id
+              order by pa.updated_at desc, pa.paper_id asc
+              limit 1
+            ) pa on true
+            where coalesce(p.notion_page_url, '') <> ''
+            order by q.updated_at desc, q.project_id asc
+            """
+        )
         rows: list[dict[str, Any]] = []
-        for row in self.queue_rows():
-            merged = _queue_row_merged_with_paper(row, paper_by_project)
-            update = _notion_execution_update_row(merged, _NOTION_EXECUTION_STATE_MAP)
+        for row in projection_rows:
+            update = _notion_execution_update_row(row, _NOTION_EXECUTION_STATE_MAP)
             if update is not None:
                 rows.append(update)
         return rows

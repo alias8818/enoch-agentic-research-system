@@ -1173,6 +1173,45 @@ def test_write_store_dispatch_and_projection_helpers(monkeypatch) -> None:
         "dry-run dispatch selected candidate",
     )
 
+    projection_rows = [
+        {
+            "project_id": "p1",
+            "project_name": "One",
+            "status": QueueStatus.RUNNING.value,
+            "notion_page_url": "https://notion.so/x/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "notion_page_id": "page",
+            "current_run_id": "run",
+            "next_action_hint": "wait",
+            "updated_at": "now",
+            "paper_id": "paper",
+            "paper_status": "publication_draft",
+            "paper_type": "note",
+            "draft_markdown_path": "paper.md",
+            "paper_updated_at": "paper-now",
+        }
+    ]
+    projection_queries: list[str] = []
+
+    def projection_query(sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        del params
+        projection_queries.append(sql)
+        return projection_rows
+
+    monkeypatch.setattr(store, "_query", projection_query)
+    monkeypatch.setattr(
+        store,
+        "paper_rows",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("notion projection must not load all papers")
+        ),
+    )
+    notion_projection = store.notion_execution_update_projection()
+    assert len(notion_projection) == 1
+    props = notion_projection[0]["properties"]
+    assert props["Execution State"] == "running"
+    assert props["Enoch Paper ID"] == "paper"
+    assert "left join lateral" in projection_queries[0]
+
     queue_rows = [
         {
             "project_id": "p1",
@@ -1192,23 +1231,7 @@ def test_write_store_dispatch_and_projection_helpers(monkeypatch) -> None:
             "last_result_summary": "blocked",
         },
     ]
-    paper_rows = [
-        {
-            "project_id": "p1",
-            "paper_id": "paper",
-            "paper_status": "publication_draft",
-            "paper_type": "note",
-            "draft_markdown_path": "paper.md",
-            "updated_at": "paper-now",
-        }
-    ]
     monkeypatch.setattr(store, "queue_rows", lambda: queue_rows)
-    monkeypatch.setattr(store, "paper_rows", lambda: paper_rows)
-    notion_projection = store.notion_execution_update_projection()
-    assert len(notion_projection) == 1
-    props = notion_projection[0]["properties"]
-    assert props["Execution State"] == "running"
-    assert props["Enoch Paper ID"] == "paper"
     assert (
         store.queue_notion_projection()[0]["queue_status"] == QueueStatus.RUNNING.value
     )
