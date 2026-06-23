@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 from enoch_control_plane.source_lineage.status import (
     classify_source_lineage_report,
@@ -108,3 +112,51 @@ def test_load_latest_source_lineage_status_reads_report(tmp_path: Path) -> None:
     assert status["ok"] is True
     assert status["report_path"] == str(report)
     assert status["followups_checked"] == 1
+
+
+def test_load_latest_source_lineage_status_uses_open_file_mtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = tmp_path / "latest-report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "schema_version": "enoch_source_lineage_report_v1",
+                "status": "clean",
+                "counts": {
+                    "candidates": 0,
+                    "followups": 1,
+                    "sources": 4,
+                    "lineages": 5,
+                    "problems": 0,
+                },
+                "problem_counts": {},
+                "problems": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    old_mtime = 1_700_000_000.0
+    new_mtime = 1_800_000_000.0
+    os.utime(report, (old_mtime, old_mtime))
+    original_stat = Path.stat
+    original_report_stat = original_stat(report)
+
+    def fake_path_stat(path: Path, *args: object, **kwargs: object) -> os.stat_result:
+        if path == report:
+            values = list(original_report_stat)
+            values[8] = new_mtime
+            return os.stat_result(values)
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", fake_path_stat)
+
+    status = load_latest_source_lineage_status((str(report),))
+
+    assert status["ok"] is True
+    assert status["report_mtime"] == (
+        datetime.fromtimestamp(old_mtime, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+from typing import TextIO
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,12 +27,20 @@ LINEAGE_PROBLEM_TOKENS = (
 )
 
 
-def _utc_iso_from_mtime(path: Path) -> str:
+def _utc_iso_from_timestamp(timestamp: float) -> str:
     return (
-        datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        datetime.fromtimestamp(timestamp, tz=timezone.utc)
         .isoformat()
         .replace("+00:00", "Z")
     )
+
+
+def _utc_iso_from_mtime(path: Path) -> str:
+    return _utc_iso_from_timestamp(path.stat().st_mtime)
+
+
+def _utc_iso_from_open_file(handle: TextIO) -> str:
+    return _utc_iso_from_timestamp(os.fstat(handle.fileno()).st_mtime)
 
 
 def _safe_int(value: Any) -> int:
@@ -151,13 +161,20 @@ def load_latest_source_lineage_status(
             "missing_lineage": 0,
             "problem_details": [{"kind": "missing_source_lineage_report"}],
         }
+    report_mtime = ""
     try:
         with chosen.open("r", encoding="utf-8") as handle:
             report = json.load(handle)
+            report_mtime = _utc_iso_from_open_file(handle)
     except (OSError, json.JSONDecodeError):
         report = {}
+    if not report_mtime:
+        try:
+            report_mtime = _utc_iso_from_mtime(chosen)
+        except OSError:
+            report_mtime = ""
     return classify_source_lineage_report(
         report if isinstance(report, dict) else {},
         report_path=str(chosen),
-        report_mtime=_utc_iso_from_mtime(chosen),
+        report_mtime=report_mtime,
     )
