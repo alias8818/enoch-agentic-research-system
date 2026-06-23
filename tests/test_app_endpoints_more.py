@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
+import pytest
 from fastapi.testclient import TestClient
 
 import enoch_control_plane.app as appmod
@@ -244,6 +245,29 @@ def test_dashboard_snapshot_writes_preserve_existing_files_on_replace_failure(
     assert paper_path.read_text(encoding="utf-8") == "old paper"
     assert not list(state_dir.glob(".queue_snapshot.json.*.tmp"))
     assert not list(state_dir.glob(".paper_snapshot.json.*.tmp"))
+
+
+def test_dashboard_queue_snapshot_caps_warning_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, token = _client(tmp_path, monkeypatch)
+    headers = {"Authorization": f"Bearer {token}"}
+    warning = "x" * 10_000
+
+    response = client.post(
+        "/dashboard/queue-snapshot",
+        headers=headers,
+        json={"rows": [], "total": 0, "warnings": [warning for _ in range(60)]},
+    )
+
+    assert response.status_code == 200
+    warnings = response.json()["queue_snapshot"]["warnings"]
+    assert len(warnings) == 50
+    assert warnings[0].endswith("[truncated]")
+    assert len(warnings[0]) <= 500
+    assert warnings[-1] == "11 additional warnings omitted"
+    persisted = json.loads((tmp_path / "state" / "queue_snapshot.json").read_text())
+    assert persisted["warnings"] == warnings
 
 
 def test_write_text_revalidates_target_under_project_root(

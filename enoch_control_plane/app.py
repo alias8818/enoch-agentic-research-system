@@ -2494,6 +2494,24 @@ def _snapshot_int(value: Any, default: int = 0) -> int:
         return default
 
 
+_MAX_QUEUE_SNAPSHOT_WARNINGS = 50
+_MAX_QUEUE_SNAPSHOT_WARNING_CHARS = 500
+
+
+def _snapshot_warnings(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    warnings = [
+        _truncate(str(item), _MAX_QUEUE_SNAPSHOT_WARNING_CHARS)
+        for item in value[:_MAX_QUEUE_SNAPSHOT_WARNINGS]
+    ]
+    if len(value) > _MAX_QUEUE_SNAPSHOT_WARNINGS:
+        warnings[-1:] = [
+            f"{len(value) - _MAX_QUEUE_SNAPSHOT_WARNINGS + 1} additional warnings omitted"
+        ]
+    return warnings
+
+
 def _queue_row_summary(row: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "project_id",
@@ -2612,9 +2630,7 @@ def _build_queue_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         + _snapshot_int(run_state_counts.get("branch_queued")),
         "draft_candidate_count": _snapshot_int(payload.get("draft_candidate_count")),
         "polish_candidate_count": _snapshot_int(payload.get("polish_candidate_count")),
-        "warnings": payload.get("warnings")
-        if isinstance(payload.get("warnings"), list)
-        else [],
+        "warnings": _snapshot_warnings(payload.get("warnings")),
         "rows": rows,
     }
 
