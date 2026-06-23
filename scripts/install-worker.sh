@@ -34,13 +34,13 @@ uv run pytest -q
 mkdir -p "$CONFIG_DIR" "$STATE_DIR/projects" "$STATE_DIR/state"
 if [[ ! -f "$CONFIG_DIR/config.json" ]]; then
   cp config.example.json "$CONFIG_DIR/config.json"
-  python3 - <<PY
-import json, pathlib
-p=pathlib.Path('$CONFIG_DIR/config.json')
+  python3 - "$CONFIG_DIR/config.json" "$STATE_DIR/state" "$STATE_DIR/projects" "$ROOT/deploy/enoch_codex_dispatch.sh" <<'PY'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1])
 data=json.loads(p.read_text())
-data['state_dir']='$STATE_DIR/state'
-data['project_root']='$STATE_DIR/projects'
-data['dispatch_script_path']='$ROOT/deploy/enoch_codex_dispatch.sh'
+data['state_dir']=sys.argv[2]
+data['project_root']=sys.argv[3]
+data['dispatch_script_path']=sys.argv[4]
 data['completion_callback_url']='http://127.0.0.1:8787/control/api/worker-callback'
 p.write_text(json.dumps(data, indent=2)+"\n")
 PY

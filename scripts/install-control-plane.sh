@@ -37,37 +37,39 @@ uv venv --python /usr/bin/python3 .venv
 uv pip install --python .venv/bin/python -e .
 uv run pytest -q
 
+validate_install_prefix() {
+  local prefix="$1"
+  case "$prefix" in
+    "/opt/enoch-"*|"/var/lib/enoch-"*) ;;
+    *)
+      echo "refusing unsafe install prefix: $prefix" >&2
+      echo "prefix must start with /opt/enoch- or /var/lib/enoch-" >&2
+      exit 4
+      ;;
+  esac
+}
+
 sync_to_prefix() {
   if [[ "$ROOT" == "$PREFIX" ]]; then
     return 0
   fi
-  mkdir -p "$PREFIX"
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete \
-      --exclude .git \
-      --exclude .venv \
-      --exclude node_modules \
-      --exclude .pytest_cache \
-      --exclude __pycache__ \
-      --exclude .hypothesis \
-      --exclude .coverage \
-      --exclude "*.egg-info" \
-      --exclude targeted_paper_intakes \
-      "$ROOT/" "$PREFIX/"
-  else
-    find "$PREFIX" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-    tar -C "$ROOT" \
-      --exclude .git \
-      --exclude .venv \
-      --exclude node_modules \
-      --exclude .pytest_cache \
-      --exclude __pycache__ \
-      --exclude .hypothesis \
-      --exclude .coverage \
-      --exclude "*.egg-info" \
-      --exclude targeted_paper_intakes \
-      -cf - . | tar -C "$PREFIX" -xf -
+  validate_install_prefix "$PREFIX"
+  if ! command -v rsync >/dev/null 2>&1; then
+    echo "rsync is required for safe prefix synchronization" >&2
+    exit 5
   fi
+  mkdir -p "$PREFIX"
+  rsync -a --delete \
+    --exclude .git \
+    --exclude .venv \
+    --exclude node_modules \
+    --exclude .pytest_cache \
+    --exclude __pycache__ \
+    --exclude .hypothesis \
+    --exclude .coverage \
+    --exclude "*.egg-info" \
+    --exclude targeted_paper_intakes \
+    "$ROOT/" "$PREFIX/"
 }
 
 write_unit() {
@@ -93,13 +95,13 @@ if [[ "$(id -u)" -eq 0 ]]; then
   mkdir -p "$CONFIG_DIR" "$STATE_DIR" "$STATE_DIR/projects" "$STATE_DIR/state"
   if [[ ! -f "$CONFIG_DIR/config.json" ]]; then
     cp "$ROOT/config.example.json" "$CONFIG_DIR/config.json"
-    python3 - <<PY
-import json, pathlib
-p=pathlib.Path('$CONFIG_DIR/config.json')
+    python3 - "$CONFIG_DIR/config.json" "$STATE_DIR/state" "$STATE_DIR/projects" "$PREFIX/deploy/enoch_codex_dispatch.sh" <<'PY'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1])
 data=json.loads(p.read_text())
-data['state_dir']='$STATE_DIR/state'
-data['project_root']='$STATE_DIR/projects'
-data['dispatch_script_path']='$PREFIX/deploy/enoch_codex_dispatch.sh'
+data['state_dir']=sys.argv[2]
+data['project_root']=sys.argv[3]
+data['dispatch_script_path']=sys.argv[4]
 p.write_text(json.dumps(data, indent=2)+"\n")
 PY
   fi

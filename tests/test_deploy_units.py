@@ -612,6 +612,40 @@ def test_install_script_keeps_draft_units_opt_in() -> None:
     assert "enoch-paper-draft-next.timer" in install
 
 
+def test_install_control_plane_refuses_unsafe_prefix_deletion() -> None:
+    install = (ROOT / "scripts" / "install-control-plane.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'validate_install_prefix "$PREFIX"' in install
+    assert 'case "$prefix" in' in install
+    assert '"/opt/enoch-"*|"/var/lib/enoch-"*)' in install
+    assert 'find "$PREFIX" -mindepth 1 -maxdepth 1 -exec rm -rf {} +' not in install
+    assert "rsync is required for safe prefix synchronization" in install
+
+
+def test_install_scripts_pass_paths_to_python_without_shell_interpolation() -> None:
+    control = (ROOT / "scripts" / "install-control-plane.sh").read_text(
+        encoding="utf-8"
+    )
+    worker = (ROOT / "scripts" / "install-worker.sh").read_text(encoding="utf-8")
+
+    assert "python3 - <<PY" not in control
+    assert "python3 - <<PY" not in worker
+    assert 'python3 - "$CONFIG_DIR/config.json" "$STATE_DIR/state"' in control
+    assert (
+        '"$STATE_DIR/projects" "$PREFIX/deploy/enoch_codex_dispatch.sh" <<\'PY\''
+        in control
+    )
+    assert 'python3 - "$CONFIG_DIR/config.json" "$STATE_DIR/state"' in worker
+    assert (
+        '"$STATE_DIR/projects" "$ROOT/deploy/enoch_codex_dispatch.sh" <<\'PY\''
+        in worker
+    )
+    assert "pathlib.Path('$CONFIG_DIR/config.json')" not in control + worker
+    assert "data['state_dir']='$STATE_DIR/state'" not in control + worker
+
+
 def test_codex_runner_scrubs_callback_secret_from_codex_environment(tmp_path) -> None:
     project = tmp_path / "project"
     project.mkdir()
