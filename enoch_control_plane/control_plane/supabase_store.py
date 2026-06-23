@@ -1667,9 +1667,7 @@ class SupabaseReadOnlyControlPlaneStore:
 
     @staticmethod
     def _is_retryable_database_error(exc: Exception) -> bool:
-        sqlstate = str(
-            getattr(exc, "sqlstate", "") or getattr(exc, "pgcode", "") or ""
-        )
+        sqlstate = str(getattr(exc, "sqlstate", "") or getattr(exc, "pgcode", "") or "")
         if sqlstate in {"40001", "40P01", "55P03"}:
             return True
         text = f"{type(exc).__name__}: {exc}".lower()
@@ -1699,15 +1697,11 @@ class SupabaseReadOnlyControlPlaneStore:
     def _retry_sleep_seconds(attempt: int) -> float:
         return min(0.25 * (attempt + 1), 2.0) + random.uniform(0.0, 0.1)
 
-    def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+    def _with_retry(self, operation: Callable[[], Any]) -> Any:
         last_exc: Exception | None = None
         for attempt in range(3):
             try:
-                with self._connect() as conn:
-                    with conn.cursor() as cur:
-                        cur.execute(sql, tuple(params))
-                        rows = cur.fetchall()
-                return [dict(row) for row in rows]
+                return operation()
             except Exception as exc:
                 last_exc = exc
                 if attempt < 2 and self._is_retryable_query_error(exc):
@@ -1716,9 +1710,19 @@ class SupabaseReadOnlyControlPlaneStore:
                 raise
         if last_exc is None:
             raise RuntimeError(
-                "invariant violated: query retry loop exited without exception"
+                "invariant violated: Supabase retry loop exited without exception"
             )
         raise last_exc
+
+    def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+        def operation() -> list[dict[str, Any]]:
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, tuple(params))
+                    rows = cur.fetchall()
+            return [dict(row) for row in rows]
+
+        return self._with_retry(operation)
 
     @staticmethod
     def _cursor_rows(
@@ -5758,26 +5762,32 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         ]
         _validate_import_snapshot_rows(queue_rows, paper_rows)
         event_payload = _import_snapshot_event_payload(request, queue_rows, paper_rows)
-        projects = queue_items = papers = 0
-        with self._connect() as conn:
-            with conn.cursor() as cur:
-                _, inserted = self._append_event_in_cursor(
-                    cur,
-                    idempotency_key=request.idempotency_key,
-                    event_type="legacy.import_snapshot",
-                    entity_type="snapshot",
-                    entity_id=request.source,
-                    payload=event_payload,
-                )
-                if not inserted:
-                    return False, 0, 0, 0
-                for raw in queue_rows:
-                    row_projects, row_queue_items = _supabase_import_queue_row(cur, raw)
-                    projects += row_projects
-                    queue_items += row_queue_items
-                for raw in paper_rows:
-                    papers += _supabase_import_paper_row(cur, raw)
-        return inserted, projects, queue_items, papers
+
+        def operation() -> tuple[bool, int, int, int]:
+            projects = queue_items = papers = 0
+            with self._connect() as conn:
+                with conn.cursor() as cur:
+                    _, inserted = self._append_event_in_cursor(
+                        cur,
+                        idempotency_key=request.idempotency_key,
+                        event_type="legacy.import_snapshot",
+                        entity_type="snapshot",
+                        entity_id=request.source,
+                        payload=event_payload,
+                    )
+                    if not inserted:
+                        return False, 0, 0, 0
+                    for raw in queue_rows:
+                        row_projects, row_queue_items = _supabase_import_queue_row(
+                            cur, raw
+                        )
+                        projects += row_projects
+                        queue_items += row_queue_items
+                    for raw in paper_rows:
+                        papers += _supabase_import_paper_row(cur, raw)
+            return inserted, projects, queue_items, papers
+
+        return self._with_retry(operation)
 
 
 def _supabase_queue_status_value(raw: dict[str, Any]) -> str:

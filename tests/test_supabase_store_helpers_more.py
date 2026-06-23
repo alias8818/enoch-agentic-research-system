@@ -3347,6 +3347,75 @@ def test_supabase_worker_callback_idempotency_rejects_payload_subset_reuse(
         raise AssertionError("subset callback reused idempotency key")
 
 
+def test_supabase_import_snapshot_retries_serialization_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SerializationFailure(RuntimeError):
+        sqlstate = "40001"
+
+    store = SupabaseControlPlaneStore("postgres://example", connect=lambda: None)
+    attempts = 0
+    sleeps: list[float] = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object):
+            return None
+
+    class Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object):
+            return None
+
+        def cursor(self):
+            return Cursor()
+
+    def import_queue_row(cur: Any, raw: dict[str, Any]) -> tuple[int, int]:
+        del cur, raw
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise SerializationFailure("could not serialize access")
+        return 1, 1
+
+    def append_event_in_cursor(*args: object, **kwargs: object) -> tuple[int, bool]:
+        del args, kwargs
+        return 1, True
+
+    def no_jitter(lower: float, upper: float) -> float:
+        del lower, upper
+        return 0.0
+
+    monkeypatch.setattr(store, "_connect", lambda: Conn())
+    monkeypatch.setattr(store, "_append_event_in_cursor", append_event_in_cursor)
+    monkeypatch.setattr(s, "_supabase_import_queue_row", import_queue_row)
+    monkeypatch.setattr(s.time, "sleep", sleeps.append)
+    monkeypatch.setattr(s.random, "uniform", no_jitter)
+
+    result = store.import_snapshot(
+        ImportSnapshotRequest(
+            idempotency_key="supabase-import-retry-serialization",
+            queue_rows=[
+                {
+                    "project_id": "idea-import-retry",
+                    "project_name": "Import Retry",
+                    "project_dir": "idea-import-retry",
+                    "status": "queued",
+                }
+            ],
+            paper_rows=[],
+        )
+    )
+
+    assert result == (True, 1, 1, 0)
+    assert attempts == 2
+    assert sleeps == [0.25]
+
+
 def test_supabase_import_snapshot_preserves_active_runtime_with_empty_current_run(
     monkeypatch,
 ) -> None:
