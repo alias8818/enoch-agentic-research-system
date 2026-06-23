@@ -922,7 +922,12 @@ def _try_append_context_snippet(
     seen.add(path)
     try:
         text = path.read_text(encoding="utf-8", errors="replace")[:limit]
-    except (OSError, RuntimeError, ValueError):
+    except (OSError, RuntimeError, ValueError) as exc:
+        _logger.warning(
+            "paper writer evidence snippet read failed",
+            extra={"artifact_path": str(display)},
+            exc_info=exc,
+        )
         return
     snippets.append(f"## {display}\n{_redact_public_evidence_text(text)}")
 
@@ -953,7 +958,7 @@ def _append_paper_artifacts(
                     limit=22000,
                 )
     except (OSError, RuntimeError, ValueError) as exc:
-        _logger.debug("paper writer artifact cleanup/inspection failed", exc_info=exc)
+        _logger.warning("paper writer artifact inspection failed", exc_info=exc)
 
 
 def _is_result_summary_candidate(path: Path) -> bool:
@@ -985,7 +990,7 @@ def _append_result_summaries(
                 limit=18000,
             )
     except (OSError, RuntimeError, ValueError) as exc:
-        _logger.debug("paper writer artifact cleanup/inspection failed", exc_info=exc)
+        _logger.warning("paper writer result summary inspection failed", exc_info=exc)
 
 
 def _candidate_context(

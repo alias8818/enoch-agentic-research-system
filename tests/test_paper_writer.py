@@ -13,7 +13,10 @@ from fastapi import HTTPException
 
 from enoch_control_plane.control_plane.paper_writer import (
     _build_claim_ledger_data,
+    _append_paper_artifacts,
+    _append_result_summaries,
     _sentence_claims,
+    _try_append_context_snippet,
     _write_files,
     backfill_paper_evidence_artifacts,
     write_paper_artifacts,
@@ -21,6 +24,48 @@ from enoch_control_plane.control_plane.paper_writer import (
 
 
 class PaperWriterTests(unittest.TestCase):
+    def test_context_snippet_read_failures_are_warning_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            artifact = project_dir / "run_notes.md"
+            artifact.write_text("notes", encoding="utf-8")
+            snippets: list[str] = []
+
+            with patch.object(Path, "read_text", side_effect=OSError("read failed")):
+                with self.assertLogs(
+                    "enoch_control_plane.control_plane.paper_writer", level="WARNING"
+                ) as logs:
+                    _try_append_context_snippet(
+                        project_dir,
+                        "run_notes.md",
+                        seen=set(),
+                        snippets=snippets,
+                    )
+
+            self.assertEqual(snippets, [])
+            self.assertIn("paper writer evidence snippet read failed", logs.output[0])
+
+    def test_artifact_directory_inspection_failures_are_warning_visible(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp)
+            (project_dir / "papers").mkdir()
+            (project_dir / "results").mkdir()
+
+            with patch.object(Path, "rglob", side_effect=OSError("scan failed")):
+                with self.assertLogs(
+                    "enoch_control_plane.control_plane.paper_writer", level="WARNING"
+                ) as artifact_logs:
+                    _append_paper_artifacts(project_dir, seen=set(), snippets=[])
+                with self.assertLogs(
+                    "enoch_control_plane.control_plane.paper_writer", level="WARNING"
+                ) as result_logs:
+                    _append_result_summaries(project_dir, seen=set(), snippets=[])
+
+            self.assertIn("paper writer artifact inspection failed", artifact_logs.output[0])
+            self.assertIn(
+                "paper writer result summary inspection failed", result_logs.output[0]
+            )
+
     def _config(self, tmp: str, **updates) -> GateConfig:
         root = Path(tmp) / "projects"
         root.mkdir(parents=True, exist_ok=True)
