@@ -177,7 +177,9 @@ class EnochCoreStore:
             ),
         )
         event_id = cur.lastrowid
-        if event_id is None:  # pragma: no cover - SQLite INSERT should always return an id.
+        if (
+            event_id is None
+        ):  # pragma: no cover - SQLite INSERT should always return an id.
             raise RuntimeError("event insert did not return an id")
         return AppendResult(event_id=int(event_id), inserted=True)
 

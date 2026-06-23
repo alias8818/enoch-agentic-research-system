@@ -3584,6 +3584,11 @@ class ControlPlaneStore:
         if not package_path:
             return {}
         path = Path(package_path)
+        try:
+            if not path.exists():
+                return {}
+        except (OSError, RuntimeError, ValueError):
+            return {}
         return _load_bounded_json_dict(path)
 
     def _replay_paper_review_finalization_if_any(

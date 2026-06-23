@@ -2565,7 +2565,15 @@ def _gated_write_candidates(
         candidate_dict = dict(candidate)
         row_gate = _paper_draft_gate_from_row_decision(candidate_dict)
         artifact_gate = None
-        if row_gate is None or _text(row_gate.get("reason")) == MISSING_PROJECT_DECISION_ARTIFACT_REASON:
+        if (
+            row_gate is None
+            or _text(row_gate.get("reason")) == MISSING_PROJECT_DECISION_ARTIFACT_REASON
+            or (
+                bool(row_gate.get("eligible"))
+                and _text(candidate_dict.get("project_dir"))
+                and not _truthy(candidate_dict.get("bounded_paper_ready"))
+            )
+        ):
             artifact_gate = _paper_draft_gate_for_row(candidate_dict)
         gate = (
             artifact_gate

@@ -83,6 +83,7 @@ def test_main_skips_source_lineage_sidecar_when_hold_status_unreachable(
         ),
         encoding="utf-8",
     )
+
     def unreachable_status(_config: object) -> dict[str, object]:
         raise OSError("offline")
 

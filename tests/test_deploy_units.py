@@ -204,6 +204,7 @@ def test_research_autopilot_calls_bounded_run_cycle_when_enabled(
             {"ENOCH_CONFIG": str(config), "ENOCH_ENABLE_RESEARCH_AUTOPILOT": "1"},
             clear=False,
         ),
+        patch.object(autopilot, "_get_json", return_value={"flags": {}}),
         patch.object(autopilot, "_post_json", side_effect=fake_post),
     ):
         assert autopilot.main() == 0

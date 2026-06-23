@@ -61,7 +61,9 @@ class PaperWriterTests(unittest.TestCase):
                 ) as result_logs:
                     _append_result_summaries(project_dir, seen=set(), snippets=[])
 
-            self.assertIn("paper writer artifact inspection failed", artifact_logs.output[0])
+            self.assertIn(
+                "paper writer artifact inspection failed", artifact_logs.output[0]
+            )
             self.assertIn(
                 "paper writer result summary inspection failed", result_logs.output[0]
             )

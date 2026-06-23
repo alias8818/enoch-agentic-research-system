@@ -197,9 +197,7 @@ def load_config(path: Path | None = None) -> GateConfig:
         "ENOCH_CONTROL_PLANE_CONFIG"
     )
     config_path = path or (
-        Path(env_path).expanduser()
-        if env_path
-        else (_APP_ROOT / "config.example.json")
+        Path(env_path).expanduser() if env_path else (_APP_ROOT / "config.example.json")
     )
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))

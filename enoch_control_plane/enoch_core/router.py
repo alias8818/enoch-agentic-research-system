@@ -59,9 +59,7 @@ def create_enoch_core_router(
     backend = config.enoch_core_store_backend
     if backend == "control_plane":
         backend = (
-            "supabase"
-            if config.control_plane_store_backend == "supabase"
-            else "sqlite"
+            "supabase" if config.control_plane_store_backend == "supabase" else "sqlite"
         )
     if backend == "supabase":
         store = SupabaseEnochCoreStore(

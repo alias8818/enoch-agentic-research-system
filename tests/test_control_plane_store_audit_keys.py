@@ -23,7 +23,9 @@ def _event_keys(db_path: Path, event_type: str) -> list[str]:
 def test_pause_resume_audit_keys_do_not_collapse_same_timestamp(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("enoch_control_plane.control_plane.store.utc_now", lambda: FIXED_NOW)
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.store.utc_now", lambda: FIXED_NOW
+    )
     store = ControlPlaneStore(tmp_path / "control_plane.sqlite3")
 
     _flags, first_pause_event_id = store.pause(
@@ -52,7 +54,9 @@ def test_pause_resume_audit_keys_do_not_collapse_same_timestamp(
 def test_queue_item_paused_audit_keys_do_not_collapse_same_timestamp(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("enoch_control_plane.control_plane.store.utc_now", lambda: FIXED_NOW)
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.store.utc_now", lambda: FIXED_NOW
+    )
     db_path = tmp_path / "control_plane.sqlite3"
     store = ControlPlaneStore(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -119,4 +123,6 @@ def test_queue_item_paused_audit_keys_do_not_collapse_same_timestamp(
 
     keys = _event_keys(db_path, "queue.item_paused")
     assert len(keys) == len(set(keys)) == 2
-    assert all(key.startswith(f"queue-item-paused:project-1:{FIXED_NOW}:") for key in keys)
+    assert all(
+        key.startswith(f"queue-item-paused:project-1:{FIXED_NOW}:") for key in keys
+    )

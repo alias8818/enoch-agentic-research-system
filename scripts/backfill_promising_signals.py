@@ -21,9 +21,13 @@ EXPORTER_PATH = SCRIPT_DIR / "export_promising_signals.py"
 
 
 def _load_exporter(exporter_path: Path) -> ModuleType:
-    spec = importlib.util.spec_from_file_location("export_promising_signals", exporter_path)
+    spec = importlib.util.spec_from_file_location(
+        "export_promising_signals", exporter_path
+    )
     if spec is None or spec.loader is None:
-        raise ImportError(f"could not load promising-signals exporter from {exporter_path}")
+        raise ImportError(
+            f"could not load promising-signals exporter from {exporter_path}"
+        )
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)

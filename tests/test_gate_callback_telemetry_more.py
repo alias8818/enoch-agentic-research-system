@@ -668,7 +668,9 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
     def cpu_percent(interval: object = None) -> float:
         return 12.5
 
-    monkeypatch.setattr(telemetry_mod, "psutil", SimpleNamespace(cpu_percent=cpu_percent))
+    monkeypatch.setattr(
+        telemetry_mod, "psutil", SimpleNamespace(cpu_percent=cpu_percent)
+    )
     monkeypatch.setattr(
         telemetry_mod,
         "_read_meminfo",
@@ -676,6 +678,7 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
     )
     monkeypatch.setattr(telemetry_mod, "nvmlInit", lambda: None)
     monkeypatch.setattr(telemetry_mod, "nvmlShutdown", lambda: None)
+
     def get_handle(index: int) -> str:
         return "handle"
 
@@ -685,6 +688,7 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
         "nvmlDeviceGetUtilizationRates",
         lambda _handle: SimpleNamespace(gpu=42),
     )
+
     def compute_processes(_handle: object) -> list[SimpleNamespace]:
         return [SimpleNamespace(pid=111), SimpleNamespace(pid=None)]
 
@@ -693,6 +697,7 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
         "nvmlDeviceGetComputeRunningProcesses",
         compute_processes,
     )
+
     def memory_info(_handle: object) -> SimpleNamespace:
         return SimpleNamespace(total=8 * 1024 * 1024, used=3 * 1024 * 1024)
 
@@ -717,7 +722,9 @@ def test_telemetry_collector_retains_last_gpu_signal_on_nvml_sample_failure(
     def cpu_percent(interval: object = None) -> float:
         return 12.5
 
-    monkeypatch.setattr(telemetry_mod, "psutil", SimpleNamespace(cpu_percent=cpu_percent))
+    monkeypatch.setattr(
+        telemetry_mod, "psutil", SimpleNamespace(cpu_percent=cpu_percent)
+    )
     monkeypatch.setattr(
         telemetry_mod,
         "_read_meminfo",
@@ -725,6 +732,7 @@ def test_telemetry_collector_retains_last_gpu_signal_on_nvml_sample_failure(
     )
     monkeypatch.setattr(telemetry_mod, "nvmlInit", lambda: None)
     monkeypatch.setattr(telemetry_mod, "nvmlShutdown", lambda: None)
+
     def get_handle(index: int) -> str:
         return "handle"
 
@@ -737,6 +745,7 @@ def test_telemetry_collector_retains_last_gpu_signal_on_nvml_sample_failure(
         return SimpleNamespace(gpu=42)
 
     monkeypatch.setattr(telemetry_mod, "nvmlDeviceGetUtilizationRates", utilization)
+
     def compute_processes(_handle: object) -> list[SimpleNamespace]:
         return [SimpleNamespace(pid=111)]
 
@@ -745,6 +754,7 @@ def test_telemetry_collector_retains_last_gpu_signal_on_nvml_sample_failure(
         "nvmlDeviceGetComputeRunningProcesses",
         compute_processes,
     )
+
     def memory_info(_handle: object) -> SimpleNamespace:
         return SimpleNamespace(total=8 * 1024 * 1024, used=3 * 1024 * 1024)
 

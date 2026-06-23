@@ -1880,6 +1880,11 @@ def test_supabase_backfill_paper_reviews_row_failure_does_not_consume_idempotenc
             self._next = None
             return value
 
+        def fetchall(self):
+            value = self._next
+            self._next = None
+            return value or []
+
     class Conn:
         def __enter__(self):
             self.pending_events = dict(events)

@@ -146,13 +146,18 @@ def test_dashboard_read_model_indexes_build_concurrently_outside_transaction() -
     assert "create index if not exists" not in normalized
 
 
-def test_research_facility_indexes_build_concurrently_after_schema_transaction() -> None:
+def test_research_facility_indexes_build_concurrently_after_schema_transaction() -> (
+    None
+):
     sql = _migration("20260509140339_enoch_research_facility_ledgers.sql")
     normalized = " ".join(sql.lower().split())
 
     assert "set local statement_timeout = '5min'" in normalized
     assert "set local lock_timeout = '30s'" in normalized
-    assert "commit; set statement_timeout = '30min'; set lock_timeout = '30s'" in normalized
+    assert (
+        "commit; set statement_timeout = '30min'; set lock_timeout = '30s'"
+        in normalized
+    )
     assert normalized.count("create index concurrently if not exists") == 6
     assert normalized.count("create unique index concurrently if not exists") == 2
     assert "create index if not exists idx_research" not in normalized
@@ -174,7 +179,10 @@ def test_native_ideas_indexes_are_concurrent_and_backfill_is_separate() -> None:
 
     assert "set local statement_timeout = '5min'" in normalized
     assert "set local lock_timeout = '30s'" in normalized
-    assert "commit; set statement_timeout = '30min'; set lock_timeout = '30s'" in normalized
+    assert (
+        "commit; set statement_timeout = '30min'; set lock_timeout = '30s'"
+        in normalized
+    )
     assert normalized.count("create index concurrently if not exists idx_idea") == 3
     assert "create index if not exists idx_idea" not in normalized
     assert (
@@ -182,4 +190,7 @@ def test_native_ideas_indexes_are_concurrent_and_backfill_is_separate() -> None:
         "set local lock_timeout = '30s'; -- backfill native ideas"
     ) in normalized
     assert "on conflict (idea_id) do update set" not in normalized
-    assert "from latest_rows lr where lr.idea_id <> '' on conflict (idea_id) do nothing" in normalized
+    assert (
+        "from latest_rows lr where lr.idea_id <> '' on conflict (idea_id) do nothing"
+        in normalized
+    )

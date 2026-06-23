@@ -17,9 +17,7 @@ _SSH_TARGET_RE = re.compile(
 def _validate_config_http_url(
     value: str, *, field_name: str, allow_private: bool = True
 ) -> str:
-    return validate_http_url(
-        value, field_name=field_name, allow_private=allow_private
-    )
+    return validate_http_url(value, field_name=field_name, allow_private=allow_private)
 
 
 class WorkloadClass(str, Enum):
