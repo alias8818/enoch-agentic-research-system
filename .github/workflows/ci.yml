@@ -30,8 +30,7 @@ jobs:
       - name: Run Ruff format check
         run: uv run ruff format --check .
       - name: Run Pyright type check
-        continue-on-error: true
-        run: uv run pyright --level error
+        run: uv run pyright --project pyrightconfig.ci.json --level error
       - name: Run deptry (unused dependencies)
         continue-on-error: true
         run: uv run deptry .

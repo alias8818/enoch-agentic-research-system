@@ -1,0 +1,9 @@
+{
+  "include": [
+    "enoch_control_plane/control_plane/safe_tar_extract.py",
+    "scripts/dashboard_v2_smoke.py",
+    "tests/test_workflow_security.py"
+  ],
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard"
+}

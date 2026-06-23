@@ -451,7 +451,7 @@ def _run_events_api_checks(
         return
 
     detail_path = (
-        f"/control/api/v1/events?event_id={request.quote(event_id, safe='')}"
+        f"/control/api/v1/events?event_id={parse.quote(event_id, safe='')}"
         "&include_payload=true&page_size=1&sort=recent"
     )
     detail = check_api_endpoint(

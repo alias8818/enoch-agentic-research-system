@@ -81,6 +81,25 @@ def test_ci_main_pushes_use_ephemeral_runners() -> None:
     assert "runs-on: ubuntu-latest" in workflow
 
 
+def test_ci_pyright_typecheck_is_required() -> None:
+    workflow_text = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+    workflow = yaml.safe_load(workflow_text)
+    pyright_config = yaml.safe_load(Path("pyrightconfig.ci.json").read_text())
+
+    steps = workflow["jobs"]["tests"]["steps"]
+    pyright_steps = [
+        step for step in steps if step.get("name") == "Run Pyright type check"
+    ]
+    assert len(pyright_steps) == 1
+    assert (
+        pyright_steps[0]["run"]
+        == "uv run pyright --project pyrightconfig.ci.json --level error"
+    )
+    assert "continue-on-error" not in pyright_steps[0]
+    assert pyright_config["include"]
+    assert "tests/test_workflow_security.py" in pyright_config["include"]
+
+
 def test_public_release_integrity_authenticates_github_metadata_fetches() -> None:
     workflow = Path(".github/workflows/public-release-integrity.yml").read_text(
         encoding="utf-8"
