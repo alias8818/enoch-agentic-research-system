@@ -40,6 +40,16 @@ def test_supabase_import_queue_upsert_guards_active_runtime_rows() -> None:
     assert 'rowcount = getattr(cur, "rowcount", 1)' in source
 
 
+def test_supabase_research_admission_idempotency_inserts_before_select() -> None:
+    source = inspect.getsource(s.SupabaseControlPlaneStore._insert_research_admission)
+
+    insert_pos = source.index("insert into research_admissions")
+    select_pos = source.index("select admission_id")
+    assert insert_pos < select_pos
+    assert "on conflict (idempotency_key) do nothing" in source
+    assert "returning admission_id" in source
+
+
 def test_supabase_late_terminal_success_missing_queue_row_is_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -4275,6 +4285,11 @@ def test_supabase_promote_candidate_conflicts_on_reused_admission_key_with_diffe
             if normalized.startswith("insert into queue_items"):
                 self.rowcount = 1
                 return self
+            if normalized.startswith("insert into research_admissions"):
+                assert "returning admission_id" in normalized
+                self.rowcount = 0
+                self._fetchone = None
+                return self
             if normalized.startswith("select admission_id"):
                 assert params == ("research-promotion:candidate-1:candidate-1",)
                 self._fetchone = {
@@ -4287,8 +4302,6 @@ def test_supabase_promote_candidate_conflicts_on_reused_admission_key_with_diffe
                     "operator": "unit",
                 }
                 return self
-            if normalized.startswith("insert into research_admissions"):
-                raise AssertionError("conflicting admission replay must not insert")
             if normalized.startswith("insert into research_lineage"):
                 self.rowcount = 1
                 return self

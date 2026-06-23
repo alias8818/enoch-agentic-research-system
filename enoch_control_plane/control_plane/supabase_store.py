@@ -1839,6 +1839,27 @@ class SupabaseReadOnlyControlPlaneStore:
         idempotency_key: str,
     ) -> int:
         score_json = self._json_text(score_breakdown)
+        expected_idea_id = admitted_idea_id or None
+        cur.execute(
+            """
+            insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
+            values (%s,%s,%s,%s::jsonb,%s,%s,%s)
+            on conflict (idempotency_key) do nothing
+            returning admission_id
+            """,
+            (
+                candidate_id,
+                admission_decision,
+                admission_reason,
+                score_json,
+                admitted_idea_id,
+                operator,
+                idempotency_key,
+            ),
+        )
+        inserted = cur.fetchone()
+        if inserted:
+            return 1
         cur.execute(
             """
             select admission_id, candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator
@@ -1848,7 +1869,6 @@ class SupabaseReadOnlyControlPlaneStore:
             (idempotency_key,),
         )
         existing = cur.fetchone()
-        expected_idea_id = admitted_idea_id or None
         if existing and (
             self._row_value(existing, "candidate_id", 1) != candidate_id
             or self._row_value(existing, "admission_decision", 2) != admission_decision
@@ -1864,23 +1884,9 @@ class SupabaseReadOnlyControlPlaneStore:
             )
         if existing:
             return 0
-        cur.execute(
-            """
-            insert into research_admissions(candidate_id, admission_decision, admission_reason, score_breakdown, admitted_idea_id, operator, idempotency_key)
-            values (%s,%s,%s,%s::jsonb,%s,%s,%s)
-            on conflict (idempotency_key) do nothing
-            """,
-            (
-                candidate_id,
-                admission_decision,
-                admission_reason,
-                score_json,
-                admitted_idea_id,
-                operator,
-                idempotency_key,
-            ),
+        raise IdempotencyConflict(
+            f"idempotency key {idempotency_key!r} was claimed concurrently but no admission row was visible"
         )
-        return int(cur.rowcount or 0)
 
     def _read_only(self, *_args: Any, **_kwargs: Any) -> None:
         raise ReadOnlyStoreError(
