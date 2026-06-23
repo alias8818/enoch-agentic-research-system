@@ -581,6 +581,51 @@ def test_operator_reconciler_drops_completed_queue_row_superseded_by_paper_ident
     )
 
 
+def test_summarize_paper_row_batches_publication_artifact_readability(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    finalization_package = tmp_path / "package.json"
+    finalization_package.write_text("{}", encoding="utf-8")
+    for name in (
+        "draft.md",
+        "draft.tex",
+        "evidence.json",
+        "claims.json",
+        "manifest.json",
+    ):
+        (project_dir / name).write_text("artifact", encoding="utf-8")
+
+    with patch.object(
+        read_models,
+        "_artifact_file_is_readable",
+        side_effect=AssertionError("per-field readability helper should not be called"),
+    ):
+        summary = read_models.summarize_paper_row(
+            {
+                "paper_id": "paper-backed-project:paper-run:arxiv_draft",
+                "project_id": "paper-backed-project",
+                "project_dir": str(project_dir),
+                "finalization_package_path": str(finalization_package),
+                "draft_markdown_path": "draft.md",
+                "draft_latex_path": "draft.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            }
+        )
+
+    assert summary["artifact_paths_present"] == {
+        "finalization_package_path": True,
+        "draft_markdown_path": True,
+        "draft_latex_path": True,
+        "evidence_bundle_path": True,
+        "claim_ledger_path": True,
+        "manifest_path": True,
+    }
+
+
 partial_evidence_kind = st.sampled_from(
     [
         "none",

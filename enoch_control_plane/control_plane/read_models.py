@@ -176,21 +176,61 @@ def _artifact_file_is_readable(
         return False
 
 
+def _artifact_file_flags_for_fields(
+    row: dict[str, Any],
+    fields: tuple[str, ...],
+    *,
+    allow_absolute_outside_root_fields: frozenset[str] = frozenset(),
+) -> dict[str, bool]:
+    project_dir_text = _text(row.get("project_dir"))
+    root: Path | None = None
+    if project_dir_text:
+        try:
+            root = Path(project_dir_text).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError, ValueError):
+            root = None
+    readability_cache: dict[tuple[bool, str], bool] = {}
+
+    def is_readable(field: str) -> bool:
+        path_text = _text(row.get(field))
+        if not path_text:
+            return False
+        allow_absolute_outside_root = field in allow_absolute_outside_root_fields
+        cache_key = (allow_absolute_outside_root, path_text)
+        cached = readability_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            candidate = Path(path_text).expanduser()
+            if candidate.is_absolute() and allow_absolute_outside_root:
+                readable = candidate.resolve(strict=False).is_file()
+            elif root is None:
+                readable = False
+            else:
+                if not candidate.is_absolute():
+                    candidate = root / candidate
+                resolved = candidate.resolve(strict=False)
+                resolved.relative_to(root)
+                readable = resolved.is_file()
+        except (OSError, RuntimeError, ValueError):
+            readable = False
+        readability_cache[cache_key] = readable
+        return readable
+
+    return {field: is_readable(field) for field in fields}
+
+
 def _paper_artifact_flags(row: dict[str, Any]) -> dict[str, bool]:
     existing_flags = row.get("artifact_paths_present")
     if isinstance(existing_flags, dict):
         return {
             name: bool(existing_flags.get(name)) for name in PUBLICATION_ARTIFACT_FIELDS
         }
-    project_dir = row.get("project_dir")
-    return {
-        name: _artifact_file_is_readable(
-            project_dir,
-            row.get(name),
-            allow_absolute_outside_root=(name == "finalization_package_path"),
-        )
-        for name in PUBLICATION_ARTIFACT_FIELDS
-    }
+    return _artifact_file_flags_for_fields(
+        row,
+        PUBLICATION_ARTIFACT_FIELDS,
+        allow_absolute_outside_root_fields=frozenset({"finalization_package_path"}),
+    )
 
 
 def _related_artifact_paths_present(row: dict[str, Any]) -> dict[str, bool]:
