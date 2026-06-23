@@ -93,6 +93,8 @@ class TelemetryCollector:
     def __init__(self) -> None:
         self._psutil = psutil
         self._nvml_ready = False
+        self._last_gpu_pct = 0.0
+        self._last_gpu_compute_pids: list[int] = []
         if self._psutil is not None:
             self._psutil.cpu_percent(interval=None)
         if nvmlInit is not None:
@@ -123,6 +125,8 @@ class TelemetryCollector:
                     pid = getattr(proc, "pid", None)
                     if pid is not None:
                         gpu_compute_pids.append(int(pid))
+                self._last_gpu_pct = gpu_pct
+                self._last_gpu_compute_pids = list(gpu_compute_pids)
                 try:
                     mem = nvmlDeviceGetMemoryInfo(handle)
                     dedicated_total_mib = int(getattr(mem, "total", 0) / (1024 * 1024))
@@ -136,8 +140,8 @@ class TelemetryCollector:
                     # meminfo remains the operator-visible fallback signal.
                     memory_source = str(uma["memory_source"])
             except Exception:
-                gpu_pct = 0.0
-                gpu_compute_pids = []
+                gpu_pct = self._last_gpu_pct
+                gpu_compute_pids = list(self._last_gpu_compute_pids)
 
         return TelemetrySample(
             cpu_pct=cpu_pct,

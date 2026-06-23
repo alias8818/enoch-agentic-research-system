@@ -665,9 +665,10 @@ def test_telemetry_collector_without_optional_backends(
 def test_telemetry_collector_uses_nvml_dedicated_memory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        telemetry_mod, "psutil", SimpleNamespace(cpu_percent=lambda interval=None: 12.5)
-    )
+    def cpu_percent(interval: object = None) -> float:
+        return 12.5
+
+    monkeypatch.setattr(telemetry_mod, "psutil", SimpleNamespace(cpu_percent=cpu_percent))
     monkeypatch.setattr(
         telemetry_mod,
         "_read_meminfo",
@@ -675,23 +676,30 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
     )
     monkeypatch.setattr(telemetry_mod, "nvmlInit", lambda: None)
     monkeypatch.setattr(telemetry_mod, "nvmlShutdown", lambda: None)
-    monkeypatch.setattr(
-        telemetry_mod, "nvmlDeviceGetHandleByIndex", lambda _idx: "handle"
-    )
+    def get_handle(index: int) -> str:
+        return "handle"
+
+    monkeypatch.setattr(telemetry_mod, "nvmlDeviceGetHandleByIndex", get_handle)
     monkeypatch.setattr(
         telemetry_mod,
         "nvmlDeviceGetUtilizationRates",
         lambda _handle: SimpleNamespace(gpu=42),
     )
+    def compute_processes(_handle: object) -> list[SimpleNamespace]:
+        return [SimpleNamespace(pid=111), SimpleNamespace(pid=None)]
+
     monkeypatch.setattr(
         telemetry_mod,
         "nvmlDeviceGetComputeRunningProcesses",
-        lambda _handle: [SimpleNamespace(pid=111), SimpleNamespace(pid=None)],
+        compute_processes,
     )
+    def memory_info(_handle: object) -> SimpleNamespace:
+        return SimpleNamespace(total=8 * 1024 * 1024, used=3 * 1024 * 1024)
+
     monkeypatch.setattr(
         telemetry_mod,
         "nvmlDeviceGetMemoryInfo",
-        lambda _handle: SimpleNamespace(total=8 * 1024 * 1024, used=3 * 1024 * 1024),
+        memory_info,
     )
     collector = telemetry_mod.TelemetryCollector()
     sample = collector.sample()
@@ -700,4 +708,59 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
     assert sample.gpu_compute_pids == [111]
     assert sample.memory_source == "nvml_dedicated"
     assert sample.vram_used_mib == 3
+    collector.close()
+
+
+def test_telemetry_collector_retains_last_gpu_signal_on_nvml_sample_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def cpu_percent(interval: object = None) -> float:
+        return 12.5
+
+    monkeypatch.setattr(telemetry_mod, "psutil", SimpleNamespace(cpu_percent=cpu_percent))
+    monkeypatch.setattr(
+        telemetry_mod,
+        "_read_meminfo",
+        lambda: {"MemTotal": 2048000, "MemAvailable": 1024000},
+    )
+    monkeypatch.setattr(telemetry_mod, "nvmlInit", lambda: None)
+    monkeypatch.setattr(telemetry_mod, "nvmlShutdown", lambda: None)
+    def get_handle(index: int) -> str:
+        return "handle"
+
+    monkeypatch.setattr(telemetry_mod, "nvmlDeviceGetHandleByIndex", get_handle)
+    fail_sample = False
+
+    def utilization(_handle: object) -> SimpleNamespace:
+        if fail_sample:
+            raise RuntimeError("transient nvml failure")
+        return SimpleNamespace(gpu=42)
+
+    monkeypatch.setattr(telemetry_mod, "nvmlDeviceGetUtilizationRates", utilization)
+    def compute_processes(_handle: object) -> list[SimpleNamespace]:
+        return [SimpleNamespace(pid=111)]
+
+    monkeypatch.setattr(
+        telemetry_mod,
+        "nvmlDeviceGetComputeRunningProcesses",
+        compute_processes,
+    )
+    def memory_info(_handle: object) -> SimpleNamespace:
+        return SimpleNamespace(total=8 * 1024 * 1024, used=3 * 1024 * 1024)
+
+    monkeypatch.setattr(
+        telemetry_mod,
+        "nvmlDeviceGetMemoryInfo",
+        memory_info,
+    )
+    collector = telemetry_mod.TelemetryCollector()
+
+    first = collector.sample()
+    fail_sample = True
+    second = collector.sample()
+
+    assert first.gpu_pct == 42.0
+    assert first.gpu_compute_pids == [111]
+    assert second.gpu_pct == 42.0
+    assert second.gpu_compute_pids == [111]
     collector.close()
