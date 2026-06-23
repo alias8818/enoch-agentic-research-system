@@ -1,6 +1,8 @@
 from pathlib import Path
 import re
 
+import yaml
+
 from scripts.validate_promising_signals_release import validate_promising_signals
 
 
@@ -46,6 +48,30 @@ def test_public_release_integrity_scopes_supabase_secret_to_trusted_push() -> No
         in workflow
     )
     assert "is not configured; skipping live ledger validation" in workflow
+
+
+def test_release_workflow_does_not_skip_on_commit_message_substring() -> None:
+    workflow = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+
+    assert (
+        "contains(github.event.head_commit.message, 'chore(release)')" not in workflow
+    )
+    assert (
+        'contains(github.event.head_commit.message, "chore(release)")' not in workflow
+    )
+    assert "concurrency:" in workflow
+    assert "group: release" in workflow
+    assert "cancel-in-progress: false" in workflow
+
+
+def test_release_workflow_uses_minimal_scoped_token_permissions() -> None:
+    workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
+    workflow = yaml.safe_load(workflow_text)
+
+    assert workflow["permissions"] == {"contents": "write", "id-token": "write"}
+    assert "secrets.GITHUB_TOKEN" not in workflow_text
+    assert "GH_TOKEN: ${{ github.token }}" in workflow_text
+    assert "GITHUB_TOKEN: ${{ github.token }}" in workflow_text
 
 
 def test_ci_main_pushes_use_ephemeral_runners() -> None:
