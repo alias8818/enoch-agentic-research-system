@@ -3018,6 +3018,17 @@ class ControlPlaneStore:
     def _replayed_worker_callback_event_id(
         self, idempotency_key: str, incoming_payload: dict[str, Any]
     ) -> int | None:
+        with self._connect() as conn:
+            return self._replayed_worker_callback_event_id_in_conn(
+                conn, idempotency_key, incoming_payload
+            )
+
+    def _replayed_worker_callback_event_id_in_conn(
+        self,
+        conn: sqlite3.Connection,
+        idempotency_key: str,
+        incoming_payload: dict[str, Any],
+    ) -> int | None:
         """Return existing worker callback event id for an exact incoming retry.
 
         Worker callback event payloads include state-derived audit fields such as
@@ -3026,11 +3037,10 @@ class ControlPlaneStore:
         incoming callback fields, not a newly derived augmented payload.
         """
 
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT event_id, payload_json FROM events WHERE idempotency_key=?",
-                (idempotency_key,),
-            ).fetchone()
+        row = conn.execute(
+            "SELECT event_id, payload_json FROM events WHERE idempotency_key=?",
+            (idempotency_key,),
+        ).fetchone()
         if row is None:
             return None
         try:
@@ -3060,24 +3070,38 @@ class ControlPlaneStore:
         return int(row["event_id"])
 
     def _resolve_worker_callback_project_id(self, project_id: str, run_id: str) -> str:
+        with self._connect() as conn:
+            return self._resolve_worker_callback_project_id_in_conn(
+                conn, project_id, run_id
+            )
+
+    def _resolve_worker_callback_project_id_in_conn(
+        self, conn: sqlite3.Connection, project_id: str, run_id: str
+    ) -> str:
         if project_id or not run_id:
             return project_id
-        with self._connect() as conn:
-            found = conn.execute(
-                "SELECT project_id FROM runs WHERE run_id=?", (run_id,)
-            ).fetchone()
+        found = conn.execute(
+            "SELECT project_id FROM runs WHERE run_id=?", (run_id,)
+        ).fetchone()
         return found["project_id"] if found else ""
 
     def _worker_callback_queue_snapshot(
         self, project_id: str, run_id: str
     ) -> tuple[dict[str, Any] | None, bool, str]:
+        with self._connect() as conn:
+            return self._worker_callback_queue_snapshot_in_conn(
+                conn, project_id, run_id
+            )
+
+    def _worker_callback_queue_snapshot_in_conn(
+        self, conn: sqlite3.Connection, project_id: str, run_id: str
+    ) -> tuple[dict[str, Any] | None, bool, str]:
         if not project_id:
             return None, False, ""
-        with self._connect() as conn:
-            found = conn.execute(
-                "SELECT status,current_run_id,current_session_id,last_run_state,next_action_hint FROM queue_items WHERE project_id=?",
-                (project_id,),
-            ).fetchone()
+        found = conn.execute(
+            "SELECT status,current_run_id,current_session_id,last_run_state,next_action_hint FROM queue_items WHERE project_id=?",
+            (project_id,),
+        ).fetchone()
         current_queue_row = dict(found) if found else None
         current_run_id = _text((current_queue_row or {}).get("current_run_id"))
         current_status = _text((current_queue_row or {}).get("status"))
@@ -3111,32 +3135,39 @@ class ControlPlaneStore:
         run_id: str,
         project_id: str,
     ) -> tuple[int, bool, dict[str, Any]]:
-        event_type_name = _worker_callback_event_type_name(event_type)
-        entity_id = _worker_callback_entity_id(run_id, project_id)
-        replayed_event_id = self._replayed_event_id(
-            idempotency_key,
-            event_payload,
-            event_type=event_type_name,
-            entity_type="run",
-            entity_id=entity_id,
-        )
-        if replayed_event_id is not None:
-            return (
-                replayed_event_id,
-                False,
-                self._worker_callback_result_row(project_id),
+        with self._connect() as conn:
+            event_id, inserted = self._emit_worker_callback_side_effect_in_conn(
+                conn,
+                idempotency_key=idempotency_key,
+                event_payload=event_payload,
+                event_type=event_type,
+                run_id=run_id,
+                project_id=project_id,
             )
-        event_id, inserted = self.append_event(
+        return event_id, inserted, self._worker_callback_result_row(project_id)
+
+    def _emit_worker_callback_side_effect_in_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        idempotency_key: str,
+        event_payload: dict[str, Any],
+        event_type: str,
+        run_id: str,
+        project_id: str,
+    ) -> tuple[int, bool]:
+        return self._append_event_in_conn(
+            conn,
             idempotency_key=idempotency_key,
-            event_type=event_type_name,
+            event_type=_worker_callback_event_type_name(event_type),
             entity_type="run",
-            entity_id=entity_id,
+            entity_id=_worker_callback_entity_id(run_id, project_id),
             payload=event_payload,
         )
-        return event_id, inserted, self._worker_callback_result_row(project_id)
 
     def _try_record_late_terminal_success_worker_callback(
         self,
+        conn: sqlite3.Connection | None = None,
         *,
         payload: dict[str, Any],
         current_queue_row: dict[str, Any] | None,
@@ -3159,16 +3190,27 @@ class ControlPlaneStore:
             ),
             received_by=received_by,
         )
-        return self._emit_worker_callback_side_effect(
+        if conn is None:
+            return self._emit_worker_callback_side_effect(
+                idempotency_key=idempotency_key,
+                event_payload=event_payload,
+                event_type=event_type,
+                run_id=run_id,
+                project_id=project_id,
+            )
+        event_id, inserted = self._emit_worker_callback_side_effect_in_conn(
+            conn,
             idempotency_key=idempotency_key,
             event_payload=event_payload,
             event_type=event_type,
             run_id=run_id,
             project_id=project_id,
         )
+        return event_id, inserted, self._worker_callback_result_row(project_id)
 
     def _try_record_stale_worker_callback(
         self,
+        conn: sqlite3.Connection | None = None,
         *,
         payload: dict[str, Any],
         current_queue_row: dict[str, Any] | None,
@@ -3199,13 +3241,23 @@ class ControlPlaneStore:
                 run_id=run_id, current_status=current_status
             ),
         )
-        return self._emit_worker_callback_side_effect(
+        if conn is None:
+            return self._emit_worker_callback_side_effect(
+                idempotency_key=idempotency_key,
+                event_payload=event_payload,
+                event_type=event_type,
+                run_id=run_id,
+                project_id=project_id,
+            )
+        event_id, inserted = self._emit_worker_callback_side_effect_in_conn(
+            conn,
             idempotency_key=idempotency_key,
             event_payload=event_payload,
             event_type=event_type,
             run_id=run_id,
             project_id=project_id,
         )
+        return event_id, inserted, self._worker_callback_result_row(project_id)
 
     def _persist_applied_worker_callback(
         self,
@@ -5043,66 +5095,59 @@ class ControlPlaneStore:
             event_type=event_type,
             idempotency_key=_text(payload.get("idempotency_key")),
         )
-        project_id = self._resolve_worker_callback_project_id(project_id, run_id)
-        replayed_callback_event_id = self._replayed_worker_callback_event_id(
-            idempotency_key, payload
-        )
-        if replayed_callback_event_id is not None:
-            return (
-                replayed_callback_event_id,
-                False,
-                self._worker_callback_result_row(project_id),
-            )
-        current_queue_row, stale_callback, current_status = (
-            self._worker_callback_queue_snapshot(project_id, run_id)
-        )
-        late_result = self._try_record_late_terminal_success_worker_callback(
-            payload=payload,
-            current_queue_row=current_queue_row,
-            run_id=run_id,
-            project_id=project_id,
-            event_type=event_type,
-            idempotency_key=idempotency_key,
-            received_by=received_by,
-        )
-        if late_result is not None:
-            return late_result
-        status, next_action_hint, manual_review_required, last_error = (
-            _worker_callback_transition(event_type, payload)
-        )
-        stale_result = self._try_record_stale_worker_callback(
-            payload=payload,
-            current_queue_row=current_queue_row,
-            stale_callback=stale_callback,
-            run_id=run_id,
-            project_id=project_id,
-            event_type=event_type,
-            idempotency_key=idempotency_key,
-            received_by=received_by,
-            current_status=current_status,
-        )
-        if stale_result is not None:
-            return stale_result
-        event_payload = {
-            **payload,
-            "received_by": received_by,
-            "applied_status": status,
-            "applied_next_action_hint": next_action_hint,
-        }
-        replayed_event_id = self._replayed_event_id(
-            idempotency_key,
-            event_payload,
-            event_type=_worker_callback_event_type_name(event_type),
-            entity_type="run",
-            entity_id=_worker_callback_entity_id(run_id, project_id),
-        )
-        if replayed_event_id is not None:
-            return (
-                replayed_event_id,
-                False,
-                self._worker_callback_result_row(project_id),
-            )
         with self._connect() as conn:
+            project_id = self._resolve_worker_callback_project_id_in_conn(
+                conn, project_id, run_id
+            )
+            replayed_callback_event_id = (
+                self._replayed_worker_callback_event_id_in_conn(
+                    conn, idempotency_key, payload
+                )
+            )
+            if replayed_callback_event_id is not None:
+                return (
+                    replayed_callback_event_id,
+                    False,
+                    self._worker_callback_result_row(project_id),
+                )
+            current_queue_row, stale_callback, current_status = (
+                self._worker_callback_queue_snapshot_in_conn(conn, project_id, run_id)
+            )
+            late_result = self._try_record_late_terminal_success_worker_callback(
+                conn,
+                payload=payload,
+                current_queue_row=current_queue_row,
+                run_id=run_id,
+                project_id=project_id,
+                event_type=event_type,
+                idempotency_key=idempotency_key,
+                received_by=received_by,
+            )
+            if late_result is not None:
+                return late_result
+            status, next_action_hint, manual_review_required, last_error = (
+                _worker_callback_transition(event_type, payload)
+            )
+            stale_result = self._try_record_stale_worker_callback(
+                conn,
+                payload=payload,
+                current_queue_row=current_queue_row,
+                stale_callback=stale_callback,
+                run_id=run_id,
+                project_id=project_id,
+                event_type=event_type,
+                idempotency_key=idempotency_key,
+                received_by=received_by,
+                current_status=current_status,
+            )
+            if stale_result is not None:
+                return stale_result
+            event_payload = {
+                **payload,
+                "received_by": received_by,
+                "applied_status": status,
+                "applied_next_action_hint": next_action_hint,
+            }
             event_id, inserted = self._persist_applied_worker_callback(
                 conn,
                 now=now,

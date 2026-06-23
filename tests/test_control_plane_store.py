@@ -2700,6 +2700,18 @@ class ControlPlaneStoreTests(unittest.TestCase):
             source.index("SELECT project_id, run_id, paper_type, updated_at"),
         )
 
+    def test_record_worker_callback_uses_single_transaction_for_decision_and_write(
+        self,
+    ) -> None:
+        source = inspect.getsource(ControlPlaneStore.record_worker_callback)
+        normalized = " ".join(source.split())
+
+        self.assertEqual(source.count("with self._connect() as conn:"), 1)
+        self.assertIn("_resolve_worker_callback_project_id_in_conn", source)
+        self.assertIn("_replayed_worker_callback_event_id_in_conn", source)
+        self.assertIn("_worker_callback_queue_snapshot_in_conn", source)
+        self.assertIn("_persist_applied_worker_callback( conn", normalized)
+
     def test_upsert_paper_rejects_conflicting_paper_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
