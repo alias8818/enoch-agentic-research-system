@@ -12,6 +12,7 @@ from enoch_control_plane.config import GateConfig
 from enoch_control_plane.models import GateCallback, ProcessSnapshot, RunRecord
 from enoch_control_plane.state_store import StateStore
 from enoch_control_plane.research_quality import dspy_programs
+from scripts import backfill_promising_signals
 from scripts import research_provider_budget
 
 
@@ -137,6 +138,15 @@ def test_research_provider_budget_missing_payload_raises_runtime_error(
 
     with pytest.raises(RuntimeError, match="quota payload unavailable"):
         research_provider_budget.main(["--no-auth"])
+
+
+def test_backfill_promising_signals_missing_exporter_raises_import_error(
+    tmp_path: Path,
+) -> None:
+    missing_exporter = tmp_path / "missing_export_promising_signals.py"
+
+    with pytest.raises(ImportError, match="could not load promising-signals exporter"):
+        backfill_promising_signals._load_exporter(missing_exporter)
 
 
 def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None:

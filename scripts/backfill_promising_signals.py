@@ -13,14 +13,28 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 EXPORTER_PATH = SCRIPT_DIR / "export_promising_signals.py"
-spec = importlib.util.spec_from_file_location("export_promising_signals", EXPORTER_PATH)
-assert spec and spec.loader
-exporter = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(exporter)
+
+
+def _load_exporter(exporter_path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location("export_promising_signals", exporter_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not load promising-signals exporter from {exporter_path}")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except FileNotFoundError as exc:
+        raise ImportError(
+            f"could not load promising-signals exporter from {exporter_path}"
+        ) from exc
+    return module
+
+
+exporter = _load_exporter(EXPORTER_PATH)
 
 
 def _load_rows(
