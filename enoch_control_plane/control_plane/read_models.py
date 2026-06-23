@@ -2563,8 +2563,10 @@ def _gated_write_candidates(
     gate_rejected: list[dict[str, Any]] = []
     for candidate in raw_write_candidates:
         candidate_dict = dict(candidate)
-        artifact_gate = _paper_draft_gate_for_row(candidate)
         row_gate = _paper_draft_gate_from_row_decision(candidate_dict)
+        artifact_gate = None
+        if row_gate is None or _text(row_gate.get("reason")) == MISSING_PROJECT_DECISION_ARTIFACT_REASON:
+            artifact_gate = _paper_draft_gate_for_row(candidate_dict)
         gate = (
             artifact_gate
             if artifact_gate

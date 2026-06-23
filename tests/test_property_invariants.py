@@ -626,6 +626,26 @@ def test_summarize_paper_row_batches_publication_artifact_readability(
     }
 
 
+def test_gated_write_candidates_uses_row_decision_before_artifact_gate() -> None:
+    with patch.object(
+        read_models,
+        "_paper_draft_gate_for_row",
+        side_effect=AssertionError("artifact gate should not run for row decisions"),
+    ):
+        write_candidates, gate_rejected = read_models._gated_write_candidates(
+            [
+                {
+                    "project_id": "paper-backed-project",
+                    "decision_gate_state": "positive",
+                    "decision_summary": "approved",
+                }
+            ]
+        )
+
+    assert [row["project_id"] for row in write_candidates] == ["paper-backed-project"]
+    assert gate_rejected == []
+
+
 partial_evidence_kind = st.sampled_from(
     [
         "none",
