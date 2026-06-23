@@ -1,4 +1,4 @@
-.PHONY: dev test test-quick lint format typecheck pre-commit clean run smoke setup-config
+.PHONY: dev test test-quick lint format typecheck pre-commit clean run smoke setup-config check-deps openapi dashboard-build dashboard-e2e docker-up docker-down release-patch release-minor release-major
 
 # One-command setup: fresh clone to running dev server
 dev: setup-config
