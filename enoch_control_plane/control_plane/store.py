@@ -5165,19 +5165,22 @@ class ControlPlaneStore:
     def _upsert_paper_in_conn(
         self, conn: sqlite3.Connection, paper: PaperRecord
     ) -> None:
-        existing = conn.execute(
-            "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
-            (paper.paper_id,),
-        ).fetchone()
-        if _paper_identity_conflicts(existing, paper):
-            raise IdempotencyConflict(
-                f"paper id {paper.paper_id!r} was reused with different paper identity"
-            )
-        if existing and _is_older_timestamp(paper.updated_at, existing["updated_at"]):
-            return
-        conn.execute(
-            """INSERT OR REPLACE INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        result = conn.execute(
+            """INSERT INTO papers(paper_id,project_id,run_id,paper_type,paper_status,draft_markdown_path,draft_latex_path,evidence_bundle_path,claim_ledger_path,manifest_path,generated_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(paper_id) DO UPDATE SET
+                paper_status=excluded.paper_status,
+                draft_markdown_path=excluded.draft_markdown_path,
+                draft_latex_path=excluded.draft_latex_path,
+                evidence_bundle_path=excluded.evidence_bundle_path,
+                claim_ledger_path=excluded.claim_ledger_path,
+                manifest_path=excluded.manifest_path,
+                generated_at=excluded.generated_at,
+                updated_at=excluded.updated_at
+            WHERE papers.project_id=excluded.project_id
+              AND papers.run_id=excluded.run_id
+              AND papers.paper_type=excluded.paper_type
+              AND excluded.updated_at >= papers.updated_at""",
             (
                 paper.paper_id,
                 paper.project_id,
@@ -5193,6 +5196,16 @@ class ControlPlaneStore:
                 paper.updated_at,
             ),
         )
+        if result.rowcount:
+            return
+        existing = conn.execute(
+            "SELECT project_id, run_id, paper_type, updated_at FROM papers WHERE paper_id=?",
+            (paper.paper_id,),
+        ).fetchone()
+        if _paper_identity_conflicts(existing, paper):
+            raise IdempotencyConflict(
+                f"paper id {paper.paper_id!r} was reused with different paper identity"
+            )
 
     def upsert_paper(self, paper: PaperRecord) -> None:
         with self._connect() as conn:

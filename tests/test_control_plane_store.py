@@ -2688,6 +2688,18 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(paper["draft_markdown_path"], "papers/run-1/rewritten.md")
             self.assertIsNotNone(store.paper_review_row(paper_id))
 
+    def test_upsert_paper_uses_atomic_timestamp_guarded_upsert(self) -> None:
+        source = inspect.getsource(ControlPlaneStore._upsert_paper_in_conn)
+        normalized = " ".join(source.split())
+
+        self.assertNotIn("INSERT OR REPLACE INTO papers", source)
+        self.assertIn("ON CONFLICT(paper_id) DO UPDATE SET", source)
+        self.assertIn("AND excluded.updated_at >= papers.updated_at", normalized)
+        self.assertLess(
+            source.index("INSERT INTO papers"),
+            source.index("SELECT project_id, run_id, paper_type, updated_at"),
+        )
+
     def test_upsert_paper_rejects_conflicting_paper_identity(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
