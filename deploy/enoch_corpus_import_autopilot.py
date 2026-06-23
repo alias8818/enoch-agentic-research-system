@@ -394,7 +394,8 @@ def _run_import_dry_run_with_retries(
                 break
             if delay > 0:
                 time.sleep(delay)
-    assert last_exc is not None
+    if last_exc is None:
+        raise RuntimeError("preflight retry exhausted without captured exception")
     raise RuntimeError(_exception_summary(last_exc)) from last_exc
 
 
@@ -973,7 +974,19 @@ def main() -> int:
         )
         if exit_code is not None:
             return exit_code
-        assert preflight is not None
+        if preflight is None:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "action": "preflight_import_failed",
+                        "reason": "preflight returned no result",
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+            )
+            return 1
 
         if _truthy("ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY", "0"):
             return _print_preflight_only_result(

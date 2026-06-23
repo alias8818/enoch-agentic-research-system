@@ -8,6 +8,8 @@ from pathlib import Path
 from subprocess import CalledProcessError, CompletedProcess
 from unittest.mock import patch
 
+import pytest
+
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[1] / "deploy" / "enoch_corpus_import_autopilot.py"
@@ -271,6 +273,55 @@ def test_clean_noop_syncs_ledger_when_enabled(tmp_path, capsys):
     assert output["action"] == "skipped"
     assert output["fast_forwarded"] == []
     assert output["ledger_sync"] == {"ok": True, "publication_ready": 0}
+
+
+def test_preflight_none_fails_closed_without_assert(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for name in autopilot.REPO_NAMES:
+        (tmp_path / name).mkdir()
+
+    dry_payload = {
+        "failed": 0,
+        "imported": 1,
+        "updated": 0,
+        "errors": [],
+        "seen": 1,
+        "skipped": 0,
+    }
+
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1",
+                "ENOCH_CORPUS_IMPORT_PREFLIGHT_ONLY": "1",
+            },
+            clear=False,
+        ),
+        patch.object(autopilot, "_release_root", return_value=tmp_path),
+        patch.object(autopilot, "_git_clean", return_value=True),
+        patch.object(
+            autopilot,
+            "_load_config",
+            return_value={"control_api_bearer_token": "token"},
+        ),
+        patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
+        patch.object(
+            autopilot,
+            "_run_dry_run_import",
+            return_value=(dry_payload, 1),
+        ),
+        patch.object(autopilot, "_run_preflight_import", return_value=(None, None)),
+    ):
+        assert autopilot.main() == 1
+
+    error = json.loads(capsys.readouterr().err)
+    assert error == {
+        "action": "preflight_import_failed",
+        "ok": False,
+        "reason": "preflight returned no result",
+    }
 
 
 def test_clean_noop_does_not_sync_ledger_without_opt_in(tmp_path, capsys):
