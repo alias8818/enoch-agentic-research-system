@@ -82,7 +82,7 @@ jobs:
           ENOCH_SUPABASE_DATABASE_URL: ${{ secrets.ENOCH_SUPABASE_DATABASE_URL }}
         run: |
           if [ -z "${ENOCH_SUPABASE_DATABASE_URL:-}" ]; then
-            echo "ENOCH_SUPABASE_DATABASE_URL is not configured; skipping live ledger validation."
-            exit 0
+            echo "::error::ENOCH_SUPABASE_DATABASE_URL is not configured; cannot validate live corpus ledger."
+            exit 1
           fi
           python3 scripts/validate_corpus_import_ledger.py --corpus ../enoch-ai-research-corpus
