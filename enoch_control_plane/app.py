@@ -3248,23 +3248,29 @@ def _parse_dispatch_subprocess_result(
     result: subprocess.CompletedProcess[str],
 ) -> dict[str, Any]:
     if result.returncode != 0:
+        stderr = result.stderr or ""
         raise HTTPException(
             status_code=502,
             detail={
                 "message": "dispatch failed",
                 "returncode": result.returncode,
-                "stderr": result.stderr.strip(),
+                "stderr_present": bool(stderr.strip()),
+                "stderr_bytes": len(stderr.encode("utf-8", errors="replace")),
             },
         )
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError as exc:
+        stdout = result.stdout or ""
+        stderr = result.stderr or ""
         raise HTTPException(
             status_code=502,
             detail={
                 "message": "dispatch returned non-json output",
-                "stdout": result.stdout.strip(),
-                "stderr": result.stderr.strip(),
+                "stdout_present": bool(stdout.strip()),
+                "stdout_bytes": len(stdout.encode("utf-8", errors="replace")),
+                "stderr_present": bool(stderr.strip()),
+                "stderr_bytes": len(stderr.encode("utf-8", errors="replace")),
             },
         ) from exc
 

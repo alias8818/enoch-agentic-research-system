@@ -529,12 +529,19 @@ def test_dispatch_endpoint_handles_success_and_bad_output(
         },
     )
     assert failed.status_code == 502
+    assert failed.json()["detail"] == {
+        "message": "dispatch failed",
+        "returncode": 2,
+        "stderr_present": True,
+        "stderr_bytes": 3,
+    }
+    assert "bad" not in failed.text
 
     monkeypatch.setattr(
         appmod.subprocess,
         "run",
         lambda *args, **kwargs: SimpleNamespace(
-            returncode=0, stdout="not-json", stderr=""
+            returncode=0, stdout="not-json", stderr="internal state path"
         ),
     )
     bad_json = client.post(
@@ -549,6 +556,15 @@ def test_dispatch_endpoint_handles_success_and_bad_output(
         },
     )
     assert bad_json.status_code == 502
+    assert bad_json.json()["detail"] == {
+        "message": "dispatch returned non-json output",
+        "stdout_present": True,
+        "stdout_bytes": 8,
+        "stderr_present": True,
+        "stderr_bytes": 19,
+    }
+    assert "not-json" not in bad_json.text
+    assert "internal state path" not in bad_json.text
 
 
 import asyncio

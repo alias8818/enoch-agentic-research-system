@@ -150,6 +150,8 @@ def test_dispatch_persists_failed_envelope_before_worker_error(
     assert [event["state"] for event in dispatch_events] == ["accepted", "failed"]
     assert {event["envelope_id"] for event in dispatch_events} == {"run-fail"}
     assert dispatch_events[-1]["detail"]["message"] == "dispatch failed"
+    assert dispatch_events[-1]["detail"]["stderr_present"] is True
+    assert "boom" not in json.dumps(dispatch_events[-1]["detail"])
 
 
 def test_dispatch_request_defaults_to_workspace_write_sandbox() -> None:
