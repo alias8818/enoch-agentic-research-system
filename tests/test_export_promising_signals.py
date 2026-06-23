@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
 import sys
 from pathlib import Path
+
+from enoch_control_plane.control_plane import promising_signal_scoring
+from enoch_control_plane.control_plane.promising_signal_priority import (
+    promising_signal_bucket,
+    promising_signal_score,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "export_promising_signals.py"
@@ -112,6 +119,52 @@ def test_rank_signal_is_deterministic_explainable_and_bucketed() -> None:
     ]
 
 
+def test_export_uses_shared_promising_signal_scorer() -> None:
+    exporter_source = inspect.getsource(exporter)
+
+    for local_helper in (
+        "def _strength_score",
+        "def _hypothesis_score",
+        "def _source_lineage_score",
+        "def _followup_score",
+        "def _bounded_evidence_score",
+        "def rank_signal",
+    ):
+        assert local_helper not in exporter_source
+    assert exporter.rank_signal is promising_signal_scoring.rank_signal
+
+
+def test_export_and_control_plane_priority_scores_share_contract() -> None:
+    rows = [
+        _row(
+            project_id="top", evidence_strength="strong", hypothesis_status="supported"
+        ),
+        _row(
+            project_id="followup",
+            evidence_strength="moderate",
+            hypothesis_status="mixed",
+        ),
+        _row(
+            project_id="stale",
+            evidence_strength="weak",
+            hypothesis_status="unsupported",
+        ),
+        _row(
+            project_id="compute",
+            evidence_strength="strong",
+            hypothesis_status="supported",
+            compute_scale_blocked=True,
+        ),
+    ]
+
+    for row in rows:
+        exported = exporter.signal_from_row(row)
+        curation = exporter.rank_signal(exported)
+
+        assert promising_signal_score(row) == curation["score"]
+        assert promising_signal_bucket(row) == curation["bucket"]
+
+
 def test_rank_signal_bucket_priority_is_deterministic() -> None:
     rows = [
         _row(
@@ -154,14 +207,16 @@ def test_rank_signal_bucket_priority_is_deterministic() -> None:
 
 def test_has_external_source_url_ignores_malformed_urls() -> None:
     assert (
-        exporter._has_external_source_url([{"source_id": "src-1", "url": "http://["}])
+        promising_signal_scoring._has_external_source(
+            [{"source_id": "src-1", "url": "http://["}]
+        )
         is False
     )
 
 
 def test_has_external_source_url_preserves_source_id_fallback_after_bad_url() -> None:
     assert (
-        exporter._has_external_source_url(
+        promising_signal_scoring._has_external_source(
             [{"source_id": "arxiv:2605.06546", "url": "http://["}]
         )
         is True

@@ -10,22 +10,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from enoch_control_plane.timeutils import parse_utc_datetime
-from enoch_control_plane.url_safety import looks_like_external_source_reference
-
-TOP_EXTERNAL_RESEARCHER_CANDIDATES = "top_external_researcher_candidates"
-COMPUTE_SCALE_BLOCKED = "compute_scale_blocked"
-FOLLOWUP_RECOMMENDED = "followup_recommended"
-WEAK_LOCAL_ONLY_PRESERVED = "weak_local_only_preserved"
-LIKELY_STALE_LOW_VALUE_ARCHIVE = "likely_stale_low_value_archive"
-
-RANKING_BUCKET_ORDER = (
-    TOP_EXTERNAL_RESEARCHER_CANDIDATES,
+from enoch_control_plane.control_plane.promising_signal_scoring import (
     COMPUTE_SCALE_BLOCKED,
     FOLLOWUP_RECOMMENDED,
-    WEAK_LOCAL_ONLY_PRESERVED,
     LIKELY_STALE_LOW_VALUE_ARCHIVE,
+    TOP_EXTERNAL_RESEARCHER_CANDIDATES,
+    WEAK_LOCAL_ONLY_PRESERVED,
+    rank_signal,
 )
+from enoch_control_plane.timeutils import parse_utc_datetime
 
 MIN_FOLLOWUP_REQUIRED_EVIDENCE = 2
 FOLLOWUP_LAUNCH_SELECTION_RANK = 25
@@ -97,55 +90,38 @@ def _payload(row: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _sources_present(row: dict[str, Any]) -> tuple[bool, bool]:
+def _sources_from_row(row: dict[str, Any]) -> list[dict[str, str]]:
     payload = _payload(row)
     records = _listish(row.get("source_records") or payload.get("source_records"))
     source_ids = _listish(row.get("source_ids") or payload.get("source_ids"))
     source_urls = _listish(row.get("source_urls") or payload.get("source_urls"))
     source_url = _text(row.get("source_url") or payload.get("source_url"))
     source_id = _text(row.get("source_id") or payload.get("source_id"))
-    has_source = bool(records or source_ids or source_urls or source_url or source_id)
-    candidates = [
-        _text(source_url),
-        _text(source_id),
-        *[_text(v) for v in source_urls],
-        *[_text(v) for v in source_ids],
-    ]
+
+    sources: list[dict[str, str]] = []
+    max_parallel = max(len(source_urls), len(source_ids))
+    for index in range(max_parallel):
+        sources.append(
+            {
+                "url": _text(source_urls[index]) if index < len(source_urls) else "",
+                "source_id": _text(source_ids[index])
+                if index < len(source_ids)
+                else "",
+            }
+        )
+    if source_url or source_id:
+        sources.append({"url": source_url, "source_id": source_id})
     for record in records:
         if isinstance(record, dict):
-            candidates.extend(
-                [_text(record.get("url")), _text(record.get("source_id"))]
+            sources.append(
+                {
+                    "url": _text(record.get("url")),
+                    "source_id": _text(record.get("source_id")),
+                }
             )
         else:
-            candidates.append(_text(record))
-    has_external = any(
-        looks_like_external_source_reference(item) for item in candidates if item
-    )
-    return has_source, has_external
-
-
-def _strength_score(value: Any) -> int:
-    text = _normal(value)
-    if text in {"strong", "high"}:
-        return 35
-    if text in {"moderate", "medium"}:
-        return 25
-    if text in {"weak", "low"}:
-        return 10
-    return 0
-
-
-def _hypothesis_score(value: Any) -> int:
-    text = _normal(value)
-    if text in {"supported", "supportive", "confirmed"}:
-        return 30
-    if text in {"partially_supported", "partly_supported"}:
-        return 20
-    if text in {"mixed", "inconclusive_but_useful"}:
-        return 15
-    if text in {"unsupported", "not_supported", "negative", "falsified"}:
-        return -15
-    return 0
+            sources.append({"url": "", "source_id": _text(record)})
+    return [source for source in sources if source["url"] or source["source_id"]]
 
 
 def _followup_evidence(row: dict[str, Any]) -> list[str]:
@@ -156,91 +132,42 @@ def _followup_evidence(row: dict[str, Any]) -> list[str]:
     ]
 
 
-def _followup_score(row: dict[str, Any]) -> int:
-    score = 0
-    if _truthy(row.get("followup_recommended")):
-        score += 10
-    score += min(5, len(_followup_evidence(row)) * 2)
+def _scoring_signal_from_row(row: dict[str, Any]) -> dict[str, Any]:
     try:
-        depth = int(row.get("followup_depth") or row.get("source_followup_depth") or 0)
-    except (TypeError, ValueError):
-        depth = 0
-    if depth > 2:
-        score -= min(15, (depth - 2) * 5)
-    return score
-
-
-def _bounded_evidence_score(row: dict[str, Any]) -> int:
-    artifact_paths = [
-        _text(item) for item in _listish(row.get("artifact_paths")) if _text(item)
-    ]
-    score = min(10, len(artifact_paths) * 2)
-    joined_paths = " ".join(path.lower() for path in artifact_paths)
-    if "metrics" in joined_paths:
-        score += 4
-    if "project_decision" in joined_paths:
-        score += 4
-    if _text(row.get("claim_scope")) and _text(row.get("scale_limits")):
-        score += 4
-    return score
-
-
-def _has_promising_signal_fields(row: dict[str, Any]) -> bool:
-    return any(
-        _text(row.get(key))
-        for key in (
-            "research_outcome",
-            "hypothesis_status",
-            "evidence_strength",
-            "claim_scope",
-            "scale_limits",
-            "useful_signal_summary",
+        followup_depth = int(
+            row.get("followup_depth") or row.get("source_followup_depth") or 0
         )
-    )
+    except (TypeError, ValueError):
+        followup_depth = 0
+    return {
+        "status": COMPUTE_SCALE_BLOCKED
+        if _truthy(row.get("compute_scale_blocked"))
+        else _text(row.get("status") or row.get("queue_status")),
+        "hypothesis_status": _text(row.get("hypothesis_status")),
+        "evidence_strength": _text(row.get("evidence_strength")),
+        "claim_scope": _text(row.get("claim_scope")),
+        "scale_limits": _text(row.get("scale_limits")),
+        "sources": _sources_from_row(row),
+        "followup": {
+            "recommended": _truthy(row.get("followup_recommended")),
+            "required_evidence": _followup_evidence(row),
+            "depth": followup_depth,
+        },
+        "evidence": {"artifact_paths": _listish(row.get("artifact_paths"))},
+        "do_not_overclaim": {"not_a_paper": True},
+    }
 
 
 def promising_signal_score(row: dict[str, Any]) -> int:
     """Return the deterministic 0-100 promising-signal score for a queue row."""
 
-    source_present, external_present = _sources_present(row)
-    source_score = 0
-    if source_present:
-        source_score += 8
-    else:
-        source_score -= 20
-    if external_present:
-        source_score += 4
-    raw = (
-        _strength_score(row.get("evidence_strength"))
-        + _hypothesis_score(row.get("hypothesis_status"))
-        + source_score
-        + _followup_score(row)
-        + _bounded_evidence_score(row)
-    )
-    return max(0, min(100, raw))
+    return int(rank_signal(_scoring_signal_from_row(row))["score"])
 
 
 def promising_signal_bucket(row: dict[str, Any]) -> str:
     """Bucket a persisted row using the same deterministic ranking contract as export."""
 
-    if _truthy(row.get("compute_scale_blocked")):
-        return COMPUTE_SCALE_BLOCKED
-    hypothesis = _normal(row.get("hypothesis_status"))
-    score = promising_signal_score(row)
-    if hypothesis in {"unsupported", "not_supported", "negative", "falsified"}:
-        return LIKELY_STALE_LOW_VALUE_ARCHIVE
-    if _has_promising_signal_fields(row) and score < 35:
-        return LIKELY_STALE_LOW_VALUE_ARCHIVE
-    if score >= 85 and _normal(row.get("evidence_strength")) in {
-        "strong",
-        "high",
-        "moderate",
-        "medium",
-    }:
-        return TOP_EXTERNAL_RESEARCHER_CANDIDATES
-    if _truthy(row.get("followup_recommended")) and score >= 45:
-        return FOLLOWUP_RECOMMENDED
-    return WEAK_LOCAL_ONLY_PRESERVED
+    return str(rank_signal(_scoring_signal_from_row(row))["bucket"])
 
 
 def _followup_exceeds_local_compute(row: dict[str, Any]) -> bool:

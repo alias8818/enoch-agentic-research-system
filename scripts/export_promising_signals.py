@@ -16,36 +16,25 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import urlparse
 
+from enoch_control_plane.control_plane.promising_signal_scoring import (
+    RANKING_BUCKET_ORDER,
+    RANKING_BUCKETS,
+    RANKING_SCHEMA_VERSION,
+    rank_signal,
+)
 from enoch_control_plane.timeutils import parse_utc_datetime
 
 SCHEMA_VERSION = "enoch_promising_signal_v1"
 MANIFEST_SCHEMA_VERSION = "enoch_promising_signal_manifest_v1"
 MANIFEST_JSON = "manifest.json"
-RANKING_SCHEMA_VERSION = "enoch_promising_signal_ranking_v1"
 DISCLAIMER = (
     "These are not validated papers, not peer-reviewed results, and not "
     "publication-positive Enoch corpus artifacts. This entry preserves bounded "
     "local evidence that may be useful for larger-compute follow-up."
 )
 EXPORT_STATUSES = {"useful_signal", "promising_if_scaled", "compute_scale_blocked"}
-RANKING_BUCKETS: dict[str, str] = {
-    "top_external_researcher_candidates": "Top external-researcher candidates",
-    "compute_scale_blocked": "Compute-scale blocked",
-    "followup_recommended": "Follow-up recommended",
-    "weak_local_only_preserved": "Weak/local-only preserved signals",
-    "likely_stale_low_value_archive": "Likely stale/low-value archive",
-}
 DEFAULT_SOURCE_LINEAGE_CUTOFF = "2026-05-19T17:51:00Z"
-
-RANKING_BUCKET_ORDER = [
-    "top_external_researcher_candidates",
-    "compute_scale_blocked",
-    "followup_recommended",
-    "weak_local_only_preserved",
-    "likely_stale_low_value_archive",
-]
 SOURCE_ROOT = "/var/lib/enoch-control-plane"
 PRIVATE_PATH_ROOTS = (
     "/var/lib/enoch-control-plane",
@@ -277,187 +266,6 @@ def _sources_from_row(row: dict[str, Any]) -> list[dict[str, str]]:
     if sources:
         return sources
     return _sources_from_parallel_fields(row)
-
-
-def _strength_score(value: Any) -> tuple[int, str]:
-    text = _text(value).lower().replace("-", "_").replace(" ", "_")
-    if text in {"strong", "high"}:
-        return 35, "strong evidence_strength"
-    if text in {"moderate", "medium"}:
-        return 25, "moderate evidence_strength"
-    if text in {"weak", "low"}:
-        return 10, "weak evidence_strength"
-    return 0, "missing or unclear evidence_strength"
-
-
-def _hypothesis_score(value: Any) -> tuple[int, str]:
-    text = _text(value).lower().replace("-", "_").replace(" ", "_")
-    if text in {"supported", "supportive", "confirmed"}:
-        return 30, "supported hypothesis_status"
-    if text in {"partially_supported", "partly_supported"}:
-        return 20, "partially supported hypothesis_status"
-    if text in {"mixed", "inconclusive_but_useful"}:
-        return 15, "mixed hypothesis_status"
-    if text in {"unsupported", "not_supported", "negative", "falsified"}:
-        return -15, "unsupported hypothesis_status"
-    return 0, "missing or unclear hypothesis_status"
-
-
-def _has_external_source_url(sources: list[dict[str, Any]]) -> bool:
-    for source in sources:
-        url = _text(source.get("url")).lower()
-        source_id = _text(source.get("source_id")).lower()
-        if url.startswith(("arxiv:", "doi:")):
-            return True
-        try:
-            if urlparse(url).scheme in {"http", "https"}:
-                return True
-        except ValueError:
-            pass
-        if source_id.startswith(("arxiv:", "doi:")):
-            return True
-    return False
-
-
-def _source_lineage_score(sources: list[dict[str, Any]]) -> tuple[int, list[str]]:
-    reasons: list[str] = []
-    if sources:
-        score = 8
-        reasons.append("source lineage present")
-    else:
-        score = -20
-        reasons.append("source lineage missing")
-    if _has_external_source_url(sources):
-        score += 4
-        reasons.append("external source URL present")
-    return score, reasons
-
-
-def _followup_score(followup: dict[str, Any]) -> tuple[int, list[str]]:
-    reasons: list[str] = []
-    score = 0
-    if _truthy(followup.get("recommended")):
-        score += 10
-        reasons.append("bounded follow-up is specified")
-    required_evidence = [
-        _text(item) for item in _list(followup.get("required_evidence")) if _text(item)
-    ]
-    score += min(5, len(required_evidence) * 2)
-    depth = int(followup.get("depth") or 0)
-    if depth > 2:
-        score -= min(15, (depth - 2) * 5)
-        reasons.append("follow-up depth is already high")
-    return score, reasons
-
-
-def _bounded_evidence_score(signal: dict[str, Any]) -> tuple[int, list[str]]:
-    reasons: list[str] = []
-    evidence = (
-        signal.get("evidence") if isinstance(signal.get("evidence"), dict) else {}
-    )
-    artifact_paths = [
-        _text(item) for item in _list(evidence.get("artifact_paths")) if _text(item)
-    ]
-    score = min(10, len(artifact_paths) * 2)
-    if artifact_paths:
-        reasons.append("local evidence artifact paths are present")
-    joined_paths = " ".join(path.lower() for path in artifact_paths)
-    if "metrics" in joined_paths:
-        score += 4
-        reasons.append("metrics artifact is present")
-    if "project_decision" in joined_paths:
-        score += 4
-        reasons.append("project decision artifact is present")
-    disclaimer = (
-        signal.get("do_not_overclaim")
-        if isinstance(signal.get("do_not_overclaim"), dict)
-        else {}
-    )
-    if (
-        disclaimer.get("not_a_paper") is True
-        and _text(signal.get("claim_scope"))
-        and _text(signal.get("scale_limits"))
-    ):
-        score += 4
-    return score, reasons
-
-
-def _normalized_hypothesis_status(signal: dict[str, Any]) -> str:
-    return (
-        _text(signal.get("hypothesis_status"))
-        .lower()
-        .replace("-", "_")
-        .replace(" ", "_")
-    )
-
-
-def _ranking_bucket(
-    signal: dict[str, Any], *, score: int, followup: dict[str, Any]
-) -> str:
-    if _text(signal.get("status")) == "compute_scale_blocked":
-        return "compute_scale_blocked"
-    hypothesis_text = _normalized_hypothesis_status(signal)
-    if (
-        hypothesis_text in {"unsupported", "not_supported", "negative", "falsified"}
-        or score < 35
-    ):
-        return "likely_stale_low_value_archive"
-    if score >= 85 and _text(signal.get("evidence_strength")).lower() in {
-        "strong",
-        "high",
-        "moderate",
-        "medium",
-    }:
-        return "top_external_researcher_candidates"
-    if _truthy(followup.get("recommended")) and score >= 45:
-        return "followup_recommended"
-    return "weak_local_only_preserved"
-
-
-def rank_signal(signal: dict[str, Any]) -> dict[str, Any]:
-    """Return deterministic curation metadata derived only from signal fields."""
-
-    score_breakdown: dict[str, int] = {}
-    reasons: list[str] = []
-
-    evidence_score, evidence_reason = _strength_score(signal.get("evidence_strength"))
-    score_breakdown["evidence_strength"] = evidence_score
-    reasons.append(evidence_reason)
-
-    hypothesis_score, hypothesis_reason = _hypothesis_score(
-        signal.get("hypothesis_status")
-    )
-    score_breakdown["hypothesis_status"] = hypothesis_score
-    reasons.append(hypothesis_reason)
-
-    sources = signal.get("sources") if isinstance(signal.get("sources"), list) else []
-    source_score, source_reasons = _source_lineage_score(sources)
-    score_breakdown["source_lineage"] = source_score
-    reasons.extend(source_reasons)
-
-    followup = (
-        signal.get("followup") if isinstance(signal.get("followup"), dict) else {}
-    )
-    followup_score, followup_reasons = _followup_score(followup)
-    score_breakdown["followup"] = followup_score
-    reasons.extend(followup_reasons)
-
-    bounded_score, bounded_reasons = _bounded_evidence_score(signal)
-    score_breakdown["bounded_evidence"] = bounded_score
-    reasons.extend(bounded_reasons)
-
-    raw_score = sum(score_breakdown.values())
-    score = max(0, min(100, raw_score))
-    bucket = _ranking_bucket(signal, score=score, followup=followup)
-
-    return {
-        "schema_version": RANKING_SCHEMA_VERSION,
-        "score": score,
-        "bucket": bucket,
-        "bucket_label": RANKING_BUCKETS[bucket],
-        "score_breakdown": score_breakdown,
-        "reasons": reasons,
-    }
 
 
 def signal_from_row(row: dict[str, Any]) -> dict[str, Any]:
