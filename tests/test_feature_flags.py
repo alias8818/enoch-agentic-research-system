@@ -1,11 +1,10 @@
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from enoch_control_plane.feature_flags import FeatureFlagStore
+from enoch_control_plane.feature_flags import FeatureFlagLoadError, FeatureFlagStore
 
 
 def write_flags(tmp_path: Path, flags: dict[str, Any]) -> None:
@@ -59,22 +58,47 @@ def test_is_enabled_uses_default_only_when_flag_or_enabled_value_is_missing(
     assert store.is_enabled("missing_enabled", default=False) is False
 
 
-def test_load_ignores_non_mapping_flags_and_malformed_json(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_load_ignores_non_mapping_flags(tmp_path: Path) -> None:
     write_flags(tmp_path, {"valid": {"enabled": True}, "invalid": True})
 
     store = FeatureFlagStore(tmp_path)
 
     assert store.list_flags() == {"valid": {"enabled": True}}
 
-    tmp_path.joinpath("feature_flags.json").write_text("{", encoding="utf-8")
-    with caplog.at_level(logging.WARNING, logger="enoch.feature_flags"):
-        malformed_store = FeatureFlagStore(tmp_path)
 
-    assert malformed_store.list_flags() == {}
-    assert "Failed to load feature flags" in caplog.text
+def test_load_raises_on_malformed_json_instead_of_disabling_flags(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "feature_flags.json"
+    path.write_text("{", encoding="utf-8")
+
+    with pytest.raises(FeatureFlagLoadError, match="failed to load feature flags"):
+        FeatureFlagStore(tmp_path)
+
+    assert path.read_text(encoding="utf-8") == "{"
+
+
+def test_set_flag_preserves_existing_file_when_atomic_replace_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    write_flags(tmp_path, {"existing": {"enabled": True}})
+    store = FeatureFlagStore(tmp_path)
+    path = tmp_path / "feature_flags.json"
+    original = path.read_text(encoding="utf-8")
+    original_replace = Path.replace
+
+    def flaky_replace(self: Path, target: Path | str) -> Path:
+        if Path(target) == path:
+            raise OSError("simulated replace failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        store.set_flag("new", False)
+
+    assert path.read_text(encoding="utf-8") == original
+    assert sorted(item.name for item in tmp_path.iterdir()) == ["feature_flags.json"]
 
 
 def test_set_flag_persists_and_preserves_existing_description(tmp_path: Path) -> None:
