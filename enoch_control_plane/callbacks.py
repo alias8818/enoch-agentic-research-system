@@ -8,7 +8,7 @@ from urllib.error import URLError
 from tenacity import (
     retry,
     stop_after_attempt,
-    wait_exponential,
+    wait_random_exponential,
     retry_if_exception_type,
 )
 
@@ -21,10 +21,11 @@ logger = logging.getLogger("enoch.callbacks")
 
 # Idempotent callbacks are safe to retry on transient network errors.
 # The downstream consumer deduplicates by idempotency_key.
+_CALLBACK_RETRY_WAIT = wait_random_exponential(multiplier=0.5, min=0.5, max=8)
 _RETRY_ON_NETWORK = retry(
     retry=retry_if_exception_type((URLError, OSError, TimeoutError)),
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=0.5, min=0.5, max=8),
+    wait=_CALLBACK_RETRY_WAIT,
     before_sleep=lambda retry_state: logger.warning(
         "callback send attempt %d failed (%s), retrying in %.1fs",
         retry_state.attempt_number,

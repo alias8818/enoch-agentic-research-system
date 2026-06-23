@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from enoch_control_plane import callbacks as callbacks_mod
 from enoch_control_plane.callbacks import CallbackSender
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.models import GateCallback, ProcessSnapshot, RunRecord
@@ -111,6 +112,14 @@ def test_callback_sender_posts_expected_headers(monkeypatch) -> None:
     assert captured["headers"]["X-idempotency-key"] == "idem"
     assert captured["headers"]["X-enoch-timestamp"].isdigit()
     assert captured["headers"]["X-enoch-signature"].startswith("sha256=")
+
+
+def test_callback_retry_wait_uses_jitter() -> None:
+    wait_strategy = callbacks_mod._CALLBACK_RETRY_WAIT
+
+    assert type(wait_strategy).__name__ == "wait_random_exponential"
+    assert wait_strategy.min == 0.5
+    assert wait_strategy.max == 8.0
 
 
 def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None:
