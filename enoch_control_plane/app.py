@@ -211,6 +211,55 @@ store = StateStore(config.expanded_state_dir)
 telemetry = TelemetryCollector()
 gate = WakeGate(config, ProcessTracker(config.expanded_project_root), telemetry)
 sender = CallbackSender(config)
+reconcile_task: asyncio.Task[None] | None = None
+
+
+def _log_background_task_exception(
+    task: asyncio.Task[None], task_name: str
+) -> BaseException | None:
+    if task.cancelled():
+        return None
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return None
+    if exc is None:
+        return None
+    _logger.exception("%s task failed", task_name, exc_info=exc)
+    capture_exception(exc)
+    return exc
+
+
+def _reconcile_task_done(task: asyncio.Task[None]) -> None:
+    global reconcile_task
+    exc = _log_background_task_exception(task, "reconcile")
+    if exc is None or reconcile_task is not task:
+        return
+    try:
+        reconcile_task = asyncio.create_task(_reconcile_missing_idle_loop())
+        reconcile_task.add_done_callback(_reconcile_task_done)
+    except RuntimeError as restart_exc:
+        _logger.exception("failed to restart reconcile task", exc_info=restart_exc)
+        capture_exception(restart_exc)
+
+
+def _start_reconcile_task() -> asyncio.Task[None]:
+    task = asyncio.create_task(_reconcile_missing_idle_loop())
+    task.add_done_callback(_reconcile_task_done)
+    return task
+
+
+def _reconcile_task_failure_detail() -> str:
+    task = reconcile_task
+    if task is None or not task.done() or task.cancelled():
+        return ""
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return ""
+    if exc is None:
+        return ""
+    return f"{type(exc).__name__}: {exc}"
 
 
 @asynccontextmanager
@@ -220,7 +269,7 @@ async def lifespan(app: FastAPI):
     init_sentry()
     # startup logic (replaces deprecated @app.on_event("startup"))
     if reconcile_task is None or reconcile_task.done():
-        reconcile_task = asyncio.create_task(_reconcile_missing_idle_loop())
+        reconcile_task = _start_reconcile_task()
     yield
     # shutdown logic (replaces deprecated @app.on_event("shutdown"))
     if reconcile_task is not None:
@@ -303,7 +352,6 @@ evaluation_tasks: dict[str, asyncio.Task] = {}
 evaluation_task_started_at: dict[str, float] = {}
 evaluation_tasks_lock = threading.Lock()
 EVALUATION_TASK_TTL_SECONDS = 24 * 60 * 60
-reconcile_task: asyncio.Task | None = None
 
 
 DASHBOARD_HTML = """
@@ -1091,7 +1139,25 @@ DASHBOARD_HTML = """
 
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"ok": True, "service": "enoch_worker_gate", "timestamp": utc_now()}
+    task_error = _reconcile_task_failure_detail()
+    if task_error:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "ok": False,
+                "service": "enoch_worker_gate",
+                "timestamp": utc_now(),
+                "reconcile_task": task_error,
+            },
+        )
+    return {
+        "ok": True,
+        "service": "enoch_worker_gate",
+        "timestamp": utc_now(),
+        "reconcile_task": "running"
+        if reconcile_task is not None and not reconcile_task.done()
+        else "not_started",
+    }
 
 
 def _require_local_bearer(authorization: str | None) -> None:
@@ -3649,6 +3715,16 @@ async def _evaluate_until_ready(run_id: str) -> None:
                 evaluation_task_started_at.pop(run_id, None)
 
 
+async def _evaluate_until_ready_guarded(run_id: str) -> None:
+    try:
+        await _evaluate_until_ready(run_id)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        _logger.exception("evaluation task failed for run %s", run_id, exc_info=exc)
+        capture_exception(exc)
+
+
 def _ensure_evaluator(run_id: str) -> None:
     now = time.monotonic()
     with evaluation_tasks_lock:
@@ -3658,38 +3734,48 @@ def _ensure_evaluator(run_id: str) -> None:
             if now - started_at <= EVALUATION_TASK_TTL_SECONDS:
                 return
             current.cancel()
-        task = asyncio.create_task(_evaluate_until_ready(run_id))
+        task = asyncio.create_task(_evaluate_until_ready_guarded(run_id))
         evaluation_tasks[run_id] = task
         evaluation_task_started_at[run_id] = now
 
 
+async def _reconcile_missing_idle_once() -> None:
+    await _replay_callback_outbox_once()
+    for record in store.list_runs():
+        record = _assign_record_workload_profile(record)
+        if record.gate_state == GateState.RUNNING:
+            await _reap_and_log_stale_project_processes(record)
+            record, changed = gate.reconcile(record)
+            if changed:
+                store.append_event(
+                    {
+                        "kind": "reconciled_missing_idle",
+                        "run_id": record.run_id,
+                        "session_id": record.session_id,
+                        "timestamp": utc_now(),
+                    }
+                )
+                store.save_run(record)
+        if record.gate_state in {
+            GateState.PENDING_IDLE_GATE,
+            GateState.WAITING_FOR_PROCESS_EXIT,
+            GateState.WAITING_FOR_QUIET_WINDOW,
+            GateState.FINISHED_PENDING_GATE,
+            GateState.WAKE_READY,
+            GateState.FINISHED_READY,
+        }:
+            _ensure_evaluator(record.run_id)
+
+
 async def _reconcile_missing_idle_loop() -> None:
     while True:
-        await _replay_callback_outbox_once()
-        for record in store.list_runs():
-            record = _assign_record_workload_profile(record)
-            if record.gate_state == GateState.RUNNING:
-                await _reap_and_log_stale_project_processes(record)
-                record, changed = gate.reconcile(record)
-                if changed:
-                    store.append_event(
-                        {
-                            "kind": "reconciled_missing_idle",
-                            "run_id": record.run_id,
-                            "session_id": record.session_id,
-                            "timestamp": utc_now(),
-                        }
-                    )
-                    store.save_run(record)
-            if record.gate_state in {
-                GateState.PENDING_IDLE_GATE,
-                GateState.WAITING_FOR_PROCESS_EXIT,
-                GateState.WAITING_FOR_QUIET_WINDOW,
-                GateState.FINISHED_PENDING_GATE,
-                GateState.WAKE_READY,
-                GateState.FINISHED_READY,
-            }:
-                _ensure_evaluator(record.run_id)
+        try:
+            await _reconcile_missing_idle_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.exception("reconcile tick failed", exc_info=exc)
+            capture_exception(exc)
         await asyncio.sleep(config.sample_interval_sec)
 
 
