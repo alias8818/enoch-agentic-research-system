@@ -5,7 +5,7 @@ description = "Enoch Control Plane for auditable agentic research automation"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.116.0,<1.0.0",
-  "langgraph>=1.1.10",
+  "langgraph>=1.1.10,<2.0.0",
   "psutil>=7.0.0,<8.0.0",
   "psycopg[binary]>=3.2,<4.0",
   "pydantic>=2.11.0,<3.0.0",
