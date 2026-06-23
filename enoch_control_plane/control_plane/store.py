@@ -4899,14 +4899,7 @@ class ControlPlaneStore:
                 payload=event_payload,
             )
             if not inserted:
-                row = next(
-                    (
-                        item
-                        for item in self.queue_rows()
-                        if item.get("project_id") == project_id
-                    ),
-                    {},
-                )
+                row = self.queue_row(project_id) or {}
                 return event_id, row
             conn.execute(
                 """UPDATE queue_items
@@ -4944,14 +4937,7 @@ class ControlPlaneStore:
                     now,
                 ),
             )
-        row = next(
-            (
-                item
-                for item in self.queue_rows()
-                if item.get("project_id") == project_id
-            ),
-            {},
-        )
+        row = self.queue_row(project_id) or {}
         return event_id, row
 
     def record_worker_callback(

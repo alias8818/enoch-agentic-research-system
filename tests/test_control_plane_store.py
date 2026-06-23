@@ -1285,6 +1285,42 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(row["last_error"], "")
             self.assertEqual(row["last_result_summary"], "")
 
+    def test_mark_dispatch_started_does_not_materialize_full_queue_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="import-dispatch-row-query",
+                    queue_rows=[
+                        {
+                            "project_id": "idea-row-query",
+                            "project_name": "Row Query Project",
+                            "project_dir": "idea-row-query",
+                            "status": "queued",
+                        }
+                    ],
+                    paper_rows=[],
+                )
+            )
+
+            with unittest.mock.patch.object(
+                store,
+                "queue_rows",
+                side_effect=AssertionError(
+                    "mark_dispatch_started must not scan queue_rows"
+                ),
+            ):
+                _event_id, row = store.mark_dispatch_started(
+                    project_id="idea-row-query",
+                    run_id="run-row-query",
+                    session_id="session-row-query",
+                    dispatch_payload={"accepted": True},
+                    requested_by="test",
+                )
+
+            self.assertEqual(row["project_id"], "idea-row-query")
+            self.assertEqual(row["current_run_id"], "run-row-query")
+
     def test_dispatch_claim_prevents_second_dispatch_before_worker_call(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
