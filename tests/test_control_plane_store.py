@@ -1761,6 +1761,12 @@ class ControlPlaneStoreTests(unittest.TestCase):
                 }
             )
             self.assertEqual(completed_row["status"], "completed")
+            completed_run = store.run_row("run-dispatch-replay")
+            self.assertIsNotNone(completed_run)
+            assert completed_run is not None
+            self.assertEqual(completed_run["state"], "wake_ready")
+            self.assertEqual(completed_run["gate_state"], "wake_ready")
+            self.assertEqual(completed_run["current_activity"], "worker_callback")
 
             replay_event_id, replay_row = store.mark_dispatch_started(
                 project_id="idea-dispatch-replay",
@@ -1776,6 +1782,8 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(
                 replay_row["next_action_hint"], "draft_paper_or_select_next_project"
             )
+            replay_run = store.run_row("run-dispatch-replay")
+            self.assertEqual(replay_run, completed_run)
 
     def test_release_dispatch_claim_does_not_emit_event_when_no_claim_released(
         self,
