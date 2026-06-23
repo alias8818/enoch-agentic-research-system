@@ -297,7 +297,7 @@ def test_deploy_script_restarts_gb10_user_service() -> None:
 def test_deploy_script_retries_worker_health_after_restart() -> None:
     script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
 
-    assert "for attempt in \\$(seq 1 30)" in script
+    assert "for attempt in $(seq 1 30)" in script
     assert "curl -fsS http://127.0.0.1:8787/healthz" in script
 
 
@@ -313,8 +313,31 @@ def test_deploy_script_waits_for_control_health_before_smoke() -> None:
 def test_deploy_script_installs_with_uv_pip_for_restored_venvs() -> None:
     script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
 
-    assert "'$uv_bin' pip install --python .venv/bin/python -e ." in script
+    assert '"$uv_bin" pip install --python .venv/bin/python -e .' in script
     assert "python -m pip install" not in script
+
+
+def test_deploy_script_validates_and_argv_passes_remote_values() -> None:
+    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
+
+    assert 'validate_ssh_host "$host"' in script
+    assert 'validate_remote_path "$runtime" "ENOCH_DEPLOY_RUNTIME"' in script
+    assert 'validate_remote_token "$service" "ENOCH_DEPLOY_SERVICE"' in script
+    assert 'validate_remote_path "$uv_bin" "ENOCH_DEPLOY_UV"' in script
+    assert 'ssh "$host" bash -s -- "$runtime" "$uv_bin"' in script
+    assert 'ssh "$host" bash -s -- "$service"' in script
+    assert "cd '$runtime'" not in script
+    assert "'$uv_bin'" not in script
+    assert "'$service'" not in script
+
+
+def test_deploy_script_does_not_ship_control_token_in_ssh_argv() -> None:
+    script = (ROOT / "scripts" / "deploy-enoch-runtime.sh").read_text(encoding="utf-8")
+
+    assert 'ssh "$host" bash -s -- "$runtime" <<\'REMOTE\'' in script
+    assert r"token=\$(sudo jq" not in script
+    assert 'ENOCH_CONTROL_TOKEN=\\"\\$token\\" python3' not in script
+    assert "export ENOCH_CONTROL_TOKEN" in script
 
 
 def test_operator_scripts_expose_help_without_network_calls() -> None:

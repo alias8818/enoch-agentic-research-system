@@ -80,6 +80,35 @@ service_scope="${ENOCH_DEPLOY_SERVICE_SCOPE:-$default_service_scope}"
 uv_bin="${ENOCH_DEPLOY_UV:-$default_uv}"
 source_dir="${ENOCH_DEPLOY_SOURCE:-$(pwd)}"
 
+validate_ssh_host() {
+  local value="$1"
+  if [[ ! "$value" =~ ^[A-Za-z0-9._@:-]+$ ]]; then
+    echo "unsafe ENOCH_DEPLOY_HOST: $value" >&2
+    exit 2
+  fi
+}
+
+validate_remote_path() {
+  local value="$1" name="$2"
+  if [[ ! "$value" =~ ^(/[A-Za-z0-9._/@:-]+|[A-Za-z0-9._@:-]+)$ ]]; then
+    echo "unsafe $name: $value" >&2
+    exit 2
+  fi
+}
+
+validate_remote_token() {
+  local value="$1" name="$2"
+  if [[ ! "$value" =~ ^[A-Za-z0-9._@:-]+$ ]]; then
+    echo "unsafe $name: $value" >&2
+    exit 2
+  fi
+}
+
+validate_ssh_host "$host"
+validate_remote_path "$runtime" "ENOCH_DEPLOY_RUNTIME"
+validate_remote_path "$uv_bin" "ENOCH_DEPLOY_UV"
+validate_remote_token "$service" "ENOCH_DEPLOY_SERVICE"
+
 if [[ ! -f "$source_dir/scripts/validate_runtime_deploy.py" ]]; then
   echo "source checkout missing scripts/validate_runtime_deploy.py: $source_dir" >&2
   exit 1
@@ -87,7 +116,14 @@ fi
 
 wait_for_remote_health() {
   echo "waiting for service health on $host"
-  ssh "$host" "set -euo pipefail; for attempt in \$(seq 1 30); do curl -fsS http://127.0.0.1:8787/healthz >/dev/null 2>&1 && exit 0; sleep 1; done; curl -fsS http://127.0.0.1:8787/healthz >/dev/null"
+  ssh "$host" bash -s <<'REMOTE'
+set -euo pipefail
+for attempt in $(seq 1 30); do
+  curl -fsS http://127.0.0.1:8787/healthz >/dev/null 2>&1 && exit 0
+  sleep 1
+done
+curl -fsS http://127.0.0.1:8787/healthz >/dev/null
+REMOTE
 }
 
 rsync_args=(
@@ -107,15 +143,29 @@ echo "deploying $profile to $host:$runtime"
 rsync "${rsync_args[@]}" "$source_dir/" "$host:$runtime/"
 
 echo "installing editable package on $host"
-ssh "$host" "set -euo pipefail; cd '$runtime'; '$uv_bin' pip install --python .venv/bin/python -e ."
+ssh "$host" bash -s -- "$runtime" "$uv_bin" <<'REMOTE'
+set -euo pipefail
+runtime="$1"
+uv_bin="$2"
+cd "$runtime"
+"$uv_bin" pip install --python .venv/bin/python -e .
+REMOTE
 
 echo "restarting $service on $host"
 case "$service_scope" in
   system)
-    ssh "$host" "sudo systemctl restart '$service'"
+    ssh "$host" bash -s -- "$service" <<'REMOTE'
+set -euo pipefail
+service="$1"
+sudo systemctl restart "$service"
+REMOTE
     ;;
   user)
-    ssh "$host" "systemctl --user restart '$service'"
+    ssh "$host" bash -s -- "$service" <<'REMOTE'
+set -euo pipefail
+service="$1"
+systemctl --user restart "$service"
+REMOTE
     ;;
   *)
     echo "unknown ENOCH_DEPLOY_SERVICE_SCOPE: $service_scope" >&2
@@ -126,13 +176,25 @@ esac
 wait_for_remote_health
 
 echo "validating runtime deploy on $host"
-ssh "$host" "set -euo pipefail; cd '$runtime'; python3 scripts/validate_runtime_deploy.py --source '$runtime' --runtime '$runtime' --summary-only"
+ssh "$host" bash -s -- "$runtime" <<'REMOTE'
+set -euo pipefail
+runtime="$1"
+cd "$runtime"
+python3 scripts/validate_runtime_deploy.py --source "$runtime" --runtime "$runtime" --summary-only
+REMOTE
 
 case "$profile" in
   control)
     if [[ "${ENOCH_CONTROL_SMOKE:-0}" == "1" ]]; then
       echo "running control dashboard smoke on $host"
-      ssh "$host" "set -euo pipefail; token=\$(sudo jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json); cd '$runtime'; ENOCH_CONTROL_TOKEN=\"\$token\" python3 scripts/dashboard_v2_smoke.py --base-url http://127.0.0.1:8787 --check-legacy-dashboard-redirect"
+      ssh "$host" bash -s -- "$runtime" <<'REMOTE'
+set -euo pipefail
+runtime="$1"
+token="$(sudo jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)"
+export ENOCH_CONTROL_TOKEN="$token"
+cd "$runtime"
+python3 scripts/dashboard_v2_smoke.py --base-url http://127.0.0.1:8787 --check-legacy-dashboard-redirect
+REMOTE
     fi
     if [[ "${ENOCH_CONTROL_LONGHAUL_GUARD:-0}" == "1" ]]; then
       echo "running long-haul guard from local operator machine"
