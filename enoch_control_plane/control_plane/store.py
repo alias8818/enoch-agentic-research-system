@@ -2737,11 +2737,33 @@ class ControlPlaneStore:
             or _text(paper.get("paper_id")) in requested_paper_ids
         ]
 
+    def _queue_review_signals_for_papers(
+        self, papers: list[dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        project_ids = sorted(
+            {
+                _text(paper.get("project_id"))
+                for paper in papers
+                if _text(paper.get("project_id"))
+            }
+        )
+        if not project_ids:
+            return {}
+        placeholders = ",".join("?" for _ in project_ids)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""SELECT project_id,status,manual_review_required,blocked_reason
+                FROM queue_items WHERE project_id IN ({placeholders})""",
+                tuple(project_ids),
+            ).fetchall()
+        return {str(row["project_id"]): dict(row) for row in rows}
+
     def _paper_review_backfill_candidate(
         self,
         paper: dict[str, Any],
         audit_by_paper: dict[str, dict[str, Any]],
         source_audit_path: str,
+        queue_items_by_project: dict[str, dict[str, Any]],
     ) -> tuple[PaperReviewRecord, dict[str, Any] | None]:
         paper_id = _text(paper.get("paper_id"))
         mandatory = [
@@ -2763,7 +2785,7 @@ class ControlPlaneStore:
         )
         audit = audit_by_paper.get(paper_id, {})
         initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
-        queue_item = self.queue_row(_text(paper.get("project_id")))
+        queue_item = queue_items_by_project.get(_text(paper.get("project_id")))
         rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = _review_rank(
             paper, queue_item, audit, initial_missing
         )
@@ -2855,9 +2877,11 @@ class ControlPlaneStore:
         audit_by_paper = _audit_rows(request.source_audit_path, root=self.path.parent)
         errors: list[dict[str, Any]] = []
         candidates: list[PaperReviewRecord] = []
-        for paper in self._papers_for_review_backfill(request):
+        papers = self._papers_for_review_backfill(request)
+        queue_items_by_project = self._queue_review_signals_for_papers(papers)
+        for paper in papers:
             record, error = self._paper_review_backfill_candidate(
-                paper, audit_by_paper, request.source_audit_path
+                paper, audit_by_paper, request.source_audit_path, queue_items_by_project
             )
             if error:
                 errors.append(error)

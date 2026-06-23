@@ -3375,6 +3375,62 @@ def test_supabase_paper_review_row_uses_targeted_join_lookup() -> None:
     assert "where rv.paper_id = %s" in calls[0][0]
 
 
+def test_supabase_paper_review_backfill_batches_queue_signals() -> None:
+    class Store(SupabaseControlPlaneStore):
+        def _query(self, sql: str, params: Sequence[Any] = ()) -> list[dict[str, Any]]:
+            assert "from queue_items" in sql
+            assert tuple(params) == ("project-a", "project-b")
+            return [
+                {
+                    "project_id": "project-a",
+                    "status": "queued",
+                    "manual_review_required": False,
+                    "blocked_reason": "",
+                },
+                {
+                    "project_id": "project-b",
+                    "status": "queued",
+                    "manual_review_required": False,
+                    "blocked_reason": "",
+                },
+            ]
+
+        def queue_row(self, project_id: str) -> dict[str, Any] | None:
+            raise AssertionError(f"backfill must batch queue lookups: {project_id}")
+
+    candidates, errors = Store(
+        "postgres://example", connect=lambda: None
+    )._paper_review_backfill_candidates(
+        [
+            {
+                "paper_id": "paper-a",
+                "project_id": "project-a",
+                "paper_status": "draft_review",
+                "draft_markdown_path": "paper.md",
+                "draft_latex_path": "paper.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            },
+            {
+                "paper_id": "paper-b",
+                "project_id": "project-b",
+                "paper_status": "draft_review",
+                "draft_markdown_path": "paper.md",
+                "draft_latex_path": "paper.tex",
+                "evidence_bundle_path": "evidence.json",
+                "claim_ledger_path": "claims.json",
+                "manifest_path": "manifest.json",
+            },
+        ],
+        audit_by_paper={},
+        source_audit_path="",
+    )
+
+    assert len(candidates) == 2
+    assert errors == []
+
+
 def test_supabase_import_snapshot_retries_serialization_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -3510,6 +3510,26 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             f"where pa.paper_id in ({placeholders})", tuple(requested_paper_ids)
         )
 
+    def _queue_review_signals_for_papers(
+        self, papers: list[dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        project_ids = sorted(
+            {
+                _text(paper.get("project_id"))
+                for paper in papers
+                if _text(paper.get("project_id"))
+            }
+        )
+        if not project_ids:
+            return {}
+        placeholders = ",".join("%s" for _ in project_ids)
+        rows = self._query(
+            f"""select project_id,status,manual_review_required,blocked_reason
+            from queue_items where project_id in ({placeholders})""",
+            tuple(project_ids),
+        )
+        return {_text(row.get("project_id")): row for row in rows}
+
     def _paper_review_backfill_candidates(
         self,
         papers: list[dict[str, Any]],
@@ -3526,6 +3546,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
             "claim_ledger_path",
             "manifest_path",
         ]
+        queue_items_by_project = self._queue_review_signals_for_papers(papers)
         for paper in papers:
             paper_id = _text(paper.get("paper_id"))
             missing_paths = [name for name in mandatory if not _text(paper.get(name))]
@@ -3539,7 +3560,7 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 )
             audit = audit_by_paper.get(paper_id, {})
             initial_missing = ([] if audit else ["readiness_audit"]) + missing_paths
-            queue_item = self.queue_row(_text(paper.get("project_id")))
+            queue_item = queue_items_by_project.get(_text(paper.get("project_id")))
             rank_score, rank_reasons, missing_signals, tiebreaker, _bucket = (
                 _review_rank(paper, queue_item, audit, initial_missing)
             )

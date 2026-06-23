@@ -3009,6 +3009,72 @@ class ControlPlaneStoreTests(unittest.TestCase):
             self.assertEqual(row["paper_id"], paper_id)
             join_rows.assert_called_once_with(paper_id=paper_id)
 
+    def test_paper_review_backfill_batches_queue_signals(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
+            store.import_snapshot(
+                ImportSnapshotRequest(
+                    idempotency_key="paper-review-batch-queue-import",
+                    queue_rows=[
+                        {
+                            "project_id": "batch-a",
+                            "project_name": "Batch A",
+                            "project_dir": "batch-a",
+                            "status": "queued",
+                        },
+                        {
+                            "project_id": "batch-b",
+                            "project_name": "Batch B",
+                            "project_dir": "batch-b",
+                            "status": "queued",
+                        },
+                    ],
+                    paper_rows=[
+                        {
+                            "paper_id": "batch-a:run-1:arxiv_draft",
+                            "project_id": "batch-a",
+                            "run_id": "run-1",
+                            "paper_status": "draft_review",
+                            "draft_markdown_path": "paper.md",
+                            "draft_latex_path": "paper.tex",
+                            "evidence_bundle_path": "evidence.json",
+                            "claim_ledger_path": "claims.json",
+                            "manifest_path": "manifest.json",
+                            "updated_at": "2026-04-28T10:00:00+00:00",
+                        },
+                        {
+                            "paper_id": "batch-b:run-1:arxiv_draft",
+                            "project_id": "batch-b",
+                            "run_id": "run-1",
+                            "paper_status": "draft_review",
+                            "draft_markdown_path": "paper.md",
+                            "draft_latex_path": "paper.tex",
+                            "evidence_bundle_path": "evidence.json",
+                            "claim_ledger_path": "claims.json",
+                            "manifest_path": "manifest.json",
+                            "updated_at": "2026-04-28T10:00:00+00:00",
+                        },
+                    ],
+                )
+            )
+
+            with unittest.mock.patch.object(
+                store,
+                "queue_row",
+                side_effect=AssertionError("backfill must batch queue lookups"),
+            ):
+                inserted, created, updated, skipped, errors = (
+                    store.backfill_paper_reviews(
+                        PaperReviewBackfillRequest(
+                            idempotency_key="paper-review-batch-queue-backfill",
+                            dry_run=False,
+                        )
+                    )
+                )
+
+            self.assertTrue(inserted)
+            self.assertEqual((created, updated, skipped, errors), (2, 0, 0, []))
+
     def test_paper_review_backfill_upserts_stale_ranking_fields(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "control.sqlite3")
