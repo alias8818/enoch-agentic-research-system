@@ -142,19 +142,41 @@ class GateConfig(BaseModel):
             )
         return value
 
-    @field_validator(
-        "completion_callback_url",
-        "n8n_callback_url",
-        "worker_wake_gate_url",
-        "pushover_api_url",
-        "hermes_alert_webhook_url",
-        "paper_writer_base_url",
-    )
+    @field_validator("worker_wake_gate_url")
     @classmethod
-    def _validate_outbound_http_url(cls, value: str, info: ValidationInfo) -> str:
+    def _validate_worker_wake_gate_url(cls, value: str) -> str:
         if not value:
             return value
-        return _validate_config_http_url(value, field_name=str(info.field_name))
+        return _validate_config_http_url(
+            value, field_name="worker_wake_gate_url", allow_private=True
+        )
+
+    @field_validator("completion_callback_url", "n8n_callback_url")
+    @classmethod
+    def _validate_callback_url(cls, value: str, info: ValidationInfo) -> str:
+        if not value:
+            return value
+        return _validate_config_http_url(
+            value, field_name=str(info.field_name), allow_private=False
+        )
+
+    @field_validator("pushover_api_url")
+    @classmethod
+    def _validate_external_alert_url(cls, value: str, info: ValidationInfo) -> str:
+        if not value:
+            return value
+        return _validate_config_http_url(
+            value, field_name=str(info.field_name), allow_private=False
+        )
+
+    @field_validator("hermes_alert_webhook_url")
+    @classmethod
+    def _validate_hermes_alert_webhook_url(cls, value: str) -> str:
+        if not value:
+            return value
+        return _validate_config_http_url(
+            value, field_name="hermes_alert_webhook_url", allow_private=True
+        )
 
     @field_validator("paper_writer_base_url")
     @classmethod

@@ -53,7 +53,7 @@ class WorkloadProfileTests(unittest.TestCase):
             project_root="/tmp/enoch-worker-gate-test",
             dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
             control_api_bearer_token="secret",
-            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_url="https://callback.example.com/callback",
             completion_callback_token="callback-token",
         )
 
@@ -117,7 +117,7 @@ class WorkloadProfileTests(unittest.TestCase):
             dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
             control_api_bearer_token="secret",
             sample_interval_sec=60,
-            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_url="https://callback.example.com/callback",
             completion_callback_token="callback-token",
         )
         sample = TelemetrySample(
@@ -181,7 +181,7 @@ class WorkloadProfileTests(unittest.TestCase):
             project_root="/tmp/enoch-worker-gate-test",
             dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
             control_api_bearer_token="secret",
-            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_url="https://callback.example.com/callback",
             completion_callback_token="callback-token",
         )
         workload_class, workload_profile = config.resolve_workload_profile(
@@ -219,7 +219,7 @@ class WorkloadProfileTests(unittest.TestCase):
             dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
             control_api_bearer_token="secret",
             sample_interval_sec=60,
-            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_url="https://callback.example.com/callback",
             completion_callback_token="callback-token",
         )
         workload_class, workload_profile = config.resolve_workload_profile(

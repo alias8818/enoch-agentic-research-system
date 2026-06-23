@@ -64,7 +64,7 @@ def _config(**kwargs) -> GateConfig:
         "project_root": "/tmp/enoch-test/projects",
         "dispatch_script_path": "/tmp/enoch-test/dispatch.sh",
         "control_api_bearer_token": "token",
-        "completion_callback_url": "http://127.0.0.1/callback",
+        "completion_callback_url": "https://callback.example.com/callback",
         "completion_callback_token": "callback",
         "sample_interval_sec": 1,
         "idle_sustain_sec": 30,

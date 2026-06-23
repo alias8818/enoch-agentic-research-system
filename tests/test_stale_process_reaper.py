@@ -48,7 +48,7 @@ class StaleProcessReaperTests(unittest.TestCase):
             project_root=project_root,
             dispatch_script_path="/tmp/enoch-worker-gate-test/dispatch.sh",
             control_api_bearer_token="secret",
-            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_url="https://callback.example.com/callback",
             completion_callback_token="callback-token",
             stale_project_process_grace_sec=0,
             stale_project_process_term_grace_sec=0.0,

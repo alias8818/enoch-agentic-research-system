@@ -41,7 +41,7 @@ def test_dispatch_resolves_prompt_file_under_project_root(
             project_root=str(tmp_path),
             dispatch_script_path=str(script),
             control_api_bearer_token="secret",
-            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_url="https://callback.example.com/callback",
             completion_callback_token="callback-token",
         ),
     )
@@ -110,7 +110,7 @@ def test_dispatch_persists_failed_envelope_before_worker_error(
             project_root=str(tmp_path),
             dispatch_script_path=str(script),
             control_api_bearer_token="secret",
-            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_url="https://callback.example.com/callback",
             completion_callback_token="callback-token",
         ),
     )
@@ -186,7 +186,7 @@ def test_dispatch_rejects_project_dir_outside_configured_root(
             project_root=str(root),
             dispatch_script_path=str(script),
             control_api_bearer_token="secret",
-            completion_callback_url="http://127.0.0.1/callback",
+            completion_callback_url="https://callback.example.com/callback",
             completion_callback_token="callback-token",
         ),
     )

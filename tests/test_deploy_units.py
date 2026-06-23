@@ -630,7 +630,7 @@ printf '{"type":"session","session_id":"fake-session"}\n'
     env.update(
         {
             "CODEX_BIN": str(fake_codex),
-            "ENOCH_COMPLETION_CALLBACK_URL": "http://127.0.0.1/callback",
+            "ENOCH_COMPLETION_CALLBACK_URL": "https://callback.example.com/callback",
             "ENOCH_COMPLETION_CALLBACK_TOKEN": "super-secret-callback-token",
             "ENOCH_COMPLETION_CALLBACK_HMAC_SECRET": "super-secret-hmac-key",
             "ENOCH_COMPLETION_CALLBACK_TIMEOUT_SEC": "1",
