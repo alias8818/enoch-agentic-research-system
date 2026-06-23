@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tarfile
 from pathlib import Path
@@ -37,15 +38,42 @@ def test_public_release_archive_excludes_ignored_secret_state_paths(
             if not directory.exists():
                 directory.mkdir()
                 created_dirs.append(directory)
+        for directory in [
+            ROOT / "node_modules",
+            ROOT / "build",
+            ROOT / ".pytest_cache",
+            ROOT / ".ruff_cache",
+            ROOT / ".mypy_cache",
+            ROOT / ".hypothesis",
+            ROOT / ".enoch",
+            ROOT / "enoch_agentic_research_system.egg-info",
+        ]:
+            if not directory.exists():
+                directory.mkdir()
+                created_dirs.append(directory)
 
         payloads = {
             ROOT / "config.json": '{"omx_inbound_bearer_token":"aardvark-secret"}\n',
+            ROOT / ".env.local": "ENOCH_SECRET=aardvark-secret\n",
+            ROOT / ".coverage": "coverage data\n",
+            ROOT / "nested-archive.tar.gz": "archive\n",
+            ROOT / "nested-archive.tgz": "archive\n",
+            ROOT / "nested-archive.zip": "archive\n",
+            ROOT / "dist-wheel.whl": "wheel\n",
             ROOT / "secrets" / "aardvark_token.txt": "aardvark-secret\n",
             ROOT / "state" / "aardvark_state.json": '{"token":"aardvark-secret"}\n',
             ROOT / "logs" / "aardvark_events.json": '{"token":"aardvark-secret"}\n',
             ROOT / ".codegraph" / "codegraph.db-wal": "sqlite wal\n",
             ROOT / ".codegraph" / "codegraph.db-shm": "sqlite shm\n",
             ROOT / "__pycache__" / "archive_test.pyc": "bytecode\n",
+            ROOT / "node_modules" / "package.json": "{}\n",
+            ROOT / "build" / "artifact.js": "artifact\n",
+            ROOT / ".pytest_cache" / "README.md": "cache\n",
+            ROOT / ".ruff_cache" / "CACHEDIR.TAG": "cache\n",
+            ROOT / ".mypy_cache" / "cache.json": "{}\n",
+            ROOT / ".hypothesis" / "archive-example": "cache\n",
+            ROOT / ".enoch" / "state.json": "{}\n",
+            ROOT / "enoch_agentic_research_system.egg-info" / "PKG-INFO": "metadata\n",
         }
         for path, content in payloads.items():
             path.write_text(content, encoding="utf-8")
@@ -69,6 +97,12 @@ def test_public_release_archive_excludes_ignored_secret_state_paths(
         with tarfile.open(archive_path, "r:gz") as archive:
             names = archive.getnames()
             assert "enoch-agentic-research-system/config.json" not in names
+            assert "enoch-agentic-research-system/.env.local" not in names
+            assert "enoch-agentic-research-system/.coverage" not in names
+            assert "enoch-agentic-research-system/nested-archive.tar.gz" not in names
+            assert "enoch-agentic-research-system/nested-archive.tgz" not in names
+            assert "enoch-agentic-research-system/nested-archive.zip" not in names
+            assert "enoch-agentic-research-system/dist-wheel.whl" not in names
             assert not any(
                 name.startswith("enoch-agentic-research-system/secrets/")
                 for name in names
@@ -88,9 +122,38 @@ def test_public_release_archive_excludes_ignored_secret_state_paths(
                 name.startswith("enoch-agentic-research-system/__pycache__/")
                 for name in names
             )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/node_modules/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/build/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/.pytest_cache/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/.ruff_cache/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/.mypy_cache/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/.hypothesis/")
+                for name in names
+            )
+            assert not any(
+                name.startswith("enoch-agentic-research-system/.enoch/")
+                for name in names
+            )
+            assert not any(name.endswith(".egg-info/PKG-INFO") for name in names)
             assert not any(".db-" in name for name in names)
     finally:
         for path in reversed(created_paths):
             path.unlink(missing_ok=True)
         for directory in reversed(created_dirs):
-            directory.rmdir()
+            shutil.rmtree(directory, ignore_errors=True)
