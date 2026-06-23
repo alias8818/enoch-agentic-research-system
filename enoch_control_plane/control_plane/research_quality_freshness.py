@@ -23,7 +23,8 @@ def research_quality_report_freshness(
         return {
             "report_age_hours": None,
             "report_stale_after_hours": stale_after_hours,
-            "report_is_stale": False,
+            "report_is_stale": True,
+            "report_is_unparseable": True,
             "freshness_summary": (
                 "quality report freshness unavailable; refresh before relying on "
                 "unattended automation"
@@ -43,6 +44,7 @@ def research_quality_report_freshness(
         "report_age_hours": age_hours,
         "report_stale_after_hours": stale_after_hours,
         "report_is_stale": is_stale,
+        "report_is_unparseable": False,
         "freshness_summary": (
             f"quality report {state}: {age_hours:.1f}h old; "
             f"{action} unattended automation"
