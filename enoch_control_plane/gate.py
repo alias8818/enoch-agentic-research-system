@@ -81,8 +81,15 @@ def _memory_quiet_enough(
 def _is_duplicate_gate_callback(record: RunRecord) -> bool:
     if not record.last_idempotency_key:
         return False
-    last_seen = record.last_idempotency_key.rsplit(":", maxsplit=1)[-1]
+    key_parts = record.last_idempotency_key.split(":", maxsplit=2)
+    if len(key_parts) != 3:
+        return False
+    last_seen = key_parts[2]
     current_seen = record.idle_seen_at or record.last_event_at
+    last_seen_at = parse_utc_datetime(last_seen)
+    current_seen_at = parse_utc_datetime(current_seen)
+    if last_seen_at is not None and current_seen_at is not None:
+        return current_seen_at == last_seen_at
     return current_seen == last_seen
 
 
