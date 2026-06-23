@@ -153,24 +153,49 @@ REQUIRED_PUBLICATION_ARTIFACT_FIELDS = (
 )
 
 
+def _allowed_finalization_package_roots(project_root: Path) -> tuple[Path, ...]:
+    roots = [project_root]
+    project_collection = project_root.parent
+    control_root = project_collection.parent
+    roots.extend(
+        [
+            control_root / "finalization_packages",
+            control_root / "state" / "finalization_packages",
+            project_collection / "finalization_packages",
+        ]
+    )
+    return tuple(root.resolve(strict=False) for root in roots)
+
+
+def _path_is_under_any(path: Path, roots: tuple[Path, ...]) -> bool:
+    return any(path.is_relative_to(root) for root in roots)
+
+
 def _artifact_file_is_readable(
-    project_dir: Any, raw_path: Any, *, allow_absolute_outside_root: bool = False
+    project_dir: Any,
+    raw_path: Any,
+    *,
+    allow_finalization_package_roots: bool = False,
 ) -> bool:
     project_dir_text = _text(project_dir)
     path_text = _text(raw_path)
-    if not path_text:
+    if not path_text or not project_dir_text:
         return False
     try:
         candidate = Path(path_text).expanduser()
-        if candidate.is_absolute() and allow_absolute_outside_root:
-            return candidate.resolve(strict=False).is_file()
-        if not project_dir_text:
+        root = Path(project_dir_text).expanduser().resolve(strict=False)
+        if not root.exists() or not root.is_dir():
             return False
-        root = Path(project_dir_text).expanduser().resolve(strict=True)
         if not candidate.is_absolute():
             candidate = root / candidate
         resolved = candidate.resolve(strict=False)
-        resolved.relative_to(root)
+        allowed_roots = (
+            _allowed_finalization_package_roots(root)
+            if allow_finalization_package_roots
+            else (root,)
+        )
+        if not _path_is_under_any(resolved, allowed_roots):
+            return False
         return resolved.is_file()
     except (OSError, RuntimeError, ValueError):
         return False
@@ -179,42 +204,44 @@ def _artifact_file_is_readable(
 def _artifact_file_flags_for_fields(
     row: dict[str, Any],
     fields: tuple[str, ...],
-    *,
-    allow_absolute_outside_root_fields: frozenset[str] = frozenset(),
 ) -> dict[str, bool]:
     project_dir_text = _text(row.get("project_dir"))
     root: Path | None = None
     if project_dir_text:
         try:
-            root = Path(project_dir_text).expanduser().resolve(strict=True)
+            candidate_root = Path(project_dir_text).expanduser().resolve(strict=False)
+            if candidate_root.exists() and candidate_root.is_dir():
+                root = candidate_root
         except (OSError, RuntimeError, ValueError):
             root = None
-    readability_cache: dict[tuple[bool, str], bool] = {}
+    readability_cache: dict[str, bool] = {}
 
     def is_readable(field: str) -> bool:
         path_text = _text(row.get(field))
         if not path_text:
             return False
-        allow_absolute_outside_root = field in allow_absolute_outside_root_fields
-        cache_key = (allow_absolute_outside_root, path_text)
-        cached = readability_cache.get(cache_key)
+        cached = readability_cache.get(path_text)
         if cached is not None:
             return cached
         try:
             candidate = Path(path_text).expanduser()
-            if candidate.is_absolute() and allow_absolute_outside_root:
-                readable = candidate.resolve(strict=False).is_file()
-            elif root is None:
+            if root is None:
                 readable = False
             else:
                 if not candidate.is_absolute():
                     candidate = root / candidate
                 resolved = candidate.resolve(strict=False)
-                resolved.relative_to(root)
-                readable = resolved.is_file()
+                allowed_roots = (
+                    _allowed_finalization_package_roots(root)
+                    if field == "finalization_package_path"
+                    else (root,)
+                )
+                readable = (
+                    _path_is_under_any(resolved, allowed_roots) and resolved.is_file()
+                )
         except (OSError, RuntimeError, ValueError):
             readable = False
-        readability_cache[cache_key] = readable
+        readability_cache[path_text] = readable
         return readable
 
     return {field: is_readable(field) for field in fields}
@@ -229,7 +256,6 @@ def _paper_artifact_flags(row: dict[str, Any]) -> dict[str, bool]:
     return _artifact_file_flags_for_fields(
         row,
         PUBLICATION_ARTIFACT_FIELDS,
-        allow_absolute_outside_root_fields=frozenset({"finalization_package_path"}),
     )
 
 
@@ -239,7 +265,7 @@ def _related_artifact_paths_present(row: dict[str, Any]) -> dict[str, bool]:
         name: _artifact_file_is_readable(
             project_dir,
             row.get(field),
-            allow_absolute_outside_root=(name == "finalization_package_path"),
+            allow_finalization_package_roots=(name == "finalization_package_path"),
         )
         for name, field in RELATED_PAPER_ARTIFACT_FIELDS.items()
     }

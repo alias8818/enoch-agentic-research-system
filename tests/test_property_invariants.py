@@ -599,7 +599,7 @@ def test_summarize_paper_row_batches_publication_artifact_readability(
 ) -> None:
     project_dir = tmp_path / "project"
     project_dir.mkdir()
-    finalization_package = tmp_path / "package.json"
+    finalization_package = project_dir / "package.json"
     finalization_package.write_text("{}", encoding="utf-8")
     for name in (
         "draft.md",
@@ -637,6 +637,43 @@ def test_summarize_paper_row_batches_publication_artifact_readability(
         "claim_ledger_path": True,
         "manifest_path": True,
     }
+
+
+def test_publication_artifact_flags_reject_absolute_finalization_escape(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    outside_package = tmp_path / "package.json"
+    outside_package.write_text("{}", encoding="utf-8")
+
+    summary = read_models.summarize_paper_row(
+        {
+            "paper_id": "paper-backed-project:paper-run:arxiv_draft",
+            "project_id": "paper-backed-project",
+            "project_dir": str(project_dir),
+            "finalization_package_path": str(outside_package),
+        }
+    )
+
+    assert summary["artifact_paths_present"]["finalization_package_path"] is False
+
+
+def test_publication_artifact_flags_treat_missing_project_root_as_unreadable(
+    tmp_path: Path,
+) -> None:
+    missing_project_dir = tmp_path / "missing-project"
+
+    summary = read_models.summarize_paper_row(
+        {
+            "paper_id": "paper-backed-project:paper-run:arxiv_draft",
+            "project_id": "paper-backed-project",
+            "project_dir": str(missing_project_dir),
+            "finalization_package_path": "package.json",
+        }
+    )
+
+    assert summary["artifact_paths_present"]["finalization_package_path"] is False
 
 
 def test_gated_write_candidates_uses_row_decision_before_artifact_gate() -> None:
