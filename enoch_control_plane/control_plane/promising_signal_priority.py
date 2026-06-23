@@ -8,6 +8,8 @@ an LLM to classify rows at dispatch time.
 from __future__ import annotations
 
 import json
+import re
+from datetime import timezone
 from typing import Any
 
 from enoch_control_plane.control_plane.promising_signal_scoring import (
@@ -24,20 +26,19 @@ MIN_FOLLOWUP_REQUIRED_EVIDENCE = 2
 FOLLOWUP_LAUNCH_SELECTION_RANK = 25
 FOLLOWUP_LAUNCH_DISPATCH_PRIORITY = 25
 
-_SCALE_ONLY_MARKERS = (
-    "datacenter",
-    "hyperscaler",
-    "multi-gpu",
-    "multi gpu",
-    "cluster",
-    "large model",
-    "large-model",
-    "larger model",
-    "70b",
-    "7b",
-    "train for days",
-    "full scale",
-    "full-scale",
+_SCALE_ONLY_PATTERNS = (
+    re.compile(r"\bdatacenter\b"),
+    re.compile(r"\bhyperscaler\b"),
+    re.compile(r"\bmulti[- ]gpu\b"),
+    re.compile(r"\bcluster\b"),
+    re.compile(r"\blarge[- ]model\b"),
+    re.compile(r"\blarger[- ]model\b"),
+    re.compile(r"\b(?:65|70)b\b"),
+    re.compile(r"\btrain(?:ing)?\s+for\s+days\b"),
+    re.compile(r"\bfull[- ]scale\b"),
+)
+_NEGATION_WINDOW_RE = re.compile(
+    r"\b(?:no|not|without|never|training[- ]free|do(?:es)?\s+not|don['’]?t)\b"
 )
 
 
@@ -189,6 +190,11 @@ def promising_signal_bucket(row: dict[str, Any]) -> str:
     return bucket
 
 
+def _scale_match_is_negated(haystack: str, start: int) -> bool:
+    prefix = haystack[max(0, start - 48) : start]
+    return bool(_NEGATION_WINDOW_RE.search(prefix))
+
+
 def _followup_exceeds_local_compute(row: dict[str, Any]) -> bool:
     haystack = " ".join(
         [
@@ -198,7 +204,11 @@ def _followup_exceeds_local_compute(row: dict[str, Any]) -> bool:
             _text(row.get("followup_stop_condition")),
         ]
     ).lower()
-    return any(marker in haystack for marker in _SCALE_ONLY_MARKERS)
+    for pattern in _SCALE_ONLY_PATTERNS:
+        for match in pattern.finditer(haystack):
+            if not _scale_match_is_negated(haystack, match.start()):
+                return True
+    return False
 
 
 def _followup_depth(row: dict[str, Any]) -> int:
@@ -288,7 +298,11 @@ def _timestamp_sort_value(value: Any) -> float:
     if not text:
         return 0.0
     parsed = parse_utc_datetime(text)
-    return parsed.timestamp() if parsed is not None else 0.0
+    if parsed is None:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).timestamp()
 
 
 def _intish(value: Any, default: int) -> int:

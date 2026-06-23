@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import time
+from pathlib import Path
+from typing import Any
+
+import pytest
+
 from enoch_control_plane.control_plane.promising_signal_priority import (
+    _followup_exceeds_local_compute,
+    _timestamp_sort_value,
     promising_followup_priority_key,
     promising_signal_bucket,
     ranked_followup_readiness,
@@ -8,7 +16,7 @@ from enoch_control_plane.control_plane.promising_signal_priority import (
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 
 
-def _row(**overrides):
+def _row(**overrides: Any) -> dict[str, Any]:
     row = {
         "project_id": "row",
         "project_name": "Row",
@@ -94,6 +102,62 @@ def test_ranked_followup_readiness_requires_bounded_evidence_and_excludes_stale(
     assert stale["reason"] == "likely_stale_low_value_archive"
 
 
+def test_followup_scale_markers_use_word_boundaries_and_negation() -> None:
+    assert (
+        _followup_exceeds_local_compute(
+            _row(
+                followup_required_evidence=[
+                    "requires a 70B model",
+                    "multi-gpu run",
+                ]
+            )
+        )
+        is True
+    )
+    assert (
+        _followup_exceeds_local_compute(
+            _row(
+                followup_required_evidence=[
+                    "evaluate whether the 7B subset is enough",
+                    "ticket 7b-1234 is unrelated metadata",
+                ],
+                followup_success_threshold="beat the local 7b params baseline",
+            )
+        )
+        is False
+    )
+    assert (
+        _followup_exceeds_local_compute(
+            _row(
+                followup_hypothesis="we do not train for days",
+                followup_required_evidence=[
+                    "no datacenter replication",
+                    "without full scale training",
+                ],
+                followup_success_threshold="training-free local replay",
+            )
+        )
+        is False
+    )
+
+
+def test_timestamp_sort_value_treats_naive_timestamps_as_utc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    naive = "2026-05-19T10:00:00"
+
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    utc_value = _timestamp_sort_value(naive)
+
+    monkeypatch.setenv("TZ", "America/Los_Angeles")
+    time.tzset()
+    pacific_value = _timestamp_sort_value(naive)
+
+    assert pacific_value == utc_value
+    assert utc_value == _timestamp_sort_value("2026-05-19T10:00:00+00:00")
+
+
 def test_ranked_followup_priority_orders_top_and_bounded_scale_before_regular_followups():
     top = _row(project_id="top", updated_at="2026-05-18T00:00:00+00:00")
     scale = _row(
@@ -116,8 +180,8 @@ def test_ranked_followup_priority_orders_top_and_bounded_scale_before_regular_fo
 
 
 def test_local_store_next_followup_candidate_uses_ranked_priority(
-    monkeypatch, tmp_path
-):
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     store = ControlPlaneStore(tmp_path / "control.sqlite3")
     top = _row(project_id="top", updated_at="2026-05-18T00:00:00+00:00")
     scale = _row(
@@ -144,10 +208,14 @@ def test_local_store_next_followup_candidate_uses_ranked_priority(
         store, "operator_queue_rows_sql", lambda: [regular_newer, stale, scale, top]
     )
 
-    assert store.next_followup_candidate()["project_id"] == "top"
+    candidate = store.next_followup_candidate()
+    assert candidate is not None
+    assert candidate["project_id"] == "top"
 
 
-def test_local_store_explicit_project_can_select_stale_archive(monkeypatch, tmp_path):
+def test_local_store_explicit_project_can_select_stale_archive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     store = ControlPlaneStore(tmp_path / "control.sqlite3")
     stale = _row(
         project_id="stale", hypothesis_status="unsupported", evidence_strength="weak"
@@ -155,4 +223,6 @@ def test_local_store_explicit_project_can_select_stale_archive(monkeypatch, tmp_
     monkeypatch.setattr(store, "operator_queue_rows_sql", lambda: [stale])
 
     assert store.next_followup_candidate() is None
-    assert store.next_followup_candidate(project_id="stale")["project_id"] == "stale"
+    explicit_candidate = store.next_followup_candidate(project_id="stale")
+    assert explicit_candidate is not None
+    assert explicit_candidate["project_id"] == "stale"
