@@ -261,5 +261,8 @@ create index concurrently if not exists idx_research_lineage_source
 create index concurrently if not exists idx_research_lineage_target
   on enoch.research_lineage(target_type, target_id, created_at desc);
 
+create unique index concurrently if not exists idx_research_lineage_identity_unique
+  on enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type);
+
 reset lock_timeout;
 reset statement_timeout;

@@ -84,6 +84,37 @@ def test_latest_research_source_kind_constraint_preserves_prior_values() -> None
     assert "research_synthesis" in values(latest)
 
 
+def test_research_lineage_identity_is_unique_before_conflict_inserts() -> None:
+    initial = " ".join(
+        _migration("20260509140339_enoch_research_facility_ledgers.sql").lower().split()
+    )
+    hardening = " ".join(
+        _migration("20260520004500_research_lineage_idempotency.sql").lower().split()
+    )
+
+    unique_index = (
+        "create unique index concurrently if not exists "
+        "idx_research_lineage_identity_unique on "
+        "enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type)"
+    )
+    assert unique_index in initial
+    assert unique_index in hardening
+    assert (
+        "partition by source_type, source_id, target_type, target_id, relation_type"
+        in hardening
+    )
+
+
+def test_native_idea_event_backfill_uses_unique_conflict_guard() -> None:
+    sql = " ".join(_migration("20260506122514_enoch_native_ideas.sql").lower().split())
+
+    assert "idx_idea_events_native_migration_once" in sql
+    assert (
+        "insert into enoch.idea_events(idea_id, event_type, actor, payload_json)" in sql
+    )
+    assert "on conflict do nothing" in sql
+
+
 def test_corpus_import_fingerprint_migration_uses_bounded_backfill_and_concurrent_indexes() -> (
     None
 ):
@@ -159,7 +190,7 @@ def test_research_facility_indexes_build_concurrently_after_schema_transaction()
         in normalized
     )
     assert normalized.count("create index concurrently if not exists") == 6
-    assert normalized.count("create unique index concurrently if not exists") == 2
+    assert normalized.count("create unique index concurrently if not exists") == 3
     assert "create index if not exists idx_research" not in normalized
     assert "create unique index if not exists idx_research" not in normalized
 

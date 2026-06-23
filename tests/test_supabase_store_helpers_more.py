@@ -50,6 +50,19 @@ def test_supabase_research_admission_idempotency_inserts_before_select() -> None
     assert "returning admission_id" in source
 
 
+def test_supabase_source_candidate_lineage_uses_atomic_conflict_insert() -> None:
+    source = inspect.getsource(
+        s.SupabaseControlPlaneStore._insert_source_candidate_lineage
+    )
+    normalized = " ".join(source.lower().split())
+
+    assert "where not exists" not in normalized
+    assert (
+        "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
+        in normalized
+    )
+
+
 def test_supabase_late_terminal_success_missing_queue_row_is_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

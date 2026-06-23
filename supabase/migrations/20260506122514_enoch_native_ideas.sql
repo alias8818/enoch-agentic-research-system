@@ -129,6 +129,11 @@ create index concurrently if not exists idx_ideas_source_external
 create index concurrently if not exists idx_idea_events_idea
   on enoch.idea_events(idea_id, created_at desc);
 
+create unique index concurrently if not exists idx_idea_events_native_migration_once
+  on enoch.idea_events(idea_id, event_type, actor)
+  where event_type = 'idea.migrated_from_existing_control_plane'
+    and actor = 'migration:20260506122514';
+
 reset lock_timeout;
 reset statement_timeout;
 
@@ -233,11 +238,6 @@ select
   'migration:20260506122514',
   jsonb_build_object('source_kind', i.source_kind)
 from enoch.ideas i
-where not exists (
-  select 1
-  from enoch.idea_events e
-  where e.idea_id = i.idea_id
-    and e.event_type = 'idea.migrated_from_existing_control_plane'
-);
+on conflict do nothing;
 
 commit;
