@@ -110,7 +110,9 @@ def test_readyz_reports_state_store_failure(monkeypatch: Any) -> None:
         def check_runs_dir_readable() -> None:
             raise RuntimeError("state root unavailable")
 
-        monkeypatch.setattr(appmod.store, "check_runs_dir_readable", check_runs_dir_readable)
+        monkeypatch.setattr(
+            appmod.store, "check_runs_dir_readable", check_runs_dir_readable
+        )
         try:
             with pytest.raises(HTTPException) as raised:
                 appmod.readyz()
@@ -160,7 +162,9 @@ def test_readyz_does_not_expose_exception_details(monkeypatch: Any) -> None:
         def check_runs_dir_readable() -> None:
             raise RuntimeError("database password=supersecret")
 
-        monkeypatch.setattr(appmod.store, "check_runs_dir_readable", check_runs_dir_readable)
+        monkeypatch.setattr(
+            appmod.store, "check_runs_dir_readable", check_runs_dir_readable
+        )
 
         with pytest.raises(HTTPException) as raised:
             appmod.readyz()

@@ -497,7 +497,12 @@ def test_http_request_json_retries_transient_urlopen_failures(monkeypatch: Any) 
     monkeypatch.setattr(worker_adapter, "urlopen_validated", fake_urlopen)
 
     result = worker_adapter._http_request_json(
-        "GET", "http://worker.example/healthz", {}, None, timeout=7, retry_transient=True
+        "GET",
+        "http://worker.example/healthz",
+        {},
+        None,
+        timeout=7,
+        retry_transient=True,
     )
 
     assert result.ok is True

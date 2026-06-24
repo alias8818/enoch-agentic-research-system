@@ -102,7 +102,9 @@ def verify_signature(
     if timestamp > current or current - timestamp > max_age_sec:
         return False
     try:
-        signed = _signed_payload(body, timestamp=timestamp, nonce=nonce, version=version)
+        signed = _signed_payload(
+            body, timestamp=timestamp, nonce=nonce, version=version
+        )
     except UnicodeEncodeError:
         return False
     expected = SIGNATURE_PREFIX + hmac.new(key, signed, hashlib.sha256).hexdigest()

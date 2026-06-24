@@ -81,9 +81,9 @@ def test_worker_gate_unit_limits_worker_runner_egress_to_loopback() -> None:
 
 
 def test_research_run_cycle_async_endpoint_offloads_blocking_orchestration() -> None:
-    bindings = (ROOT / "enoch_control_plane" / "control_plane" / "router_http_bindings.py").read_text(
-        encoding="utf-8"
-    )
+    bindings = (
+        ROOT / "enoch_control_plane" / "control_plane" / "router_http_bindings.py"
+    ).read_text(encoding="utf-8")
 
     assert "async def dashboard_research_run_cycle" in bindings
     assert "return await asyncio.to_thread" in bindings
@@ -680,7 +680,10 @@ def test_install_scripts_pass_paths_to_python_without_shell_interpolation() -> N
     assert 'python3 - "$CONFIG_DIR/config.json" "$STATE_DIR/state"' in control
     assert '"$SERVICE_USER" "$STATE_DIR" <<\'PY\'' in control
     assert 'text = text.replace("/var/lib/enoch-control-plane", state_dir)' in control
-    assert 'install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$STATE_DIR/secrets"' in control
+    assert (
+        'install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$STATE_DIR/secrets"'
+        in control
+    )
     assert (
         '"$STATE_DIR/projects" "$PREFIX/deploy/enoch_codex_dispatch.sh" <<\'PY\''
         in control

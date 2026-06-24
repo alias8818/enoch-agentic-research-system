@@ -149,7 +149,9 @@ def test_supabase_query_retries_common_pool_and_timeout_errors(
     assert sleeps == [0.25, 0.5]
 
 
-def test_supabase_retry_classifier_does_not_trust_user_controlled_exception_text() -> None:
+def test_supabase_retry_classifier_does_not_trust_user_controlled_exception_text() -> (
+    None
+):
     exc = RuntimeError("idempotency key conflict: operator-supplied-operationalerror")
 
     assert s.SupabaseControlPlaneStore._is_retryable_query_error(exc) is False

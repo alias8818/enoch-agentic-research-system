@@ -5304,7 +5304,11 @@ def _register_control_plane_papers_events_routes(ns: MutableMapping[str, Any]) -
             trace_id=trace_id,
             run_cycle_id=run_cycle_id,
         )
-        cycle_response = {**response, "trace_id": trace_id, "run_cycle_id": run_cycle_id}
+        cycle_response = {
+            **response,
+            "trace_id": trace_id,
+            "run_cycle_id": run_cycle_id,
+        }
         return await asyncio.to_thread(
             lambda: asyncio.run(
                 _execute_live_research_cycle(

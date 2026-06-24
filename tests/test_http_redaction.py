@@ -126,7 +126,9 @@ def test_redact_text_handles_key_value_forms() -> None:
     assert "REDACTED" in text
 
 
-def test_redact_text_redacts_authorization_bearer_value_before_key_value_rewrite() -> None:
+def test_redact_text_redacts_authorization_bearer_value_before_key_value_rewrite() -> (
+    None
+):
     text = redact_text("upstream echoed Authorization: Bearer abcdef123")
 
     assert "abcdef123" not in text

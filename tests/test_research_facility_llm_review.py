@@ -45,7 +45,9 @@ def test_llm_review_budget_skips_synthetic_quota_api_for_non_synthetic_provider(
     monkeypatch: MonkeyPatch,
 ) -> None:
     def fail_fetch(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("non-Synthetic providers must not call Synthetic quota API")
+        raise AssertionError(
+            "non-Synthetic providers must not call Synthetic quota API"
+        )
 
     monkeypatch.setattr(
         research_facility_llm_review.research_provider_budget,

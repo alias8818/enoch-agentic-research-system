@@ -82,7 +82,9 @@ def test_state_store_append_event_concurrent_writes_are_parseable(
     assert sorted(event["event_sequence"] for event in events) == list(range(1, 41))
 
 
-def test_state_store_readiness_check_does_not_quarantine_corrupt_runs(tmp_path: Path) -> None:
+def test_state_store_readiness_check_does_not_quarantine_corrupt_runs(
+    tmp_path: Path,
+) -> None:
     store = StateStore(tmp_path)
     bad_path = store.run_path("bad")
     bad_path.write_text("{not json", encoding="utf-8")
