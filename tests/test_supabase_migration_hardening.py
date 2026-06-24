@@ -46,17 +46,44 @@ def test_publication_status_constraint_drop_targets_column_not_substring() -> No
     assert "a.attnum = any(c.conkey)" in sql
 
 
-def test_research_source_kind_rewrites_are_single_atomic_alter_statements() -> None:
+def test_research_lineage_source_constraint_rewrites_use_versioned_names() -> None:
+    guarded_constraints = {
+        "research_sources_source_kind_check",
+        "research_lineage_relation_type_check",
+    }
+    offenders: list[str] = []
+
+    for migration in MIGRATIONS.glob("*.sql"):
+        sql = migration.read_text(encoding="utf-8")
+        dropped = set(
+            re.findall(
+                r"drop\s+constraint\s+if\s+exists\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                sql,
+                flags=re.IGNORECASE,
+            )
+        )
+        added = set(
+            re.findall(
+                r"add\s+constraint\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                sql,
+                flags=re.IGNORECASE,
+            )
+        )
+        for constraint in sorted((dropped & added) & guarded_constraints):
+            offenders.append(f"{migration.name}: {constraint}")
+
+    assert offenders == []
+
+
+def test_research_lineage_source_constraint_widening_validates_existing_rows() -> None:
     for name in [
         "20260519122000_research_lineage_followup_parent_source.sql",
+        "20260519190000_research_synthesis_lineage.sql",
         "20260520003500_research_synthesis_source_kind.sql",
     ]:
         sql = " ".join(_migration(name).lower().split())
-        assert (
-            "alter table enoch.research_sources "
-            "drop constraint if exists research_sources_source_kind_check, "
-            "add constraint research_sources_source_kind_check"
-        ) in sql
+        assert "if exists ( select 1 from enoch.research_" in sql
+        assert "raise exception" in sql
 
 
 def test_latest_research_source_kind_constraint_preserves_prior_values() -> None:
