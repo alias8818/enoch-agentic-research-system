@@ -2190,52 +2190,28 @@ class ControlPlaneStore:
     def queue_rows(self) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
-                """WITH scoped_papers AS (
-                    SELECT
-                        q.project_id AS queue_project_id,
-                        pa.*,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY q.project_id
-                            ORDER BY pa.updated_at DESC, pa.paper_id DESC
-                        ) AS queue_paper_rank
-                    FROM queue_items q
-                    JOIN papers pa
-                      ON pa.project_id = q.project_id
-                     AND (
-                        pa.run_id = q.current_run_id
-                        OR (
-                            q.current_run_id = ''
-                            AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received')
-                        )
-                     )
-                )
-                SELECT q.*,
+                """SELECT q.*,
                     p.project_name AS project_name,
                     p.project_dir AS project_dir,
                     p.notion_page_url AS notion_page_url,
                     p.notion_page_id AS notion_page_id,
                     p.origin_idea_status AS origin_idea_status,
-                    pa.paper_id AS related_paper_id,
-                    pa.paper_status AS related_paper_status,
-                    rv.review_status AS related_review_status,
-                    rv.finalization_package_path AS related_finalization_package_path,
-                    pa.draft_markdown_path AS related_draft_markdown_path,
-                    pa.evidence_bundle_path AS related_evidence_bundle_path,
-                    pa.claim_ledger_path AS related_claim_ledger_path,
-                    pa.manifest_path AS related_manifest_path,
-                    ci.corpus_import_id AS related_corpus_import_id,
-                    ci.artifact_slug AS related_artifact_slug,
-                    ci.source_record_fingerprint AS related_source_record_fingerprint,
-                    CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END AS related_corpus_imported,
+                    (SELECT pa.paper_id FROM papers pa WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_id,
+                    (SELECT pa.paper_status FROM papers pa WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_paper_status,
+                    (SELECT rv.review_status FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_review_status,
+                    (SELECT rv.finalization_package_path FROM papers pa LEFT JOIN paper_review_items rv USING(paper_id) WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_finalization_package_path,
+                    (SELECT pa.draft_markdown_path FROM papers pa WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_draft_markdown_path,
+                    (SELECT pa.evidence_bundle_path FROM papers pa WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_evidence_bundle_path,
+                    (SELECT pa.claim_ledger_path FROM papers pa WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_claim_ledger_path,
+                    (SELECT pa.manifest_path FROM papers pa WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_manifest_path,
+                    (SELECT ci.corpus_import_id FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_import_id,
+                    (SELECT ci.artifact_slug FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_artifact_slug,
+                    (SELECT ci.source_record_fingerprint FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_source_record_fingerprint,
+                    (SELECT CASE WHEN ci.paper_id IS NULL THEN 0 ELSE 1 END FROM papers pa LEFT JOIN corpus_imports ci USING(paper_id) WHERE pa.project_id = q.project_id AND (pa.run_id = q.current_run_id OR (q.current_run_id = '' AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received'))) ORDER BY pa.updated_at DESC LIMIT 1) AS related_corpus_imported,
                     EXISTS (SELECT 1 FROM events ev WHERE ev.event_type = 'followup.launch' AND ev.entity_type = 'project' AND ev.entity_id = q.project_id) AS followup_launched,
                     p.created_at AS project_created_at,
                     p.updated_at AS project_updated_at
                 FROM queue_items q JOIN projects p USING(project_id)
-                LEFT JOIN scoped_papers pa
-                  ON pa.queue_project_id = q.project_id
-                 AND pa.queue_paper_rank = 1
-                LEFT JOIN paper_review_items rv USING(paper_id)
-                LEFT JOIN corpus_imports ci USING(paper_id)
                 ORDER BY q.dispatch_priority ASC, q.updated_at DESC"""
             ).fetchall()
         return [dict(row) for row in rows]
