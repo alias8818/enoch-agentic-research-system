@@ -33,8 +33,8 @@ def test_sync_codex_worker_config_has_archive_safety_contract() -> None:
 
     assert "symlink entries are not allowed in sync payload" in text
     assert "hardlink entries are not allowed in sync payload" in text
-    assert "stage=\\$(mktemp -d)" in text
-    assert 'tar -C \\"\\$stage\\" -xf -' in text
+    assert "stage=$(mktemp -d)" in text
+    assert 'tar -C "$stage" -xf -' in text
     assert "auth.json must be a regular file" in text
     assert "config.toml must be a regular file" in text
 
@@ -45,13 +45,66 @@ def test_sync_codex_worker_config_contains_destination_paths_before_delete() -> 
     )
 
     assert "rejecting unsafe sync payload path" in text
-    assert r"root=\$(realpath -m '$cpu_codex_home')" in text
-    assert r"target=\$(realpath -m '$cpu_codex_home/'\"\$path\")" in text
-    assert r"source=\$(realpath -m \"\$stage/\$path\")" in text
-    assert r"\"\$root\"/*)" in text
-    assert r"\"\$stage_root\"/*)" in text
-    assert r"rm -rf -- \"\$target\"" in text
+    assert 'root=$(realpath -m "$cpu_codex_home")' in text
+    assert 'target=$(realpath -m "$cpu_codex_home/$path")' in text
+    assert 'source=$(realpath -m "$stage/$path")' in text
+    assert '"$root"/*)' in text
+    assert '"$stage_root"/*)' in text
+    assert 'rm -rf -- "$target"' in text
     assert "rm -rf '$cpu_codex_home/'\"\\$path\"" not in text
+
+
+def test_sync_codex_worker_config_validates_env_and_uses_remote_argv() -> None:
+    text = (ROOT / "scripts" / "sync-codex-worker-config.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'validate_ssh_host "$gb10_host" "GB10_HOST"' in text
+    assert 'validate_ssh_host "$cpu_host" "CPU_HOST"' in text
+    assert 'validate_remote_path "$gb10_codex_home" "GB10_CODEX_HOME"' in text
+    assert 'validate_remote_path "$cpu_codex_home" "CPU_CODEX_HOME"' in text
+    assert 'validate_remote_user "$cpu_user" "CPU_WORKER_USER"' in text
+    assert 'ssh "$cpu_host" bash -s -- "$cpu_codex_home"' in text
+    assert 'ssh "$gb10_host" bash -s -- "$gb10_codex_home"' in text
+    assert 'python3 - "$cpu_codex_home"' in text
+    assert "Path('$cpu_codex_home/config.toml')" not in text
+    assert "cd '$gb10_codex_home'" not in text
+    assert "chown -R '$cpu_user:$cpu_user' '$cpu_codex_home'" not in text
+
+
+def test_sync_codex_worker_config_rejects_injected_env_values(tmp_path: Path) -> None:
+    source = tmp_path / "gb10-codex"
+    dest = tmp_path / "cpu-codex"
+    source.mkdir()
+    dest.mkdir()
+    (source / "auth.json").write_text('{"source": true}\n', encoding="utf-8")
+    (source / "config.toml").write_text("[plugins]\nexample = true\n", encoding="utf-8")
+
+    marker = tmp_path / "injected"
+    for bad_path in (
+        f"{dest}' ; touch {marker} ; echo '",
+        f"{dest};touch{marker}",
+    ):
+        env = {
+            **os.environ,
+            "GB10_HOST": "gb10",
+            "GB10_CODEX_HOME": str(source),
+            "CPU_HOST": "cpu",
+            "CPU_CODEX_HOME": bad_path,
+            "CPU_WORKER_USER": "nobody",
+        }
+
+        result = subprocess.run(
+            [str(ROOT / "scripts" / "sync-codex-worker-config.sh")],
+            check=False,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 2
+        assert "unsafe CPU_CODEX_HOME" in result.stderr
+    assert not marker.exists()
 
 
 def test_sync_codex_worker_config_rejects_source_symlinks(tmp_path) -> None:
@@ -80,7 +133,7 @@ def test_sync_codex_worker_config_rejects_source_symlinks(tmp_path) -> None:
 set -euo pipefail
 host="$1"
 shift
-bash -c "$*"
+"$@"
 """,
         encoding="utf-8",
     )
@@ -151,7 +204,7 @@ def test_sync_codex_worker_config_accepts_regular_runtime_files(tmp_path) -> Non
 set -euo pipefail
 host="$1"
 shift
-bash -c "$*"
+"$@"
 """,
         encoding="utf-8",
     )
