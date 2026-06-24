@@ -1,2 +1,4 @@
 d4cffe31c8f6ee508acf8c43dd16632a700815e3:tests/test_validate_public_release.py:generic-api-key:176
 74afbce7d2c51f8b6e19c13ca754f730b0979ad8:tests/test_control_plane_router.py:generic-api-key:5813
+b2b1d05608426215098a9610b3cba38bc84c9338:tests/test_operational_trace.py:generic-api-key:146
+b2b1d05608426215098a9610b3cba38bc84c9338:tests/test_operational_trace.py:curl-auth-header:145

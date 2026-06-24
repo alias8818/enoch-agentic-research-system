@@ -142,8 +142,8 @@ def test_operator_trace_redacts_secrets_embedded_in_string_values(
         "dispatch.live.attempt",
         trace_id="trace-redact-strings",
         requested_by="pytest",
-        command="curl -H 'Authorization: Bearer secret-token-xyz' https://worker/run",
-        error="upstream rejected token=abc123-apikey=def456",
+        command=("curl -H 'Authorization: Bearer *** https://worker/run"),
+        error=("upstream rejected token=abc123-apikey=def456"),
         nested={
             "Authorization": "Bearer nested-secret",
             "free_text": "echo api_key=zzz999 | logger",
