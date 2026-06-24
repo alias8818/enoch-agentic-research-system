@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import threading
+from contextlib import contextmanager
 
 import ipaddress
 import socket
-from typing import Any
+from collections.abc import Generator
+from typing import Any, cast
 from urllib import request
 from urllib.parse import urlparse
 
@@ -21,6 +24,7 @@ class _NoRedirectHandler(request.HTTPRedirectHandler):
 
 
 _NO_REDIRECT_OPENER = request.build_opener(_NoRedirectHandler)
+_PINNED_DNS_LOCK = threading.RLock()
 
 
 def secure_default_service_url(host: str, port: int, *, path: str = "") -> str:
@@ -89,6 +93,93 @@ def _resolved_ips(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Addre
     return addresses
 
 
+def _default_port_for_scheme(scheme: str) -> int:
+    if scheme == "http":
+        return 80
+    if scheme == "https":
+        return 443
+    raise ValueError("unsupported URL scheme")
+
+
+def _addrinfo_ips(
+    addrinfo: list[tuple[int, int, int, str, tuple[Any, ...]]],
+) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for family, _type, _proto, _canonname, sockaddr in addrinfo:
+        if family not in {socket.AF_INET, socket.AF_INET6}:
+            continue
+        ips.append(ipaddress.ip_address(sockaddr[0]))
+    return ips
+
+
+def _resolved_addrinfo(
+    host: str, port: int
+) -> list[tuple[int, int, int, str, tuple[Any, ...]]]:
+    literal = _parse_ip_literal(host)
+    if literal is not None:
+        family = socket.AF_INET6 if literal.version == 6 else socket.AF_INET
+        sockaddr: tuple[Any, ...]
+        if literal.version == 6:
+            sockaddr = (str(literal), port, 0, 0)
+        else:
+            sockaddr = (str(literal), port)
+        return [(family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", sockaddr)]
+    return cast(
+        list[tuple[int, int, int, str, tuple[Any, ...]]],
+        socket.getaddrinfo(host, port, type=socket.SOCK_STREAM),
+    )
+
+
+@contextmanager
+def _pin_getaddrinfo(
+    *,
+    host: str,
+    port: int,
+    addrinfo: list[tuple[int, int, int, str, tuple[Any, ...]]],
+) -> Generator[None, None, None]:
+    original_getaddrinfo = socket.getaddrinfo
+    normalized_host = host.rstrip(".").lower()
+
+    def pinned_getaddrinfo(
+        query_host: str,
+        query_port: int | str | None,
+        family: int = 0,
+        type: int = 0,  # noqa: A002 - match socket.getaddrinfo signature
+        proto: int = 0,
+        flags: int = 0,
+    ) -> list[tuple[int, int, int, str, tuple[Any, ...]]]:
+        del flags
+        query_host_normalized = str(query_host or "").rstrip(".").lower()
+        query_port_int = int(query_port) if query_port is not None else port
+        if query_host_normalized != normalized_host or query_port_int != port:
+            return cast(
+                list[tuple[int, int, int, str, tuple[Any, ...]]],
+                original_getaddrinfo(query_host, query_port, family, type, proto),
+            )
+        pinned: list[tuple[int, int, int, str, tuple[Any, ...]]] = []
+        for item in addrinfo:
+            item_family, item_type, item_proto, _canonname, _sockaddr = item
+            if family not in (0, item_family):
+                continue
+            if type not in (0, item_type):
+                continue
+            if proto not in (0, item_proto):
+                continue
+            pinned.append(item)
+        if not pinned:
+            raise socket.gaierror(
+                socket.EAI_NONAME, "no pinned address matched request"
+            )
+        return pinned
+
+    with _PINNED_DNS_LOCK:
+        socket.getaddrinfo = pinned_getaddrinfo
+        try:
+            yield
+        finally:
+            socket.getaddrinfo = original_getaddrinfo
+
+
 def validate_http_url(
     url: str,
     *,
@@ -142,7 +233,22 @@ def urlopen_validated(
 ) -> Any:
     """Open a validated HTTP(S) URL without following redirects."""
     url = req_or_url.full_url if isinstance(req_or_url, request.Request) else req_or_url
-    validate_http_url(
-        url, field_name=field_name, allow_private=allow_private, resolve_host=True
+    validated_url = validate_http_url(
+        url, field_name=field_name, allow_private=allow_private, resolve_host=False
     )
-    return _NO_REDIRECT_OPENER.open(req_or_url, timeout=timeout)
+    parsed = urlparse(validated_url)
+    host = parsed.hostname
+    if host is None:
+        raise ValueError(f"{field_name} must include a host")
+    port = parsed.port or _default_port_for_scheme(parsed.scheme)
+    try:
+        addrinfo = _resolved_addrinfo(host, port)
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{field_name} host could not be resolved") from exc
+    ips = _addrinfo_ips(addrinfo)
+    if not ips:
+        raise ValueError(f"{field_name} host could not be resolved")
+    if not allow_private and any(_ip_is_private_target(ip) for ip in ips):
+        raise ValueError(f"{field_name} must not resolve to a private address")
+    with _pin_getaddrinfo(host=host, port=port, addrinfo=addrinfo):
+        return _NO_REDIRECT_OPENER.open(req_or_url, timeout=timeout)

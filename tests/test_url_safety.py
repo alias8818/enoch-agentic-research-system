@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import socket
+
 import pytest
 
 from enoch_control_plane.url_safety import (
@@ -105,3 +107,67 @@ def test_validate_http_url_allows_private_addresses_only_when_explicit() -> None
 def test_validate_http_url_rejects_non_http_or_malformed_urls(url: str) -> None:
     with pytest.raises(ValueError):
         validate_http_url(url)
+
+
+def test_urlopen_validated_pins_dns_resolution_during_open(monkeypatch) -> None:
+    from urllib import request
+
+    from enoch_control_plane import url_safety
+
+    public_addrinfo = [
+        (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("93.184.216.34", 80),
+        )
+    ]
+    private_addrinfo = [
+        (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("127.0.0.1", 80),
+        )
+    ]
+    resolver_calls = 0
+    connected_addrinfo: list[tuple[int, int, int, str, tuple[object, ...]]] = []
+
+    def rebinding_getaddrinfo(host, port, *args, **kwargs):  # noqa: ANN001
+        nonlocal resolver_calls
+        resolver_calls += 1
+        assert host == "rebind.example"
+        assert int(port) == 80
+        if resolver_calls == 1:
+            return public_addrinfo
+        return private_addrinfo
+
+    class FakeOpener:
+        def open(self, req_or_url: request.Request | str, *, timeout: float):
+            del timeout
+            url = (
+                req_or_url.full_url
+                if isinstance(req_or_url, request.Request)
+                else req_or_url
+            )
+            parsed = url_safety.urlparse(url)
+            connected_addrinfo.extend(
+                socket.getaddrinfo(parsed.hostname, parsed.port or 80)
+            )
+
+            class Response:
+                def read(self) -> bytes:
+                    return b"ok"
+
+            return Response()
+
+    monkeypatch.setattr(socket, "getaddrinfo", rebinding_getaddrinfo)
+    monkeypatch.setattr(url_safety, "_NO_REDIRECT_OPENER", FakeOpener())
+
+    response = url_safety.urlopen_validated("http://rebind.example/callback", timeout=1)
+
+    assert response.read() == b"ok"
+    assert resolver_calls == 1
+    assert connected_addrinfo == public_addrinfo
