@@ -31,11 +31,47 @@ def test_trigger_functions_pin_search_path() -> None:
 
 
 def test_duplicate_state_contract_migration_is_transactional_and_parseable() -> None:
-    sql = _migration("20260506183300_enforce_remaining_state_contract_surfaces.sql")
+    sql = _migration("20260506182715_enforce_remaining_state_contract_surfaces.sql")
 
     assert re.search(r"^begin;", sql, flags=re.IGNORECASE | re.MULTILINE)
     assert re.search(r"^commit;", sql, flags=re.IGNORECASE | re.MULTILINE)
     assert ";;" not in sql
+
+
+def test_no_overlapping_add_constraint_across_migrations() -> None:
+    """Two migrations adding the same constraint name re-validate state mid-run.
+
+    Regression for #339. If a later migration re-runs the same
+    `add constraint ... check (...)` as an earlier one, any state value added
+    between the two will be re-validated and may fail non-reproducibly. The
+    only fix is: never add the same constraint name twice across migrations.
+    """
+    add_pattern = re.compile(
+        r"add\s+constraint\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+        flags=re.IGNORECASE,
+    )
+    seen: dict[str, str] = {}
+    offenders: list[str] = []
+    for migration in sorted(MIGRATIONS.glob("*.sql")):
+        sql = migration.read_text(encoding="utf-8")
+        for constraint in add_pattern.findall(sql):
+            prior = seen.get(constraint)
+            if prior is not None:
+                offenders.append(f"{constraint}: {prior} and {migration.name}")
+                continue
+            seen[constraint] = migration.name
+
+    assert offenders == [], (
+        "duplicate ADD CONSTRAINT across migrations re-validates state mid-run: "
+        + "; ".join(offenders)
+    )
+
+
+def test_duplicate_state_contract_migration_only_present_once() -> None:
+    """Regression for #339: the enforce_remaining_state_contract_surfaces
+    migration must exist exactly once after dedup."""
+    matches = sorted(MIGRATIONS.glob("*enforce_remaining_state_contract_surfaces.sql"))
+    assert len(matches) == 1, f"expected exactly 1 file, got {matches}"
 
 
 def test_publication_status_constraint_drop_targets_column_not_substring() -> None:
