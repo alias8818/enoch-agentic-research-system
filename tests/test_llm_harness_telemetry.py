@@ -177,9 +177,28 @@ def test_validate_llm_harness_event_rejects_nested_raw_or_secret_keys(
         validate_llm_harness_event(LLM_HARNESS_TOOL_RESULT_EVENT, payload)
 
 
-def test_validate_llm_harness_event_rejects_secret_like_values() -> None:
+@pytest.mark.parametrize(
+    "secret_value",
+    [
+        "use bearer sk-or-...3456",
+        "use Bearer: abcdefghijklmnop",
+        "use bearer=abcdefghijklmnop",
+        "use SK-ABCDEF1234567890",
+        "use sK-oR-v1-ABCDEF1234567890",
+        "use GHP_ABCDEF1234567890",
+        "use GITHUB_PAT_ABCDEF1234567890",
+        "use LIN_API_ABCDEF1234567890",
+        "use AKIA1234567890ABCDEF",
+        "use xoxb-1234567890abcdef",
+        "use eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
+        "-----BEGIN OPENSSH PRIVATE KEY-----",
+    ],
+)
+def test_validate_llm_harness_event_rejects_secret_like_values(
+    secret_value: str,
+) -> None:
     payload = _route_payload()
-    payload["selection_reason"] = "use bearer sk-or-v1-thisShouldNeverPersist123456"
+    payload["selection_reason"] = secret_value
 
     with pytest.raises(LLMHarnessTelemetryError, match="secret-like"):
         validate_llm_harness_event(LLM_HARNESS_ROUTE_DECISION_EVENT, payload)

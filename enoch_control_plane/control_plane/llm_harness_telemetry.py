@@ -82,12 +82,16 @@ _RAW_PAYLOAD_KEYS = {
     "tool_payload",
 }
 _SECRET_VALUE_PATTERNS = (
-    re.compile(r"\bbearer\s+[\w.~+/=-]{8,}", re.IGNORECASE),
-    re.compile(r"\bsk-[\w-]{12,}\b"),
-    re.compile(r"\bsk-or-v1-[\w-]{12,}\b"),
-    re.compile(r"\bghp_\w{12,}\b"),
-    re.compile(r"\bgithub_pat_\w{12,}\b"),
-    re.compile(r"\blin_api_\w{12,}\b"),
+    re.compile(r"\bbearer(?:\s+|\s*[:=]\s*)[\w.~+/=-]{8,}", re.IGNORECASE),
+    re.compile(r"\bsk-or-v1-[\w-]{12,}\b", re.IGNORECASE),
+    re.compile(r"\bsk-[\w-]{12,}\b", re.IGNORECASE),
+    re.compile(r"\bghp_\w{12,}\b", re.IGNORECASE),
+    re.compile(r"\bgithub_pat_\w{12,}\b", re.IGNORECASE),
+    re.compile(r"\blin_api_\w{12,}\b", re.IGNORECASE),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b", re.IGNORECASE),
+    re.compile(r"\bxox[abp]-[\w-]{10,}\b", re.IGNORECASE),
+    re.compile(r"\beyJ[A-Za-z0-9_=]+\.[A-Za-z0-9_=]+\.[A-Za-z0-9_=-]+\b"),
+    re.compile(r"-----BEGIN [A-Z ]+PRIVATE KEY-----", re.IGNORECASE),
 )
 
 
