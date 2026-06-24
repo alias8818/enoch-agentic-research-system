@@ -571,7 +571,12 @@ def _research_provider_model_pool_from_settings(
         try:
             model = model_settings(settings, model_id)
             provider = provider_settings(settings, model.provider_id)
-        except ValueError:
+        except ValueError as exc:
+            _logger.debug(
+                "skipping unavailable workflow model while building provider pool",
+                extra={"model_id": model_id},
+                exc_info=exc,
+            )
             continue
         if not model.enabled or not provider.enabled:
             continue
@@ -1223,7 +1228,11 @@ def _papers_tree_has_grounding_evidence(project_dir: Path, papers_dir: Path) -> 
         try:
             if path.is_dir():
                 safe_paper_dirs.append(path)
-        except (OSError, RuntimeError, ValueError):
+        except (
+            OSError,
+            RuntimeError,
+            ValueError,
+        ):  # silent-except: filesystem race while scanning paper directories; unsafe/unreadable entries are ignored by design
             continue
     return any(
         _paper_dir_has_grounding_evidence(project_dir, paper_dir)
@@ -1591,7 +1600,15 @@ def _snapshot_paper_rewrite_artifacts(
         try:
             target = (artifact_root / rel_path).resolve()
             target.relative_to(artifact_root)
-        except (OSError, RuntimeError, ValueError):
+        except (OSError, RuntimeError, ValueError) as exc:
+            _logger.debug(
+                "skipping unsafe paper rewrite artifact path during snapshot",
+                extra={
+                    "artifact_root": str(artifact_root),
+                    "artifact_path": str(rel_path),
+                },
+                exc_info=exc,
+            )
             continue
         try:
             existed = target.exists()
@@ -6055,7 +6072,11 @@ def _promotable_rows_for_lane_feed_from_store(
         return []
     try:
         workbench_rows = list(store.research_facility_workbench_projection(limit=100))  # type: ignore[attr-defined]
-    except Exception:
+    except Exception as exc:
+        _logger.warning(
+            "failed to load research facility workbench projection for lane feed",
+            exc_info=exc,
+        )
         return []
     return [
         row

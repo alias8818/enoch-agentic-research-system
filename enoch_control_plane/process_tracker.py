@@ -130,7 +130,10 @@ class ProcessTracker:
             try:
                 if self._process_in_project_dir(proc, project_dir):
                     owned[proc.pid] = proc
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
+            except (
+                psutil.NoSuchProcess,
+                psutil.AccessDenied,
+            ):  # silent-except: process table races are expected while scanning project-owned processes
                 continue
         return owned
 
@@ -155,7 +158,7 @@ class ProcessTracker:
                 try:
                     if os.getpgid(proc.pid) == record.process_group_id:
                         tracked[proc.pid] = proc
-                except (
+                except (  # silent-except: process group membership can disappear while scanning live processes
                     ProcessLookupError,
                     PermissionError,
                     psutil.NoSuchProcess,
@@ -409,7 +412,12 @@ class ProcessTracker:
             try:
                 _safe_send_signal(info.pid, signal.SIGTERM, tracked=info)
                 term_signaled.append(info)
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                _logger.debug(
+                    "failed to send SIGTERM to stale process candidate",
+                    extra={"pid": info.pid},
+                    exc_info=exc,
+                )
                 continue
         return term_signaled
 
@@ -427,7 +435,11 @@ class ProcessTracker:
                     and proc.status() != psutil.STATUS_ZOMBIE
                 ):
                     return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied, ProcessLookupError):
+            except (
+                psutil.NoSuchProcess,
+                psutil.AccessDenied,
+                ProcessLookupError,
+            ):  # silent-except: TERM grace polling tolerates exited/inaccessible processes
                 continue
         return False
 

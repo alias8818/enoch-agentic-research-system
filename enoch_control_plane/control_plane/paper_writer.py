@@ -478,7 +478,12 @@ def _metric_summary_for_file(
                     continue
                 try:
                     rows.append(json.loads(line))
-                except Exception:
+                except json.JSONDecodeError as exc:
+                    _logger.debug(
+                        "skipping malformed JSONL metrics row in paper evidence bundle",
+                        extra={"source_path": rel_path},
+                        exc_info=exc,
+                    )
                     continue
             if rows:
                 return {

@@ -124,6 +124,7 @@ def _json_request(
                 ) from exc
             last_exc = exc
             time.sleep(_http_retry_delay_seconds(exc, attempt))
+            # silent-except: retryable Notion HTTP failures are recorded in last_exc and surfaced if all attempts fail
             continue
         except (
             TimeoutError,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import logging
 from pathlib import Path
 import tempfile
 import threading
@@ -11,6 +12,8 @@ from .models import RunRecord, utc_now
 
 DEFAULT_EVENTS_LOG_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_EVENTS_LOG_BACKUPS = 3
+
+_logger = logging.getLogger(__name__)
 
 
 class StateStore:
@@ -81,7 +84,12 @@ class StateStore:
         for path in sorted(self.runs_dir.glob("*.json")):
             try:
                 records.append(RunRecord.model_validate_json(path.read_text()))
-            except Exception:
+            except Exception as exc:
+                _logger.warning(
+                    "quarantining corrupt run record during run listing",
+                    extra={"path": str(path)},
+                    exc_info=exc,
+                )
                 self._quarantine_corrupt_run_file(path)
                 continue
         return records

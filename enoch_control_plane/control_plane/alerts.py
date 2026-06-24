@@ -771,7 +771,11 @@ def _recent_dispatch_transition_projects(
     projects: set[str] = set()
     try:
         rows = store.event_rows(limit=100)
-    except Exception:
+    except Exception as exc:
+        _logger.warning(
+            "failed to load recent dispatch transition events for alert race suppression",
+            exc_info=exc,
+        )
         return projects
     for row in rows:
         if not _is_recent_dispatch_transition_row(row, cutoff):

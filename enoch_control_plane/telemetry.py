@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import logging
 from pathlib import Path
 
 try:
@@ -28,6 +29,8 @@ except ImportError:  # pragma: no cover - dependency may not be installed yet
     nvmlShutdown = None
 
 from .models import TelemetrySample
+
+_logger = logging.getLogger(__name__)
 
 _KB_PER_MIB = 1024
 _NVML_EXPECTED_ERRORS = (OSError,) if NVMLError is None else (NVMLError, OSError)
@@ -58,7 +61,12 @@ def _read_meminfo(path: Path = Path("/proc/meminfo")) -> dict[str, int]:
                 continue
             try:
                 values[key] = int(parts[0])
-            except ValueError:
+            except ValueError as exc:
+                _logger.debug(
+                    "skipping malformed /proc/meminfo value",
+                    extra={"meminfo_key": key, "meminfo_value": rest.strip()},
+                    exc_info=exc,
+                )
                 continue
     except OSError:
         return {}

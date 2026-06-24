@@ -503,7 +503,12 @@ def _paper_draft_gate_for_row(row: dict[str, Any]) -> dict[str, Any] | None:
     for candidate in _project_dir_candidates(project_dir):
         try:
             gate = paper_draft_decision_gate(candidate)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            LOGGER.debug(
+                "project decision artifact candidate could not be read",
+                extra={"project_dir": str(candidate)},
+                exc_info=exc,
+            )
             last_gate = {
                 "eligible": False,
                 "reason": "project decision artifact could not be read",

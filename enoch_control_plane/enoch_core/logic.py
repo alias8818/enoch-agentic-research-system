@@ -753,7 +753,7 @@ def _summary_has_notion_url(summary: str) -> bool:
     for match in re.finditer(r"https://[^\s<>\"]+", summary):
         try:
             hostname = (urlparse(match.group(0)).hostname or "").lower()
-        except ValueError:
+        except ValueError:  # silent-except: malformed URLs in free-text summaries are ignored while scanning for Notion links
             continue
         if hostname in {"notion.so", "www.notion.so"}:
             return True
