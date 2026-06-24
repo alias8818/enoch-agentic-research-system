@@ -165,15 +165,28 @@ def test_corpus_import_fingerprint_migration_uses_bounded_backfill_and_concurren
     ) in normalized
 
 
-def test_advisor_hardening_policy_loop_does_not_overwrite_existing_policies() -> None:
-    sql = _migration("20260505234007_enoch_advisor_hardening.sql")
+def test_migrations_do_not_create_blanket_service_role_all_policies() -> None:
+    offenders: list[str] = []
+    for migration in MIGRATIONS.glob("*.sql"):
+        normalized = " ".join(migration.read_text(encoding="utf-8").lower().split())
+        if "create policy service_role_all" in normalized:
+            offenders.append(migration.name)
+        if "using (true) with check (true)" in normalized:
+            offenders.append(f"{migration.name}: using true")
+
+    assert offenders == []
+
+
+def test_service_role_all_cleanup_migration_drops_existing_blanket_policies() -> None:
+    sql = _migration("20260624044500_drop_service_role_all_policies.sql")
     normalized = " ".join(sql.lower().split())
 
-    assert "drop policy if exists service_role_all" not in normalized
-    assert "from pg_policies policy" in normalized
-    assert "policy.schemaname = 'enoch'" in normalized
-    assert "policy.tablename = pg_tables.tablename" in normalized
-    assert "create policy service_role_all" in normalized
+    assert "begin;" in normalized
+    assert normalized.endswith("commit;")
+    assert "from pg_tables" in normalized
+    assert "where schemaname = 'enoch'" in normalized
+    assert "drop policy if exists service_role_all on enoch.%i" in normalized
+    assert "create policy service_role_all" not in normalized
 
 
 def test_followup_branching_migration_uses_safe_locks_and_concurrent_index() -> None:

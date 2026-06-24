@@ -101,12 +101,9 @@ grant select, insert, update, delete on enoch.idea_events to service_role;
 grant usage, select on sequence enoch.idea_events_idea_event_id_seq to service_role;
 
 drop policy if exists service_role_all on enoch.ideas;
-create policy service_role_all on enoch.ideas
-  for all to service_role using (true) with check (true);
-
 drop policy if exists service_role_all on enoch.idea_events;
-create policy service_role_all on enoch.idea_events
-  for all to service_role using (true) with check (true);
+-- service_role bypasses RLS; explicit grants above are sufficient.
+-- Avoid blanket USING (true) policies that can be copied to non-bypass roles.
 
 comment on table enoch.ideas is
   'Supabase-native canonical idea workbench. Historical Notion IDs/URLs are source provenance only; runtime no longer depends on Notion as the editable ledger.';

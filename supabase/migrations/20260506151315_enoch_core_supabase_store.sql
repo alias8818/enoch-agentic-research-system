@@ -54,13 +54,11 @@ grant select, insert, update, delete on enoch.core_events, enoch.core_snapshots,
 grant usage, select on sequence enoch.core_events_id_seq, enoch.core_snapshots_id_seq, enoch.core_decisions_id_seq to service_role;
 
 drop policy if exists service_role_all on enoch.core_events;
-create policy service_role_all on enoch.core_events for all to service_role using (true) with check (true);
 drop policy if exists service_role_all on enoch.core_snapshots;
-create policy service_role_all on enoch.core_snapshots for all to service_role using (true) with check (true);
 drop policy if exists service_role_all on enoch.core_decisions;
-create policy service_role_all on enoch.core_decisions for all to service_role using (true) with check (true);
 drop policy if exists service_role_all on enoch.core_projection_cache;
-create policy service_role_all on enoch.core_projection_cache for all to service_role using (true) with check (true);
+-- service_role bypasses RLS; explicit grants above are sufficient.
+-- Avoid blanket USING (true) policies that can be copied to non-bypass roles.
 
 comment on table enoch.core_events is
   'Append-only Enoch core shadow/proposal events. Supabase-backed replacement for enoch_core.sqlite3 events.';

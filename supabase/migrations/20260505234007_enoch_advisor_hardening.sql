@@ -27,28 +27,8 @@ grant select, insert, update, delete on all tables in schema enoch to service_ro
 grant usage, select on all sequences in schema enoch to service_role;
 grant execute on all functions in schema enoch to service_role;
 
-do $$
-declare
-  table_record record;
-begin
-  for table_record in
-    select tablename
-    from pg_tables
-    where schemaname = 'enoch'
-      and not exists (
-        select 1
-        from pg_policies policy
-        where policy.schemaname = 'enoch'
-          and policy.tablename = pg_tables.tablename
-      )
-    order by tablename
-  loop
-    execute format(
-      'create policy service_role_all on enoch.%I for all to service_role using (true) with check (true)',
-      table_record.tablename
-    );
-  end loop;
-end;
-$$;
+-- service_role bypasses RLS in Supabase/Postgres and is already granted above.
+-- Do not install blanket USING (true) policies: they are redundant for
+-- service_role and become a privilege footgun if copied to future roles.
 
 commit;

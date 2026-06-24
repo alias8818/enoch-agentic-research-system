@@ -204,20 +204,11 @@ grant usage, select on sequence enoch.research_admissions_admission_id_seq to se
 grant usage, select on sequence enoch.research_lineage_lineage_id_seq to service_role;
 
 drop policy if exists service_role_all on enoch.research_sources;
-create policy service_role_all on enoch.research_sources
-  for all to service_role using (true) with check (true);
-
 drop policy if exists service_role_all on enoch.research_candidates;
-create policy service_role_all on enoch.research_candidates
-  for all to service_role using (true) with check (true);
-
 drop policy if exists service_role_all on enoch.research_admissions;
-create policy service_role_all on enoch.research_admissions
-  for all to service_role using (true) with check (true);
-
 drop policy if exists service_role_all on enoch.research_lineage;
-create policy service_role_all on enoch.research_lineage
-  for all to service_role using (true) with check (true);
+-- service_role bypasses RLS; explicit grants above are sufficient.
+-- Avoid blanket USING (true) policies that can be copied to non-bypass roles.
 
 comment on table enoch.research_sources is
   'Research Facility source ledger. Captures where generated candidates came from, including external URLs and prior Enoch evidence.';
