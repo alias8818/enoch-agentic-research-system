@@ -1316,114 +1316,58 @@ _PROJECT_DECISION_ORDER = (
 )
 
 
-def _queue_paper_scalar_subquery(select_expr: str, alias: str) -> str:
-    return f"""
-              (
-                select {select_expr}
-                from papers pa
-                {_QUEUE_PAPER_RUN_SCOPE}
-                order by pa.updated_at desc
-                limit 1
-              ) as {alias}"""
-
-
-def _queue_paper_review_subquery(select_expr: str, alias: str) -> str:
-    return f"""
-              (
-                select {select_expr}
-                from papers pa
-                left join publication_automation_items rv using(paper_id)
-                {_QUEUE_PAPER_RUN_SCOPE}
-                order by pa.updated_at desc
-                limit 1
-              ) as {alias}"""
-
-
-def _queue_corpus_subquery(select_expr: str, alias: str) -> str:
-    return f"""
-              (
-                select {select_expr}
-                from papers pa
-                left join corpus_imports ci using(paper_id)
-                {_QUEUE_PAPER_RUN_SCOPE}
-                order by pa.updated_at desc
-                limit 1
-              ) as {alias}"""
-
-
-def _queue_project_decision_subquery(select_expr: str, alias: str) -> str:
-    return f"""
-              (
-                select {select_expr}
-                from project_decisions d
-                {_PROJECT_DECISION_SCOPE}
-                {_PROJECT_DECISION_ORDER}
-                limit 1
-              ) as {alias}"""
-
-
-def _queue_project_decision_json_field_subquery(json_field: str, alias: str) -> str:
-    return _queue_project_decision_subquery(
-        (
-            f"coalesce(d.payload_json->'project_decision'->>'{json_field}',"
-            f" d.payload_json->>'{json_field}')"
-        ),
-        alias,
-    )
-
-
 def _queue_rows_related_projection_sql() -> str:
-    paper_scalars = (
-        ("pa.paper_id", "related_paper_id"),
-        ("pa.paper_status", "related_paper_status"),
-        ("pa.draft_markdown_path", "related_draft_markdown_path"),
-        ("pa.evidence_bundle_path", "related_evidence_bundle_path"),
-        ("pa.claim_ledger_path", "related_claim_ledger_path"),
-        ("pa.manifest_path", "related_manifest_path"),
-    )
-    review_scalars = (
-        ("rv.automation_status", "related_review_status"),
-        ("rv.finalization_package_path", "related_finalization_package_path"),
-    )
-    corpus_scalars = (
-        ("ci.corpus_import_id", "related_corpus_import_id"),
-        ("ci.artifact_slug", "related_artifact_slug"),
-        ("ci.source_record_fingerprint", "related_source_record_fingerprint"),
-        ("(ci.paper_id is not null)", "related_corpus_imported"),
-    )
-    decision_columns = (
-        ("d.decision_gate_state", "decision_gate_state"),
-        ("d.decision_summary", "decision_summary"),
-        ("d.payload_json", "decision_payload_json"),
-        ("d.followup_recommended", "followup_recommended"),
-        ("d.followup_type", "followup_type"),
-        ("d.followup_title", "followup_title"),
-        ("d.followup_hypothesis", "followup_hypothesis"),
-        ("d.followup_required_evidence", "followup_required_evidence"),
-        ("d.followup_success_threshold", "followup_success_threshold"),
-        ("d.followup_stop_condition", "followup_stop_condition"),
-        ("d.followup_depth", "followup_depth"),
-    )
-    decision_json_fields = (
-        ("project_decision", "project_decision"),
-        ("research_outcome", "research_outcome"),
-        ("bounded_paper_ready", "bounded_paper_ready"),
-        ("hypothesis_status", "hypothesis_status"),
-        ("evidence_strength", "evidence_strength"),
-        ("claim_scope", "claim_scope"),
-        ("scale_limits", "scale_limits"),
-    )
     parts = [
-        *(_queue_paper_scalar_subquery(expr, alias) for expr, alias in paper_scalars),
-        *(_queue_paper_review_subquery(expr, alias) for expr, alias in review_scalars),
-        *(_queue_corpus_subquery(expr, alias) for expr, alias in corpus_scalars),
-        *(
-            _queue_project_decision_subquery(expr, alias)
-            for expr, alias in decision_columns
+        "paq.paper_id as related_paper_id",
+        "paq.paper_status as related_paper_status",
+        "paq.draft_markdown_path as related_draft_markdown_path",
+        "paq.evidence_bundle_path as related_evidence_bundle_path",
+        "paq.claim_ledger_path as related_claim_ledger_path",
+        "paq.manifest_path as related_manifest_path",
+        "rv.automation_status as related_review_status",
+        "rv.finalization_package_path as related_finalization_package_path",
+        "ci.corpus_import_id as related_corpus_import_id",
+        "ci.artifact_slug as related_artifact_slug",
+        "ci.source_record_fingerprint as related_source_record_fingerprint",
+        "case when paq.paper_id is null then null else (ci.paper_id is not null) end as related_corpus_imported",
+        "d.decision_gate_state as decision_gate_state",
+        "d.decision_summary as decision_summary",
+        "d.payload_json as decision_payload_json",
+        "d.followup_recommended as followup_recommended",
+        "d.followup_type as followup_type",
+        "d.followup_title as followup_title",
+        "d.followup_hypothesis as followup_hypothesis",
+        "d.followup_required_evidence as followup_required_evidence",
+        "d.followup_success_threshold as followup_success_threshold",
+        "d.followup_stop_condition as followup_stop_condition",
+        "d.followup_depth as followup_depth",
+        (
+            "coalesce(d.payload_json->'project_decision'->>'project_decision',"
+            " d.payload_json->>'project_decision') as project_decision"
         ),
-        *(
-            _queue_project_decision_json_field_subquery(field, alias)
-            for field, alias in decision_json_fields
+        (
+            "coalesce(d.payload_json->'project_decision'->>'research_outcome',"
+            " d.payload_json->>'research_outcome') as research_outcome"
+        ),
+        (
+            "coalesce(d.payload_json->'project_decision'->>'bounded_paper_ready',"
+            " d.payload_json->>'bounded_paper_ready') as bounded_paper_ready"
+        ),
+        (
+            "coalesce(d.payload_json->'project_decision'->>'hypothesis_status',"
+            " d.payload_json->>'hypothesis_status') as hypothesis_status"
+        ),
+        (
+            "coalesce(d.payload_json->'project_decision'->>'evidence_strength',"
+            " d.payload_json->>'evidence_strength') as evidence_strength"
+        ),
+        (
+            "coalesce(d.payload_json->'project_decision'->>'claim_scope',"
+            " d.payload_json->>'claim_scope') as claim_scope"
+        ),
+        (
+            "coalesce(d.payload_json->'project_decision'->>'scale_limits',"
+            " d.payload_json->>'scale_limits') as scale_limits"
         ),
         """
               exists (
@@ -1435,6 +1379,27 @@ def _queue_rows_related_projection_sql() -> str:
               ) as followup_launched""",
     ]
     return ",\n".join(parts)
+
+
+def _queue_rows_related_join_sql() -> str:
+    return f"""
+            left join lateral (
+              select pa.*
+              from papers pa
+              {_QUEUE_PAPER_RUN_SCOPE}
+              order by pa.updated_at desc, pa.paper_id desc
+              limit 1
+            ) paq on true
+            left join publication_automation_items rv using(paper_id)
+            left join corpus_imports ci using(paper_id)
+            left join lateral (
+              select d.*
+              from project_decisions d
+              {_PROJECT_DECISION_SCOPE}
+              {_PROJECT_DECISION_ORDER}
+              limit 1
+            ) d on true
+            """
 
 
 _SUPABASE_EVENT_PAGE_ORDER_BY = {
@@ -2064,6 +2029,7 @@ class SupabaseReadOnlyControlPlaneStore:
             from queue_items q
             join projects p using(project_id)
             left join ideas i on i.idea_id = q.project_id
+            {_queue_rows_related_join_sql()}
             {suffix}
             """
 
