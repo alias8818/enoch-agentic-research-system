@@ -267,3 +267,15 @@ def test_negated_gpu_training_routes_to_cpu_only() -> None:
     )
     assert routing["workload_class"] == "cpu_only"
     assert routing["machine_target"] == "cpu-proxmox-1"
+
+
+def test_negated_strong_gpu_decision_table_examples() -> None:
+    assert (
+        workload_class_from_row({"title": "no cuda, no vram, training-free"})
+        == "cpu_only"
+    )
+    assert workload_class_from_row({"title": "cuda required"}) == "gpu_required"
+    assert (
+        workload_class_from_row({"title": "no specific compute requirement"})
+        == "unknown"
+    )
