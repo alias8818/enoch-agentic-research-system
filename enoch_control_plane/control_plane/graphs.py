@@ -35,19 +35,16 @@ def build_dispatch_graph(store: ControlPlaneStore):
         }
 
     def paused(state: DispatchGraphState) -> DispatchGraphState:
-        action, candidate, event_id, reason = store.dispatch_next_dry_run(
-            requested_by=state.get("requested_by") or "operator"
-        )
         return {
             **state,
-            "action": action,
-            "candidate": candidate,
-            "event_id": event_id,
-            "reason": reason,
+            "action": "paused",
+            "candidate": None,
+            "event_id": None,
+            "reason": state.get("reason") or "queue paused",
             "active_count": len(store.active_items()),
         }
 
-    def assert_open_lane(state: DispatchGraphState) -> DispatchGraphState:
+    def record_active_count(state: DispatchGraphState) -> DispatchGraphState:
         return {**state, "active_count": len(store.active_items())}
 
     def select_candidate(state: DispatchGraphState) -> DispatchGraphState:
@@ -81,19 +78,19 @@ def build_dispatch_graph(store: ControlPlaneStore):
 
     def route_after_flags(
         state: DispatchGraphState,
-    ) -> Literal["paused", "assert_open_lane"]:
-        return "paused" if state.get("queue_paused") else "assert_open_lane"
+    ) -> Literal["paused", "record_active_count"]:
+        return "paused" if state.get("queue_paused") else "record_active_count"
 
     graph = StateGraph(DispatchGraphState)
     graph.add_node("load_control_flags", load_control_flags)
     graph.add_node("paused", paused)
-    graph.add_node("assert_open_lane", assert_open_lane)
+    graph.add_node("record_active_count", record_active_count)
     graph.add_node("select_candidate", select_candidate)
     graph.add_node("record_dry_run_dispatch", record_dry_run_dispatch)
     graph.add_edge(START, "load_control_flags")
     graph.add_conditional_edges("load_control_flags", route_after_flags)
     graph.add_edge("paused", END)
-    graph.add_edge("assert_open_lane", "select_candidate")
+    graph.add_edge("record_active_count", "select_candidate")
     graph.add_edge("select_candidate", "record_dry_run_dispatch")
     graph.add_edge("record_dry_run_dispatch", END)
     return graph.compile()
