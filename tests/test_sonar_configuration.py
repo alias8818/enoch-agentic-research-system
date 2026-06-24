@@ -90,7 +90,7 @@ def test_sonar_workflow_isolates_coverage_from_secret_bearing_scan_and_uses_node
     sonar_index = workflow.index("SonarSource/sonarqube-scan-action")
     assert workflow.index("--cov-report=xml:coverage.xml") < sonar_index
     assert workflow.index("actions/download-artifact") < sonar_index
-    assert "actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10" in workflow
+    assert "actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0" in workflow
     assert (
         "SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e"
         in workflow
