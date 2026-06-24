@@ -334,6 +334,14 @@ def _expand_bounded_tar_gz(
             ):
                 limit_exceeded = True
                 break
+            if _safe_tar_target(artifact_root, member.name) is None:
+                _append_tar_skip(
+                    skipped,
+                    path=member.name,
+                    status="unsafe_path",
+                    error="tar member path escapes artifact root",
+                )
+                continue
             filtered = _filter_tar_member(member, artifact_root)
             if filtered is None:
                 _append_tar_skip(
