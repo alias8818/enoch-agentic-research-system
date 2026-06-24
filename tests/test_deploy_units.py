@@ -11,6 +11,33 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 
+SYSTEMD_HARDENING_DIRECTIVES = (
+    "User=enoch",
+    "Group=enoch",
+    "NoNewPrivileges=yes",
+    "PrivateTmp=yes",
+    "ProtectSystem=strict",
+    "ProtectHome=read-only",
+    "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
+    "LockPersonality=yes",
+    "MemoryDenyWriteExecute=yes",
+    "RestrictRealtime=yes",
+    "SystemCallArchitectures=native",
+    "SystemCallFilter=@system-service",
+)
+
+SERVICE_UNITS_THAT_HANDLE_RUNTIME_CREDENTIALS = (
+    "enoch-corpus-import-autopilot.service",
+    "enoch-research-autopilot.service",
+    "enoch-paper-material-graph.service",
+    "enoch-queue-alert-check.service",
+    "enoch-source-lineage-check.service",
+)
+
+
+def _deploy_unit(name: str) -> str:
+    return (ROOT / "deploy" / name).read_text(encoding="utf-8")
+
 
 def _load_queue_pump_module():
     spec = importlib.util.spec_from_file_location(
@@ -44,9 +71,7 @@ def _load_corpus_import_autopilot_module():
 
 
 def test_worker_gate_unit_preserves_required_egress() -> None:
-    service = (ROOT / "deploy" / "enoch-worker-gate.service").read_text(
-        encoding="utf-8"
-    )
+    service = _deploy_unit("enoch-worker-gate.service")
 
     assert "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX" in service
     assert "IPAddressDeny=any" not in service
@@ -55,9 +80,7 @@ def test_worker_gate_unit_preserves_required_egress() -> None:
 
 
 def test_legacy_notion_sync_unit_is_disabled_and_non_dispatching() -> None:
-    service = (ROOT / "deploy" / "enoch-notion-sync.service").read_text(
-        encoding="utf-8"
-    )
+    service = _deploy_unit("enoch-notion-sync.service")
     script = (ROOT / "deploy" / "enoch_notion_sync.sh").read_text(encoding="utf-8")
     assert "OBSOLETE" in service
     assert "legacy Notion sync has been removed from the runtime path" in script
@@ -68,9 +91,7 @@ def test_legacy_notion_sync_unit_is_disabled_and_non_dispatching() -> None:
 
 
 def test_paper_draft_unit_is_opt_in_and_never_dispatches() -> None:
-    service = (ROOT / "deploy" / "enoch-paper-draft-next.service").read_text(
-        encoding="utf-8"
-    )
+    service = _deploy_unit("enoch-paper-draft-next.service")
     script = (ROOT / "deploy" / "enoch_paper_draft_next.sh").read_text(encoding="utf-8")
     combined = service + script
     assert "Environment=ENOCH_ENABLE_PAPER_DRAFT_NEXT=0" in service
@@ -111,9 +132,7 @@ def test_paper_drain_is_bounded_opt_in_and_does_not_run_broad_rewrite_batches() 
 
 def test_research_autopilot_unit_is_opt_in_and_bounded(tmp_path, capsys) -> None:
     autopilot = _load_research_autopilot_module()
-    service = (ROOT / "deploy" / "enoch-research-autopilot.service").read_text(
-        encoding="utf-8"
-    )
+    service = _deploy_unit("enoch-research-autopilot.service")
     script = (ROOT / "deploy" / "enoch_research_autopilot.py").read_text(
         encoding="utf-8"
     )
@@ -224,9 +243,7 @@ def test_research_autopilot_calls_bounded_run_cycle_when_enabled(
 
 def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     autopilot = _load_corpus_import_autopilot_module()
-    service = (ROOT / "deploy" / "enoch-corpus-import-autopilot.service").read_text(
-        encoding="utf-8"
-    )
+    service = _deploy_unit("enoch-corpus-import-autopilot.service")
     timer = (ROOT / "deploy" / "enoch-corpus-import-autopilot.timer").read_text(
         encoding="utf-8"
     )
@@ -234,7 +251,8 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
         encoding="utf-8"
     )
     combined = service + timer + script
-    assert "Environment=HOME=/root" in service
+    assert "Environment=HOME=/var/lib/enoch-control-plane" in service
+    assert "Environment=HOME=/root" not in service
     assert "Environment=ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT=0" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/postgres.env" in service
     assert "EnvironmentFile=-/etc/enoch-control-plane/supabase.env" not in service
@@ -244,9 +262,10 @@ def test_corpus_import_autopilot_unit_is_opt_in_and_capped(capsys) -> None:
     assert "Environment=ENOCH_CORPUS_IMPORT_PUSH=0" in service
     assert "Environment=ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA=0" in service
     assert (
-        "Environment=ENOCH_GITHUB_TOKEN_FILE=/root/.config/enoch/github-token"
+        "Environment=ENOCH_GITHUB_TOKEN_FILE=/var/lib/enoch-control-plane/secrets/github-token"
         in service
     )
+    assert "/root/.config/enoch/github-token" not in service
     assert "Environment=ENOCH_CORPUS_IMPORT_SYNC_LEDGER=0" in service
     assert "max 1" not in combined.lower()
     assert "scripts/import_from_control_plane.py" in script
@@ -633,6 +652,9 @@ def test_install_scripts_pass_paths_to_python_without_shell_interpolation() -> N
     assert "python3 - <<PY" not in control
     assert "python3 - <<PY" not in worker
     assert 'python3 - "$CONFIG_DIR/config.json" "$STATE_DIR/state"' in control
+    assert '"$SERVICE_USER" "$STATE_DIR" <<\'PY\'' in control
+    assert 'text = text.replace("/var/lib/enoch-control-plane", state_dir)' in control
+    assert '"$STATE_DIR/secrets"' in control
     assert (
         '"$STATE_DIR/projects" "$PREFIX/deploy/enoch_codex_dispatch.sh" <<\'PY\''
         in control
@@ -1389,9 +1411,7 @@ def test_research_facility_sql_guard_and_close_centralized_no_s1192_duplication(
 
 
 def test_worker_gate_unit_binds_loopback_and_has_systemd_hardening() -> None:
-    service = (ROOT / "deploy" / "enoch-worker-gate.service").read_text(
-        encoding="utf-8"
-    )
+    service = _deploy_unit("enoch-worker-gate.service")
     assert "--host 127.0.0.1 --port 8787" in service
     assert "--host 0.0.0.0" not in service
     for directive in (
@@ -1403,6 +1423,27 @@ def test_worker_gate_unit_binds_loopback_and_has_systemd_hardening() -> None:
         "SystemCallFilter=@system-service",
     ):
         assert directive in service
+
+
+def test_runtime_credential_units_run_as_enoch_with_systemd_hardening() -> None:
+    for unit_name in SERVICE_UNITS_THAT_HANDLE_RUNTIME_CREDENTIALS:
+        service = _deploy_unit(unit_name)
+        for directive in SYSTEMD_HARDENING_DIRECTIVES:
+            assert directive in service, f"{unit_name} missing {directive}"
+        assert "ReadWritePaths=" in service, f"{unit_name} must declare writable paths"
+        assert "/var/lib/enoch-control-plane" in service
+        assert "Environment=HOME=/root" not in service
+
+    corpus = _deploy_unit("enoch-corpus-import-autopilot.service")
+    assert "/root/.config/enoch/github-token" not in corpus
+    assert (
+        "Environment=ENOCH_GITHUB_TOKEN_FILE=/var/lib/enoch-control-plane/secrets/github-token"
+        in corpus
+    )
+    assert "/opt/enoch-release" in corpus
+
+    graph = _deploy_unit("enoch-paper-material-graph.service")
+    assert "/opt/enoch-control-plane/docs/paper-material-graph" in graph
 
 
 def test_worker_gate_example_is_loopback_and_has_no_placeholder_bearer() -> None:

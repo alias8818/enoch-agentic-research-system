@@ -74,12 +74,13 @@ sync_to_prefix() {
 
 write_unit() {
   local src="$1" dst="$2"
-  python3 - "$src" "$dst" "$PREFIX" "$CONFIG_DIR/config.json" "$SERVICE_USER" <<'PY'
+  python3 - "$src" "$dst" "$PREFIX" "$CONFIG_DIR/config.json" "$SERVICE_USER" "$STATE_DIR" <<'PY'
 import pathlib, sys
-src, dst, prefix, config, user = sys.argv[1:]
+src, dst, prefix, config, user, state_dir = sys.argv[1:]
 text = pathlib.Path(src).read_text()
 text = text.replace("/opt/enoch-control-plane", prefix)
 text = text.replace("/etc/enoch-control-plane/config.json", config)
+text = text.replace("/var/lib/enoch-control-plane", state_dir)
 text = text.replace("User=enoch", f"User={user}")
 text = text.replace("Group=enoch", f"Group={user}")
 pathlib.Path(dst).write_text(text)
@@ -92,7 +93,7 @@ if [[ "$(id -u)" -eq 0 ]]; then
   cd "$PREFIX"
   uv venv --python /usr/bin/python3 .venv
   uv pip install --python .venv/bin/python -e .
-  mkdir -p "$CONFIG_DIR" "$STATE_DIR" "$STATE_DIR/projects" "$STATE_DIR/state"
+  mkdir -p "$CONFIG_DIR" "$STATE_DIR" "$STATE_DIR/projects" "$STATE_DIR/state" "$STATE_DIR/secrets"
   if [[ ! -f "$CONFIG_DIR/config.json" ]]; then
     cp "$ROOT/config.example.json" "$CONFIG_DIR/config.json"
     python3 - "$CONFIG_DIR/config.json" "$STATE_DIR/state" "$STATE_DIR/projects" "$PREFIX/deploy/enoch_codex_dispatch.sh" <<'PY'
