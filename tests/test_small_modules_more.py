@@ -59,9 +59,25 @@ def test_state_store_append_event_serializes_file_append_with_flock(
 
 def test_state_store_load_run_treats_corrupt_file_as_missing(tmp_path: Path) -> None:
     store = StateStore(tmp_path)
-    store.run_path("corrupt-run").write_text("not-json", encoding="utf-8")
+    corrupt_path = store.run_path("corrupt-run")
+    corrupt_path.write_text("not-json", encoding="utf-8")
 
     assert store.load_run("corrupt-run") is None
+    assert not corrupt_path.exists()
+    assert (store.corrupt_runs_dir / "corrupt-run.json.corrupt").read_text(
+        encoding="utf-8"
+    ) == "not-json"
+
+
+def test_state_store_list_runs_quarantines_corrupt_records(tmp_path: Path) -> None:
+    store = StateStore(tmp_path)
+    store.save_run(RunRecord(run_id="run", session_id="session", project_id="project"))
+    corrupt_path = store.run_path("bad-run")
+    corrupt_path.write_text("not-json", encoding="utf-8")
+
+    assert [item.run_id for item in store.list_runs()] == ["run"]
+    assert not corrupt_path.exists()
+    assert (store.corrupt_runs_dir / "bad-run.json.corrupt").exists()
 
 
 def test_state_store_save_run_recreates_missing_runs_dir(tmp_path: Path) -> None:

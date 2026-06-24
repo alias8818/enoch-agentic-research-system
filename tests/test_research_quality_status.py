@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 
 from enoch_control_plane.research_quality.status import (
+    _load_json_file_with_reason,
+    _load_refresh_status,
+    _post_prompt_monitor,
     classify_quality_report,
     load_latest_quality_status,
 )
@@ -36,6 +39,36 @@ def _report_with_decision(
             }
         ],
     }
+
+
+def test_load_json_file_with_reason_reports_malformed_json(tmp_path: Path) -> None:
+    malformed = tmp_path / "refresh.json"
+    malformed.write_text("not-json", encoding="utf-8")
+
+    payload, reason = _load_json_file_with_reason(str(malformed))
+
+    assert payload is None
+    assert reason == "malformed"
+    assert _load_refresh_status(str(malformed)) == {
+        "available": False,
+        "reason": "malformed_refresh_status",
+        "path": str(malformed),
+    }
+
+
+def test_post_prompt_monitor_reports_malformed_window_comparison(
+    tmp_path: Path,
+) -> None:
+    malformed = tmp_path / "window.json"
+    history = tmp_path / "history.jsonl"
+    malformed.write_text("not-json", encoding="utf-8")
+    history.write_text("", encoding="utf-8")
+
+    status = _post_prompt_monitor(window_path=str(malformed), history_path=str(history))
+
+    assert status["available"] is False
+    assert status["reason"] == "malformed_window_comparison"
+    assert status["window_path"] == str(malformed)
 
 
 def test_weak_evidence_on_blocked_inconclusive_result_is_warning_not_blocked() -> None:

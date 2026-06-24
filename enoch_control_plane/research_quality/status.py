@@ -1101,26 +1101,43 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
-def _load_json_file(path: str) -> dict[str, Any] | None:
+def _load_json_file_with_reason(path: str) -> tuple[dict[str, Any] | None, str]:
     if not path:
-        return None
+        return None, "not_configured"
     candidate = Path(path)
     if not candidate.exists():
-        return None
+        return None, "missing"
     try:
         with candidate.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        return None
-    return payload if isinstance(payload, dict) else None
+    except json.JSONDecodeError as exc:
+        _logger.warning("malformed JSON file %s: %s", candidate, exc)
+        return None, "malformed"
+    except OSError as exc:
+        _logger.warning("unreadable JSON file %s: %s", candidate, exc)
+        return None, "unreadable"
+    if not isinstance(payload, dict):
+        _logger.warning("JSON file %s did not contain an object", candidate)
+        return None, "malformed"
+    return payload, "ok"
+
+
+def _load_json_file(path: str) -> dict[str, Any] | None:
+    payload, _reason = _load_json_file_with_reason(path)
+    return payload
 
 
 def _load_refresh_status(path: str) -> dict[str, Any]:
     if not path:
         return {"available": False, "reason": "not_configured", "path": path}
-    payload = _load_json_file(path)
+    payload, reason = _load_json_file_with_reason(path)
     if payload is None:
-        return {"available": False, "reason": "missing_refresh_status", "path": path}
+        status_reason = (
+            "malformed_refresh_status"
+            if reason in {"malformed", "unreadable"}
+            else "missing_refresh_status"
+        )
+        return {"available": False, "reason": status_reason, "path": path}
     return {
         "available": True,
         "ok": bool(payload.get("ok")),
@@ -1490,12 +1507,17 @@ def _window_comparison_summary(window: dict[str, Any]) -> dict[str, Any]:
 
 
 def _post_prompt_monitor(*, window_path: str, history_path: str) -> dict[str, Any]:
-    window = _load_json_file(window_path)
+    window, reason = _load_json_file_with_reason(window_path)
     if not window:
         history = _load_autopilot_history_summary(history_path)
+        status_reason = (
+            "malformed_window_comparison"
+            if reason in {"malformed", "unreadable"}
+            else "missing_window_comparison"
+        )
         return {
             "available": False,
-            "reason": "missing_window_comparison",
+            "reason": status_reason,
             "window_path": window_path,
             "history": history,
         }
