@@ -3471,6 +3471,13 @@ def _quality_floor(value: Any) -> dict[str, Any]:
             floor.get("decision_below_floor_count")
         ),
         "below_floor_count": _safe_count(floor.get("below_floor_count")),
+        "candidate_missing_score_count": _safe_count(
+            floor.get("candidate_missing_score_count")
+        ),
+        "decision_missing_score_count": _safe_count(
+            floor.get("decision_missing_score_count")
+        ),
+        "missing_score_count": _safe_count(floor.get("missing_score_count")),
         "candidate_samples": _quality_floor_candidate_samples(
             floor.get("candidate_samples")
         ),
@@ -3487,6 +3494,12 @@ def _quality_floor_summary(floor: Mapping[str, Any]) -> str:
     threshold = _quality_value(floor, "threshold", 0.0)
     below_floor_count = _safe_count(floor.get("below_floor_count"))
     if _text(floor.get("posture")) == "review_required" or below_floor_count > 0:
+        missing_score_count = _safe_count(floor.get("missing_score_count"))
+        if below_floor_count <= 0 and missing_score_count > 0:
+            return (
+                f"quality floor=review {missing_score_count} missing scores; "
+                f"threshold {threshold:.2f}"
+            )
         return f"quality floor=review {below_floor_count} below {threshold:.2f}"
     checked = _safe_count(floor.get("candidates_checked")) + _safe_count(
         floor.get("decisions_checked")

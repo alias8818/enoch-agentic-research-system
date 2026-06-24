@@ -445,6 +445,7 @@ def _quality_floor_decision_sample(row: dict[str, Any]) -> dict[str, Any]:
 def _quality_floor_operator_action(
     *,
     below_floor_count: int,
+    missing_score_count: int,
     candidates_checked: int,
     decisions_checked: int,
 ) -> str:
@@ -453,10 +454,27 @@ def _quality_floor_operator_action(
             f"review {below_floor_count} below-floor Research Quality artifacts "
             "before widening automation or treating outputs as externally useful"
         )
+    if missing_score_count > 0:
+        return (
+            f"refresh Research Quality scoring for {missing_score_count} artifacts "
+            "missing quality scores before judging the floor"
+        )
     return (
         f"quality floor satisfied across {candidates_checked} candidates and "
         f"{decisions_checked} decisions"
     )
+
+
+def _quality_score(row: dict[str, Any], key: str) -> float | None:
+    if key not in row:
+        return None
+    value = row.get(key)
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _quality_floor(
@@ -467,26 +485,46 @@ def _quality_floor(
 ) -> dict[str, Any]:
     candidates = [row for row in candidate_scores or [] if isinstance(row, dict)]
     decisions = [row for row in decision_scores or [] if isinstance(row, dict)]
+    candidate_scores_by_row = [
+        (row, _quality_score(row, "contract_quality_score")) for row in candidates
+    ]
+    decision_scores_by_row = [
+        (row, _quality_score(row, "decision_quality_score")) for row in decisions
+    ]
     low_candidates = [
         row
-        for row in candidates
-        if _safe_float(row.get("contract_quality_score")) < threshold
+        for row, score in candidate_scores_by_row
+        if score is not None and score < threshold
     ]
     low_decisions = [
         row
-        for row in decisions
-        if _safe_float(row.get("decision_quality_score")) < threshold
+        for row, score in decision_scores_by_row
+        if score is not None and score < threshold
     ]
+    missing_candidate_score_count = sum(
+        1 for _row, score in candidate_scores_by_row if score is None
+    )
+    missing_decision_score_count = sum(
+        1 for _row, score in decision_scores_by_row if score is None
+    )
     below_floor_count = len(low_candidates) + len(low_decisions)
+    missing_score_count = missing_candidate_score_count + missing_decision_score_count
     return {
         "available": bool(candidates or decisions),
         "threshold": threshold,
-        "posture": "review_required" if below_floor_count else "satisfied",
+        "posture": (
+            "review_required"
+            if below_floor_count or missing_score_count
+            else "satisfied"
+        ),
         "candidates_checked": len(candidates),
         "decisions_checked": len(decisions),
         "candidate_below_floor_count": len(low_candidates),
         "decision_below_floor_count": len(low_decisions),
         "below_floor_count": below_floor_count,
+        "candidate_missing_score_count": missing_candidate_score_count,
+        "decision_missing_score_count": missing_decision_score_count,
+        "missing_score_count": missing_score_count,
         "candidate_samples": [
             _quality_floor_candidate_sample(row) for row in low_candidates[:3]
         ],
@@ -495,6 +533,7 @@ def _quality_floor(
         ],
         "operator_action": _quality_floor_operator_action(
             below_floor_count=below_floor_count,
+            missing_score_count=missing_score_count,
             candidates_checked=len(candidates),
             decisions_checked=len(decisions),
         ),

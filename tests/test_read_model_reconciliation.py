@@ -216,6 +216,9 @@ def test_research_signal_quality_snapshot_surfaces_quality_floor_posture() -> No
         "candidate_below_floor_count": 1,
         "decision_below_floor_count": 1,
         "below_floor_count": 2,
+        "candidate_missing_score_count": 0,
+        "decision_missing_score_count": 0,
+        "missing_score_count": 0,
         "candidate_samples": [
             {
                 "candidate_id": "candidate-low",

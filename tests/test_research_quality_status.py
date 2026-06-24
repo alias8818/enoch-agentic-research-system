@@ -281,6 +281,9 @@ def test_quality_report_exposes_quality_floor_review_required() -> None:
         "candidate_below_floor_count": 1,
         "decision_below_floor_count": 1,
         "below_floor_count": 2,
+        "candidate_missing_score_count": 0,
+        "decision_missing_score_count": 0,
+        "missing_score_count": 0,
         "candidate_samples": [
             {
                 "candidate_id": "candidate-low",
@@ -342,8 +345,96 @@ def test_quality_report_exposes_satisfied_quality_floor() -> None:
     assert status["quality_floor"]["candidate_below_floor_count"] == 0
     assert status["quality_floor"]["decision_below_floor_count"] == 0
     assert status["quality_floor"]["below_floor_count"] == 0
+    assert status["quality_floor"]["missing_score_count"] == 0
     assert status["quality_floor"]["operator_action"] == (
         "quality floor satisfied across 1 candidates and 1 decisions"
+    )
+
+
+def test_quality_floor_tracks_missing_scores_without_phantom_below_floor() -> None:
+    report = _report_with_decision("")
+    report["summary"]["candidate_count"] = 1
+    report["summary"]["decision_count"] = 2
+    report["candidate_scores"] = [
+        {
+            "candidate_id": "candidate-missing-score",
+            "title": "Candidate missing score",
+            "status": "needs_review",
+            "problems": [],
+        }
+    ]
+    report["decision_scores"] = [
+        {
+            "project_id": "project-missing",
+            "project_name": "Missing score project",
+            "run_id": "run-missing",
+            "decision": "blocked",
+            "hypothesis_status": "unknown",
+            "evidence_strength": "weak",
+            "problems": [],
+        },
+        {
+            "project_id": "project-low",
+            "project_name": "Low score project",
+            "run_id": "run-low",
+            "decision": "blocked",
+            "hypothesis_status": "unknown",
+            "evidence_strength": "weak",
+            "decision_quality_score": 0.4,
+            "problems": ["weak_or_missing_evidence_strength"],
+        },
+    ]
+
+    floor = classify_quality_report(report)["quality_floor"]
+
+    assert floor["posture"] == "review_required"
+    assert floor["candidate_below_floor_count"] == 0
+    assert floor["decision_below_floor_count"] == 1
+    assert floor["below_floor_count"] == 1
+    assert floor["candidate_missing_score_count"] == 1
+    assert floor["decision_missing_score_count"] == 1
+    assert floor["missing_score_count"] == 2
+    assert floor["candidate_samples"] == []
+    assert floor["decision_samples"] == [
+        {
+            "project_id": "project-low",
+            "project_name": "Low score project",
+            "run_id": "run-low",
+            "decision": "blocked",
+            "hypothesis_status": "unknown",
+            "score": 0.4,
+            "problems": ["weak_or_missing_evidence_strength"],
+        }
+    ]
+    assert floor["operator_action"] == (
+        "review 1 below-floor Research Quality artifacts before widening automation "
+        "or treating outputs as externally useful"
+    )
+
+
+def test_quality_floor_missing_scores_get_refresh_action_when_no_rows_are_low() -> None:
+    report = _report_with_decision("")
+    report["candidate_scores"] = []
+    report["decision_scores"] = [
+        {
+            "project_id": "project-missing",
+            "project_name": "Missing score project",
+            "run_id": "run-missing",
+            "decision": "blocked",
+            "hypothesis_status": "unknown",
+            "evidence_strength": "weak",
+            "problems": [],
+        }
+    ]
+
+    floor = classify_quality_report(report)["quality_floor"]
+
+    assert floor["posture"] == "review_required"
+    assert floor["below_floor_count"] == 0
+    assert floor["decision_missing_score_count"] == 1
+    assert floor["operator_action"] == (
+        "refresh Research Quality scoring for 1 artifacts missing quality scores "
+        "before judging the floor"
     )
 
 

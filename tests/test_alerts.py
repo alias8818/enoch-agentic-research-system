@@ -929,6 +929,9 @@ def test_research_quality_finding_explains_review_required_signal_during_hold(
         "candidate_below_floor_count": 0,
         "decision_below_floor_count": 0,
         "below_floor_count": 0,
+        "candidate_missing_score_count": 0,
+        "decision_missing_score_count": 0,
+        "missing_score_count": 0,
         "candidate_samples": [],
         "decision_samples": [],
         "operator_action": (
