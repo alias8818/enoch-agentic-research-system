@@ -659,6 +659,8 @@ def test_telemetry_collector_without_optional_backends(
     assert sample.cpu_pct == 0.0
     assert sample.memory_source == "uma_meminfo"
     assert sample.uma_allocatable_mib == 1000
+    assert sample.uma_pressure_mib == 1000
+    assert sample.vram_used_mib == 0
     collector.close()
 
 
@@ -695,8 +697,8 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
         lambda _handle: SimpleNamespace(gpu=42),
     )
 
-    def compute_processes(_handle: object) -> list[SimpleNamespace]:
-        return [SimpleNamespace(pid=111), SimpleNamespace(pid=None)]
+    def compute_processes(_handle: object) -> list[object]:
+        return [SimpleNamespace(pid=111), (222, 4096), SimpleNamespace(pid=None)]
 
     monkeypatch.setattr(
         telemetry_mod,
@@ -716,7 +718,7 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
     sample = collector.sample()
     assert sample.cpu_pct == 12.5
     assert sample.gpu_pct == 42.0
-    assert sample.gpu_compute_pids == [111]
+    assert sample.gpu_compute_pids == [111, 222]
     assert sample.memory_source == "nvml_dedicated"
     assert sample.vram_used_mib == 3
     collector.close()
@@ -740,6 +742,7 @@ def test_telemetry_collector_retains_last_gpu_signal_on_nvml_sample_failure(
     )
     monkeypatch.setattr(telemetry_mod, "nvmlInit", lambda: None)
     monkeypatch.setattr(telemetry_mod, "nvmlShutdown", lambda: None)
+    monkeypatch.setattr(telemetry_mod, "_NVML_EXPECTED_ERRORS", (RuntimeError,))
 
     def get_handle(index: int) -> str:
         return "handle"
@@ -781,4 +784,64 @@ def test_telemetry_collector_retains_last_gpu_signal_on_nvml_sample_failure(
     assert first.gpu_compute_pids == [111]
     assert second.gpu_pct == 42.0
     assert second.gpu_compute_pids == [111]
+    assert second.nvml_error == "RuntimeError: transient nvml failure"
+    collector.close()
+
+
+def test_telemetry_collector_surfaces_nvml_init_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        telemetry_mod,
+        "_read_meminfo",
+        lambda: {"MemTotal": 2048000, "MemAvailable": 1024000},
+    )
+    monkeypatch.setattr(telemetry_mod, "_NVML_EXPECTED_ERRORS", (RuntimeError,))
+    monkeypatch.setattr(
+        telemetry_mod,
+        "nvmlInit",
+        lambda: (_ for _ in ()).throw(RuntimeError("driver locked")),
+    )
+
+    collector = telemetry_mod.TelemetryCollector()
+    sample = collector.sample()
+
+    assert sample.nvml_error == "RuntimeError: driver locked"
+    assert sample.memory_source == "uma_meminfo"
+    assert sample.gpu_compute_pids == []
+
+
+def test_telemetry_collector_surfaces_nvml_sample_failure_without_zeroing_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        telemetry_mod,
+        "_read_meminfo",
+        lambda: {"MemTotal": 2048000, "MemAvailable": 1024000},
+    )
+    monkeypatch.setattr(telemetry_mod, "_NVML_EXPECTED_ERRORS", (RuntimeError,))
+    monkeypatch.setattr(telemetry_mod, "nvmlInit", lambda: None)
+    monkeypatch.setattr(telemetry_mod, "nvmlShutdown", lambda: None)
+
+    def get_handle(_index: int) -> str:
+        return "h"
+
+    def fail_utilization(_handle: object) -> object:
+        raise RuntimeError("sample failed")
+
+    monkeypatch.setattr(
+        telemetry_mod,
+        "nvmlDeviceGetUtilizationRates",
+        fail_utilization,
+    )
+    monkeypatch.setattr(telemetry_mod, "nvmlDeviceGetHandleByIndex", get_handle)
+
+    collector = telemetry_mod.TelemetryCollector()
+    collector._last_gpu_pct = 12.0  # noqa: SLF001 - regression state setup
+    collector._last_gpu_compute_pids = [333]  # noqa: SLF001 - regression state setup
+    sample = collector.sample()
+
+    assert sample.nvml_error == "RuntimeError: sample failed"
+    assert sample.gpu_pct == 12.0
+    assert sample.gpu_compute_pids == [333]
     collector.close()

@@ -77,12 +77,12 @@ class TelemetrySample(BaseModel):
     timestamp: str = Field(default_factory=utc_now)
     cpu_pct: float = 0.0
     gpu_pct: float = 0.0
-    # Dedicated framebuffer memory on dGPU systems. On DGX Spark/UMA
-    # systems this is a compatibility alias for UMA pressure because
-    # nvidia-smi/NVML memory usage is not supported for iGPU platforms.
+    # Dedicated framebuffer memory on dGPU systems. UMA pressure is reported
+    # separately via uma_pressure_mib and must not be treated as VRAM usage.
     vram_used_mib: int = 0
     gpu_compute_pids: list[int] = Field(default_factory=list)
     memory_source: str = "unknown"
+    nvml_error: str | None = None
     memory_total_mib: int = 0
     memory_available_mib: int = 0
     swap_free_mib: int = 0

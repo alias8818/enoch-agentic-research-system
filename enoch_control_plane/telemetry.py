@@ -10,6 +10,7 @@ except ImportError:  # pragma: no cover - dependency may not be installed yet
 
 try:
     from pynvml import (
+        NVMLError,
         nvmlDeviceGetComputeRunningProcesses,
         nvmlDeviceGetHandleByIndex,
         nvmlDeviceGetMemoryInfo,
@@ -18,6 +19,7 @@ try:
         nvmlShutdown,
     )
 except ImportError:  # pragma: no cover - dependency may not be installed yet
+    NVMLError = None
     nvmlDeviceGetComputeRunningProcesses = None
     nvmlDeviceGetHandleByIndex = None
     nvmlDeviceGetMemoryInfo = None
@@ -28,6 +30,20 @@ except ImportError:  # pragma: no cover - dependency may not be installed yet
 from .models import TelemetrySample
 
 _KB_PER_MIB = 1024
+_NVML_EXPECTED_ERRORS = (OSError,) if NVMLError is None else (NVMLError, OSError)
+
+
+def _format_nvml_error(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _nvml_process_pid(proc: object) -> int | None:
+    pid = getattr(proc, "pid", None)
+    if pid is None and isinstance(proc, tuple) and proc:
+        pid = proc[0]
+    if pid is None:
+        return None
+    return int(pid)
 
 
 def _read_meminfo(path: Path = Path("/proc/meminfo")) -> dict[str, int]:
@@ -94,6 +110,7 @@ class TelemetryCollector:
     def __init__(self) -> None:
         self._psutil = psutil
         self._nvml_ready = False
+        self._last_nvml_error: str | None = None
         self._last_gpu_pct = 0.0
         self._last_gpu_compute_pids: list[int] = []
         if self._psutil is not None:
@@ -102,9 +119,11 @@ class TelemetryCollector:
             try:
                 nvmlInit()
                 self._nvml_ready = True
+                self._last_nvml_error = None
                 atexit.register(self.close)
-            except Exception:
+            except _NVML_EXPECTED_ERRORS as exc:
                 self._nvml_ready = False
+                self._last_nvml_error = _format_nvml_error(exc)
 
     def sample(self) -> TelemetrySample:
         cpu_pct = 0.0
@@ -114,7 +133,7 @@ class TelemetryCollector:
         meminfo = _read_meminfo()
         uma = _uma_memory_from_meminfo(meminfo)
         gpu_pct = 0.0
-        vram_used_mib = int(uma["uma_pressure_mib"])
+        vram_used_mib = 0
         memory_source = str(uma["memory_source"])
         gpu_compute_pids: list[int] = []
 
@@ -124,9 +143,9 @@ class TelemetryCollector:
                 util = nvmlDeviceGetUtilizationRates(handle)
                 gpu_pct = float(util.gpu)
                 for proc in nvmlDeviceGetComputeRunningProcesses(handle):
-                    pid = getattr(proc, "pid", None)
+                    pid = _nvml_process_pid(proc)
                     if pid is not None:
-                        gpu_compute_pids.append(int(pid))
+                        gpu_compute_pids.append(pid)
                 self._last_gpu_pct = gpu_pct
                 self._last_gpu_compute_pids = list(gpu_compute_pids)
                 try:
@@ -136,12 +155,13 @@ class TelemetryCollector:
                     if dedicated_total_mib > 0:
                         vram_used_mib = dedicated_used_mib
                         memory_source = "nvml_dedicated"
-                except Exception:
+                except _NVML_EXPECTED_ERRORS:
                     # Expected on DGX Spark/iGPU UMA platforms: NVIDIA documents
                     # that nvidia-smi reports Memory-Usage as unsupported. UMA
                     # meminfo remains the operator-visible fallback signal.
                     memory_source = str(uma["memory_source"])
-            except Exception:
+            except _NVML_EXPECTED_ERRORS as exc:
+                self._last_nvml_error = _format_nvml_error(exc)
                 gpu_pct = self._last_gpu_pct
                 gpu_compute_pids = list(self._last_gpu_compute_pids)
 
@@ -151,6 +171,7 @@ class TelemetryCollector:
             vram_used_mib=vram_used_mib,
             gpu_compute_pids=gpu_compute_pids,
             memory_source=memory_source,
+            nvml_error=self._last_nvml_error,
             memory_total_mib=int(uma["memory_total_mib"]),
             memory_available_mib=int(uma["memory_available_mib"]),
             swap_free_mib=int(uma["swap_free_mib"]),
