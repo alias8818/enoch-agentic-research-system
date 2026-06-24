@@ -2,6 +2,7 @@
 Description=Enoch Agentic Research Control Plane
 After=network-online.target
 Wants=network-online.target
+OnFailure=enoch-worker-gate-failure-notify@%n.service
 
 [Service]
 Type=simple
@@ -9,8 +10,7 @@ WorkingDirectory=/opt/enoch-control-plane
 Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
 EnvironmentFile=-/etc/enoch-control-plane/sentry.env
 ExecStart=/opt/enoch-control-plane/.venv/bin/python -m uvicorn enoch_control_plane.app:app --host 127.0.0.1 --port 8787
-Restart=on-failure
-RestartSec=3
+Restart=no
 TimeoutStopSec=30
 KillMode=mixed
 FinalKillSignal=SIGKILL

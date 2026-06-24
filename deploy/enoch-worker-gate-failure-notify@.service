@@ -1,0 +1,22 @@
+[Unit]
+Description=Notify operators that %i failed
+
+[Service]
+Type=oneshot
+User=enoch
+Group=enoch
+WorkingDirectory=/opt/enoch-control-plane
+Environment=ENOCH_CONFIG=/etc/enoch-control-plane/config.json
+EnvironmentFile=-/etc/enoch-control-plane/sentry.env
+ExecStart=/opt/enoch-control-plane/.venv/bin/python /opt/enoch-control-plane/deploy/enoch_worker_gate_failure_notify.py --failed-unit %i
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/enoch-control-plane /var/log/enoch-control-plane /tmp
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service

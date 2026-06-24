@@ -108,6 +108,7 @@ PY
   fi
   chown -R "$SERVICE_USER:$SERVICE_USER" "$STATE_DIR"
   write_unit "$PREFIX/deploy/enoch-worker-gate.service" /etc/systemd/system/enoch-control-plane.service
+  write_unit "$PREFIX/deploy/enoch-worker-gate-failure-notify@.service" /etc/systemd/system/enoch-worker-gate-failure-notify@.service
   write_unit "$PREFIX/deploy/enoch-queue-alert-check.service" /etc/systemd/system/enoch-queue-alert-check.service
   write_unit "$PREFIX/deploy/enoch-source-lineage-check.service" /etc/systemd/system/enoch-source-lineage-check.service
   if [[ "${ENOCH_INSTALL_LEGACY_NOTION_UNITS:-0}" == "1" ]]; then

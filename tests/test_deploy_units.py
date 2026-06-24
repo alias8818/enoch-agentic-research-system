@@ -5,6 +5,7 @@ import importlib.util
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -799,9 +800,7 @@ def test_enoch_worker_skill_uses_codex_description_frontmatter() -> None:
 
 
 def test_control_plane_service_has_bounded_shutdown_for_deploy_restarts() -> None:
-    service = (ROOT / "deploy" / "enoch-worker-gate.service").read_text(
-        encoding="utf-8"
-    )
+    service = _deploy_unit("enoch-worker-gate.service")
     assert "TimeoutStopSec=30" in service
     assert "KillMode=mixed" in service
     assert "FinalKillSignal=SIGKILL" in service
@@ -1412,8 +1411,22 @@ def test_research_facility_sql_guard_and_close_centralized_no_s1192_duplication(
 
 def test_worker_gate_unit_binds_loopback_and_has_systemd_hardening() -> None:
     service = _deploy_unit("enoch-worker-gate.service")
+    notify = _deploy_unit("enoch-worker-gate-failure-notify@.service")
+    notify_script = (ROOT / "deploy" / "enoch_worker_gate_failure_notify.py").read_text(
+        encoding="utf-8"
+    )
+    install = (ROOT / "scripts" / "install-control-plane.sh").read_text(
+        encoding="utf-8"
+    )
     assert "--host 127.0.0.1 --port 8787" in service
     assert "--host 0.0.0.0" not in service
+    assert "Restart=no" in service
+    assert "Restart=on-failure" not in service
+    assert "OnFailure=enoch-worker-gate-failure-notify@%n.service" in service
+    assert "enoch-worker-gate-failure-notify@.service" in install
+    assert "--failed-unit %i" in notify
+    assert "send_pushover" in notify_script
+    assert "journalctl for the first traceback" in notify_script
     for directive in (
         "NoNewPrivileges=yes",
         "PrivateTmp=yes",
@@ -1423,6 +1436,31 @@ def test_worker_gate_unit_binds_loopback_and_has_systemd_hardening() -> None:
         "SystemCallFilter=@system-service",
     ):
         assert directive in service
+        assert directive in notify
+
+
+def test_worker_gate_failure_notify_is_best_effort_without_config(
+    tmp_path: Path,
+) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "deploy" / "enoch_worker_gate_failure_notify.py"),
+            "--config",
+            str(tmp_path / "missing.json"),
+            "--failed-unit",
+            "enoch-control-plane.service",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["attempted"] is False
+    assert payload["failed_unit"] == "enoch-control-plane.service"
+    assert "pushover notification skipped" in payload["reason"]
 
 
 def test_runtime_credential_units_run_as_enoch_with_systemd_hardening() -> None:
