@@ -1045,13 +1045,15 @@ def _emit_lineage_sql(lines: list[str], candidate: dict[str, Any]) -> None:
     for source_id in candidate["source_ids"]:
         lines.append(
             "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-            f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'source_ids': candidate['source_ids']})});"
+            f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'source_ids': candidate['source_ids']})}) "
+            "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing;"
         )
     for url in candidate["source_urls"]:
         source_id = "url-" + stable_hash(_as_text(url), 24)
         lines.append(
             "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-            f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})});"
+            f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})}) "
+            "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing;"
         )
 
 
@@ -1131,7 +1133,8 @@ def _emit_admitted_queue_sql(
     lines.append(
         "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
         f"('candidate', {sql_literal(c['candidate_id'])}, 'idea', {sql_literal(idea_id)}, 'admitted_as', {sql_json({'admission_reason': plan.admission_reason})}), "
-        f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})});"
+        f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})}) "
+        "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing;"
     )
 
 

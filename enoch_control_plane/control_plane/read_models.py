@@ -228,13 +228,15 @@ def _artifact_file_flags_for_fields(
                 root = candidate_root
         except (OSError, RuntimeError, ValueError):
             root = None
-    readability_cache: dict[str, bool] = {}
+    readability_cache: dict[tuple[str, bool], bool] = {}
 
     def is_readable(field: str) -> bool:
         path_text = _text(row.get(field))
         if not path_text:
             return False
-        cached = readability_cache.get(path_text)
+        allow_finalization_roots = field == "finalization_package_path"
+        cache_key = (path_text, allow_finalization_roots)
+        cached = readability_cache.get(cache_key)
         if cached is not None:
             return cached
         try:
@@ -247,7 +249,7 @@ def _artifact_file_flags_for_fields(
                 resolved = candidate.resolve(strict=False)
                 allowed_roots = (
                     _allowed_finalization_package_roots(root)
-                    if field == "finalization_package_path"
+                    if allow_finalization_roots
                     else (root,)
                 )
                 readable = (
@@ -255,7 +257,7 @@ def _artifact_file_flags_for_fields(
                 )
         except (OSError, RuntimeError, ValueError):
             readable = False
-        readability_cache[path_text] = readable
+        readability_cache[cache_key] = readable
         return readable
 
     return {field: is_readable(field) for field in fields}

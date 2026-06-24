@@ -147,21 +147,55 @@ def test_latest_research_source_kind_constraint_preserves_prior_values() -> None
     assert "research_synthesis" in values(latest)
 
 
-def test_research_lineage_identity_is_unique_before_conflict_inserts() -> None:
-    initial = " ".join(
-        _migration("20260509140339_enoch_research_facility_ledgers.sql").lower().split()
-    )
-    hardening = " ".join(
-        _migration("20260520004500_research_lineage_idempotency.sql").lower().split()
+def test_core_audit_tables_are_append_only_for_service_role() -> None:
+    sql = _migration("20260506151315_enoch_core_supabase_store.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert "grant select, insert, update on enoch.core_events, enoch.core_decisions to service_role" in normalized
+    assert "grant select, insert, update, delete on enoch.core_events" not in normalized
+    assert "grant select, insert, update, delete on enoch.core_decisions" not in normalized
+    assert "create trigger prevent_core_events_delete" in normalized
+    assert "create trigger prevent_core_decisions_delete" in normalized
+    assert "prevent_core_append_only_delete" in normalized
+
+
+def test_research_synthesis_lineage_migration_drops_versioned_status_constraint_before_add() -> None:
+    sql = _migration("20260519190000_research_synthesis_lineage.sql")
+    normalized = " ".join(sql.lower().split())
+
+    assert "drop constraint if exists research_candidates_status_check," in normalized
+    assert "drop constraint if exists research_candidates_status_check_v2" in normalized
+    assert normalized.index("drop constraint if exists research_candidates_status_check_v2") < normalized.index(
+        "add constraint research_candidates_status_check_v2"
     )
 
-    unique_index = (
-        "create unique index concurrently if not exists "
+
+def test_research_lineage_identity_is_unique_before_conflict_inserts() -> None:
+    initial_tokens = " ".join(
+        _migration("20260509140339_enoch_research_facility_ledgers.sql").lower().split()
+    )
+    idempotency_tokens = " ".join(
+        _migration("20260520004500_research_lineage_idempotency.sql").lower().split()
+    )
+    hardening = idempotency_tokens
+    emitted_sql_source = Path("scripts/research_facility.py").read_text(
+        encoding="utf-8"
+    ).lower()
+
+    assert (
         "idx_research_lineage_identity_unique on "
         "enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type)"
+        in initial_tokens
     )
-    assert unique_index in initial
-    assert unique_index in hardening
+    assert (
+        "idx_research_lineage_identity_unique on "
+        "enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type)"
+        in idempotency_tokens
+    )
+    assert emitted_sql_source.count(
+        "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
+    ) >= 3
+
     assert (
         "partition by source_type, source_id, target_type, target_id, relation_type"
         in hardening
@@ -189,9 +223,10 @@ def test_corpus_import_fingerprint_migration_uses_bounded_backfill_and_concurren
     assert "limit 1000" in normalized
     assert "get diagnostics rows_updated = row_count" in normalized
     assert "raise exception" in normalized
-    assert "paper_id ||" in normalized
-    assert "|| corpus_repo" in normalized
-    assert "digest(paper_id, 'sha256')" not in normalized
+    assert "digest(paper_id, 'sha256')" in normalized
+    assert "paper_id ||" not in normalized
+    assert "|| corpus_repo" not in normalized
+    assert "), 16" in normalized
     assert (
         "create unique index concurrently if not exists "
         "idx_corpus_imports_source_fingerprint"
@@ -211,6 +246,14 @@ def test_migrations_do_not_create_blanket_service_role_all_policies() -> None:
             offenders.append(f"{migration.name}: using true")
 
     assert offenders == []
+
+
+def test_supabase_migration_validator_allows_intentional_rls_tables_without_policies() -> None:
+    source = Path("scripts/validate_supabase_migrations.py").read_text(encoding="utf-8")
+    normalized = " ".join(source.lower().split())
+
+    assert "rls tables without policies" not in normalized
+    assert "service_role's postgrest bypass" in normalized
 
 
 def test_service_role_all_cleanup_migration_drops_existing_blanket_policies() -> None:

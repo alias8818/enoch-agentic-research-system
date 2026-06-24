@@ -27,6 +27,8 @@ def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
     assert store.load_run("run").project_id == "project"
     (store.runs_dir / "bad.json").write_text("not-json")
     assert [item.run_id for item in store.list_runs()] == ["run"]
+    assert not (tmp_path / "runs" / "bad.json").exists()
+    assert list((tmp_path / "runs" / "corrupt").glob("bad.json*.corrupt"))
     store.append_event({"b": 2, "a": 1})
     event = json.loads(store.events_log.read_text())
     assert event["a"] == 1
@@ -78,6 +80,17 @@ def test_state_store_append_event_concurrent_writes_are_parseable(
     assert len(events) == 40
     assert sorted(event["index"] for event in events) == list(range(40))
     assert sorted(event["event_sequence"] for event in events) == list(range(1, 41))
+
+
+def test_state_store_readiness_check_does_not_quarantine_corrupt_runs(tmp_path: Path) -> None:
+    store = StateStore(tmp_path)
+    bad_path = store.run_path("bad")
+    bad_path.write_text("{not json", encoding="utf-8")
+
+    store.check_runs_dir_readable()
+
+    assert bad_path.exists()
+    assert not (tmp_path / "runs" / "corrupt").exists()
 
 
 def test_state_store_append_event_rotates_bounded_event_log(tmp_path: Path) -> None:
@@ -243,7 +256,9 @@ def test_callback_sender_rejects_file_scheme_before_urlopen(monkeypatch) -> None
             completion_callback_url="file:///etc/passwd",
             completion_callback_token="secret",
         )
-    assert "completion_callback_url must use http or https" in str(raised.value)
+    detail = str(raised.value)
+    assert "completion_callback_url must use http or https" in detail
+    assert "file:///etc/passwd" not in detail
 
 
 def test_dspy_program_signatures_with_fake_module(monkeypatch) -> None:

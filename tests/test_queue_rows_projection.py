@@ -28,6 +28,8 @@ def test_supabase_queue_rows_uses_lateral_related_projection() -> None:
     assert "select pa.paper_id" not in query.lower()
     assert "select rv.automation_status" not in query.lower()
     assert "select ci.corpus_import_id" not in query.lower()
+    assert "from corpus_imports ci" in query.lower()
+    assert "limit 1" in query.lower()
     assert "from project_decisions d" in query
 
 
@@ -71,6 +73,12 @@ def test_sqlite_queue_rows_preserves_related_paper_projection_semantics() -> Non
                 values ('paper-current', 'repo', 'artifact-current', 'fingerprint-current', '2026-06-22T00:00:00Z', '2026-06-22T00:00:00Z')
                 """
             )
+            conn.execute(
+                """
+                insert into corpus_imports(paper_id, corpus_repo, artifact_slug, source_record_fingerprint, imported_at, created_at)
+                values ('paper-current', 'other-repo', 'artifact-newer', 'fingerprint-newer', '2026-06-22T00:05:00Z', '2026-06-22T00:05:00Z')
+                """
+            )
 
         rows = store.queue_rows()
 
@@ -80,6 +88,6 @@ def test_sqlite_queue_rows_preserves_related_paper_projection_semantics() -> Non
         assert row["related_paper_status"] == "publication_draft"
         assert row["related_review_status"] == "approved_for_finalization"
         assert row["related_finalization_package_path"] == "package/final.json"
-        assert row["related_artifact_slug"] == "artifact-current"
-        assert row["related_source_record_fingerprint"] == "fingerprint-current"
+        assert row["related_artifact_slug"] == "artifact-newer"
+        assert row["related_source_record_fingerprint"] == "fingerprint-newer"
         assert row["related_corpus_imported"] == 1

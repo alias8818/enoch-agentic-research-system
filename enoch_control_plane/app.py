@@ -269,7 +269,7 @@ def _reconcile_task_readiness_error() -> str:
 
 def _state_store_readiness_error() -> str:
     try:
-        store.list_runs()
+        store.check_runs_dir_readable()
     except Exception as exc:
         _logger.warning("state store failed readiness check", exc_info=exc)
         return "state store unavailable"

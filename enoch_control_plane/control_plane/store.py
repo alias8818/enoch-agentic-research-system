@@ -2208,6 +2208,14 @@ class ControlPlaneStore:
                             AND q.status NOT IN ('awaiting_wake','dispatching','reconciling','running','wake_received')
                         )
                      )
+                ), scoped_corpus_imports AS (
+                    SELECT
+                        ci.*,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY ci.paper_id
+                            ORDER BY ci.imported_at DESC, ci.corpus_import_id DESC
+                        ) AS queue_corpus_import_rank
+                    FROM corpus_imports ci
                 )
                 SELECT q.*,
                     p.project_name AS project_name,
@@ -2235,7 +2243,9 @@ class ControlPlaneStore:
                   ON pa.queue_project_id = q.project_id
                  AND pa.queue_paper_rank = 1
                 LEFT JOIN paper_review_items rv USING(paper_id)
-                LEFT JOIN corpus_imports ci USING(paper_id)
+                LEFT JOIN scoped_corpus_imports ci
+                  ON ci.paper_id = pa.paper_id
+                 AND ci.queue_corpus_import_rank = 1
                 ORDER BY q.dispatch_priority ASC, q.updated_at DESC"""
             ).fetchall()
         return [dict(row) for row in rows]

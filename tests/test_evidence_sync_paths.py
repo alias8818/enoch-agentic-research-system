@@ -132,7 +132,7 @@ def test_remote_evidence_dir_uses_relative_project_dir_over_project_id(
     )
 
 
-def test_remote_evidence_dir_preserves_worker_absolute_and_ignores_local_absolute(
+def test_remote_evidence_dir_rejects_worker_absolute_and_ignores_local_absolute(
     tmp_path,
 ) -> None:
     config = _config(tmp_path)
@@ -145,7 +145,7 @@ def test_remote_evidence_dir_preserves_worker_absolute_and_ignores_local_absolut
             project_id="project",
             source_project_dir="/home/jeremy/projects/project",
         )
-        == "/home/jeremy/projects/project"
+        == "/remote/projects/project"
     )
     assert (
         _remote_evidence_dir(

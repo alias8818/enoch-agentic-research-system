@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 import json
 import sys
+from typing import Any
 
 import pytest
+from pytest import MonkeyPatch
 
 from enoch_control_plane.enoch_core.store import IdempotencyConflict
 from scripts import research_facility_llm_review
@@ -37,6 +39,34 @@ def test_llm_review_budget_checks_weekly_percent(monkeypatch):
     assert result["ok"] is False
     assert result["weekly_percent_remaining"] == 24.9
     assert "weekly percent remaining" in "; ".join(result["failures"])
+
+
+def test_llm_review_budget_skips_synthetic_quota_api_for_non_synthetic_provider(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    def fail_fetch(*_args: Any, **_kwargs: Any) -> None:
+        raise AssertionError("non-Synthetic providers must not call Synthetic quota API")
+
+    monkeypatch.setattr(
+        research_facility_llm_review.research_provider_budget,
+        "fetch_json",
+        fail_fetch,
+    )
+
+    result = research_facility_llm_review.budget_status(
+        base_url="https://openrouter.ai/api/v1",
+        api_key="",
+        estimated_requests=1,
+        reserve_requests=5,
+        min_remaining_credits=10.0,
+        min_rolling_remaining=150,
+        min_weekly_percent_remaining=25.0,
+        timeout=10,
+    )
+
+    assert result["ok"] is True
+    assert result["budget_check_skipped"] is True
+    assert "non-Synthetic" in result["reason"]
 
 
 def test_llm_review_budget_passes_provider_api_key(monkeypatch):

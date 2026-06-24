@@ -18605,6 +18605,25 @@ def test_provider_generation_does_not_substring_match_rate_limit_text():
     assert _provider_generation_failure_kind(exc) == "exception"
 
 
+def test_provider_generation_classifies_wrapped_http_429_as_rate_limited():
+    from enoch_control_plane.control_plane.router import (
+        _provider_generation_failure_kind,
+    )
+
+    class HTTP429(RuntimeError):
+        code = 429
+
+    try:
+        try:
+            raise HTTP429("too many requests")
+        except HTTP429 as inner:
+            raise RuntimeError("provider generation failed") from inner
+    except RuntimeError as wrapped:
+        exc = wrapped
+
+    assert _provider_generation_failure_kind(exc) == "rate_limited"
+
+
 def test_provider_generation_records_timeout_attempt_event():
     from enoch_control_plane.control_plane.router import (
         _ProviderGenerationParams,

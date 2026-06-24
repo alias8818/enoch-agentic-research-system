@@ -36,8 +36,6 @@ def test_gate_config_rejects_non_http_url_fields(field: str, value: str) -> None
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("completion_callback_url", "http://169.254.169.254/latest/meta-data"),
-        ("n8n_callback_url", "http://127.0.0.1:8787/callback"),
         ("pushover_api_url", "http://10.0.0.5/pushover"),
         ("paper_writer_base_url", "http://172.16.0.10/openai/v1"),
     ],
@@ -47,11 +45,27 @@ def test_external_outbound_config_urls_reject_private_targets(
 ) -> None:
     kwargs = _config_kwargs()
     kwargs[field] = value
-    if field == "n8n_callback_url":
-        kwargs["completion_callback_url"] = ""
-
     with pytest.raises(ValidationError, match="private address"):
         GateConfig.model_validate(kwargs)
+
+
+def test_callback_urls_allow_private_targets_for_local_worker_deployments() -> None:
+    config = GateConfig.model_validate(
+        {
+            **_config_kwargs(),
+            "completion_callback_url": "http://127.0.0.1:8787/control/api/worker-callback",
+        }
+    )
+    legacy = GateConfig.model_validate(
+        {
+            **_config_kwargs(),
+            "completion_callback_url": "",
+            "n8n_callback_url": "http://10.0.0.5:5678/webhook/enoch",
+        }
+    )
+
+    assert config.completion_callback_url.startswith("http://127.0.0.1:")
+    assert legacy.completion_callback_url == "http://10.0.0.5:5678/webhook/enoch"
 
 
 def test_worker_gate_and_local_hermes_webhook_allow_private_http_targets() -> None:

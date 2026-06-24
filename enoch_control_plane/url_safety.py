@@ -137,42 +137,43 @@ def _pin_getaddrinfo(
     port: int,
     addrinfo: list[tuple[int, int, int, str, tuple[Any, ...]]],
 ) -> Generator[None, None, None]:
-    original_getaddrinfo = socket.getaddrinfo
     normalized_host = host.rstrip(".").lower()
 
-    def pinned_getaddrinfo(
-        query_host: str,
-        query_port: int | str | None,
-        family: int = 0,
-        type: int = 0,  # noqa: A002 - match socket.getaddrinfo signature
-        proto: int = 0,
-        flags: int = 0,
-    ) -> list[tuple[int, int, int, str, tuple[Any, ...]]]:
-        del flags
-        query_host_normalized = str(query_host or "").rstrip(".").lower()
-        query_port_int = int(query_port) if query_port is not None else port
-        if query_host_normalized != normalized_host or query_port_int != port:
-            return cast(
-                list[tuple[int, int, int, str, tuple[Any, ...]]],
-                original_getaddrinfo(query_host, query_port, family, type, proto),
-            )
-        pinned: list[tuple[int, int, int, str, tuple[Any, ...]]] = []
-        for item in addrinfo:
-            item_family, item_type, item_proto, _canonname, _sockaddr = item
-            if family not in (0, item_family):
-                continue
-            if type not in (0, item_type):
-                continue
-            if proto not in (0, item_proto):
-                continue
-            pinned.append(item)
-        if not pinned:
-            raise socket.gaierror(
-                socket.EAI_NONAME, "no pinned address matched request"
-            )
-        return pinned
-
     with _PINNED_DNS_LOCK:
+        original_getaddrinfo = socket.getaddrinfo
+
+        def pinned_getaddrinfo(
+            query_host: str,
+            query_port: int | str | None,
+            family: int = 0,
+            type: int = 0,  # noqa: A002 - match socket.getaddrinfo signature
+            proto: int = 0,
+            flags: int = 0,
+        ) -> list[tuple[int, int, int, str, tuple[Any, ...]]]:
+            del flags
+            query_host_normalized = str(query_host or "").rstrip(".").lower()
+            query_port_int = int(query_port) if query_port is not None else port
+            if query_host_normalized != normalized_host or query_port_int != port:
+                return cast(
+                    list[tuple[int, int, int, str, tuple[Any, ...]]],
+                    original_getaddrinfo(query_host, query_port, family, type, proto),
+                )
+            pinned: list[tuple[int, int, int, str, tuple[Any, ...]]] = []
+            for item in addrinfo:
+                item_family, item_type, item_proto, _canonname, _sockaddr = item
+                if family not in (0, item_family):
+                    continue
+                if type not in (0, item_type):
+                    continue
+                if proto not in (0, item_proto):
+                    continue
+                pinned.append(item)
+            if not pinned:
+                raise socket.gaierror(
+                    socket.EAI_NONAME, "no pinned address matched request"
+                )
+            return pinned
+
         socket.getaddrinfo = pinned_getaddrinfo
         try:
             yield

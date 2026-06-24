@@ -497,13 +497,40 @@ def test_http_request_json_retries_transient_urlopen_failures(monkeypatch: Any) 
     monkeypatch.setattr(worker_adapter, "urlopen_validated", fake_urlopen)
 
     result = worker_adapter._http_request_json(
-        "GET", "http://worker.example/healthz", {}, None, timeout=7
+        "GET", "http://worker.example/healthz", {}, None, timeout=7, retry_transient=True
     )
 
     assert result.ok is True
     assert result.status == 200
     assert result.body == {"ok": True}
     assert calls == [7, 7]
+
+
+def test_post_worker_json_does_not_retry_ambiguous_mutating_timeouts(
+    monkeypatch: Any,
+) -> None:
+    from enoch_control_plane.control_plane import worker_adapter
+
+    calls = 0
+
+    def fake_urlopen(*_args: Any, **_kwargs: Any) -> object:
+        nonlocal calls
+        calls += 1
+        raise TimeoutError("accepted request but response timed out")
+
+    monkeypatch.setattr(worker_adapter, "urlopen_validated", fake_urlopen)
+
+    result = post_worker_json(
+        "http://worker.example",
+        "/dispatch",
+        "token",
+        {"run_id": "run"},
+        timeout=7,
+    )
+
+    assert result.ok is False
+    assert calls == 1
+    assert "TimeoutError" in result.error
 
 
 if __name__ == "__main__":

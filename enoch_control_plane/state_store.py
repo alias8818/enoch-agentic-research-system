@@ -94,6 +94,17 @@ class StateStore:
                 continue
         return records
 
+    def check_runs_dir_readable(self) -> None:
+        """Validate the run-state directory without parsing or moving run records."""
+
+        if not self.runs_dir.exists():
+            raise FileNotFoundError(self.runs_dir)
+        if not self.runs_dir.is_dir():
+            raise NotADirectoryError(self.runs_dir)
+        # Force a directory read so permission/storage failures surface, but do not
+        # parse run JSON or quarantine records from unauthenticated health checks.
+        next(self.runs_dir.iterdir(), None)
+
     def _next_event_sequence(self) -> int:
         self._event_sequence += 1
         return self._event_sequence

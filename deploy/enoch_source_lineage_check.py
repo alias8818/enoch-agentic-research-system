@@ -82,7 +82,7 @@ def _control_hold_skip_result(config: GateConfig) -> dict[str, Any] | None:
         return None
     try:
         status = _get_control_status(config)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return {
             "ok": True,
             "action": "skipped",

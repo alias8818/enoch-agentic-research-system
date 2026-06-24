@@ -191,7 +191,12 @@ def promising_signal_bucket(row: dict[str, Any]) -> str:
 
 
 def _scale_match_is_negated(haystack: str, start: int) -> bool:
-    prefix = haystack[max(0, start - 48) : start]
+    sentence_start = max(
+        haystack.rfind(".", 0, start),
+        haystack.rfind(";", 0, start),
+        haystack.rfind("\n", 0, start),
+    )
+    prefix = haystack[max(sentence_start + 1, start - 48) : start]
     return bool(_NEGATION_WINDOW_RE.search(prefix))
 
 
@@ -260,6 +265,8 @@ def _followup_not_ready_reason(
         return "missing_followup_bounds"
     if _followup_exceeds_local_compute(row):
         return "followup_exceeds_local_compute"
+    if not _has_promising_signal_fields(row) and not explicit_project:
+        return "missing_promising_signal_fields"
     if bucket == LIKELY_STALE_LOW_VALUE_ARCHIVE and not explicit_project:
         return LIKELY_STALE_LOW_VALUE_ARCHIVE
     return None

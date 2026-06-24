@@ -21,7 +21,7 @@ logger = logging.getLogger("enoch.observability")
 # regexps have their values replaced with "[REDACTED]" before the
 # observation is persisted to JSONL or structured logs.
 _REDACT_KEY_PATTERNS = re.compile(
-    r"token|bearer|password|secret|api[._-]?key|auth|credential",
+    r"token|bearer|password|secret|api[._\s-]?key|auth|credential",
     re.IGNORECASE,
 )
 

@@ -122,9 +122,12 @@ def test_supabase_query_retries_common_pool_and_timeout_errors(
     class PoolError(RuntimeError):
         pass
 
+    class OperationalError(RuntimeError):
+        pass
+
     errors = [
         PoolError("connection pool timeout"),
-        RuntimeError("OperationalError: timeout expired"),
+        OperationalError("timeout expired"),
     ]
     sleeps: list[float] = []
 
@@ -144,6 +147,12 @@ def test_supabase_query_retries_common_pool_and_timeout_errors(
         store._query("select 1")
 
     assert sleeps == [0.25, 0.5]
+
+
+def test_supabase_retry_classifier_does_not_trust_user_controlled_exception_text() -> None:
+    exc = RuntimeError("idempotency key conflict: operator-supplied-operationalerror")
+
+    assert s.SupabaseControlPlaneStore._is_retryable_query_error(exc) is False
 
 
 def test_supabase_query_retry_deadline_caps_attempts(

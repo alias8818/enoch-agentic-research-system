@@ -59,6 +59,7 @@ def _http_request_json(
     payload: dict[str, Any] | None = None,
     *,
     timeout: float = 5,
+    retry_transient: bool = False,
 ) -> HttpResult:
     try:
         safe_url = validate_http_url(url, field_name="worker url", allow_private=True)
@@ -90,6 +91,8 @@ def _http_request_json(
             )
 
     try:
+        if not retry_transient:
+            return send_once()
         for attempt in _transient_worker_http_retry():
             with attempt:
                 return send_once()
@@ -110,7 +113,7 @@ def _http_request_json(
 
 
 def _http_get_json(url: str, headers: dict[str, str]) -> HttpResult:
-    return _http_request_json("GET", url, headers, None)
+    return _http_request_json("GET", url, headers, None, retry_transient=True)
 
 
 def post_worker_json(
@@ -122,12 +125,15 @@ def post_worker_json(
     timeout: float = 5,
     transport: JsonTransport = _http_request_json,
 ) -> HttpResult:
+    kwargs: dict[str, Any] = {"timeout": timeout}
+    if transport is _http_request_json:
+        kwargs["retry_transient"] = False
     return transport(
         "POST",
         base_url.rstrip("/") + path,
         _auth_headers(token),
         payload,
-        timeout=timeout,
+        **kwargs,
     )
 
 

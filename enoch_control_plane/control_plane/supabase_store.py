@@ -1391,7 +1391,13 @@ def _queue_rows_related_join_sql() -> str:
               limit 1
             ) paq on true
             left join publication_automation_items rv using(paper_id)
-            left join corpus_imports ci using(paper_id)
+            left join lateral (
+              select ci.*
+              from corpus_imports ci
+              where ci.paper_id = paq.paper_id
+              order by ci.imported_at desc, ci.corpus_import_id desc
+              limit 1
+            ) ci on true
             left join lateral (
               select d.*
               from project_decisions d
@@ -1630,7 +1636,15 @@ class SupabaseReadOnlyControlPlaneStore:
 
     @staticmethod
     def _is_transient_connection_error(exc: Exception) -> bool:
-        text = f"{type(exc).__name__}: {exc}".lower()
+        type_name = type(exc).__name__.lower()
+        if type_name in {
+            "edbhandlerexited",
+            "interfaceerror",
+            "operationalerror",
+            "poolerror",
+        }:
+            return True
+        text = str(exc).lower()
         return any(
             token in text
             for token in (
@@ -1638,15 +1652,10 @@ class SupabaseReadOnlyControlPlaneStore:
                 "connection to database closed",
                 "connection pool timeout",
                 "connection refused",
-                "edbhandlerexited",
-                "interfaceerror",
-                "operationalerror",
                 "pool timeout",
-                "poolerror",
                 "reset by peer",
                 "server closed the connection",
                 "temporarily unavailable",
-                "timeout expired",
             )
         )
 

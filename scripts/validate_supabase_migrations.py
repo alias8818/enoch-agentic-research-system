@@ -454,10 +454,11 @@ def _check_dashboard_counts(
 def _check_rls_and_search_path(failures: list[str], checks: dict[str, Any]) -> None:
     if checks["rls_disabled_tables"]:
         failures.append(f"RLS disabled tables: {checks['rls_disabled_tables']}")
-    if checks["rls_tables_without_policies"]:
-        failures.append(
-            f"RLS tables without policies: {checks['rls_tables_without_policies']}"
-        )
+    # The hardened Supabase design enables RLS on Enoch domain tables while
+    # relying on service_role's PostgREST bypass instead of blanket permissive
+    # policies. Keep surfacing rls_tables_without_policies in the JSON checks,
+    # but do not fail validation merely because a table intentionally has no
+    # row-level policies.
     if "search_path=enoch, pg_temp" not in (checks["set_updated_at_search_path"] or []):
         failures.append("set_updated_at must pin search_path to enoch, pg_temp")
 

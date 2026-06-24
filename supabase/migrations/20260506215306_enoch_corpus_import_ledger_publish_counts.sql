@@ -21,10 +21,10 @@ begin
     update enoch.corpus_imports
     set source_record_fingerprint = left(
       encode(
-        extensions.digest(paper_id || E'\x1f' || corpus_repo, 'sha256'),
+        extensions.digest(paper_id, 'sha256'),
         'hex'
       ),
-      32
+      16
     )
     where corpus_import_id in (
       select corpus_import_id

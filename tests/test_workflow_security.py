@@ -10,11 +10,14 @@ PINNED_SHA_REF = re.compile(r"@[0-9a-f]{40}(?:\s+#\s+v[\w.-]+)?$")
 
 
 def _workflow_uses(workflow: str) -> list[str]:
-    return [
-        line.strip().removeprefix("uses: ")
-        for line in workflow.splitlines()
-        if line.strip().startswith("uses: ")
-    ]
+    refs: list[str] = []
+    for line in workflow.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- uses: "):
+            refs.append(stripped.removeprefix("- uses: "))
+        elif stripped.startswith("uses: "):
+            refs.append(stripped.removeprefix("uses: "))
+    return refs
 
 
 def test_security_sensitive_workflows_pin_actions_to_commit_shas() -> None:
@@ -77,10 +80,16 @@ def test_release_workflow_uses_minimal_scoped_token_permissions() -> None:
     workflow_text = Path(".github/workflows/release.yml").read_text(encoding="utf-8")
     workflow = yaml.safe_load(workflow_text)
 
-    assert workflow["permissions"] == {"contents": "write", "id-token": "write"}
+    assert workflow["permissions"] == {"contents": "write"}
     assert "secrets.GITHUB_TOKEN" not in workflow_text
     assert "GH_TOKEN: ${{ github.token }}" in workflow_text
     assert "GITHUB_TOKEN: ${{ github.token }}" in workflow_text
+
+
+def test_ci_secret_scan_does_not_trust_pr_controlled_gitleaksignore() -> None:
+    workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert "--gitleaks-ignore-path" not in workflow
 
 
 def test_ci_main_pushes_use_ephemeral_runners() -> None:

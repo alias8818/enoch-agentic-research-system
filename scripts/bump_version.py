@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import os
 import re
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -63,9 +65,21 @@ def bump_version(current: str, part: str) -> str:
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        handle.write(content)
+        tmp = Path(handle.name)
+    try:
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def updated_version_file_text(new_version: str) -> str:

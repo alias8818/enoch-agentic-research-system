@@ -102,3 +102,16 @@ def test_bump_version_aborts_before_writing_when_metadata_drift_exists(
     assert {
         path.name: path.read_text(encoding="utf-8") for path in tmp_path.iterdir()
     } == before
+
+
+def test_atomic_write_text_uses_unpredictable_sibling_temp_file(tmp_path: Path) -> None:
+    target = tmp_path / "VERSION"
+    target.write_text('version = "1.2.3"\n', encoding="utf-8")
+    fixed_temp = tmp_path / ".VERSION.tmp"
+    fixed_temp.symlink_to(tmp_path / "victim.txt")
+
+    bump_version._atomic_write_text(target, 'version = "1.2.4"\n')
+
+    assert target.read_text(encoding="utf-8") == 'version = "1.2.4"\n'
+    assert fixed_temp.is_symlink()
+    assert not (tmp_path / "victim.txt").exists()

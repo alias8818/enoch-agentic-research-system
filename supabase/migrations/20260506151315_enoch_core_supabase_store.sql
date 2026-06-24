@@ -50,8 +50,29 @@ alter table enoch.core_decisions enable row level security;
 alter table enoch.core_projection_cache enable row level security;
 
 revoke all on enoch.core_events, enoch.core_snapshots, enoch.core_decisions, enoch.core_projection_cache from public, anon, authenticated;
-grant select, insert, update, delete on enoch.core_events, enoch.core_snapshots, enoch.core_decisions, enoch.core_projection_cache to service_role;
+grant select, insert, update on enoch.core_events, enoch.core_decisions to service_role;
+grant select, insert, update, delete on enoch.core_snapshots, enoch.core_projection_cache to service_role;
 grant usage, select on sequence enoch.core_events_id_seq, enoch.core_snapshots_id_seq, enoch.core_decisions_id_seq to service_role;
+
+create or replace function enoch.prevent_core_append_only_delete()
+returns trigger
+language plpgsql
+set search_path = enoch, pg_temp
+as $$
+begin
+  raise exception 'append-only Enoch core audit table; write a tombstone event instead of deleting rows';
+end;
+$$;
+
+drop trigger if exists prevent_core_events_delete on enoch.core_events;
+create trigger prevent_core_events_delete
+  before delete on enoch.core_events
+  for each row execute function enoch.prevent_core_append_only_delete();
+
+drop trigger if exists prevent_core_decisions_delete on enoch.core_decisions;
+create trigger prevent_core_decisions_delete
+  before delete on enoch.core_decisions
+  for each row execute function enoch.prevent_core_append_only_delete();
 
 drop policy if exists service_role_all on enoch.core_events;
 drop policy if exists service_role_all on enoch.core_snapshots;

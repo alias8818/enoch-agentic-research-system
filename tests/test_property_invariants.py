@@ -640,6 +640,46 @@ def test_summarize_paper_row_batches_publication_artifact_readability(
     }
 
 
+def test_publication_artifact_cache_is_field_specific_for_finalization_roots(
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "projects" / "project"
+    project_dir.mkdir(parents=True)
+    package_root = tmp_path / "finalization_packages"
+    package_root.mkdir()
+    outside_package = package_root / "package.json"
+    outside_package.write_text("{}", encoding="utf-8")
+
+    summary = read_models.summarize_paper_row(
+        {
+            "paper_id": "paper-backed-project:paper-run:arxiv_draft",
+            "project_id": "paper-backed-project",
+            "project_dir": str(project_dir),
+            "finalization_package_path": str(outside_package),
+            "draft_markdown_path": str(outside_package),
+            "evidence_bundle_path": str(outside_package),
+            "claim_ledger_path": str(outside_package),
+            "manifest_path": str(outside_package),
+        }
+    )
+
+    flags = summary["artifact_paths_present"]
+    assert flags["finalization_package_path"] is True
+    assert flags["draft_markdown_path"] is False
+    assert flags["evidence_bundle_path"] is False
+    assert flags["claim_ledger_path"] is False
+    assert flags["manifest_path"] is False
+    assert not all(
+        flags[name]
+        for name in (
+            "draft_markdown_path",
+            "evidence_bundle_path",
+            "claim_ledger_path",
+            "manifest_path",
+        )
+    )
+
+
 def test_publication_artifact_flags_reject_absolute_finalization_escape(
     tmp_path: Path,
 ) -> None:

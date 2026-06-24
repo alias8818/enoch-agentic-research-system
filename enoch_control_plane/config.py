@@ -4,7 +4,14 @@ import re
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from enoch_control_plane.url_safety import secure_default_service_url, validate_http_url
 
@@ -53,6 +60,8 @@ class WorkerTargetConfig(BaseModel):
 
 
 class GateConfig(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     listen_host: str = "0.0.0.0"
     listen_port: int = 8787
     state_dir: str = "~/.local/state/enoch-worker-gate"
@@ -157,7 +166,7 @@ class GateConfig(BaseModel):
         if not value:
             return value
         return _validate_config_http_url(
-            value, field_name=str(info.field_name), allow_private=False
+            value, field_name=str(info.field_name), allow_private=True
         )
 
     @field_validator("pushover_api_url")

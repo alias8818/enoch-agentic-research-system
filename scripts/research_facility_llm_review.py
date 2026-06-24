@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+from urllib.parse import urlsplit
 import urllib.request
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -111,6 +112,16 @@ def budget_status(
     min_weekly_percent_remaining: float,
     timeout: int,
 ) -> dict[str, Any]:
+    host = (urlsplit(str(base_url or "")).hostname or "").lower()
+    if "synthetic" not in host:
+        return {
+            "ok": True,
+            "budget_check_skipped": True,
+            "reason": "provider budget preflight skipped for non-Synthetic provider",
+            "estimated_requests": estimated_requests,
+            "reserve_requests": reserve_requests,
+            "failures": [],
+        }
     payload = research_provider_budget.fetch_json(
         f"{base_url.rstrip('/')}/v2/quotas", api_key=api_key, timeout=timeout
     )

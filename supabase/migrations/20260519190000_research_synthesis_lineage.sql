@@ -1,7 +1,8 @@
 -- Support Research Facility cluster synthesis/oracle gating.
 
 alter table enoch.research_candidates
-  drop constraint if exists research_candidates_status_check;
+  drop constraint if exists research_candidates_status_check,
+  drop constraint if exists research_candidates_status_check_v2;
 
 alter table enoch.research_candidates
   add constraint research_candidates_status_check_v2

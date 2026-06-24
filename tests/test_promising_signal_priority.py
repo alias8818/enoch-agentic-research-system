@@ -139,6 +139,35 @@ def test_followup_scale_markers_use_word_boundaries_and_negation() -> None:
         )
         is False
     )
+    assert (
+        _followup_exceeds_local_compute(
+            _row(
+                followup_required_evidence=[
+                    "no toy proxy; datacenter replication required",
+                    "not enough local baseline; requires 70B model",
+                ],
+                followup_success_threshold="do not use small model; use 70B",
+            )
+        )
+        is True
+    )
+
+
+def test_missing_promising_signal_fields_cannot_auto_launch_followup() -> None:
+    row = _row(
+        research_outcome="",
+        hypothesis_status="",
+        evidence_strength="",
+        claim_scope="",
+        scale_limits="",
+        useful_signal_summary="",
+    )
+
+    readiness = ranked_followup_readiness(row)
+
+    assert promising_signal_bucket(row) == "weak_local_only_preserved"
+    assert readiness["ready"] is False
+    assert readiness["reason"] == "missing_promising_signal_fields"
 
 
 def test_timestamp_sort_value_treats_naive_timestamps_as_utc(

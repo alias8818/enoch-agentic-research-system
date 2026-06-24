@@ -93,7 +93,8 @@ if [[ "$(id -u)" -eq 0 ]]; then
   cd "$PREFIX"
   uv venv --python /usr/bin/python3 .venv
   uv pip install --python .venv/bin/python -e .
-  mkdir -p "$CONFIG_DIR" "$STATE_DIR" "$STATE_DIR/projects" "$STATE_DIR/state" "$STATE_DIR/secrets"
+  mkdir -p "$CONFIG_DIR" "$STATE_DIR" "$STATE_DIR/projects" "$STATE_DIR/state"
+  install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_USER" "$STATE_DIR/secrets"
   if [[ ! -f "$CONFIG_DIR/config.json" ]]; then
     cp "$ROOT/config.example.json" "$CONFIG_DIR/config.json"
     python3 - "$CONFIG_DIR/config.json" "$STATE_DIR/state" "$STATE_DIR/projects" "$PREFIX/deploy/enoch_codex_dispatch.sh" <<'PY'

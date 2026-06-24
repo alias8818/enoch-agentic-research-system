@@ -1285,8 +1285,6 @@ def _remote_evidence_dir_for_source(
         try:
             source_path.resolve().relative_to(local_root)
         except (OSError, RuntimeError, ValueError):
-            if remote_source.parts[:2] == ("/", "home"):
-                return remote_source.as_posix()
             return _remote_evidence_dir_fallback(remote_root, project_id)
         return None
     if not remote_source.is_absolute():
@@ -4031,14 +4029,19 @@ def _provider_generation_topic(
 
 
 def _provider_generation_exception_status_code(exc: BaseException) -> int:
-    for attr in ("status_code", "status", "code"):
-        value = getattr(exc, attr, None)
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        for attr in ("status_code", "status", "code"):
+            value = getattr(current, attr, None)
+            if isinstance(value, int):
+                return value
+        response = getattr(current, "response", None)
+        value = getattr(response, "status_code", None)
         if isinstance(value, int):
             return value
-    response = getattr(exc, "response", None)
-    value = getattr(response, "status_code", None)
-    if isinstance(value, int):
-        return value
+        current = current.__cause__ or current.__context__
     return 0
 
 

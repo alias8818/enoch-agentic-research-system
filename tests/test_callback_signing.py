@@ -140,6 +140,22 @@ def test_signature_verifier_rejects_missing_prefix_timestamp_version_or_nonce() 
     )
 
 
+def test_signature_verifier_rejects_non_ascii_nonce_without_crashing() -> None:
+    body = b'{"run_id":"run-1"}'
+    headers = signature_headers(
+        body, secret="callback-secret", timestamp=1_718_888_123, nonce="nonce-1"
+    )
+    headers[SIGNATURE_NONCE_HEADER] = "nonce-é"
+
+    assert not verify_signature(
+        body,
+        headers=headers,
+        secret="callback-secret",
+        now=1_718_888_133,
+        max_age_sec=300,
+    )
+
+
 def test_signature_verifier_rejects_stale_or_future_timestamps() -> None:
     body = b'{"run_id":"run-1"}'
     headers = signature_headers(

@@ -15,6 +15,7 @@ import inspect
 # Runtime-injected names. They are populated by _sync_namespace() before each
 # binding block runs; declarations keep static analyzers aware of the symbols
 # formerly hidden inside exec strings.
+asyncio: Any = None
 Annotated: Any = None
 Body: Any = None
 CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE: Any = None
@@ -5257,54 +5258,60 @@ def _register_control_plane_papers_events_routes(ns: MutableMapping[str, Any]) -
             open_lane_research_rows, lane_key_func=research_row_lane_key
         )
 
-        return await _execute_live_research_cycle(
-            params=_LiveResearchCycleParams(
-                store=store,
-                requested_by=requested_by,
-                generation_target_lane=generation_target_lane,
-                initial_feed_lanes=initial_feed_lanes,
-                max_dispatches=max_dispatches,
-                max_provider_requests=max_provider_requests,
-                fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
-                initial_promotable=initial_promotable,
-                promotable_rows=promotable_rows,
-                open_lane_research_rows=open_lane_research_rows_local,
-                max_promotions=max_promotions,
-                provider_openai_base_url=provider_openai_base_url,
-                provider_api_key=provider_api_key,
-                provider_id=provider_id,
-                provider_model=provider_model,
-                max_candidates=max_candidates,
-                topic=topic,
-                temperature=temperature,
-                seed=seed,
-                generation_timeout=generation_timeout,
-                generation_max_tokens=generation_max_tokens,
-                generation_attempts=generation_attempts,
-                min_admission_score=min_admission_score,
-                bounded_float=bounded_float,
-                namespace_cls=Namespace,
-                research_provider_generate=research_provider_generate,
-                research_facility=research_facility,
-                wait_for_completion=wait_for_completion,
-                max_wait_seconds=max_wait_seconds,
-                poll_interval_seconds=poll_interval_seconds,
-                max_paper_drafts=max_paper_drafts,
-                max_publication_rewrites=max_publication_rewrites,
-                draft_next=draft_next,
-                rewrite_paper_review_draft=_rewrite_paper_review_draft,
-                control_api_bearer_token=config.control_api_bearer_token,
-                worker_lane_key=_worker_lane_key,
-                worker_lane_capacity=_worker_lane_capacity,
-                queue_rows_for_lane_feed=_queue_rows_for_lane_feed,
-                live_dispatch=_live_dispatch,
-                jsonable_encoder=jsonable_encoder,
-                research_row_lane_key=research_row_lane_key,
-                operator_trace=operator_trace,
-                trace_id=trace_id,
-                run_cycle_id=run_cycle_id,
-            ),
-            response={**response, "trace_id": trace_id, "run_cycle_id": run_cycle_id},
+        cycle_params = _LiveResearchCycleParams(
+            store=store,
+            requested_by=requested_by,
+            generation_target_lane=generation_target_lane,
+            initial_feed_lanes=initial_feed_lanes,
+            max_dispatches=max_dispatches,
+            max_provider_requests=max_provider_requests,
+            fresh_generation_backlog_threshold=fresh_generation_backlog_threshold,
+            initial_promotable=initial_promotable,
+            promotable_rows=promotable_rows,
+            open_lane_research_rows=open_lane_research_rows_local,
+            max_promotions=max_promotions,
+            provider_openai_base_url=provider_openai_base_url,
+            provider_api_key=provider_api_key,
+            provider_id=provider_id,
+            provider_model=provider_model,
+            max_candidates=max_candidates,
+            topic=topic,
+            temperature=temperature,
+            seed=seed,
+            generation_timeout=generation_timeout,
+            generation_max_tokens=generation_max_tokens,
+            generation_attempts=generation_attempts,
+            min_admission_score=min_admission_score,
+            bounded_float=bounded_float,
+            namespace_cls=Namespace,
+            research_provider_generate=research_provider_generate,
+            research_facility=research_facility,
+            wait_for_completion=wait_for_completion,
+            max_wait_seconds=max_wait_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+            max_paper_drafts=max_paper_drafts,
+            max_publication_rewrites=max_publication_rewrites,
+            draft_next=draft_next,
+            rewrite_paper_review_draft=_rewrite_paper_review_draft,
+            control_api_bearer_token=config.control_api_bearer_token,
+            worker_lane_key=_worker_lane_key,
+            worker_lane_capacity=_worker_lane_capacity,
+            queue_rows_for_lane_feed=_queue_rows_for_lane_feed,
+            live_dispatch=_live_dispatch,
+            jsonable_encoder=jsonable_encoder,
+            research_row_lane_key=research_row_lane_key,
+            operator_trace=operator_trace,
+            trace_id=trace_id,
+            run_cycle_id=run_cycle_id,
+        )
+        cycle_response = {**response, "trace_id": trace_id, "run_cycle_id": run_cycle_id}
+        return await asyncio.to_thread(
+            lambda: asyncio.run(
+                _execute_live_research_cycle(
+                    params=cycle_params,
+                    response=cycle_response,
+                )
+            )
         )
 
     @router.post(

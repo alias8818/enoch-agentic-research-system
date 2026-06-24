@@ -171,3 +171,27 @@ def test_urlopen_validated_pins_dns_resolution_during_open(monkeypatch) -> None:
     assert response.read() == b"ok"
     assert resolver_calls == 1
     assert connected_addrinfo == public_addrinfo
+
+
+def test_pinned_dns_restores_real_resolver_after_nested_pins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from enoch_control_plane import url_safety
+
+    real_resolver = socket.getaddrinfo
+    first_addrinfo: list[tuple[int, int, int, str, tuple[object, ...]]] = [
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 80))
+    ]
+    second_addrinfo: list[tuple[int, int, int, str, tuple[object, ...]]] = [
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.35", 80))
+    ]
+
+    with url_safety._pin_getaddrinfo(host="first.example", port=80, addrinfo=first_addrinfo):
+        stale_first_resolver = socket.getaddrinfo
+
+    monkeypatch.setattr(socket, "getaddrinfo", stale_first_resolver)
+    with url_safety._pin_getaddrinfo(host="second.example", port=80, addrinfo=second_addrinfo):
+        assert socket.getaddrinfo("second.example", 80) == second_addrinfo
+
+    assert socket.getaddrinfo is stale_first_resolver
+    monkeypatch.setattr(socket, "getaddrinfo", real_resolver)

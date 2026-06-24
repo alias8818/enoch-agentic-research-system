@@ -108,6 +108,7 @@ def test_redact_observation_redacts_api_key_name_variants() -> None:
         "api_key": "underscore-secret",
         "api-key": "hyphen-secret",
         "api.key": "dot-secret",
+        "api key": "space-secret",
         "apikey": "compact-secret",
     }
 
@@ -117,6 +118,7 @@ def test_redact_observation_redacts_api_key_name_variants() -> None:
     assert "underscore-secret" not in serialized
     assert "hyphen-secret" not in serialized
     assert "dot-secret" not in serialized
+    assert "space-secret" not in serialized
     assert "compact-secret" not in serialized
     assert set(redacted.values()) == {"[REDACTED]"}
 

@@ -63,10 +63,12 @@ def test_main_skips_source_lineage_sidecar_during_control_hold(
     assert payload["hold_state"]["maintenance_mode"] is True
 
 
+@pytest.mark.parametrize("exc", [OSError("offline"), ValueError("private control url")])
 def test_main_skips_source_lineage_sidecar_when_hold_status_unreachable(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    exc: Exception,
 ) -> None:
     config = tmp_path / "config.json"
     config.write_text(
@@ -85,7 +87,7 @@ def test_main_skips_source_lineage_sidecar_when_hold_status_unreachable(
     )
 
     def unreachable_status(_config: object) -> dict[str, object]:
-        raise OSError("offline")
+        raise exc
 
     def forbidden_build_report(*_args: object, **_kwargs: object) -> dict[str, object]:
         raise AssertionError("source-lineage report must not run without hold status")

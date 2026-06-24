@@ -22,9 +22,12 @@ ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/var/lib/enoch-control-plane /var/log/enoch-control-plane /tmp
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-# Do not deny all non-loopback egress here: the control plane and Codex runner
-# must reach worker wake-gates, scaffold repositories, providers,
-# Supabase/Postgres, and callback endpoints.
+# Keep the wake-gate and any child dispatch process on loopback-only egress by
+# default. High-agency Codex runs inherit this unit's cgroup; deployments that
+# need provider or repository access should move the runner into a separate
+# sandboxed unit/network policy instead of broadening the control-plane service.
+IPAddressDeny=any
+IPAddressAllow=localhost
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictRealtime=yes
