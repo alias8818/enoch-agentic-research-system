@@ -74,3 +74,15 @@ def test_worker_gate_and_local_hermes_webhook_allow_private_http_targets() -> No
 def test_worker_target_rejects_non_http_url() -> None:
     with pytest.raises(ValidationError, match="must use http or https"):
         WorkerTargetConfig(wake_gate_url="file:///etc/passwd")
+
+
+@pytest.mark.parametrize(
+    "token",
+    ["replace-with-local-control-api-token", "REPLACE_ME_AFTER_BOOTSTRAP"],
+)
+def test_gate_config_rejects_placeholder_control_api_tokens(token: str) -> None:
+    kwargs = _config_kwargs()
+    kwargs["control_api_bearer_token"] = token
+
+    with pytest.raises(ValidationError, match="must be replaced before startup"):
+        GateConfig.model_validate(kwargs)

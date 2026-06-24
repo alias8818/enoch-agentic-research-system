@@ -97,6 +97,7 @@ def test_public_release_archive_excludes_ignored_secret_state_paths(
         with tarfile.open(archive_path, "r:gz") as archive:
             names = archive.getnames()
             assert "enoch-agentic-research-system/config.json" not in names
+            assert "enoch-agentic-research-system/config.example.json" not in names
             assert "enoch-agentic-research-system/.env.local" not in names
             assert "enoch-agentic-research-system/.coverage" not in names
             assert "enoch-agentic-research-system/nested-archive.tar.gz" not in names
@@ -152,6 +153,7 @@ def test_public_release_archive_excludes_ignored_secret_state_paths(
             )
             assert not any(name.endswith(".egg-info/PKG-INFO") for name in names)
             assert not any(".db-" in name for name in names)
+
     finally:
         for path in reversed(created_paths):
             path.unlink(missing_ok=True)

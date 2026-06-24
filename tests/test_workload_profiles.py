@@ -65,6 +65,10 @@ class WorkloadProfileTests(unittest.TestCase):
     def test_config_example_declares_cpu_and_gpu_worker_targets(self) -> None:
         config_path = Path(__file__).resolve().parents[1] / "config.example.json"
         payload = json.loads(config_path.read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(ValueError, "must be replaced before startup"):
+            GateConfig.model_validate(payload)
+        payload["control_api_bearer_token"] = "local-control-token"
+        payload["omx_inbound_bearer_token"] = "local-control-token"
         config = GateConfig.model_validate(payload)
 
         self.assertEqual(config.workload_machine_targets["cpu_only"], "cpu-proxmox-1")

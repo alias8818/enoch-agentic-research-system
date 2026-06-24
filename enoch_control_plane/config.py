@@ -187,6 +187,16 @@ class GateConfig(BaseModel):
             value, field_name="paper_writer_base_url", allow_private=False
         )
 
+    @field_validator("control_api_bearer_token", "omx_inbound_bearer_token")
+    @classmethod
+    def _reject_placeholder_control_tokens(
+        cls, value: str, info: ValidationInfo
+    ) -> str:
+        normalized = value.strip().lower().replace("_", "-")
+        if normalized.startswith("replace-with-") or "replace-me" in normalized:
+            raise ValueError(f"{info.field_name} must be replaced before startup")
+        return value
+
     @model_validator(mode="after")
     def _normalize_callback_config(self) -> "GateConfig":
         if not self.completion_callback_url and self.n8n_callback_url:

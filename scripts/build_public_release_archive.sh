@@ -63,6 +63,7 @@ EXCLUDES=(
   --exclude='.env'
   --exclude='.env.*'
   --exclude='config.json'
+  --exclude='config.example.json'
   --exclude='state'
   --exclude='state/*'
   --exclude='logs'
@@ -75,7 +76,7 @@ EXCLUDES=(
 
 tar "${EXCLUDES[@]}" --transform "s#^.#$PREFIX#" -czf "$ARCHIVE_PATH" .
 
-for pattern in '/.git/' '/.venv/' '/.omx/' '/.scan-results/' '/.codegraph/' '/.local/' '/__pycache__/' '/private-notes/' '.db' '.db-' '.sqlite' '.sqlite-' '.sqlite3' '.sqlite3-' '.log' '.tar.gz' '.tgz' '.zip' '.whl' '.egg-info' '/node_modules/' '/build/' '/.pytest_cache/' '/.ruff_cache/' '/.mypy_cache/' '/.hypothesis/' '/.coverage' '/.enoch/' '/.env' '/config.json' '/state/' '/logs/' '/secrets/'; do
+for pattern in '/.git/' '/.venv/' '/.omx/' '/.scan-results/' '/.codegraph/' '/.local/' '/__pycache__/' '/private-notes/' '.db' '.db-' '.sqlite' '.sqlite-' '.sqlite3' '.sqlite3-' '.log' '.tar.gz' '.tgz' '.zip' '.whl' '.egg-info' '/node_modules/' '/build/' '/.pytest_cache/' '/.ruff_cache/' '/.mypy_cache/' '/.hypothesis/' '/.coverage' '/.enoch/' '/.env' '/config.json' '/config.example.json' '/state/' '/logs/' '/secrets/'; do
   if tar -tzf "$ARCHIVE_PATH" | grep -F -- "$pattern" >/dev/null; then
     echo "FAIL archive contains forbidden pattern: $pattern" >&2
     exit 1

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import tempfile
 from pathlib import Path
 
@@ -28,10 +29,17 @@ def _isolated_gate_config_path() -> Path:
         data = json.loads(example_path.read_text(encoding="utf-8"))
         data["state_dir"] = str(root / "state")
         data["project_root"] = str(root / "projects")
-        config_path.write_text(
-            json.dumps(data, indent=2) + "\n",
-            encoding="utf-8",
-        )
+    else:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    token = str(data.get("control_api_bearer_token") or "")
+    normalized = token.lower().replace("_", "-")
+    if normalized.startswith("replace-with-") or "replace-me" in normalized:
+        data["control_api_bearer_token"] = secrets.token_urlsafe(32)
+        data["omx_inbound_bearer_token"] = data["control_api_bearer_token"]
+    config_path.write_text(
+        json.dumps(data, indent=2) + "\n",
+        encoding="utf-8",
+    )
     return config_path
 
 
