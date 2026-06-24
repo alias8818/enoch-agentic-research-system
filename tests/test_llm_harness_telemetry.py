@@ -68,6 +68,75 @@ def test_validate_llm_harness_event_rejects_missing_required_fields() -> None:
         validate_llm_harness_event(LLM_HARNESS_ROUTE_DECISION_EVENT, payload)
 
 
+def test_validate_llm_harness_event_rejects_missing_run_or_trace() -> None:
+    payload = _route_payload()
+    payload.pop("run_id", None)
+    payload.pop("trace_id", None)
+
+    with pytest.raises(LLMHarnessTelemetryError, match="run_id_or_trace_id"):
+        validate_llm_harness_event(LLM_HARNESS_ROUTE_DECISION_EVENT, payload)
+
+
+def test_record_llm_harness_event_does_not_fallback_to_workflow_entity() -> None:
+    class FakeStore:
+        def __init__(self) -> None:
+            self.events: list[dict[str, object]] = []
+
+        def append_event(self, **kwargs: object) -> tuple[int, bool]:
+            self.events.append(kwargs)
+            return len(self.events), True
+
+    store = FakeStore()
+    payload = _route_payload()
+    payload["run_id"] = "run-1"
+    payload["workflow_id"] = "workflow-should-not-be-entity"
+
+    event_id, inserted = record_llm_harness_event(
+        store,
+        event_type=LLM_HARNESS_ROUTE_DECISION_EVENT,
+        payload=payload,
+    )
+
+    assert inserted is True
+    assert event_id == 1
+    assert store.events[0]["entity_id"] == "run-1"
+    assert "workflow-should-not-be-entity" not in str(
+        store.events[0]["idempotency_key"]
+    )
+
+
+def test_record_llm_harness_event_distinct_recorded_at_values_do_not_collide() -> None:
+    class FakeStore:
+        def __init__(self) -> None:
+            self.keys: list[str] = []
+
+        def append_event(
+            self, *, idempotency_key: str, **_kwargs: object
+        ) -> tuple[int, bool]:
+            self.keys.append(idempotency_key)
+            return len(self.keys), True
+
+    store = FakeStore()
+    first = _route_payload()
+    second = _route_payload()
+    first["recorded_at"] = "2026-06-03T03:00:04Z"
+    second["recorded_at"] = "2026-06-03T03:00:05Z"
+
+    record_llm_harness_event(
+        store,
+        event_type=LLM_HARNESS_ROUTE_DECISION_EVENT,
+        payload=first,
+    )
+    record_llm_harness_event(
+        store,
+        event_type=LLM_HARNESS_ROUTE_DECISION_EVENT,
+        payload=second,
+    )
+
+    assert len(store.keys) == 2
+    assert store.keys[0] != store.keys[1]
+
+
 @pytest.mark.parametrize(
     "unsafe_key",
     [

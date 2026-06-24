@@ -223,7 +223,7 @@ def record_llm_harness_event(
     """Persist one validated harness event through the control-plane event store."""
     safe_payload = validate_llm_harness_event(event_type, payload)
     trace_or_run = _text(safe_payload.get("run_id") or safe_payload.get("trace_id"))
-    entity_id = trace_or_run or _text(safe_payload.get("workflow_id"))
+    entity_id = trace_or_run
     event_key = idempotency_key or (
         f"{event_type}:{entity_id}:{_text(safe_payload.get('status'))}:"
         f"{_text(safe_payload.get('completed_at'))}:{_json_hash(safe_payload)}"
