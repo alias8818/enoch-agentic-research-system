@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -48,9 +49,22 @@ from .state_contract import (
     WAKE_GATE_COMPLETION_STATES,
 )
 
+LOGGER = logging.getLogger(__name__)
+
 # Centralized reason constant for the top remaining S1192 duplication
 # in this file (decision gates and mappings).
 MISSING_PROJECT_DECISION_ARTIFACT_REASON = "missing project decision artifact"
+
+TRUSTED_READ_MODEL_CONFIG_DIRS = (
+    Path("/etc/enoch"),
+    Path("/etc/enoch-control-plane"),
+    Path("/var/lib/enoch-control-plane"),
+)
+TRUSTED_READ_MODEL_PROJECT_ROOTS = (
+    Path("/var/lib/enoch-control-plane/projects"),
+    Path("/var/lib/enoch-cpu-worker/projects"),
+    Path("/mnt/usb/home/jeremy/projects/enoch_testing_ground"),
+)
 
 ACTION_HASH_OVERVIEW = "#overview"
 ACTION_HASH_QUEUE_QUEUED = "#queue:queued"
@@ -342,15 +356,34 @@ def _stage(detail_label: str, /, **fields: Any) -> dict[str, Any]:
 
 
 def _configured_project_root() -> str:
-    config_path = os.environ.get("ENOCH_CONFIG") or os.environ.get(
+    raw_config_path = os.environ.get("ENOCH_CONFIG") or os.environ.get(
         "ENOCH_CONTROL_PLANE_CONFIG", "/etc/enoch/config.json"
     )
-    try:
-        with open(config_path, encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except (OSError, json.JSONDecodeError):
+    config_path = _expanduser_or_none(raw_config_path)
+    if config_path is None:
+        LOGGER.warning("read model ignored invalid control-plane config path")
         return ""
-    return _text(payload.get("project_root"))
+    resolved_config_path = config_path.resolve(strict=False)
+    try:
+        with resolved_config_path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except OSError:
+        LOGGER.warning(
+            "read model could not load control-plane config",
+            extra={"config_path": resolved_config_path.as_posix()},
+        )
+        return ""
+    except json.JSONDecodeError:
+        LOGGER.warning(
+            "read model ignored malformed control-plane config",
+            extra={"config_path": resolved_config_path.as_posix()},
+        )
+        return ""
+    project_root = _validated_configured_project_root(
+        resolved_config_path,
+        _text(payload.get("project_root")),
+    )
+    return project_root.as_posix() if project_root is not None else ""
 
 
 def _expanduser_or_none(value: str) -> Path | None:
@@ -358,6 +391,41 @@ def _expanduser_or_none(value: str) -> Path | None:
         return Path(value).expanduser()
     except RuntimeError:
         return None
+
+
+def _validated_configured_project_root(
+    config_path: Path, configured_root: str
+) -> Path | None:
+    if not configured_root:
+        return None
+    raw_root = _expanduser_or_none(configured_root)
+    if raw_root is None:
+        LOGGER.warning("read model ignored invalid configured project root")
+        return None
+    if not raw_root.is_absolute():
+        raw_root = config_path.parent / raw_root
+    project_root = raw_root.resolve(strict=False)
+    trusted_config_dirs = tuple(
+        root.resolve(strict=False) for root in TRUSTED_READ_MODEL_CONFIG_DIRS
+    )
+    trusted_project_roots = tuple(
+        root.resolve(strict=False) for root in TRUSTED_READ_MODEL_PROJECT_ROOTS
+    )
+    allowed_roots = (
+        trusted_project_roots
+        if _path_is_under_any(config_path, trusted_config_dirs)
+        else (config_path.parent,)
+    )
+    if _path_is_under_any(project_root, allowed_roots):
+        return project_root
+    LOGGER.warning(
+        "read model ignored configured project root outside trusted boundary",
+        extra={
+            "config_path": config_path.as_posix(),
+            "project_root": project_root.as_posix(),
+        },
+    )
+    return None
 
 
 def _configured_project_root_path() -> Path | None:

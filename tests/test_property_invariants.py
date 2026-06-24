@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -674,6 +675,30 @@ def test_publication_artifact_flags_treat_missing_project_root_as_unreadable(
     )
 
     assert summary["artifact_paths_present"]["finalization_package_path"] is False
+
+
+def test_configured_project_root_rejects_env_config_outside_own_boundary(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "attacker-config.json"
+    config_path.write_text('{"project_root":"/etc"}\n', encoding="utf-8")
+
+    with patch.dict("os.environ", {"ENOCH_CONFIG": str(config_path)}, clear=False):
+        assert read_models._configured_project_root_path() is None
+
+
+def test_configured_project_root_accepts_local_config_sibling_root(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "projects"
+    config_path = tmp_path / "control-plane-config.json"
+    config_path.write_text(
+        json.dumps({"project_root": str(project_root)}) + "\n",
+        encoding="utf-8",
+    )
+
+    with patch.dict("os.environ", {"ENOCH_CONFIG": str(config_path)}, clear=False):
+        assert read_models._configured_project_root_path() == project_root
 
 
 def test_gated_write_candidates_uses_row_decision_before_artifact_gate() -> None:
