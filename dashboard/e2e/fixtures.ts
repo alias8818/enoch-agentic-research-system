@@ -228,9 +228,14 @@ export async function openDashboardWithToken(
 ): Promise<void> {
   await installDashboardApiMocks(page)
   if (options?.afterMocks) await options.afterMocks(page)
-  await page.addInitScript(({ storageKey, savedFiltersKey }) => {
-    globalThis.sessionStorage.setItem(storageKey, 'playwright-token')
+  await page.addInitScript(({ savedFiltersKey }) => {
     globalThis.localStorage.removeItem(savedFiltersKey)
-  }, { storageKey: TOKEN_STORAGE_KEY, savedFiltersKey: SAVED_TABLE_FILTERS_STORAGE_KEY })
+  }, { savedFiltersKey: SAVED_TABLE_FILTERS_STORAGE_KEY })
   await page.goto(`/control/dashboard-v2/${hash}`)
+  await page.getByLabel('Bearer token').fill('playwright-token')
+  await page.getByRole('button', { name: 'Save token' }).click()
+  const storedToken = await page.evaluate((storageKey) => globalThis.sessionStorage.getItem(storageKey), TOKEN_STORAGE_KEY)
+  if (storedToken !== null) {
+    throw new Error('dashboard bearer token was persisted to sessionStorage')
+  }
 }
