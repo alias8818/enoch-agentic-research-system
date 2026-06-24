@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import json
 import sys
@@ -27,7 +28,11 @@ def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
     (store.runs_dir / "bad.json").write_text("not-json")
     assert [item.run_id for item in store.list_runs()] == ["run"]
     store.append_event({"b": 2, "a": 1})
-    assert store.events_log.read_text().strip() == '{"a": 1, "b": 2}'
+    event = json.loads(store.events_log.read_text())
+    assert event["a"] == 1
+    assert event["b"] == 2
+    assert event["event_sequence"] == 1
+    assert event["appended_at"]
 
 
 def test_state_store_append_event_serializes_file_append_with_flock(
@@ -51,10 +56,42 @@ def test_state_store_append_event_serializes_file_append_with_flock(
         fcntl.LOCK_EX,
         fcntl.LOCK_UN,
     ]
-    assert [json.loads(line) for line in store.events_log.read_text().splitlines()] == [
-        {"event": "one"},
-        {"event": "two"},
-    ]
+    events = [json.loads(line) for line in store.events_log.read_text().splitlines()]
+    assert [event["event"] for event in events] == ["one", "two"]
+    assert [event["event_sequence"] for event in events] == [1, 2]
+
+
+def test_state_store_append_event_concurrent_writes_are_parseable(
+    tmp_path: Path,
+) -> None:
+    store = StateStore(tmp_path)
+
+    def append_event(index: int) -> None:
+        store.append_event(
+            {"event": "concurrent", "index": index, "payload": "x" * 8192}
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(append_event, range(40)))
+
+    events = [json.loads(line) for line in store.events_log.read_text().splitlines()]
+    assert len(events) == 40
+    assert sorted(event["index"] for event in events) == list(range(40))
+    assert sorted(event["event_sequence"] for event in events) == list(range(1, 41))
+
+
+def test_state_store_append_event_rotates_bounded_event_log(tmp_path: Path) -> None:
+    store = StateStore(tmp_path, events_log_max_bytes=180, events_log_backups=2)
+
+    store.append_event({"event": "first", "payload": "x" * 120})
+    first_contents = store.events_log.read_text(encoding="utf-8")
+    store.append_event({"event": "second", "payload": "y" * 120})
+    store.append_event({"event": "third", "payload": "z" * 120})
+
+    assert store._event_log_backup_path(1).exists()  # noqa: SLF001 - rotation proof
+    assert store._event_log_backup_path(2).exists()  # noqa: SLF001 - rotation proof
+    assert store._event_log_backup_path(2).read_text(encoding="utf-8") == first_contents
+    assert json.loads(store.events_log.read_text(encoding="utf-8"))["event"] == "third"
 
 
 def test_state_store_load_run_treats_corrupt_file_as_missing(tmp_path: Path) -> None:

@@ -7,16 +7,29 @@ from pathlib import Path
 import tempfile
 import threading
 
-from .models import RunRecord
+from .models import RunRecord, utc_now
+
+DEFAULT_EVENTS_LOG_MAX_BYTES = 8 * 1024 * 1024
+DEFAULT_EVENTS_LOG_BACKUPS = 3
 
 
 class StateStore:
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        events_log_max_bytes: int = DEFAULT_EVENTS_LOG_MAX_BYTES,
+        events_log_backups: int = DEFAULT_EVENTS_LOG_BACKUPS,
+    ) -> None:
         self.root = root
         self.runs_dir = self.root / "runs"
         self.corrupt_runs_dir = self.runs_dir / "corrupt"
         self.events_log = self.root / "events.log"
+        self.events_lock_file = self.root / "events.log.lock"
+        self.events_log_max_bytes = events_log_max_bytes
+        self.events_log_backups = events_log_backups
         self._events_lock = threading.Lock()
+        self._event_sequence = 0
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
     def _safe_run_id(self, run_id: str) -> str:
@@ -73,13 +86,42 @@ class StateStore:
                 continue
         return records
 
+    def _next_event_sequence(self) -> int:
+        self._event_sequence += 1
+        return self._event_sequence
+
+    def _event_log_backup_path(self, index: int) -> Path:
+        return self.events_log.with_name(f"{self.events_log.name}.{index}")
+
+    def _rotate_events_log_if_needed(self, incoming_bytes: int) -> None:
+        if self.events_log_max_bytes <= 0 or not self.events_log.exists():
+            return
+        if self.events_log.stat().st_size + incoming_bytes <= self.events_log_max_bytes:
+            return
+        if self.events_log_backups <= 0:
+            self.events_log.unlink(missing_ok=True)
+            return
+        last_backup = self._event_log_backup_path(self.events_log_backups)
+        last_backup.unlink(missing_ok=True)
+        for index in range(self.events_log_backups - 1, 0, -1):
+            source = self._event_log_backup_path(index)
+            if source.exists():
+                source.replace(self._event_log_backup_path(index + 1))
+        self.events_log.replace(self._event_log_backup_path(1))
+
     def append_event(self, payload: dict) -> None:
-        line = json.dumps(payload, sort_keys=True) + "\n"
         with self._events_lock:
-            with self.events_log.open("a", encoding="utf-8") as handle:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            event = dict(payload)
+            event.setdefault("appended_at", utc_now())
+            event.setdefault("event_sequence", self._next_event_sequence())
+            line = json.dumps(event, sort_keys=True) + "\n"
+            incoming_bytes = len(line.encode("utf-8"))
+            with self.events_lock_file.open("a", encoding="utf-8") as lock_handle:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
                 try:
-                    handle.write(line)
-                    handle.flush()
+                    self._rotate_events_log_if_needed(incoming_bytes)
+                    with self.events_log.open("a", encoding="utf-8") as handle:
+                        handle.write(line)
+                        handle.flush()
                 finally:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                    fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
