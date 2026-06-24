@@ -471,6 +471,96 @@ def test_maintenance_scripts_have_valid_bash_syntax() -> None:
         subprocess.run(["bash", "-n", str(ROOT / "scripts" / name)], check=True)
 
 
+def test_maintenance_stop_rejects_unsafe_worker_host_before_ssh(tmp_path: Path) -> None:
+    script = ROOT / "scripts" / "enoch-maintenance-stop.sh"
+    text = script.read_text(encoding="utf-8")
+
+    assert 'read -r -a WORKER_HOSTS <<<"$WORKER_HOST_LIST"' in text
+    assert (
+        "${ENOCH_MAINTENANCE_WORKER_HOSTS:-root@enoch-worker-cpu-1 jeremy@gx10-efe8}"
+        in text
+    )
+    assert "WORKER_HOST_RE" in text
+    assert "unsafe worker host" in text
+    assert 'host.startswith("-")' in text
+    assert "worker_hosts = sys.argv[3:]" in text
+
+    ssh_log = tmp_path / "ssh.log"
+    fake_ssh = tmp_path / "ssh"
+    fake_ssh.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$SSH_LOG"
+exit 99
+""",
+        encoding="utf-8",
+    )
+    fake_ssh.chmod(0o755)
+    fake_curl = tmp_path / "curl"
+    fake_curl.write_text(
+        """#!/usr/bin/env python3
+import json
+import sys
+
+args = sys.argv[1:]
+url = args[-1]
+if url.endswith("/control/pause"):
+    print(json.dumps({"flags": {"queue_paused": True, "maintenance_mode": True}}))
+elif url.endswith("/control/api/status"):
+    print(json.dumps({
+        "flags": {"queue_paused": True, "maintenance_mode": True},
+        "active_items": [],
+        "counts": {"queued": 0},
+    }))
+else:
+    print(json.dumps({"ok": True}))
+""",
+        encoding="utf-8",
+    )
+    fake_curl.chmod(0o755)
+    fake_systemctl = tmp_path / "systemctl"
+    fake_systemctl.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  is-enabled)
+    for _unit in "${@:2}"; do echo disabled; done
+    ;;
+  is-active)
+    for _unit in "${@:2}"; do echo inactive; done
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_systemctl.chmod(0o755)
+    (tmp_path / "glob-expanded-hostname").touch()
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "SSH_LOG": str(ssh_log),
+        "ENOCH_CONTROL_TOKEN": "control-token",
+        "ENOCH_CONTROL_URL": "http://127.0.0.1:8787",
+        "ENOCH_MAINTENANCE_WORKER_HOSTS": "root@enoch-worker-cpu-1 *",
+    }
+
+    result = subprocess.run(
+        [str(script)],
+        check=False,
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "unsafe worker host: '*'" in result.stderr
+    assert not ssh_log.exists()
+
+
 def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> None:
     stop = (ROOT / "scripts" / "enoch-maintenance-stop.sh").read_text(encoding="utf-8")
     resume = (ROOT / "scripts" / "enoch-maintenance-resume.sh").read_text(
@@ -518,7 +608,7 @@ def test_maintenance_stop_resume_scripts_preserve_backup_timer_contract() -> Non
     assert "timeout=timeout_seconds" in stop
     assert "worker ssh check timed out" in stop
     assert "def tail_text" in stop
-    assert "import json, os, shlex, subprocess, sys" in stop
+    assert "import json, os, re, shlex, subprocess, sys" in stop
     assert "remote_pgrep_pattern = shlex.quote(worker_process_regex)" in stop
     assert "worker_process_regex!r" not in stop
 

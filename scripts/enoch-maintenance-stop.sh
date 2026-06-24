@@ -23,9 +23,8 @@ MAINTENANCE_SERVICES=(
   enoch-paper-draft-next.service
 )
 
-WORKER_HOSTS=(
-  ${ENOCH_MAINTENANCE_WORKER_HOSTS:-root@enoch-worker-cpu-1 jeremy@gx10-efe8}
-)
+WORKER_HOST_LIST="${ENOCH_MAINTENANCE_WORKER_HOSTS:-root@enoch-worker-cpu-1 jeremy@gx10-efe8}"
+read -r -a WORKER_HOSTS <<<"$WORKER_HOST_LIST"
 WORKER_PROCESS_REGEX="${ENOCH_MAINTENANCE_WORKER_PROCESS_REGEX:-(^|[ /])(codex(\\.js)?|enoch_codex_runner(\\.sh)?|enoch_codex_dispatch(\\.sh)?)( |$)}"
 SSH_STRICT_HOST_KEY_CHECKING="${ENOCH_MAINTENANCE_SSH_STRICT_HOST_KEY_CHECKING:-yes}"
 
@@ -92,9 +91,10 @@ backup_timer_active="$(systemctl is-active enoch-postgres-backup.timer 2>/dev/nu
 backup_timer_enabled="$(systemctl is-enabled enoch-postgres-backup.timer 2>/dev/null || true)"
 
 worker_checks_json="$(python3 - "$SSH_STRICT_HOST_KEY_CHECKING" "$WORKER_PROCESS_REGEX" "${WORKER_HOSTS[@]}" <<'PY'
-import json, os, shlex, subprocess, sys
+import json, os, re, shlex, subprocess, sys
 checks = []
 timeout_seconds = int(os.environ.get("ENOCH_MAINTENANCE_WORKER_SSH_TIMEOUT", "12"))
+WORKER_HOST_RE = re.compile(r"^[A-Za-z0-9._@:-]+$")
 
 def tail_text(value, limit=500):
     if value is None:
@@ -106,7 +106,11 @@ def tail_text(value, limit=500):
 strict_host_key_checking = sys.argv[1]
 worker_process_regex = sys.argv[2]
 remote_pgrep_pattern = shlex.quote(worker_process_regex)
-for host in sys.argv[3:]:
+worker_hosts = sys.argv[3:]
+for host in worker_hosts:
+    if not WORKER_HOST_RE.fullmatch(host) or host.startswith("-"):
+        raise SystemExit(f"unsafe worker host: {host!r}")
+for host in worker_hosts:
     cmd = [
         "ssh",
         "-o",
