@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { displayText } from '../displayText'
 import { formatReadinessErrorMessage } from '../readinessErrors'
 import { useQuery } from '@tanstack/react-query'
-import { apiGet, apiPost } from '../api/client'
+import { apiGet, apiPost, saveToken } from '../api/client'
 import {
   parseEventListResponse,
   parseIntakeIdeasResponse,
@@ -153,13 +153,66 @@ type QueueStatusContext = {
 }
 
 function refetchInBackground(refetch: () => Promise<unknown>): void {
-  refetch().catch(() => undefined)
+  refetch().catch((error: unknown) => {
+    handleBackgroundRefetchError(error)
+  })
 }
 
 function refetchAllInBackground(...refetches: Array<() => Promise<unknown>>): void {
   for (const refetch of refetches) {
     refetchInBackground(refetch)
   }
+}
+
+/**
+ * Inspect an error thrown by a background refetch and decide whether to
+ * surface it. The previous implementation discarded every error with
+ * `.catch(() => undefined)`, which meant a 401 (token expired/revoked) was
+ * indistinguishable from a transient network blip. The user kept seeing
+ * stale rows with no signal that auth had lapsed — and the TokenGate was
+ * never invoked, so the only path to recovery was a manual page refresh.
+ *
+ * Detection rules:
+ *   - `apiGet`/`apiPost` errors include the HTTP status in the message as
+ *     `path -> <status>: detail`. Match `-> 401` case-insensitively.
+ *   - Some callers wrap fetch errors in `Response`-style objects. Inspect
+ *     for `.status === 401` defensively.
+ *
+ * When an auth lapse is detected:
+ *   - Clear the saved token via `saveToken('')` (so a subsequent save can
+ *     recover and the next mount of <Shell> does not auto-resume).
+ *   - Dispatch `enoch:auth-lapsed`. App.tsx listens for this and forces a
+ *     re-render of <Shell>, which then evaluates `hasToken` and shows
+ *     <TokenGate>.
+ *
+ * All other errors are logged at warn level (not swallowed) so transient
+ * network failures and 5xx remain visible in the browser console.
+ */
+export function handleBackgroundRefetchError(error: unknown): void {
+  if (isAuthLapsedError(error)) {
+    saveToken('')
+    if (typeof globalThis.dispatchEvent === 'function' && typeof globalThis.CustomEvent === 'function') {
+      globalThis.dispatchEvent(new globalThis.CustomEvent('enoch:auth-lapsed'))
+    }
+    return
+  }
+  if (typeof globalThis.console !== 'undefined' && typeof globalThis.console.warn === 'function') {
+    const message = error instanceof Error ? error.message : String(error)
+    globalThis.console.warn('[enoch-dashboard] background refetch failed:', message)
+  }
+}
+
+export function isAuthLapsedError(error: unknown): boolean {
+  if (error === null || error === undefined) return false
+  // Response-shaped wrapper: { status: 401 } or { status: '401' }.
+  if (typeof error === 'object') {
+    const status = (error as { status?: unknown }).status
+    if (status === 401 || status === '401') return true
+  }
+  // apiGet/apiPost format: "path -> 401: detail".
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
+  if (message && /->\s*401\b/i.test(message)) return true
+  return false
 }
 
 function corpusImportValidationCopy(publishReady: number): Readonly<{ status: string; detail: string }> {
