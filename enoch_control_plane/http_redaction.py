@@ -68,10 +68,10 @@ def redact_headers(headers: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def redact_text(text: str) -> str:
+    redacted = _BEARER_VALUE_RE.sub(f"Bearer {REDACTED}", str(text))
     redacted = _SECRET_VALUE_RE.sub(
-        lambda match: f"{match.group(1)}={REDACTED}", str(text)
+        lambda match: f"{match.group(1)}={REDACTED}", redacted
     )
-    redacted = _BEARER_VALUE_RE.sub(f"Bearer {REDACTED}", redacted)
     return redacted
 
 

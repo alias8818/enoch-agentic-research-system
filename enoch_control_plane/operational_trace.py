@@ -10,6 +10,7 @@ import re
 import uuid
 from typing import Any
 
+from .http_redaction import redact_text
 from .models import utc_now
 
 _SENSITIVE_KEY = re.compile(
@@ -32,7 +33,13 @@ def _redact_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_redact_value(item) for item in value]
     if isinstance(value, tuple):
-        return [_redact_value(item) for item in value]
+        return tuple(_redact_value(item) for item in value)
+    if isinstance(value, str):
+        # Scrub embedded secrets (Bearer / token= / apikey=) so dispatch
+        # commands, error strings, and free-form URLs do not leak credentials
+        # into the on-disk JSONL audit trace. Reuses the project-wide
+        # http_redaction helper to keep a single redaction implementation.
+        return redact_text(value)
     return value
 
 

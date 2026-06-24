@@ -122,6 +122,65 @@ def test_operator_trace_skips_write_when_lock_is_busy(
     assert (tmp_path / "operator_trace.jsonl.lock").exists()
 
 
+def test_operator_trace_redacts_secrets_embedded_in_string_values(
+    tmp_path: Path,
+) -> None:
+    """Regression for #284: _redact_value must scrub strings, not just keys.
+
+    Before the fix, only the *key* of a Mapping was inspected against the
+    sensitive-key regex. A command string like
+    ``curl -H 'Authorization: Bearer *** https://...`` was written
+    verbatim to ``operator_trace.jsonl`` because its key (``command``) was
+    not sensitive. After the fix, the string is passed through
+    ``http_redaction.redact_text`` which strips Bearer / token= / apikey=
+    patterns regardless of the surrounding key.
+    """
+    path = tmp_path / "operator_trace.jsonl"
+    trace = OperatorTrace(enabled=True, path=path, max_payload_bytes=4096)
+
+    trace.record(
+        "dispatch.live.attempt",
+        trace_id="trace-redact-strings",
+        requested_by="pytest",
+        command="curl -H 'Authorization: Bearer secret-token-xyz' https://worker/run",
+        error="upstream rejected token=abc123-apikey=def456",
+        nested={
+            "Authorization": "Bearer nested-secret",
+            "free_text": "echo api_key=zzz999 | logger",
+        },
+    )
+
+    text = path.read_text(encoding="utf-8")
+    # None of the secret literals may survive into the persisted JSONL.
+    assert "secret-token-xyz" not in text
+    assert "abc123" not in text
+    assert "def456" not in text
+    assert "nested-secret" not in text
+    assert "zzz999" not in text
+    # Sentinel strings should still be present (proves we didn't drop the
+    # field entirely).
+    assert "curl" in text
+    assert "upstream rejected" in text
+    # And the redaction marker from http_redaction must show up.
+    assert "REDACTED" in text
+
+
+def test_operator_trace_redact_value_preserves_tuple_type() -> None:
+    """Regression for the silent tuple->list coercion noted in #284.
+
+    The original implementation coerced a tuple to a list during redaction,
+    which silently changed the on-disk JSON shape for any field that arrived
+    as a tuple. Preserve the tuple type so the trace schema is stable.
+    """
+    from enoch_control_plane.operational_trace import _redact_value
+
+    redacted = _redact_value(("a", "bearer abc123", "c"))
+    assert isinstance(redacted, tuple), (
+        f"_redact_value should preserve tuple type, got {type(redacted).__name__}"
+    )
+    assert redacted == ("a", "Bearer REDACTED", "c")
+
+
 def test_summarize_lane_snapshot_keeps_operator_relevant_fields_only() -> None:
     lanes = [
         {
