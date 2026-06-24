@@ -665,6 +665,12 @@ def test_telemetry_collector_without_optional_backends(
 def test_telemetry_collector_uses_nvml_dedicated_memory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    shutdown_calls = 0
+
+    def shutdown_nvml() -> None:
+        nonlocal shutdown_calls
+        shutdown_calls += 1
+
     def cpu_percent(interval: object = None) -> float:
         return 12.5
 
@@ -677,7 +683,7 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
         lambda: {"MemTotal": 2048000, "MemAvailable": 1024000},
     )
     monkeypatch.setattr(telemetry_mod, "nvmlInit", lambda: None)
-    monkeypatch.setattr(telemetry_mod, "nvmlShutdown", lambda: None)
+    monkeypatch.setattr(telemetry_mod, "nvmlShutdown", shutdown_nvml)
 
     def get_handle(index: int) -> str:
         return "handle"
@@ -714,6 +720,8 @@ def test_telemetry_collector_uses_nvml_dedicated_memory(
     assert sample.memory_source == "nvml_dedicated"
     assert sample.vram_used_mib == 3
     collector.close()
+    collector.close()
+    assert shutdown_calls == 1
 
 
 def test_telemetry_collector_retains_last_gpu_signal_on_nvml_sample_failure(

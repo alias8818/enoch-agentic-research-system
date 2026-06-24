@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import atexit
 from pathlib import Path
 
 try:
@@ -101,6 +102,7 @@ class TelemetryCollector:
             try:
                 nvmlInit()
                 self._nvml_ready = True
+                atexit.register(self.close)
             except Exception:
                 self._nvml_ready = False
 
@@ -164,5 +166,6 @@ class TelemetryCollector:
                 # Shutdown is best effort; a failed NVML shutdown must not mask
                 # process exit or service shutdown. Keep the exception type local
                 # for debugger visibility without making close() fail.
-                self._nvml_ready = False
                 _ = exc
+            finally:
+                self._nvml_ready = False

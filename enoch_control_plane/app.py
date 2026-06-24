@@ -293,16 +293,21 @@ async def lifespan(app: FastAPI):
     # startup logic (replaces deprecated @app.on_event("startup"))
     if reconcile_task is None or reconcile_task.done():
         reconcile_task = _start_reconcile_task()
-    yield
-    # shutdown logic (replaces deprecated @app.on_event("shutdown"))
-    if reconcile_task is not None:
-        reconcile_task.cancel()
+    try:
+        yield
+    finally:
+        # shutdown logic (replaces deprecated @app.on_event("shutdown"))
         try:
-            results = await asyncio.gather(reconcile_task, return_exceptions=True)
-            if results and isinstance(results[0], Exception):
-                raise results[0]
+            task = reconcile_task
+            task.cancel()
+            try:
+                results = await asyncio.gather(task, return_exceptions=True)
+                if results and isinstance(results[0], Exception):
+                    raise results[0]
+            finally:
+                reconcile_task = None
         finally:
-            reconcile_task = None
+            telemetry.close()
 
 
 app = FastAPI(title="enoch_worker_gate", version="0.1.0", lifespan=lifespan)

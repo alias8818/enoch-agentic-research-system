@@ -29,6 +29,32 @@ def test_lifespan_shutdown_suppresses_reconcile_task_cancellation(
     asyncio.run(run_lifespan())
 
 
+def test_lifespan_shutdown_closes_telemetry_collector(monkeypatch: Any) -> None:
+    closed = False
+
+    async def never_finishes() -> None:
+        await asyncio.Event().wait()
+
+    class FakeTelemetry:
+        def close(self) -> None:
+            nonlocal closed
+            closed = True
+
+    async def run_lifespan() -> None:
+        monkeypatch.setattr(appmod, "init_sentry", lambda: None)
+        monkeypatch.setattr(appmod, "_reconcile_missing_idle_loop", never_finishes)
+        monkeypatch.setattr(appmod, "reconcile_task", None)
+        monkeypatch.setattr(appmod, "telemetry", FakeTelemetry())
+
+        async with appmod.lifespan(appmod.app):
+            assert closed is False
+
+        assert closed is True
+        assert appmod.reconcile_task is None
+
+    asyncio.run(run_lifespan())
+
+
 def test_lifespan_restarts_failed_reconcile_task(monkeypatch: Any) -> None:
     calls = 0
 
