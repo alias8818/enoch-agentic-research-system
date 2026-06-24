@@ -674,6 +674,7 @@ def test_publication_artifact_flags_treat_missing_project_root_as_unreadable(
         }
     )
 
+    assert summary["artifact_paths_status"] == "project_root_unavailable"
     assert summary["artifact_paths_present"]["finalization_package_path"] is False
 
 

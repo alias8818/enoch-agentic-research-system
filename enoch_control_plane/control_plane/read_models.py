@@ -273,6 +273,29 @@ def _paper_artifact_flags(row: dict[str, Any]) -> dict[str, bool]:
     )
 
 
+def _artifact_paths_status(row: dict[str, Any]) -> str:
+    if isinstance(row.get("artifact_paths_present"), dict):
+        return "reported"
+    project_dir_text = _text(row.get("project_dir"))
+    if not project_dir_text:
+        return "missing_project_dir"
+    try:
+        root = Path(project_dir_text).expanduser().resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        LOGGER.warning(
+            "read model could not resolve artifact project root",
+            extra={"project_dir": project_dir_text},
+        )
+        return "project_root_error"
+    if not root.exists() or not root.is_dir():
+        LOGGER.warning(
+            "read model artifact project root is unavailable",
+            extra={"project_dir": project_dir_text, "resolved_root": root.as_posix()},
+        )
+        return "project_root_unavailable"
+    return "ok"
+
+
 def _related_artifact_paths_present(row: dict[str, Any]) -> dict[str, bool]:
     project_dir = row.get("project_dir")
     return {
@@ -1243,6 +1266,7 @@ def summarize_paper_row(row: dict[str, Any]) -> dict[str, Any]:
             "generated_at": row.get("generated_at", ""),
             "updated_at": row.get("updated_at", ""),
             "age_seconds": row_age_seconds(row),
+            "artifact_paths_status": _artifact_paths_status(row),
             "artifact_paths_present": _paper_artifact_flags(row),
             "links": paper_links(row),
         }
