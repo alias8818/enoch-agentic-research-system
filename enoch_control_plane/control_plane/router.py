@@ -206,24 +206,46 @@ _HTTP_503_WORKER_PREFLIGHT_URL: dict[int, dict[str, str]] = {
     },
 }
 
-MAINTENANCE_AUTOMATION_TIMERS: tuple[str, ...] = (
-    "enoch-research-autopilot.timer",
-    "enoch-corpus-import-autopilot.timer",
-    "enoch-queue-alert-check.timer",
-    "enoch-source-lineage-check.timer",
-    "enoch-paper-draft-next.timer",
-    "enoch-paper-material-graph.timer",
+
+@dataclass(frozen=True)
+class MaintenanceAutomationUnit:
+    timer: str
+    kick_service: str
+
+
+MAINTENANCE_AUTOMATION_UNITS: tuple[MaintenanceAutomationUnit, ...] = (
+    MaintenanceAutomationUnit(
+        timer="enoch-research-autopilot.timer",
+        kick_service="enoch-research-autopilot.service",
+    ),
+    MaintenanceAutomationUnit(
+        timer="enoch-corpus-import-autopilot.timer",
+        kick_service="enoch-corpus-import-autopilot.service",
+    ),
+    MaintenanceAutomationUnit(
+        timer="enoch-queue-alert-check.timer",
+        kick_service="enoch-queue-alert-check.service",
+    ),
+    MaintenanceAutomationUnit(
+        timer="enoch-source-lineage-check.timer",
+        kick_service="enoch-source-lineage-check.service",
+    ),
+    MaintenanceAutomationUnit(
+        timer="enoch-paper-draft-next.timer",
+        kick_service="enoch-paper-draft-next.service",
+    ),
+    MaintenanceAutomationUnit(
+        timer="enoch-paper-material-graph.timer",
+        kick_service="enoch-paper-material-graph.service",
+    ),
 )
 
+MAINTENANCE_AUTOMATION_TIMERS: tuple[str, ...] = tuple(
+    unit.timer for unit in MAINTENANCE_AUTOMATION_UNITS
+)
 MAINTENANCE_RESUME_TIMERS: tuple[str, ...] = MAINTENANCE_AUTOMATION_TIMERS
-
-MAINTENANCE_RESUME_KICK_SERVICES: tuple[str, ...] = (
-    "enoch-queue-alert-check.service",
-    "enoch-source-lineage-check.service",
-    "enoch-research-autopilot.service",
-    "enoch-corpus-import-autopilot.service",
-    "enoch-paper-draft-next.service",
-    "enoch-paper-material-graph.service",
+MAINTENANCE_RESUME_KICK_SERVICES: tuple[str, ...] = tuple(
+    unit.kick_service for unit in MAINTENANCE_AUTOMATION_UNITS
 )
 
 _HTTP_404_RUN: dict[int, dict[str, str]] = {404: {"description": "Run not found"}}

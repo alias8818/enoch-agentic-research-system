@@ -23,6 +23,8 @@ from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane import router as control_plane_router
 from enoch_control_plane.control_plane.router import (
     MAINTENANCE_AUTOMATION_TIMERS,
+    MAINTENANCE_AUTOMATION_UNITS,
+    MAINTENANCE_RESUME_KICK_SERVICES,
     MAINTENANCE_RESUME_TIMERS,
     _active_lane_worker_confirmation,
     _codex_dispatch_model,
@@ -428,6 +430,22 @@ def test_pause_and_resume_timer_inventory_covers_active_automation_units() -> No
     assert set(MAINTENANCE_AUTOMATION_TIMERS) == expected_active_timers
     assert set(MAINTENANCE_RESUME_TIMERS) == expected_active_timers
     assert not (set(MAINTENANCE_AUTOMATION_TIMERS) & obsolete_or_disabled_timers)
+
+
+def test_maintenance_automation_units_own_timer_service_pairing() -> None:
+    assert MAINTENANCE_AUTOMATION_TIMERS == tuple(
+        unit.timer for unit in MAINTENANCE_AUTOMATION_UNITS
+    )
+    assert MAINTENANCE_RESUME_TIMERS == tuple(
+        unit.timer for unit in MAINTENANCE_AUTOMATION_UNITS
+    )
+    assert MAINTENANCE_RESUME_KICK_SERVICES == tuple(
+        unit.kick_service for unit in MAINTENANCE_AUTOMATION_UNITS
+    )
+    assert all(unit.timer.endswith(".timer") for unit in MAINTENANCE_AUTOMATION_UNITS)
+    assert all(
+        unit.kick_service.endswith(".service") for unit in MAINTENANCE_AUTOMATION_UNITS
+    )
 
 
 def test_dashboard_pause_stops_all_active_automation_timers() -> None:
