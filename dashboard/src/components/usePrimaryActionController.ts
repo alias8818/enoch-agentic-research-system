@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TopAction } from '../types'
 import { useOperatorDialog } from './OperatorDialog'
 import type { CommandPresentationContext } from '../commandResultPresentation'
@@ -39,8 +39,14 @@ export function usePrimaryActionController(action: TopAction | undefined, onRefr
   const [readiness, setReadiness] = useState<PrimaryActionReadiness>(EMPTY_PRIMARY_ACTION_READINESS)
   const { confirm, dialog } = useOperatorDialog()
   const currentActionSignature = action ? actionSignature(action) : ''
+  const operationSerialRef = useRef(0)
   const liveReady = action ? computeLiveReady(action, readiness, currentActionSignature) : false
   const staleReady = Boolean(readiness.signature) && readiness.signature !== currentActionSignature
+
+  useEffect(() => {
+    operationSerialRef.current += 1
+    setIsPending(false)
+  }, [currentActionSignature])
 
   const clearReadiness = useCallback(() => {
     setReadiness(EMPTY_PRIMARY_ACTION_READINESS)
@@ -48,37 +54,50 @@ export function usePrimaryActionController(action: TopAction | undefined, onRefr
 
   const runDryRun = useCallback(async () => {
     if (!action || !isDryRunActionKind(action.kind)) return
+    const requestedAction = action
+    const requestedSignature = currentActionSignature
+    const operationSerial = operationSerialRef.current + 1
+    operationSerialRef.current = operationSerial
+    const operationIsCurrent = () => operationSerialRef.current === operationSerial
     setIsPending(true)
     try {
-      const payload = await postDryRunRequest(action)
-      setResult({ payload, context: { commandFamily: commandFamilyForAction(action) } })
-      const ready = dryRunIndicatesReady(action, payload)
-      setReadiness(readinessAfterDryRun(action, ready, currentActionSignature))
+      const payload = await postDryRunRequest(requestedAction)
+      if (!operationIsCurrent()) return
+      setResult({ payload, context: { commandFamily: commandFamilyForAction(requestedAction) } })
+      const ready = dryRunIndicatesReady(requestedAction, payload)
+      setReadiness(readinessAfterDryRun(requestedAction, ready, requestedSignature))
       onRefresh?.()
     } catch (error) {
-      setResult({ payload: errorPayload(error), context: { commandFamily: commandFamilyForAction(action) } })
+      if (!operationIsCurrent()) return
+      setResult({ payload: errorPayload(error), context: { commandFamily: commandFamilyForAction(requestedAction) } })
       clearReadiness()
     } finally {
-      setIsPending(false)
+      if (operationIsCurrent()) setIsPending(false)
     }
   }, [action, clearReadiness, currentActionSignature, onRefresh])
 
   const runLive = useCallback(async () => {
     if (!action || !isDryRunActionKind(action.kind) || !liveReady) return
+    const requestedAction = action
+    const operationSerial = operationSerialRef.current + 1
+    operationSerialRef.current = operationSerial
+    const operationIsCurrent = () => operationSerialRef.current === operationSerial
     setIsPending(true)
     try {
-      const payload = await executeConfirmedLiveAction(action, confirm)
+      const payload = await executeConfirmedLiveAction(requestedAction, confirm)
+      if (!operationIsCurrent()) return
       setResult({
         payload,
-        context: { commandFamily: commandFamilyForAction(action) },
+        context: { commandFamily: commandFamilyForAction(requestedAction) },
       })
       clearReadiness()
       onRefresh?.()
     } catch (error) {
       if (error instanceof LiveActionCancelled) return
-      setResult({ payload: errorPayload(error), context: { commandFamily: commandFamilyForAction(action) } })
+      if (!operationIsCurrent()) return
+      setResult({ payload: errorPayload(error), context: { commandFamily: commandFamilyForAction(requestedAction) } })
     } finally {
-      setIsPending(false)
+      if (operationIsCurrent()) setIsPending(false)
     }
   }, [action, clearReadiness, confirm, liveReady, onRefresh])
 
