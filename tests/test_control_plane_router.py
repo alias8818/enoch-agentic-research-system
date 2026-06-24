@@ -18624,6 +18624,24 @@ def test_provider_generation_classifies_wrapped_http_429_as_rate_limited():
     assert _provider_generation_failure_kind(exc) == "rate_limited"
 
 
+def test_provider_generation_timeout_classifier_uses_named_token_registry():
+    from enoch_control_plane.control_plane import router
+
+    failure_source = inspect.getsource(router._provider_generation_failure_kind)
+    timeout_source = inspect.getsource(router._provider_generation_timed_out)
+
+    assert router._provider_generation_failure_kind(TimeoutError("slow")) == "timeout"
+    assert (
+        router._provider_generation_failure_kind(
+            RuntimeError("provider request timed out")
+        )
+        == "timeout"
+    )
+    assert "_provider_generation_timed_out" in failure_source
+    assert "_PROVIDER_GENERATION_TIMEOUT_TOKENS" in timeout_source
+    assert '"timed out"' not in failure_source
+
+
 def test_provider_generation_records_timeout_attempt_event():
     from enoch_control_plane.control_plane.router import (
         _ProviderGenerationParams,

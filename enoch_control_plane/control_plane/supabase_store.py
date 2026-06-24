@@ -129,6 +129,47 @@ SUPABASE_QUERY_CIRCUIT_OPEN_SEC = float(
     os.getenv("ENOCH_SUPABASE_QUERY_CIRCUIT_OPEN_SEC", "30.0")
 )
 
+_TRANSIENT_CONNECTION_ERROR_TYPES = frozenset(
+    {
+        "edbhandlerexited",
+        "interfaceerror",
+        "operationalerror",
+        "poolerror",
+    }
+)
+_TRANSIENT_CONNECTION_MESSAGE_TOKENS = (
+    "connection is lost",
+    "connection to database closed",
+    "connection pool timeout",
+    "connection refused",
+    "pool timeout",
+    "reset by peer",
+    "server closed the connection",
+    "temporarily unavailable",
+)
+_RETRYABLE_DATABASE_SQLSTATES = frozenset({"40001", "40P01", "55P03"})
+_RETRYABLE_DATABASE_MESSAGE_TOKENS = (
+    "serializationfailure",
+    "serialization failure",
+    "deadlockdetected",
+    "deadlock detected",
+    "locknotavailable",
+    "lock not available",
+    "too many requests",
+    "rate limit",
+    "http 429",
+    "status 429",
+)
+_SUPABASE_RETRY_BASE_SLEEP_SEC = 0.25
+_SUPABASE_RETRY_MAX_SLEEP_SEC = 2.0
+_SUPABASE_RETRY_JITTER_MAX_SEC = 0.1
+
+
+def _exception_text_contains_token(exc: Exception, tokens: Sequence[str]) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return any(token in text for token in tokens)
+
+
 _NEGATIVE_DECISION_GATE_TOKENS = (
     "negative",
     "reject",
@@ -1637,49 +1678,16 @@ class SupabaseReadOnlyControlPlaneStore:
     @staticmethod
     def _is_transient_connection_error(exc: Exception) -> bool:
         type_name = type(exc).__name__.lower()
-        if type_name in {
-            "edbhandlerexited",
-            "interfaceerror",
-            "operationalerror",
-            "poolerror",
-        }:
+        if type_name in _TRANSIENT_CONNECTION_ERROR_TYPES:
             return True
-        text = str(exc).lower()
-        return any(
-            token in text
-            for token in (
-                "connection is lost",
-                "connection to database closed",
-                "connection pool timeout",
-                "connection refused",
-                "pool timeout",
-                "reset by peer",
-                "server closed the connection",
-                "temporarily unavailable",
-            )
-        )
+        return _exception_text_contains_token(exc, _TRANSIENT_CONNECTION_MESSAGE_TOKENS)
 
     @staticmethod
     def _is_retryable_database_error(exc: Exception) -> bool:
         sqlstate = str(getattr(exc, "sqlstate", "") or getattr(exc, "pgcode", "") or "")
-        if sqlstate in {"40001", "40P01", "55P03"}:
+        if sqlstate in _RETRYABLE_DATABASE_SQLSTATES:
             return True
-        text = f"{type(exc).__name__}: {exc}".lower()
-        return any(
-            token in text
-            for token in (
-                "serializationfailure",
-                "serialization failure",
-                "deadlockdetected",
-                "deadlock detected",
-                "locknotavailable",
-                "lock not available",
-                "too many requests",
-                "rate limit",
-                "http 429",
-                "status 429",
-            )
-        )
+        return _exception_text_contains_token(exc, _RETRYABLE_DATABASE_MESSAGE_TOKENS)
 
     @classmethod
     def _is_retryable_query_error(cls, exc: Exception) -> bool:
@@ -1689,7 +1697,11 @@ class SupabaseReadOnlyControlPlaneStore:
 
     @staticmethod
     def _retry_sleep_seconds(attempt: int) -> float:
-        return min(0.25 * (2**attempt), 2.0) + random.uniform(0.0, 0.1)
+        exponential_backoff = min(
+            _SUPABASE_RETRY_BASE_SLEEP_SEC * (2**attempt),
+            _SUPABASE_RETRY_MAX_SLEEP_SEC,
+        )
+        return exponential_backoff + random.uniform(0.0, _SUPABASE_RETRY_JITTER_MAX_SEC)
 
     def _raise_if_retry_circuit_open(self) -> None:
         now = time.monotonic()

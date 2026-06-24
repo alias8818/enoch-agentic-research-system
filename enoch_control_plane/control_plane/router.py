@@ -4045,12 +4045,25 @@ def _provider_generation_exception_status_code(exc: BaseException) -> int:
     return 0
 
 
+_PROVIDER_GENERATION_TIMEOUT_TOKENS = ("timeout", "timed out")
+
+
+def _provider_generation_exception_text(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {exc}".lower()
+
+
+def _provider_generation_timed_out(exc: Exception) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
+    text = _provider_generation_exception_text(exc)
+    return any(token in text for token in _PROVIDER_GENERATION_TIMEOUT_TOKENS)
+
+
 def _provider_generation_failure_kind(exc: Exception) -> str:
     status_code = _provider_generation_exception_status_code(exc)
     if status_code == 429:
         return "rate_limited"
-    text = f"{type(exc).__name__}: {exc}".lower()
-    if isinstance(exc, TimeoutError) or "timeout" in text or "timed out" in text:
+    if _provider_generation_timed_out(exc):
         return "timeout"
     return "exception"
 

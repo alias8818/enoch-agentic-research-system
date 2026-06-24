@@ -157,6 +157,27 @@ def test_supabase_retry_classifier_does_not_trust_user_controlled_exception_text
     assert s.SupabaseControlPlaneStore._is_retryable_query_error(exc) is False
 
 
+def test_supabase_retry_classifier_uses_central_retry_registries() -> None:
+    source = inspect.getsource(
+        s.SupabaseControlPlaneStore._is_transient_connection_error
+    )
+    source += inspect.getsource(
+        s.SupabaseControlPlaneStore._is_retryable_database_error
+    )
+    sleep_source = inspect.getsource(s.SupabaseControlPlaneStore._retry_sleep_seconds)
+
+    assert "_TRANSIENT_CONNECTION_ERROR_TYPES" in source
+    assert "_TRANSIENT_CONNECTION_MESSAGE_TOKENS" in source
+    assert "_RETRYABLE_DATABASE_SQLSTATES" in source
+    assert "_RETRYABLE_DATABASE_MESSAGE_TOKENS" in source
+    assert "_exception_text_contains_token" in source
+    assert "serialization failure" not in source
+    assert "server closed the connection" not in source
+    assert "_SUPABASE_RETRY_BASE_SLEEP_SEC" in sleep_source
+    assert "_SUPABASE_RETRY_MAX_SLEEP_SEC" in sleep_source
+    assert "_SUPABASE_RETRY_JITTER_MAX_SEC" in sleep_source
+
+
 def test_supabase_query_retry_deadline_caps_attempts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
