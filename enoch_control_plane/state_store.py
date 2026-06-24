@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 from pathlib import Path
 import tempfile
+import threading
 
 from .models import RunRecord
 
@@ -13,6 +15,7 @@ class StateStore:
         self.root = root
         self.runs_dir = self.root / "runs"
         self.events_log = self.root / "events.log"
+        self._events_lock = threading.Lock()
         self.runs_dir.mkdir(parents=True, exist_ok=True)
 
     def _safe_run_id(self, run_id: str) -> str:
@@ -56,5 +59,12 @@ class StateStore:
         return records
 
     def append_event(self, payload: dict) -> None:
-        with self.events_log.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        line = json.dumps(payload, sort_keys=True) + "\n"
+        with self._events_lock:
+            with self.events_log.open("a", encoding="utf-8") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    handle.write(line)
+                    handle.flush()
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

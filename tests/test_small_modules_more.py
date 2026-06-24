@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import fcntl
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +28,33 @@ def test_state_store_roundtrip_and_skips_invalid_json(tmp_path: Path) -> None:
     assert [item.run_id for item in store.list_runs()] == ["run"]
     store.append_event({"b": 2, "a": 1})
     assert store.events_log.read_text().strip() == '{"a": 1, "b": 2}'
+
+
+def test_state_store_append_event_serializes_file_append_with_flock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = StateStore(tmp_path)
+    lock_calls: list[int] = []
+
+    def record_flock(_fd: int, operation: int) -> None:
+        lock_calls.append(operation)
+
+    monkeypatch.setattr("enoch_control_plane.state_store.fcntl.flock", record_flock)
+
+    store.append_event({"event": "one"})
+    store.append_event({"event": "two"})
+
+    assert lock_calls == [
+        fcntl.LOCK_EX,
+        fcntl.LOCK_UN,
+        fcntl.LOCK_EX,
+        fcntl.LOCK_UN,
+    ]
+    assert [json.loads(line) for line in store.events_log.read_text().splitlines()] == [
+        {"event": "one"},
+        {"event": "two"},
+    ]
 
 
 def test_state_store_load_run_treats_corrupt_file_as_missing(tmp_path: Path) -> None:
