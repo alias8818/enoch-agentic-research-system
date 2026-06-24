@@ -163,10 +163,50 @@ def classify_low_utilization_runs(
     return findings
 
 
+_SEVERITY_ORDER: dict[str, int] = {"info": 0, "warn": 1, "critical": 2}
+
+
 def resource_utilization_status(findings: list[DashboardFinding]) -> dict[str, Any]:
+    """Classify resource findings into an operator-safety status.
+
+    The previous implementation collapsed every non-empty ``findings`` list
+    into ``status="blocked"`` regardless of the per-finding ``severity``.
+    That made it impossible to distinguish informational ``warn`` findings
+    (advisory) from hard ``critical`` findings (halt-worthy) at the API
+    surface, and forced operators into the manual-review flow even when the
+    only signals were advisory.
+
+    Status semantics after this fix:
+      * ``"clean"`` — no findings.
+      * ``"warn"`` — at least one finding, none ``critical``.
+      * ``"blocked"`` — at least one ``critical`` finding.
+
+    ``ok`` continues to be ``False`` for any non-empty findings list so that
+    downstream readiness checks (which use ``ok``) do not silently flip
+    semantics. ``ok`` is therefore about "any active signal" while
+    ``status`` is about the worst severity seen.
+    """
+    if not findings:
+        status = "clean"
+        highest_severity = "info"
+        severity_counts: dict[str, int] = {"info": 0, "warn": 0, "critical": 0}
+    else:
+        severity_counts = {"info": 0, "warn": 0, "critical": 0}
+        highest_severity = "info"
+        for finding in findings:
+            severity = finding.severity
+            severity_counts[severity] = severity_counts.get(severity, 0) + 1
+            if _SEVERITY_ORDER.get(severity, 0) > _SEVERITY_ORDER.get(
+                highest_severity, 0
+            ):
+                highest_severity = severity
+        status = "blocked" if highest_severity == "critical" else "warn"
+
     return {
         "ok": not findings,
-        "status": "clean" if not findings else "blocked",
+        "status": status,
+        "highest_severity": highest_severity,
+        "severity_counts": severity_counts,
         "findings": [finding.model_dump(mode="json") for finding in findings],
         "finding_count": len(findings),
     }

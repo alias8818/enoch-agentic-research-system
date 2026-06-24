@@ -8,6 +8,7 @@ from enoch_control_plane.control_plane.longhaul_readiness import (
 )
 from enoch_control_plane.control_plane.resource_utilization import (
     classify_low_utilization_runs,
+    resource_utilization_status,
 )
 from enoch_control_plane.control_plane.router import _project_prompt
 
@@ -103,19 +104,27 @@ def test_queue_alerts_surface_low_utilization_even_when_worker_is_live() -> None
 
 def test_longhaul_readiness_blocks_on_low_utilization_policy_finding() -> None:
     payload = _ready_payload()
-    finding = classify_low_utilization_runs(
+    findings = classify_low_utilization_runs(
         _cpu_only_worker_body(), min_elapsed_sec=900
-    )[0]
+    )
+
+    # Exercise the real API surface (resource_utilization_status) so the
+    # severity-aware status flows into the readiness summary. This is the
+    # contract tested for #238: warn-only findings must surface as "warn"
+    # at the operator level while still blocking dispatch.
+    assert findings, "fixture must produce at least one warn finding"
+    resource_utilization = resource_utilization_status(findings)
+    assert resource_utilization["status"] == "warn"
 
     result = evaluate_longhaul_readiness(
         now=NOW,
-        resource_utilization={"ok": False, "findings": [finding.model_dump()]},
+        resource_utilization=resource_utilization,
         **payload,
     )
 
     assert result["ok"] is False
     assert "worker resource policy has active findings" in result["blockers"]
-    assert result["summary"]["resource_utilization_status"] == "blocked"
+    assert result["summary"]["resource_utilization_status"] == "warn"
     assert result["summary"]["resource_utilization_findings"] == 1
 
 
