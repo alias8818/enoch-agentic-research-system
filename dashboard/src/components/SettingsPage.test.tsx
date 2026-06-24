@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
@@ -8,7 +8,7 @@ import { SettingsPage } from './SettingsPage'
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
+  return { client, ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>) }
 }
 
 const settingsPayload = {
@@ -205,6 +205,55 @@ it('sends one-time provider secrets separately from persisted settings', async (
   expect(body.provider_secrets).toEqual({ openrouter: 'or-secret-value' })
   expect(JSON.stringify(body.settings)).not.toContain('or-secret-value')
   await waitFor(() => expect(screen.getByLabelText('OpenRouter API key secret')).toHaveValue(''))
+})
+
+it('preserves unsaved settings edits when the settings query refetches', async () => {
+  const refetchedPayload = JSON.parse(JSON.stringify(settingsPayload))
+  refetchedPayload.settings.providers[1].base_url = 'https://server-refetch.example/api/v1'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify(refetchedPayload), { status: 200 }))
+
+  const { client } = renderWithClient(<SettingsPage />)
+
+  await screen.findByDisplayValue('https://openrouter.ai/api/v1')
+  fireEvent.change(screen.getByLabelText('OpenRouter base URL'), {
+    target: { value: 'https://local-unsaved.example/api/v1' },
+  })
+  await act(async () => {
+    await client.invalidateQueries({ queryKey: ['llm-settings'] })
+  })
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(screen.getByLabelText('OpenRouter base URL')).toHaveValue('https://local-unsaved.example/api/v1')
+})
+
+it('does not clobber edits typed while a settings save is in flight', async () => {
+  let resolveSave: (response: Response) => void = () => undefined
+  const savePromise = new Promise<Response>((resolve) => {
+    resolveSave = resolve
+  })
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify(settingsPayload), { status: 200 }))
+    .mockImplementationOnce(() => savePromise)
+
+  renderWithClient(<SettingsPage />)
+
+  await screen.findByDisplayValue('https://openrouter.ai/api/v1')
+  fireEvent.change(screen.getByLabelText('OpenRouter base URL'), {
+    target: { value: 'https://save-snapshot.example/api/v1' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+  fireEvent.change(screen.getByLabelText('OpenRouter base URL'), {
+    target: { value: 'https://typed-during-save.example/api/v1' },
+  })
+  await act(async () => {
+    resolveSave(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    await savePromise
+  })
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  expect(screen.getByLabelText('OpenRouter base URL')).toHaveValue('https://typed-during-save.example/api/v1')
 })
 
 it('blocks saves when an API key is entered into the environment variable field', async () => {

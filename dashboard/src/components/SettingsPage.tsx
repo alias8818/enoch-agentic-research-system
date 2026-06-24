@@ -907,24 +907,41 @@ export function SettingsPage() {
     queryFn: () => apiGet<LlmSettingsResponse>('/control/api/settings/llm'),
   })
   const [draft, setDraft] = useState<LlmSettings | null>(null)
+  const draftDirtyRef = useRef(false)
+  const draftEditVersionRef = useRef(0)
   const providerSecretsRef = useRef<Record<string, string>>({})
   const [secretResetNonce, setSecretResetNonce] = useState(0)
   const [testResults, setTestResults] = useState<Record<string, LlmTestResponse | 'pending'>>({})
   useEffect(() => {
-    if (query.data?.settings) setDraft(query.data.settings)
-  }, [query.data])
+    if (query.data?.settings && (!draft || !draftDirtyRef.current)) {
+      setDraft(query.data.settings)
+      draftDirtyRef.current = false
+    }
+  }, [draft, query.data])
   useEffect(() => () => {
     providerSecretsRef.current = {}
   }, [])
+  const updateDraft = (settings: LlmSettings) => {
+    draftDirtyRef.current = true
+    draftEditVersionRef.current += 1
+    setDraft(settings)
+  }
+  const updateProviderSecret = (providerId: string, value: string) => {
+    draftDirtyRef.current = true
+    draftEditVersionRef.current += 1
+    providerSecretsRef.current[providerId] = value
+  }
   const mutation = useMutation({
-    mutationFn: (settings: LlmSettings) => {
-      const secrets = Object.fromEntries(Object.entries(providerSecretsRef.current).filter(([, value]) => value.trim()))
-      return apiPost<Record<string, unknown>>('/control/api/settings/llm', { requested_by: 'dashboard-v2', settings: sanitizeSettingsForSave(settings), provider_secrets: secrets })
+    mutationFn: ({ settings, providerSecrets }: { settings: LlmSettings; providerSecrets: Record<string, string>; editVersion: number }) => {
+      return apiPost<Record<string, unknown>>('/control/api/settings/llm', { requested_by: 'dashboard-v2', settings: sanitizeSettingsForSave(settings), provider_secrets: providerSecrets })
     },
-    onSuccess: () => {
-      providerSecretsRef.current = {}
-      setSecretResetNonce((current) => current + 1)
-      query.refetch()
+    onSuccess: (_data, variables) => {
+      if (draftEditVersionRef.current === variables.editVersion) {
+        draftDirtyRef.current = false
+        providerSecretsRef.current = {}
+        setSecretResetNonce((current) => current + 1)
+        query.refetch()
+      }
     },
   })
   const testMutation = useMutation({
@@ -964,7 +981,16 @@ export function SettingsPage() {
       subtitle="Providers, model catalog, and workflow model pools"
       dataSource={`${displayText(query.data?.path, 'default settings')} ${query.data?.persisted ? 'persisted' : 'defaults'}`}
       action={(
-        <button className="primary-button" type="button" disabled={mutation.isPending || blockingErrors.length > 0} onClick={() => mutation.mutate(draft)}>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={mutation.isPending || blockingErrors.length > 0}
+          onClick={() => mutation.mutate({
+            settings: draft,
+            providerSecrets: Object.fromEntries(Object.entries(providerSecretsRef.current).filter(([, value]) => value.trim())),
+            editVersion: draftEditVersionRef.current,
+          })}
+        >
           {mutation.isPending ? 'Saving settings' : 'Save settings'}
         </button>
       )}
@@ -976,14 +1002,12 @@ export function SettingsPage() {
         settings={draft}
         secretResetNonce={secretResetNonce}
         testResults={testResults}
-        onChange={setDraft}
-        onSecretChange={(providerId, value) => {
-          providerSecretsRef.current[providerId] = value
-        }}
+        onChange={updateDraft}
+        onSecretChange={updateProviderSecret}
         onTestProvider={runProviderTest}
       />
-      <ModelRows settings={draft} modelHealth={query.data?.model_health} testResults={testResults} onChange={setDraft} onTestModel={runModelTest} />
-      <WorkflowRows settings={draft} onChange={setDraft} />
+      <ModelRows settings={draft} modelHealth={query.data?.model_health} testResults={testResults} onChange={updateDraft} onTestModel={runModelTest} />
+      <WorkflowRows settings={draft} onChange={updateDraft} />
     </PageShell>
   )
 }
