@@ -118,8 +118,10 @@ def test_readyz_reports_state_store_failure(monkeypatch: Any) -> None:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
 
+        detail = str(raised.value.detail)
         assert raised.value.status_code == 503
-        assert "state root unavailable" in str(raised.value.detail)
+        assert "state store unavailable" in detail
+        assert "state root unavailable" not in detail
 
     asyncio.run(run_check())
     monkeypatch.setattr(appmod, "reconcile_task", None)
@@ -137,8 +139,38 @@ def test_healthz_reports_failed_reconcile_task(monkeypatch: Any) -> None:
         with pytest.raises(HTTPException) as raised:
             appmod.healthz()
 
+        detail = str(raised.value.detail)
         assert raised.value.status_code == 503
-        assert "reconcile dead" in str(raised.value.detail)
+        assert "reconcile task failed" in detail
+        assert "reconcile dead" not in detail
+
+    asyncio.run(run_check())
+    monkeypatch.setattr(appmod, "reconcile_task", None)
+
+
+def test_readyz_does_not_expose_exception_details(monkeypatch: Any) -> None:
+    async def fail_with_sensitive_detail() -> None:
+        raise RuntimeError("Bearer secret-token leaked stack detail")
+
+    async def run_check() -> None:
+        task = asyncio.create_task(fail_with_sensitive_detail())
+        await asyncio.sleep(0)
+        monkeypatch.setattr(appmod, "reconcile_task", task)
+
+        def list_runs() -> list[Any]:
+            raise RuntimeError("database password=supersecret")
+
+        monkeypatch.setattr(appmod.store, "list_runs", list_runs)
+
+        with pytest.raises(HTTPException) as raised:
+            appmod.readyz()
+
+        detail = str(raised.value.detail)
+        assert raised.value.status_code == 503
+        assert "reconcile task failed" in detail
+        assert "state store unavailable" in detail
+        assert "secret-token" not in detail
+        assert "password=supersecret" not in detail
 
     asyncio.run(run_check())
     monkeypatch.setattr(appmod, "reconcile_task", None)

@@ -263,14 +263,16 @@ def _reconcile_task_readiness_error() -> str:
         return "reconcile task is cancelled"
     if exc is None:
         return "reconcile task stopped"
-    return f"{type(exc).__name__}: {exc}"
+    _logger.warning("reconcile task failed readiness check", exc_info=exc)
+    return "reconcile task failed"
 
 
 def _state_store_readiness_error() -> str:
     try:
         store.list_runs()
     except Exception as exc:
-        return f"state store unavailable: {type(exc).__name__}: {exc}"
+        _logger.warning("state store failed readiness check", exc_info=exc)
+        return "state store unavailable"
     return ""
 
 
