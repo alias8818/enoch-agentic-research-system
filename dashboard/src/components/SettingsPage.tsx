@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { apiGet, apiPost } from '../api/client'
 import { displayText } from '../displayText'
@@ -433,7 +433,7 @@ function ProviderRow({
   settings,
   provider,
   index,
-  providerSecrets,
+  secretResetNonce,
   testResults,
   onChange,
   onSecretChange,
@@ -442,7 +442,7 @@ function ProviderRow({
   settings: LlmSettings
   provider: LlmProvider
   index: number
-  providerSecrets: Record<string, string>
+  secretResetNonce: number
   testResults: Record<string, LlmTestResponse | 'pending'>
   onChange: (settings: LlmSettings) => void
   onSecretChange: (providerId: string, value: string) => void
@@ -509,7 +509,8 @@ function ProviderRow({
           type="password"
           autoComplete="off"
           placeholder={provider.api_key_configured ? 'Configured; paste to replace' : 'Paste key to store server-side'}
-          value={providerSecrets[provider.provider_id] || ''}
+          key={`${provider.provider_id}-${secretResetNonce}`}
+          defaultValue=""
           onChange={(event) => onSecretChange(provider.provider_id, event.target.value)}
         />
       </label>
@@ -534,14 +535,14 @@ function ProviderRow({
 
 function ProviderRows({
   settings,
-  providerSecrets,
+  secretResetNonce,
   testResults,
   onChange,
   onSecretChange,
   onTestProvider,
 }: Readonly<{
   settings: LlmSettings
-  providerSecrets: Record<string, string>
+  secretResetNonce: number
   testResults: Record<string, LlmTestResponse | 'pending'>
   onChange: (settings: LlmSettings) => void
   onSecretChange: (providerId: string, value: string) => void
@@ -582,7 +583,7 @@ function ProviderRows({
             settings={settings}
             provider={provider}
             index={index}
-            providerSecrets={providerSecrets}
+            secretResetNonce={secretResetNonce}
             testResults={testResults}
             onChange={onChange}
             onSecretChange={onSecretChange}
@@ -906,18 +907,23 @@ export function SettingsPage() {
     queryFn: () => apiGet<LlmSettingsResponse>('/control/api/settings/llm'),
   })
   const [draft, setDraft] = useState<LlmSettings | null>(null)
-  const [providerSecrets, setProviderSecrets] = useState<Record<string, string>>({})
+  const providerSecretsRef = useRef<Record<string, string>>({})
+  const [secretResetNonce, setSecretResetNonce] = useState(0)
   const [testResults, setTestResults] = useState<Record<string, LlmTestResponse | 'pending'>>({})
   useEffect(() => {
     if (query.data?.settings) setDraft(query.data.settings)
   }, [query.data])
+  useEffect(() => () => {
+    providerSecretsRef.current = {}
+  }, [])
   const mutation = useMutation({
     mutationFn: (settings: LlmSettings) => {
-      const secrets = Object.fromEntries(Object.entries(providerSecrets).filter(([, value]) => value.trim()))
+      const secrets = Object.fromEntries(Object.entries(providerSecretsRef.current).filter(([, value]) => value.trim()))
       return apiPost<Record<string, unknown>>('/control/api/settings/llm', { requested_by: 'dashboard-v2', settings: sanitizeSettingsForSave(settings), provider_secrets: secrets })
     },
     onSuccess: () => {
-      setProviderSecrets({})
+      providerSecretsRef.current = {}
+      setSecretResetNonce((current) => current + 1)
       query.refetch()
     },
   })
@@ -968,10 +974,12 @@ export function SettingsPage() {
       <SettingsValidationCard errors={validationErrors} />
       <ProviderRows
         settings={draft}
-        providerSecrets={providerSecrets}
+        secretResetNonce={secretResetNonce}
         testResults={testResults}
         onChange={setDraft}
-        onSecretChange={(providerId, value) => setProviderSecrets((current) => ({ ...current, [providerId]: value }))}
+        onSecretChange={(providerId, value) => {
+          providerSecretsRef.current[providerId] = value
+        }}
         onTestProvider={runProviderTest}
       />
       <ModelRows settings={draft} modelHealth={query.data?.model_health} testResults={testResults} onChange={setDraft} onTestModel={runModelTest} />

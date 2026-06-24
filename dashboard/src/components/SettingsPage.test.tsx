@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
 import { afterEach, expect, it, vi } from 'vitest'
 import { saveToken } from '../api/client'
 import { fetchMockCallUrl, fetchMockRequestBody } from '../test/fetchMockBody'
@@ -124,6 +125,14 @@ afterEach(() => {
   saveToken('')
 })
 
+it('keeps provider secrets out of React state and controlled input props', () => {
+  const source = readFileSync('src/components/SettingsPage.tsx', 'utf8')
+
+  expect(source).toContain('providerSecretsRef')
+  expect(source).not.toContain('setProviderSecrets')
+  expect(source).not.toContain('value={providerSecrets')
+})
+
 it('edits provider endpoints, model catalog, and workflow pools through the settings API', async () => {
   saveToken('test-token')
   const fetchMock = vi.spyOn(globalThis, 'fetch')
@@ -185,7 +194,8 @@ it('sends one-time provider secrets separately from persisted settings', async (
   renderWithClient(<SettingsPage />)
 
   await screen.findByDisplayValue('https://openrouter.ai/api/v1')
-  fireEvent.change(screen.getByLabelText('OpenRouter API key secret'), {
+  const secretInput = screen.getByLabelText('OpenRouter API key secret')
+  fireEvent.change(secretInput, {
     target: { value: 'or-secret-value' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
@@ -194,6 +204,7 @@ it('sends one-time provider secrets separately from persisted settings', async (
   const body = JSON.parse(fetchMockRequestBody(fetchMock, 1))
   expect(body.provider_secrets).toEqual({ openrouter: 'or-secret-value' })
   expect(JSON.stringify(body.settings)).not.toContain('or-secret-value')
+  await waitFor(() => expect(screen.getByLabelText('OpenRouter API key secret')).toHaveValue(''))
 })
 
 it('blocks saves when an API key is entered into the environment variable field', async () => {
