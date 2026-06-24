@@ -1,22 +1,22 @@
 export const TOKEN_STORAGE_KEY = 'enochControlToken'
 
-let fallbackToken = ''
+let currentToken = ''
 
-function browserStorage(): Pick<Storage, 'getItem' | 'setItem'> | undefined {
+function browserStorage(): Pick<Storage, 'removeItem'> | undefined {
   const storage = globalThis.window?.sessionStorage
-  if (typeof storage?.getItem === 'function' && typeof storage?.setItem === 'function') {
+  if (typeof storage?.removeItem === 'function') {
     return storage
   }
   return undefined
 }
 
 export function getSavedToken(): string {
-  return browserStorage()?.getItem(TOKEN_STORAGE_KEY) || fallbackToken
+  return currentToken
 }
 
 export function saveToken(token: string): void {
-  fallbackToken = token.trim()
-  browserStorage()?.setItem(TOKEN_STORAGE_KEY, fallbackToken)
+  currentToken = token.trim()
+  browserStorage()?.removeItem(TOKEN_STORAGE_KEY)
 }
 
 function authHeaders(token: string): { Authorization?: string } {

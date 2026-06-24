@@ -13,13 +13,16 @@ afterEach(() => {
   globalThis.location.hash = ''
 })
 
-it('keeps dashboard tokens in session storage only', () => {
+it('keeps dashboard bearer tokens out of browser storage', () => {
   globalThis.window.localStorage.setItem(TOKEN_STORAGE_KEY, 'persisted-token')
+  globalThis.window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stale-session-token')
+
+  expect(getSavedToken()).toBe('')
 
   saveToken('session-token')
 
   expect(getSavedToken()).toBe('session-token')
-  expect(globalThis.window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe('session-token')
+  expect(globalThis.window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
   expect(globalThis.window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBe('persisted-token')
 })
 

@@ -1,9 +1,21 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { apiGet, apiPost, saveToken } from './client'
+import { apiGet, apiPost, getSavedToken, saveToken, TOKEN_STORAGE_KEY } from './client'
 
 afterEach(() => {
   vi.restoreAllMocks()
   saveToken('')
+  globalThis.window?.sessionStorage?.clear()
+})
+
+it('keeps saved bearer tokens in memory and scrubs stale session storage', () => {
+  globalThis.window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stale-session-token')
+
+  expect(getSavedToken()).toBe('')
+
+  saveToken('  operator-token  ')
+
+  expect(getSavedToken()).toBe('operator-token')
+  expect(globalThis.window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
 })
 
 it('omits Authorization instead of sending a bogus bearer when token is missing', async () => {
