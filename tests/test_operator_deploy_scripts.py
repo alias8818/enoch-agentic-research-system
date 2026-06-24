@@ -476,7 +476,12 @@ def test_longhaul_guard_links_incidents_to_durable_checks() -> None:
     text = script.read_text(encoding="utf-8")
 
     assert "codex exec --skip-git-repo-check --json -C /tmp" in text
-    assert 'sudo -u "$cpu_worker_user" -H' in text
+    assert 'validate_remote_path(cpu_worker_home, "ENOCH_CPU_WORKER_HOME")' in text
+    assert 'validate_remote_user(cpu_worker_user, "ENOCH_CPU_WORKER_USER")' in text
+    assert "ssh_argv(" in text
+    assert 'export HOME="$cpu_worker_home"' in text
+    assert '"export HOME="\n            + cpu_worker_home' not in text
+    assert '"sudo -u "\n        + json.dumps(cpu_worker_user)' not in text
     assert "/control/api/alerts/queue-check" in text
     assert '"dry_run": true' in text
     assert '"dry_run": false' in text
@@ -490,6 +495,41 @@ def test_longhaul_guard_links_incidents_to_durable_checks() -> None:
     assert "queue_alert_findings_present" in text
 
 
+def test_longhaul_guard_rejects_injected_worker_home(tmp_path: Path) -> None:
+    fake_ssh = tmp_path / "ssh"
+    fake_ssh.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+echo "ssh should not be reached" >&2
+exit 99
+""",
+        encoding="utf-8",
+    )
+    fake_ssh.chmod(0o755)
+    marker = tmp_path / "injected"
+    output = tmp_path / "guard.json"
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "ENOCH_CONTROL_HOST": "control-host",
+        "ENOCH_CPU_HOST": "cpu-host",
+        "ENOCH_CPU_WORKER_HOME": f"/tmp/worker;touch{marker}",
+    }
+
+    result = subprocess.run(
+        [str(ROOT / "scripts" / "enoch-longhaul-guard.sh"), "--output", str(output)],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "unsafe ENOCH_CPU_WORKER_HOME" in result.stderr
+    assert not marker.exists()
+    assert not output.exists()
+
+
 def test_longhaul_guard_records_unrepairable_readiness_stale_active(
     tmp_path,
 ) -> None:
@@ -499,7 +539,7 @@ def test_longhaul_guard_records_unrepairable_readiness_stale_active(
 import json
 import sys
 
-command = sys.argv[-1]
+command = " ".join(sys.argv[2:]) + sys.stdin.read()
 if "codex exec" in command:
     print(json.dumps({"item": {"type": "agent_message", "text": "ok"}}))
 elif "/control/api/v1/automation-readiness" in command:
@@ -560,7 +600,7 @@ def test_longhaul_guard_fails_on_non_stale_queue_alert_findings(tmp_path) -> Non
 import json
 import sys
 
-command = sys.argv[-1]
+command = " ".join(sys.argv[2:]) + sys.stdin.read()
 if "codex exec" in command:
     print(json.dumps({"item": {"type": "agent_message", "text": "ok"}}))
 elif "/control/api/v1/automation-readiness" in command:

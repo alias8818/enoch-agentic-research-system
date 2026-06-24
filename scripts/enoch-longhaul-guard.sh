@@ -69,6 +69,7 @@ python3 - "$control_host" "$cpu_host" "$cpu_worker_user" "$cpu_worker_home" "$co
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -83,14 +84,49 @@ codex_timeout = int(sys.argv[5])
 repair_stale_active = sys.argv[6] == "1"
 skip_codex_smoke = sys.argv[7] == "1"
 
+_HOST_PATTERN = re.compile(r"^[A-Za-z0-9._@:-]+$")
+_REMOTE_PATH_PATTERN = re.compile(r"^/[A-Za-z0-9._/@:+-]+$")
+_USER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*[$]?$")
+
+
+def validate_ssh_host(value: str, name: str) -> None:
+    if (
+        not value
+        or value.startswith("-")
+        or not _HOST_PATTERN.fullmatch(value)
+        or "@@" in value
+        or value.startswith("@")
+        or value.endswith("@")
+    ):
+        raise SystemExit(f"unsafe {name}: {value}")
+
+
+def validate_remote_path(value: str, name: str) -> None:
+    if not value or not _REMOTE_PATH_PATTERN.fullmatch(value):
+        raise SystemExit(f"unsafe {name}: {value}")
+
+
+def validate_remote_user(value: str, name: str) -> None:
+    if not value or not _USER_PATTERN.fullmatch(value):
+        raise SystemExit(f"unsafe {name}: {value}")
+
+
+validate_ssh_host(control_host, "ENOCH_CONTROL_HOST")
+validate_ssh_host(cpu_host, "ENOCH_CPU_HOST")
+validate_remote_user(cpu_worker_user, "ENOCH_CPU_WORKER_USER")
+validate_remote_path(cpu_worker_home, "ENOCH_CPU_WORKER_HOME")
+
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def run(argv: list[str], *, timeout: int = 30) -> dict[str, Any]:
+def run(
+    argv: list[str], *, timeout: int = 30, input_text: str | None = None
+) -> dict[str, Any]:
     proc = subprocess.run(
         argv,
+        input=input_text,
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -106,6 +142,12 @@ def run(argv: list[str], *, timeout: int = 30) -> dict[str, Any]:
 
 def ssh(host: str, command: str, *, timeout: int = 30) -> dict[str, Any]:
     return run(["ssh", host, command], timeout=timeout)
+
+
+def ssh_argv(
+    host: str, remote_argv: list[str], *, input_text: str, timeout: int = 30
+) -> dict[str, Any]:
+    return run(["ssh", host, *remote_argv], timeout=timeout, input_text=input_text)
 
 
 def parse_json_stdout(result: dict[str, Any]) -> Any:
@@ -147,18 +189,18 @@ PYREMOTE"""
 
 def cpu_codex_smoke() -> dict[str, Any]:
     prompt = "Return exactly: ok"
-    command = (
-        "sudo -u "
-        + json.dumps(cpu_worker_user)
-        + " -H bash -lc "
-        + json.dumps(
-            "export HOME="
-            + cpu_worker_home
-            + "; codex exec --skip-git-repo-check --json -C /tmp "
-            + json.dumps(prompt)
-        )
+    script = """set -euo pipefail
+cpu_worker_home="$1"
+prompt="$2"
+export HOME="$cpu_worker_home"
+codex exec --skip-git-repo-check --json -C /tmp "$prompt"
+"""
+    result = ssh_argv(
+        cpu_host,
+        ["sudo", "-u", cpu_worker_user, "-H", "bash", "-s", "--", cpu_worker_home, prompt],
+        input_text=script,
+        timeout=codex_timeout,
     )
-    result = ssh(cpu_host, command, timeout=codex_timeout)
     success = False
     message = ""
     for line in str(result.get("stdout") or "").splitlines():
