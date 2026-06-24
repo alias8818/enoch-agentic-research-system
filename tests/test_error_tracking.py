@@ -113,9 +113,7 @@ def test_capture_exception_with_sentry_initialized_invokes_sdk_once() -> None:
 
     # Tag keys (component/lane/operation/machine_target) -> scope.set_tag.
     tag_calls = {
-        call.args[0]: call.args[1]
-        for call in scope.set_tag.call_args_list
-        if call.args
+        call.args[0]: call.args[1] for call in scope.set_tag.call_args_list if call.args
     }
     assert tag_calls["component"] == "control_plane"
     assert tag_calls["lane"] == "gb10"
