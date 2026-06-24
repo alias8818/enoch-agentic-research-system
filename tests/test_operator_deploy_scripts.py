@@ -414,6 +414,58 @@ def test_longhaul_guard_script_has_valid_bash_syntax() -> None:
     subprocess.run(["bash", "-n", str(script)], check=True)
 
 
+def test_smoke_test_local_keeps_control_token_out_of_argv_and_payloads(
+    tmp_path: Path,
+) -> None:
+    script = ROOT / "scripts" / "smoke-test-local.sh"
+    text = script.read_text(encoding="utf-8")
+
+    assert '--config "$CONTROL_CURL_CONFIG"' in text
+    assert 'header = "Authorization: Bearer $TOKEN"' in text
+    assert '--data-binary "@$PREFLIGHT_JSON"' in text
+    assert '--data-binary "@$DISPATCH_JSON"' in text
+    assert '"bearer_token"' not in text
+    assert '-H "Authorization: Bearer $TOKEN"' not in text
+    assert '-d "' not in text
+
+    fake_curl = tmp_path / "curl"
+    argv_log = tmp_path / "curl-argv.jsonl"
+    fake_curl.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+import sys
+from pathlib import Path
+Path(os.environ["CURL_ARGV_LOG"]).open("a", encoding="utf-8").write(json.dumps(sys.argv[1:]) + "\\n")
+print('{"ok": true}')
+""",
+        encoding="utf-8",
+    )
+    fake_curl.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "CURL_ARGV_LOG": str(argv_log),
+        "ENOCH_CONTROL_TOKEN": "super-secret-control-token",
+        "ENOCH_BASE_URL": "http://127.0.0.1:8787",
+    }
+
+    result = subprocess.run(
+        [str(script)],
+        check=False,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log = argv_log.read_text(encoding="utf-8")
+    assert "super-secret-control-token" not in log
+    assert "bearer_token" not in log
+    assert "--config" in log
+    assert "--data-binary" in log
+
+
 def test_maintenance_scripts_have_valid_bash_syntax() -> None:
     for name in ("enoch-maintenance-stop.sh", "enoch-maintenance-resume.sh"):
         subprocess.run(["bash", "-n", str(ROOT / "scripts" / name)], check=True)

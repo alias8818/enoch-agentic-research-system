@@ -24,22 +24,38 @@ echo "healthz"
 curl -fsS "${CURL_TIMEOUT_ARGS[@]}" "$BASE_URL/healthz" | python3 -m json.tool
 
 STATUS_JSON="$(mktemp)"
-trap 'rm -f "$STATUS_JSON"' EXIT
+CONTROL_CURL_CONFIG="$(mktemp)"
+PREFLIGHT_JSON="$(mktemp)"
+DISPATCH_JSON="$(mktemp)"
+chmod 600 "$CONTROL_CURL_CONFIG" "$PREFLIGHT_JSON" "$DISPATCH_JSON"
+trap 'rm -f "$STATUS_JSON" "$CONTROL_CURL_CONFIG" "$PREFLIGHT_JSON" "$DISPATCH_JSON"' EXIT
+
+cat >"$CONTROL_CURL_CONFIG" <<EOF
+header = "Authorization: Bearer $TOKEN"
+EOF
+
+cat >"$PREFLIGHT_JSON" <<EOF
+{"require_paused":false,"strict":false}
+EOF
+
+cat >"$DISPATCH_JSON" <<'EOF'
+{"dry_run":true,"requested_by":"smoke-test"}
+EOF
 
 echo "status ($STATUS_ENDPOINT)"
-curl -fsS "${CURL_TIMEOUT_ARGS[@]}" -H "Authorization: Bearer $TOKEN" "$BASE_URL$STATUS_ENDPOINT" | python3 -m json.tool >"$STATUS_JSON"
+curl -fsS "${CURL_TIMEOUT_ARGS[@]}" --config "$CONTROL_CURL_CONFIG" "$BASE_URL$STATUS_ENDPOINT" | python3 -m json.tool >"$STATUS_JSON"
 cat "$STATUS_JSON"
 
 if [[ "$SKIP_PREFLIGHT" == "1" || "$SKIP_PREFLIGHT" == "true" || "$SKIP_PREFLIGHT" == "yes" ]]; then
   echo "preflight skipped (ENOCH_SMOKE_SKIP_PREFLIGHT=$SKIP_PREFLIGHT)"
 else
   echo "preflight (non-strict self-check)"
-  curl -fsS "${CURL_TIMEOUT_ARGS[@]}" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-    -d "{\"wake_gate_url\":\"$BASE_URL\",\"bearer_token\":\"$TOKEN\",\"require_paused\":false,\"strict\":false}" \
-    "$BASE_URL/control/api/preflight" | python3 -m json.tool
+  curl -fsS "${CURL_TIMEOUT_ARGS[@]}" --config "$CONTROL_CURL_CONFIG" -H 'Content-Type: application/json' \
+    --data-binary "@$PREFLIGHT_JSON" \
+    "$BASE_URL/control/worker/preflight" | python3 -m json.tool
 fi
 
 echo "dispatch dry run"
-curl -fsS "${CURL_TIMEOUT_ARGS[@]}" -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"dry_run":true,"requested_by":"smoke-test"}' \
+curl -fsS "${CURL_TIMEOUT_ARGS[@]}" --config "$CONTROL_CURL_CONFIG" -H 'Content-Type: application/json' \
+  --data-binary "@$DISPATCH_JSON" \
   "$BASE_URL/control/dispatch-next" | python3 -m json.tool
