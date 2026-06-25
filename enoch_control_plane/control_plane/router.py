@@ -403,59 +403,77 @@ def _installed_maintenance_automation_timers() -> tuple[str, ...]:
     return tuple(timer for timer in MAINTENANCE_AUTOMATION_TIMERS if timer in installed)
 
 
-def _pause_automation_for_control_pause() -> dict[str, Any]:
-    if os.environ.get("ENOCH_CONTROL_PAUSE_STOP_SYSTEMD", "1") == "0":
-        return {"ok": True, "action": "systemd_pause_skipped", "reason": "disabled"}
+@dataclass(frozen=True)
+class MaintenanceSystemdAction:
+    enabled_env: str
+    skipped_action: str
+    action: str
+    step_args: tuple[tuple[str, ...], ...]
+
+
+def _run_maintenance_systemd_action(
+    spec: MaintenanceSystemdAction,
+    *,
+    timer_units: tuple[str, ...] | None = None,
+    extra_payload: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if os.environ.get(spec.enabled_env, "1") == "0":
+        return {"ok": True, "action": spec.skipped_action, "reason": "disabled"}
     if not _systemd_available_for_resume():
         return {
             "ok": True,
-            "action": "systemd_pause_skipped",
+            "action": spec.skipped_action,
             "reason": "systemd unavailable",
         }
 
-    timers = _installed_maintenance_automation_timers()
-    steps = [
-        _run_resume_systemctl(["stop", *timers]),
-        _run_resume_systemctl(["disable", *timers]),
-    ]
+    timers = timer_units or _installed_maintenance_automation_timers()
+    steps = [_run_resume_systemctl([*args]) for args in spec.step_args]
     failures = [step for step in steps if not step.get("ok")]
-    return {
+    payload: dict[str, Any] = {
         "ok": not failures,
-        "action": "systemd_pause_timers",
+        "action": spec.action,
         "timers": list(timers),
         "steps": steps,
         "failures": failures,
     }
+    if extra_payload:
+        payload.update(extra_payload)
+    return payload
+
+
+def _pause_automation_for_control_pause() -> dict[str, Any]:
+    timers = _installed_maintenance_automation_timers()
+    return _run_maintenance_systemd_action(
+        MaintenanceSystemdAction(
+            enabled_env="ENOCH_CONTROL_PAUSE_STOP_SYSTEMD",
+            skipped_action="systemd_pause_skipped",
+            action="systemd_pause_timers",
+            step_args=(
+                ("stop", *timers),
+                ("disable", *timers),
+            ),
+        ),
+        timer_units=timers,
+    )
 
 
 def _resume_automation_after_control_resume() -> dict[str, Any]:
-    if os.environ.get("ENOCH_CONTROL_RESUME_REARM_SYSTEMD", "1") == "0":
-        return {"ok": True, "action": "systemd_rearm_skipped", "reason": "disabled"}
-    if not _systemd_available_for_resume():
-        return {
-            "ok": True,
-            "action": "systemd_rearm_skipped",
-            "reason": "systemd unavailable",
-        }
-
     timers = _installed_maintenance_automation_timers()
-    steps = [
-        _run_resume_systemctl(["daemon-reload"]),
-        _run_resume_systemctl(["enable", "--now", *timers]),
-        _run_resume_systemctl(["restart", *timers]),
-        _run_resume_systemctl(
-            ["start", "--no-block", *MAINTENANCE_RESUME_KICK_SERVICES]
+    return _run_maintenance_systemd_action(
+        MaintenanceSystemdAction(
+            enabled_env="ENOCH_CONTROL_RESUME_REARM_SYSTEMD",
+            skipped_action="systemd_rearm_skipped",
+            action="systemd_rearm_and_kick",
+            step_args=(
+                ("daemon-reload",),
+                ("enable", "--now", *timers),
+                ("restart", *timers),
+                ("start", "--no-block", *MAINTENANCE_RESUME_KICK_SERVICES),
+            ),
         ),
-    ]
-    failures = [step for step in steps if not step.get("ok")]
-    return {
-        "ok": not failures,
-        "action": "systemd_rearm_and_kick",
-        "timers": list(timers),
-        "kick_services": list(MAINTENANCE_RESUME_KICK_SERVICES),
-        "steps": steps,
-        "failures": failures,
-    }
+        timer_units=timers,
+        extra_payload={"kick_services": list(MAINTENANCE_RESUME_KICK_SERVICES)},
+    )
 
 
 class UnresolvableArtifactRootsError(RuntimeError):
@@ -2753,8 +2771,9 @@ def _int_or_none(value: Any) -> int | None:
         return None
 
 
-WORKER_SETTLING_RECENT_GRACE_SEC = 180
-ACTIVE_LANE_CONFIRMATION_GRACE_SEC = 180
+DEFAULT_RECENT_GRACE_SECONDS = 180
+WORKER_SETTLING_RECENT_GRACE_SEC = DEFAULT_RECENT_GRACE_SECONDS
+ACTIVE_LANE_CONFIRMATION_GRACE_SEC = DEFAULT_RECENT_GRACE_SECONDS
 
 
 def _worker_run_is_settling_without_process(run: dict[str, Any]) -> bool:

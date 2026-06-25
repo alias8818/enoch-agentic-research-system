@@ -22,10 +22,13 @@ from fastapi.testclient import TestClient
 from enoch_control_plane.config import GateConfig
 from enoch_control_plane.control_plane import router as control_plane_router
 from enoch_control_plane.control_plane.router import (
+    ACTIVE_LANE_CONFIRMATION_GRACE_SEC,
+    DEFAULT_RECENT_GRACE_SECONDS,
     MAINTENANCE_AUTOMATION_TIMERS,
     MAINTENANCE_AUTOMATION_UNITS,
     MAINTENANCE_RESUME_KICK_SERVICES,
     MAINTENANCE_RESUME_TIMERS,
+    WORKER_SETTLING_RECENT_GRACE_SEC,
     _active_lane_worker_confirmation,
     _codex_dispatch_model,
     _fetch_synthetic_research_budget,
@@ -36,6 +39,7 @@ from enoch_control_plane.control_plane.router import (
     _promote_research_rows,
     _register_control_plane_maintenance_routes,
     _resume_automation_after_control_resume,
+    _run_maintenance_systemd_action,
     _run_resume_systemctl,
     _write_deterministic_paper,
     create_control_plane_router,
@@ -446,6 +450,23 @@ def test_maintenance_automation_units_own_timer_service_pairing() -> None:
     assert all(
         unit.kick_service.endswith(".service") for unit in MAINTENANCE_AUTOMATION_UNITS
     )
+
+
+def test_maintenance_pause_resume_share_systemd_action_runner() -> None:
+    pause_source = inspect.getsource(_pause_automation_for_control_pause)
+    resume_source = inspect.getsource(_resume_automation_after_control_resume)
+
+    assert pause_source.count("_run_maintenance_systemd_action") == 1
+    assert resume_source.count("_run_maintenance_systemd_action") == 1
+    assert "_run_resume_systemctl" not in pause_source
+    assert "_run_resume_systemctl" not in resume_source
+    assert "_run_resume_systemctl" in inspect.getsource(_run_maintenance_systemd_action)
+
+
+def test_recent_grace_windows_share_single_default_constant() -> None:
+    assert DEFAULT_RECENT_GRACE_SECONDS == 180
+    assert WORKER_SETTLING_RECENT_GRACE_SEC == DEFAULT_RECENT_GRACE_SECONDS
+    assert ACTIVE_LANE_CONFIRMATION_GRACE_SEC == DEFAULT_RECENT_GRACE_SECONDS
 
 
 def test_dashboard_pause_stops_all_active_automation_timers() -> None:

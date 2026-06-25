@@ -178,6 +178,14 @@ def test_supabase_retry_classifier_uses_central_retry_registries() -> None:
     assert "_SUPABASE_RETRY_JITTER_MAX_SEC" in sleep_source
 
 
+def test_supabase_sql_fragments_are_registered_once() -> None:
+    registry = getattr(s, "SUPABASE_SQL")
+
+    assert s.STATUS_COUNT_QUERY == registry.status_count_query
+    assert s._QUEUE_STATUS_EQUALS_PARAM == registry.queue_status_equals_param
+    assert "queue_items group by status" in registry.status_count_query
+
+
 def test_supabase_query_retry_deadline_caps_attempts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

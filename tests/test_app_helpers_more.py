@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import inspect
 import json
 from pathlib import Path
 
@@ -74,10 +75,25 @@ def test_dashboard_rejects_query_token_and_emits_security_headers() -> None:
 
 def test_legacy_dashboard_shell_does_not_persist_or_link_tokens() -> None:
     html = appmod.DASHBOARD_HTML
+    assert len(html.splitlines()) < 20
+    assert "/control/dashboard-v2" in html
+    assert "/dashboard/api" not in html
     assert "localStorage" not in html
     assert "sessionStorage" in html
     assert "&token=" not in html
     assert 'params.get("token")' not in html
+
+
+def test_path_inspection_helpers_share_error_mapping() -> None:
+    exists_source = inspect.getsource(appmod._checked_exists)
+    is_dir_source = inspect.getsource(appmod._checked_is_dir)
+    shared_source = inspect.getsource(appmod._checked_path_predicate)
+
+    assert "_checked_path_predicate" in exists_source
+    assert "_checked_path_predicate" in is_dir_source
+    assert "could not be inspected during" in shared_source
+    assert "path.exists()" not in exists_source
+    assert "path.is_dir()" not in is_dir_source
 
 
 def test_path_resolution_and_writes_are_safe(tmp_path: Path) -> None:

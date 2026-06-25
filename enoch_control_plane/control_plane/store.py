@@ -44,6 +44,11 @@ from .promising_signal_priority import (
     ranked_followup_readiness,
 )
 from .state_contract import RUN_STATES
+from .idempotency import (
+    WORKER_CALLBACK_AUDIT_KEYS,
+    assert_same_worker_callback_payload,
+    parse_event_payload_object,
+)
 
 
 _logger = logging.getLogger(__name__)
@@ -59,18 +64,6 @@ ACTIVE_STATUSES = {
 # Centralized SQL fragment for queue status equality filters (Sonar S1192).
 _QUEUE_STATUS_EQ = "q.status = ?"
 TERMINAL_SUCCESS_CALLBACK_STATES = {"wake_ready", "session_finished_ready"}
-WORKER_CALLBACK_AUDIT_KEYS = {
-    "delivered_at",
-    "received_by",
-    "seen_at",
-    "applied_status",
-    "applied_next_action_hint",
-    "stale_callback_ignored",
-    "late_callback_ignored",
-    "ignore_reason",
-    "current_run_id",
-    "current_last_run_state",
-}
 MISSING_TITLE_REASON = "missing title"
 
 
@@ -3077,30 +3070,14 @@ class ControlPlaneStore:
         ).fetchone()
         if row is None:
             return None
-        try:
-            existing_payload = json.loads(row["payload_json"] or "{}")
-        except (TypeError, json.JSONDecodeError) as exc:
-            raise IdempotencyConflict(
-                f"idempotency key {idempotency_key!r} has unreadable payload"
-            ) from exc
-        if not isinstance(existing_payload, dict):
-            raise IdempotencyConflict(
-                f"idempotency key {idempotency_key!r} has non-object payload"
-            )
-        existing_callback_payload = {
-            key: value
-            for key, value in existing_payload.items()
-            if key not in WORKER_CALLBACK_AUDIT_KEYS
-        }
-        incoming_callback_payload = {
-            key: value
-            for key, value in incoming_payload.items()
-            if key not in WORKER_CALLBACK_AUDIT_KEYS
-        }
-        if existing_callback_payload != incoming_callback_payload:
-            raise IdempotencyConflict(
-                f"idempotency key {idempotency_key!r} was reused with different callback payload"
-            )
+        existing_payload = parse_event_payload_object(
+            row["payload_json"], idempotency_key=idempotency_key
+        )
+        assert_same_worker_callback_payload(
+            idempotency_key=idempotency_key,
+            existing_payload=existing_payload,
+            incoming_payload=incoming_payload,
+        )
         return int(row["event_id"])
 
     def _resolve_worker_callback_project_id(self, project_id: str, run_id: str) -> str:

@@ -6,6 +6,7 @@ import os
 import random
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -42,13 +43,16 @@ from .promising_signal_priority import (
     promising_followup_priority_key,
     ranked_followup_readiness,
 )
+from .idempotency import (
+    assert_same_worker_callback_payload,
+    parse_event_payload_object,
+)
 from .store import (
     ACTIVE_STATUSES,
     ALLOWED_STATUS_TRANSITIONS,
     SYSTEM_REVIEW_STATUSES,
     QueueStatus,
     TERMINAL_SUCCESS_CALLBACK_STATES,
-    WORKER_CALLBACK_AUDIT_KEYS,
     audit_event_idempotency_key,
     _atomic_write_text,
     _audit_rows,
@@ -106,12 +110,20 @@ from .store import (
 )
 from .workload_routing import route_machine_target
 
-# Centralized SQL constant for the top remaining S1192 duplication
-# (status count query used in multiple _query calls).
-STATUS_COUNT_QUERY = "select status, count(*) as count from queue_items group by status"
+
+@dataclass(frozen=True)
+class SupabaseSqlRegistry:
+    status_count_query: str = (
+        "select status, count(*) as count from queue_items group by status"
+    )
+    queue_status_equals_param: str = "q.status = %s"
+
+
+SUPABASE_SQL = SupabaseSqlRegistry()
+STATUS_COUNT_QUERY = SUPABASE_SQL.status_count_query
 PROJECT_DECISION_JSON_FILENAME = "project_decision.json"
 # Centralized SQL fragment for queue status equality filters (Sonar S1192 at ~1598).
-_QUEUE_STATUS_EQUALS_PARAM = "q.status = %s"
+_QUEUE_STATUS_EQUALS_PARAM = SUPABASE_SQL.queue_status_equals_param
 
 
 ConnectionFactory = Callable[[], Any]
@@ -5062,34 +5074,14 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
         )
         if row is None or "payload_json" not in row:
             return None
-        raw_payload = row.get("payload_json")
-        if isinstance(raw_payload, dict):
-            existing_payload = raw_payload
-        else:
-            try:
-                existing_payload = json.loads(raw_payload or "{}")
-            except (TypeError, json.JSONDecodeError) as exc:
-                raise IdempotencyConflict(
-                    f"idempotency key {idempotency_key!r} has unreadable payload"
-                ) from exc
-        if not isinstance(existing_payload, dict):
-            raise IdempotencyConflict(
-                f"idempotency key {idempotency_key!r} has non-object payload"
-            )
-        existing_callback_payload = {
-            key: value
-            for key, value in existing_payload.items()
-            if key not in WORKER_CALLBACK_AUDIT_KEYS
-        }
-        incoming_callback_payload = {
-            key: value
-            for key, value in incoming_payload.items()
-            if key not in WORKER_CALLBACK_AUDIT_KEYS
-        }
-        if existing_callback_payload != incoming_callback_payload:
-            raise IdempotencyConflict(
-                f"idempotency key {idempotency_key!r} was reused with different callback payload"
-            )
+        existing_payload = parse_event_payload_object(
+            row.get("payload_json"), idempotency_key=idempotency_key
+        )
+        assert_same_worker_callback_payload(
+            idempotency_key=idempotency_key,
+            existing_payload=existing_payload,
+            incoming_payload=incoming_payload,
+        )
         return int(row["event_id"])
 
     def _resolve_worker_callback_project_id(self, project_id: str, run_id: str) -> str:
