@@ -2775,7 +2775,6 @@ def _register_control_plane_dashboard_shell_routes(
         authorization: Annotated[str | None, Header()] = None,
     ) -> RedirectResponse:
         """Legacy dashboard URL redirects to canonical Dashboard V2 (hash preserved client-side)."""
-        authorize(authorization)
         return RedirectResponse(url="/control/dashboard-v2", status_code=307)
 
     @router.get(
@@ -2784,7 +2783,6 @@ def _register_control_plane_dashboard_shell_routes(
     def dashboard_v2(
         authorization: Annotated[str | None, Header()] = None,
     ) -> HTMLResponse:
-        authorize(authorization)
         index_path = DASHBOARD_V2_DIST_PATH / "index.html"
         if not index_path.is_file():
             raise HTTPException(
@@ -2802,7 +2800,6 @@ def _register_control_plane_dashboard_shell_routes(
     def dashboard_v2_asset(
         asset_path: str, authorization: Annotated[str | None, Header()] = None
     ) -> Response:
-        authorize(authorization)
         asset_root = (DASHBOARD_V2_DIST_PATH / "assets").resolve()
         raw_candidate = asset_root / asset_path
         if _has_symlink_component(asset_root, raw_candidate):

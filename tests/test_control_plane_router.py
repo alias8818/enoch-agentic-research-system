@@ -5,6 +5,7 @@ import json
 import hashlib
 import inspect
 import os
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -246,6 +247,44 @@ def _client_with_config(config: GateConfig) -> TestClient:
 
     app.include_router(create_control_plane_router(config, require))
     return TestClient(app)
+
+
+def test_dashboard_v2_shell_and_assets_allow_token_entry_before_api_auth(
+    tmp_path: Path,
+) -> None:
+    app = FastAPI()
+    config = _config(str(tmp_path))
+    auth_calls: list[str | None] = []
+
+    def require(auth: str | None) -> None:
+        auth_calls.append(auth)
+        if auth != f"Bearer {TOKEN}":
+            raise HTTPException(status_code=401, detail="invalid bearer token")
+
+    app.include_router(create_control_plane_router(config, require))
+    client = TestClient(app)
+
+    legacy = client.get("/control/dashboard", follow_redirects=False)
+    assert legacy.status_code == 307
+    assert legacy.headers["location"] == "/control/dashboard-v2"
+
+    shell = client.get("/control/dashboard-v2")
+    assert shell.status_code == 200
+    assert "enoch-dashboard-v2-root" in shell.text
+
+    asset_match = re.search(
+        r'src="(/control/dashboard-v2/assets/[^"]+\.js)"', shell.text
+    )
+    assert asset_match is not None
+    asset = client.get(asset_match.group(1))
+    assert asset.status_code == 200
+    assert "javascript" in asset.headers["content-type"]
+    assert auth_calls == []
+
+    api_without_token = client.get("/control/health")
+    assert api_without_token.status_code == 401
+    assert api_without_token.json()["detail"] == "invalid bearer token"
+    assert auth_calls == [None]
 
 
 def test_paper_material_graph_response_is_bounded_read_only(tmp_path: Path) -> None:
