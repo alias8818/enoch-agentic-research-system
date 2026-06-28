@@ -10,10 +10,12 @@ afterEach(() => {
   saveToken('')
   globalThis.window?.localStorage?.clear()
   globalThis.window?.sessionStorage?.clear()
+  globalThis.document.cookie = 'enoch_dashboard_token=; Max-Age=0; Path=/control; SameSite=Strict'
   globalThis.location.hash = ''
 })
 
-it('keeps dashboard bearer tokens out of browser storage', () => {
+it('persists dashboard bearer tokens in a cookie and scrubs stale tab storage', () => {
+  globalThis.history.pushState(null, '', '/control/dashboard-v2')
   globalThis.window.localStorage.setItem(TOKEN_STORAGE_KEY, 'persisted-token')
   globalThis.window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stale-session-token')
 
@@ -24,6 +26,7 @@ it('keeps dashboard bearer tokens out of browser storage', () => {
   expect(getSavedToken()).toBe('session-token')
   expect(globalThis.window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
   expect(globalThis.window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBe('persisted-token')
+  expect(globalThis.document.cookie).toContain('enoch_dashboard_token=session-token')
 })
 
 const emptyPaperMaterialGraphResponse = {

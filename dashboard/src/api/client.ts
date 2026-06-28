@@ -1,4 +1,5 @@
 export const TOKEN_STORAGE_KEY = 'enochControlToken'
+const TOKEN_COOKIE_NAME = 'enoch_dashboard_token'
 
 let currentToken = ''
 
@@ -10,13 +11,58 @@ function browserStorage(): Pick<Storage, 'removeItem'> | undefined {
   return undefined
 }
 
+function encodeCookieValue(value: string): string {
+  return encodeURIComponent(value)
+}
+
+function decodeCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return ''
+  }
+}
+
+function dashboardTokenCookie(): string {
+  return `${TOKEN_COOKIE_NAME}=`
+}
+
+function readTokenCookie(): string {
+  const cookie = globalThis.document?.cookie
+  if (!cookie) return ''
+  const prefix = dashboardTokenCookie()
+  const match = cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix))
+  if (!match) return ''
+  return decodeCookieValue(match.slice(prefix.length)).trim()
+}
+
+function cookieAttributes(): string {
+  const secure = globalThis.location?.protocol === 'https:' ? '; Secure' : ''
+  return `; Path=/control; SameSite=Strict${secure}`
+}
+
+function writeTokenCookie(token: string): void {
+  if (!globalThis.document) return
+  if (!token) {
+    globalThis.document.cookie = `${TOKEN_COOKIE_NAME}=; Max-Age=0${cookieAttributes()}`
+    return
+  }
+  globalThis.document.cookie = `${TOKEN_COOKIE_NAME}=${encodeCookieValue(token)}${cookieAttributes()}`
+}
+
 export function getSavedToken(): string {
+  if (currentToken) return currentToken
+  currentToken = readTokenCookie()
   return currentToken
 }
 
 export function saveToken(token: string): void {
   currentToken = token.trim()
   browserStorage()?.removeItem(TOKEN_STORAGE_KEY)
+  writeTokenCookie(currentToken)
 }
 
 function authHeaders(token: string): { Authorization?: string } {

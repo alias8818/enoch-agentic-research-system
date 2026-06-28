@@ -5,9 +5,11 @@ afterEach(() => {
   vi.restoreAllMocks()
   saveToken('')
   globalThis.window?.sessionStorage?.clear()
+  globalThis.document.cookie = 'enoch_dashboard_token=; Max-Age=0; Path=/control; SameSite=Strict'
 })
 
-it('keeps saved bearer tokens in memory and scrubs stale session storage', () => {
+it('keeps saved bearer tokens in a dashboard cookie and scrubs stale session storage', () => {
+  globalThis.history.pushState(null, '', '/control/dashboard-v2')
   globalThis.window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stale-session-token')
 
   expect(getSavedToken()).toBe('')
@@ -16,6 +18,18 @@ it('keeps saved bearer tokens in memory and scrubs stale session storage', () =>
 
   expect(getSavedToken()).toBe('operator-token')
   expect(globalThis.window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
+  expect(globalThis.document.cookie).toContain('enoch_dashboard_token=operator-token')
+})
+
+it('loads saved bearer tokens from the dashboard cookie after reload', () => {
+  globalThis.history.pushState(null, '', '/control/dashboard-v2')
+  globalThis.document.cookie = 'enoch_dashboard_token=operator-token; Path=/control; SameSite=Strict'
+
+  expect(getSavedToken()).toBe('operator-token')
+
+  saveToken('')
+  expect(getSavedToken()).toBe('')
+  expect(globalThis.document.cookie).not.toContain('enoch_dashboard_token=')
 })
 
 it('omits Authorization instead of sending a bogus bearer when token is missing', async () => {
