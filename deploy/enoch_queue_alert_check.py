@@ -11,6 +11,7 @@ import os
 import hashlib
 from pathlib import Path
 import sys
+import time
 from urllib.parse import quote, urlencode
 from urllib import error, request
 from enoch_control_plane.url_safety import urlopen_validated
@@ -265,11 +266,28 @@ def _check_and_notify_readiness(
     try:
         readiness = _get_json(base_url, "/control/api/v1/automation-readiness", token)
     except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        readiness = {
-            "ok": False,
-            "label": "Long-haul readiness check failed",
-            "blockers": [f"readiness endpoint failed: {type(exc).__name__}: {exc}"],
-        }
+        retry_delay = float(config.get("readiness_endpoint_retry_delay_sec") or 2.0)
+        if retry_delay > 0:
+            time.sleep(retry_delay)
+            try:
+                readiness = _get_json(
+                    base_url, "/control/api/v1/automation-readiness", token
+                )
+            except (error.URLError, TimeoutError, json.JSONDecodeError) as retry_exc:
+                readiness = {
+                    "ok": False,
+                    "label": "Long-haul readiness check failed",
+                    "blockers": [
+                        "readiness endpoint failed after retry: "
+                        f"{type(retry_exc).__name__}: {retry_exc}"
+                    ],
+                }
+        else:
+            readiness = {
+                "ok": False,
+                "label": "Long-haul readiness check failed",
+                "blockers": [f"readiness endpoint failed: {type(exc).__name__}: {exc}"],
+            }
     if readiness.get("ok") is True:
         return {"ok": True, "should_alert": False, "readiness_ok": True}
     fingerprint = _readiness_fingerprint(readiness)

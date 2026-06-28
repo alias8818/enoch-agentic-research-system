@@ -5,7 +5,10 @@ from io import BytesIO
 from email.message import Message
 import importlib.util
 from pathlib import Path
+from typing import Any
 from urllib import error
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = ROOT / "deploy" / "enoch_queue_alert_check.py"
@@ -58,6 +61,34 @@ def test_readiness_alert_dry_run_does_not_notify(monkeypatch) -> None:
     assert result["dry_run"] is True
     assert result["notification"]["attempted"] is False
     assert result["hermes_webhook"]["attempted"] is False
+
+
+def test_readiness_endpoint_refused_retries_before_alerting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_get_json(*_args: object) -> dict[str, Any]:
+        calls.append(len(calls))
+        if len(calls) == 1:
+            raise error.URLError(ConnectionRefusedError(111, "Connection refused"))
+        return {"ok": True, "label": "Long-haul mode: READY", "blockers": []}
+
+    def fake_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(queue_alert_check, "_get_json", fake_get_json)
+    monkeypatch.setattr(queue_alert_check.time, "sleep", fake_sleep)
+
+    result = queue_alert_check._check_and_notify_readiness(
+        {"state_dir": "/tmp/not-used", "readiness_endpoint_retry_delay_sec": 2},
+        "http://control.example",
+        "token",
+        dry_run=False,
+    )
+
+    assert calls == [0, 1]
+    assert result == {"ok": True, "should_alert": False, "readiness_ok": True}
 
 
 def test_readiness_cooldown_suppresses_same_fingerprint(tmp_path: Path) -> None:
