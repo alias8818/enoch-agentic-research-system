@@ -193,7 +193,7 @@ runtime="$1"
 token="$(sudo jq -r .control_api_bearer_token /etc/enoch-control-plane/config.json)"
 export ENOCH_CONTROL_TOKEN="$token"
 cd "$runtime"
-python3 scripts/dashboard_v2_smoke.py --base-url http://127.0.0.1:8787 --check-legacy-dashboard-redirect
+.venv/bin/python scripts/dashboard_v2_smoke.py --base-url http://127.0.0.1:8787 --check-legacy-dashboard-redirect
 REMOTE
     fi
     if [[ "${ENOCH_CONTROL_LONGHAUL_GUARD:-0}" == "1" ]]; then

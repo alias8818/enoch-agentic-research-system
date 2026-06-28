@@ -16,7 +16,9 @@ from scripts.dashboard_v2_smoke import (
     SmokeReport,
     V2_DASHBOARD_PATH,
     api_auth_status,
+    check_assets,
     check_legacy_dashboard_redirect,
+    check_shell,
     extract_asset_paths,
     first_event_id,
     normalize_redirect_location,
@@ -128,7 +130,11 @@ def test_normalize_redirect_location_resolves_relative() -> None:
 def test_check_legacy_dashboard_redirect_passes_on_v2_location(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    seen_token = None
+
     def fake_get_no_redirect(*_args, **_kwargs):
+        nonlocal seen_token
+        seen_token = _kwargs.get("token")
         return (
             307,
             {"Location": V2_DASHBOARD_PATH},
@@ -141,9 +147,35 @@ def test_check_legacy_dashboard_redirect_passes_on_v2_location(
         "scripts.dashboard_v2_smoke._http_get_no_redirect",
         fake_get_no_redirect,
     )
-    result = check_legacy_dashboard_redirect("http://127.0.0.1:8787", 1.0)
+    result = check_legacy_dashboard_redirect(
+        "http://127.0.0.1:8787", 1.0, token="secret"
+    )
     assert result.ok is True
     assert result.status == "pass"
+    assert seen_token == "secret"
+
+
+def test_shell_and_asset_checks_forward_bearer_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fake_http_get(base_url, path, *, token="", timeout, accept="*/*"):
+        calls.append((path, token))
+        return 200, SAMPLE_INDEX_HTML.encode(), 1.0, ""
+
+    monkeypatch.setattr("scripts.dashboard_v2_smoke._http_get", fake_http_get)
+
+    shell_result, html = check_shell("http://example.test", 1.0, token="secret")
+    asset_results = check_assets("http://example.test", html, 1.0, token="secret")
+
+    assert shell_result.ok is True
+    assert asset_results
+    assert calls == [
+        ("/control/dashboard-v2", "secret"),
+        ("/control/dashboard-v2/assets/index-abc123.js", "secret"),
+        ("/control/dashboard-v2/assets/index-def456.css", "secret"),
+    ]
 
 
 def test_check_legacy_dashboard_redirect_fails_without_location(

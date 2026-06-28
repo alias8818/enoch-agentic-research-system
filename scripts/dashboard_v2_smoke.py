@@ -7,9 +7,11 @@ prove rendering invariants such as "no raw JSON above the fold"; those belong
 in Vitest DOM tests run in CI.
 
 Auth:
-  - /healthz and /control/dashboard-v2 require no bearer token.
-  - /control/api/v1/* require --token or ENOCH_CONTROL_TOKEN unless
-    --allow-unauthenticated-shell-only is passed (API checks are then skipped).
+  - /healthz requires no bearer token.
+  - /control/dashboard-v2, its assets, and /control/api/v1/* use --token or
+    ENOCH_CONTROL_TOKEN when available.  --allow-unauthenticated-shell-only
+    skips API checks when no token is present, but shell checks may still fail
+    on deployments that protect dashboard HTML.
 """
 
 from __future__ import annotations
@@ -142,11 +144,14 @@ def _http_get_no_redirect(
     base_url: str,
     path: str,
     *,
+    token: str = "",
     timeout: float,
     accept: str = "*/*",
 ) -> tuple[int | None, dict[str, str], bytes, float, str]:
     url = base_url.rstrip("/") + path
     headers = {"Accept": accept}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     req = request.Request(url, headers=headers, method="GET")
     opener = request.build_opener(_NoRedirectHandler())
     started = time.perf_counter()
@@ -214,10 +219,13 @@ def check_health(base_url: str, timeout: float) -> CheckResult:
     return CheckResult("healthz", True, "pass", "ok", elapsed_ms)
 
 
-def check_shell(base_url: str, timeout: float) -> tuple[CheckResult, str]:
+def check_shell(
+    base_url: str, timeout: float, *, token: str = ""
+) -> tuple[CheckResult, str]:
     status, body, elapsed_ms, err = _http_get(
         base_url,
         SHELL_PATH,
+        token=token,
         timeout=timeout,
         accept="text/html",
     )
@@ -241,7 +249,9 @@ def check_shell(base_url: str, timeout: float) -> tuple[CheckResult, str]:
     ), html
 
 
-def check_assets(base_url: str, index_html: str, timeout: float) -> list[CheckResult]:
+def check_assets(
+    base_url: str, index_html: str, timeout: float, *, token: str = ""
+) -> list[CheckResult]:
     paths = extract_asset_paths(index_html)
     results: list[CheckResult] = []
     if not paths:
@@ -265,7 +275,9 @@ def check_assets(base_url: str, index_html: str, timeout: float) -> list[CheckRe
             )
         )
     for path in paths:
-        status, _, elapsed_ms, err = _http_get(base_url, path, timeout=timeout)
+        status, _, elapsed_ms, err = _http_get(
+            base_url, path, token=token, timeout=timeout
+        )
         name = f"asset:{path.rsplit('/', 1)[-1]}"
         if status is None:
             results.append(CheckResult(name, False, "fail", err, elapsed_ms))
@@ -304,6 +316,7 @@ def check_legacy_dashboard_redirect(
     base_url: str,
     timeout: float,
     *,
+    token: str = "",
     query: str = "",
 ) -> CheckResult:
     """Verify legacy /control/dashboard redirects to /control/dashboard-v2 (post-cutover).
@@ -316,6 +329,7 @@ def check_legacy_dashboard_redirect(
     status, headers, _, elapsed_ms, err = _http_get_no_redirect(
         base_url,
         path,
+        token=token,
         timeout=timeout,
         accept="text/html",
     )
@@ -380,15 +394,15 @@ def _record_check(report: SmokeReport, check: CheckResult) -> None:
 
 
 def _run_shell_and_asset_checks(
-    report: SmokeReport, base_url: str, timeout: float
+    report: SmokeReport, base_url: str, token: str, timeout: float
 ) -> None:
     health = check_health(base_url, timeout)
     _record_check(report, health)
 
-    shell_check, index_html = check_shell(base_url, timeout)
+    shell_check, index_html = check_shell(base_url, timeout, token=token)
     _record_check(report, shell_check)
     if shell_check.ok and index_html:
-        for asset_check in check_assets(base_url, index_html, timeout):
+        for asset_check in check_assets(base_url, index_html, timeout, token=token):
             _record_check(report, asset_check)
 
 
@@ -400,13 +414,14 @@ def _append_skipped_api_checks(report: SmokeReport, api_skip_detail: str) -> Non
 def _maybe_check_legacy_redirect(
     report: SmokeReport,
     base_url: str,
+    token: str,
     timeout: float,
     *,
     enabled: bool,
 ) -> None:
     if not enabled:
         return
-    redirect = check_legacy_dashboard_redirect(base_url, timeout)
+    redirect = check_legacy_dashboard_redirect(base_url, timeout, token=token)
     _record_check(report, redirect)
 
 
@@ -488,20 +503,20 @@ def run_smoke(
     report = SmokeReport(ok=True, base_url=base_url)
     run_api, api_skip_detail = api_auth_status(token, shell_only)
 
-    _run_shell_and_asset_checks(report, base_url, timeout)
+    _run_shell_and_asset_checks(report, base_url, token, timeout)
 
     if not run_api:
         _append_skipped_api_checks(report, api_skip_detail)
         if not shell_only:
             report.ok = False
         _maybe_check_legacy_redirect(
-            report, base_url, timeout, enabled=check_legacy_redirect
+            report, base_url, token, timeout, enabled=check_legacy_redirect
         )
         return report
 
     _run_authenticated_api_checks(report, base_url, token, timeout)
     _maybe_check_legacy_redirect(
-        report, base_url, timeout, enabled=check_legacy_redirect
+        report, base_url, token, timeout, enabled=check_legacy_redirect
     )
     return report
 
