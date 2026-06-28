@@ -354,13 +354,16 @@ def _dashboard_check_detail(
     return f"dashboard API unavailable: {dashboard.error or dashboard.status}"
 
 
+WORKER_PREFLIGHT_DASHBOARD_LIMIT = 100
+
+
 def _fetch_dashboard_check(
     transport: Transport,
     base: str,
     bearer_token: str,
 ) -> tuple[WorkerPreflightCheck, dict[str, Any] | None]:
     dashboard = transport(
-        f"{base}/dashboard/api?limit=5&event_limit=5",
+        f"{base}/dashboard/api?limit={WORKER_PREFLIGHT_DASHBOARD_LIMIT}&event_limit=5",
         _auth_headers(bearer_token),
     )
     malformed = (
