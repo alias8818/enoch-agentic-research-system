@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import hmac
 import json
 import os
 import hashlib
 from pathlib import Path
 import sys
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 from urllib import error, request
 from enoch_control_plane.url_safety import urlopen_validated
 
@@ -23,6 +25,15 @@ ACTIVE_WORKER_LANE_PRESENT_REASON = "active worker lane present"
 QUEUE_PUMP_DISABLED_REASON = "queue pump disabled"
 CONTROL_HELD_REASON = "control plane held"
 CLI_DRY_RUN_REASON = "cli dry-run"
+READINESS_ALERT_STATE = "longhaul-readiness-alert.json"
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso_now() -> str:
+    return _utc_now().isoformat().replace("+00:00", "Z")
 
 
 def _load_config() -> dict:
@@ -77,6 +88,254 @@ def _post_json(
         allow_private=True,
     ) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _state_dir(config: dict) -> Path:
+    return Path(str(config.get("state_dir") or "/var/lib/enoch-control-plane"))
+
+
+def _readiness_fingerprint(readiness: dict) -> str:
+    blockers = (
+        readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []
+    )
+    payload = {"label": readiness.get("label"), "blockers": blockers}
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def _readiness_message(readiness: dict) -> str:
+    blockers = (
+        readiness.get("blockers") if isinstance(readiness.get("blockers"), list) else []
+    )
+    label = str(readiness.get("label") or "Long-haul mode blocked")
+    shown = "; ".join(str(item) for item in blockers[:3])
+    if len(blockers) > 3:
+        shown += f"; +{len(blockers) - 3} more"
+    return f"{label}. blockers={shown or 'unknown'}"
+
+
+def _cooldown_suppressed(config: dict, fingerprint: str, *, now: datetime) -> bool:
+    cooldown = int(config.get("queue_alert_cooldown_sec") or 1800)
+    path = _state_dir(config) / READINESS_ALERT_STATE
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if str(state.get("fingerprint") or "") != fingerprint:
+        return False
+    try:
+        sent_at = datetime.fromisoformat(
+            str(state.get("last_sent_at") or "").replace("Z", "+00:00")
+        )
+    except ValueError:
+        return False
+    return (now - sent_at).total_seconds() < cooldown
+
+
+def _record_readiness_alert(config: dict, fingerprint: str, *, now: datetime) -> None:
+    path = _state_dir(config) / READINESS_ALERT_STATE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "fingerprint": fingerprint,
+                "last_sent_at": now.isoformat().replace("+00:00", "Z"),
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _post_pushover(config: dict, *, title: str, message: str) -> dict:
+    token = str(
+        config.get("pushover_app_token") or os.environ.get("PUSHOVER_APP_TOKEN") or ""
+    )
+    user = str(
+        config.get("pushover_user_key") or os.environ.get("PUSHOVER_USER_KEY") or ""
+    )
+    if not token or not user:
+        return {
+            "attempted": False,
+            "ok": False,
+            "detail": "pushover token/user key not configured",
+        }
+    data = urlencode(
+        {
+            "token": token,
+            "user": user,
+            "title": title,
+            "message": message,
+            "priority": "1",
+        }
+    ).encode("utf-8")
+    try:
+        req = request.Request(
+            str(
+                config.get("pushover_api_url")
+                or "https://api.pushover.net/1/messages.json"
+            ),
+            data=data,
+            method="POST",
+        )
+        with urlopen_validated(req, timeout=10, field_name="pushover api url") as resp:
+            return {
+                "attempted": True,
+                "ok": 200 <= resp.status < 300,
+                "status_code": resp.status,
+                "detail": resp.read(512).decode("utf-8", errors="replace"),
+            }
+    except Exception as exc:  # pragma: no cover - live network failure path
+        return {
+            "attempted": True,
+            "ok": False,
+            "detail": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def _post_hermes_webhook(
+    config: dict, *, fingerprint: str, message: str, readiness: dict
+) -> dict:
+    webhook_url = str(
+        config.get("hermes_alert_webhook_url")
+        or os.environ.get("HERMES_ALERT_WEBHOOK_URL")
+        or ""
+    )
+    if not webhook_url:
+        return {
+            "attempted": False,
+            "ok": False,
+            "detail": "hermes alert webhook url not configured",
+        }
+    payload = {
+        "source": "enoch-control-plane",
+        "service": "enoch-longhaul-readiness",
+        "severity": "critical",
+        "title": "Enoch long-haul readiness blocked",
+        "fingerprint": fingerprint,
+        "message": message,
+        "readiness": {
+            "ok": readiness.get("ok"),
+            "label": readiness.get("label"),
+            "blockers": readiness.get("blockers") or [],
+            "status": readiness.get("status"),
+        },
+        "generated_at": _iso_now(),
+    }
+    data = json.dumps(payload, sort_keys=True).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Enoch-Alert-Fingerprint": fingerprint,
+    }
+    secret = str(
+        config.get("hermes_alert_webhook_secret")
+        or os.environ.get("HERMES_ALERT_WEBHOOK_SECRET")
+        or ""
+    )
+    if secret:
+        signature = hmac.new(secret.encode(), data, hashlib.sha256).hexdigest()
+        headers["X-Hub-Signature-256"] = f"sha256={signature}"
+    try:
+        req = request.Request(webhook_url, data=data, method="POST", headers=headers)
+        with urlopen_validated(
+            req,
+            timeout=int(config.get("hermes_alert_webhook_timeout_sec") or 8),
+            field_name="hermes alert webhook url",
+            allow_private=True,
+        ) as resp:
+            return {
+                "attempted": True,
+                "ok": 200 <= resp.status < 300,
+                "status_code": resp.status,
+                "detail": resp.read(512).decode("utf-8", errors="replace"),
+            }
+    except Exception as exc:  # pragma: no cover - live network failure path
+        return {
+            "attempted": True,
+            "ok": False,
+            "detail": f"{type(exc).__name__}: {exc}",
+        }
+
+
+def _check_and_notify_readiness(
+    config: dict, base_url: str, token: str, *, dry_run: bool
+) -> dict:
+    try:
+        readiness = _get_json(base_url, "/control/api/v1/automation-readiness", token)
+    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        readiness = {
+            "ok": False,
+            "label": "Long-haul readiness check failed",
+            "blockers": [f"readiness endpoint failed: {type(exc).__name__}: {exc}"],
+        }
+    if readiness.get("ok") is True:
+        return {"ok": True, "should_alert": False, "readiness_ok": True}
+    fingerprint = _readiness_fingerprint(readiness)
+    message = _readiness_message(readiness)
+    now = _utc_now()
+    if dry_run:
+        return {
+            "ok": True,
+            "should_alert": True,
+            "dry_run": True,
+            "fingerprint": fingerprint,
+            "message": message,
+            "notification": {
+                "attempted": False,
+                "ok": False,
+                "detail": CLI_DRY_RUN_REASON,
+            },
+            "hermes_webhook": {
+                "attempted": False,
+                "ok": False,
+                "detail": CLI_DRY_RUN_REASON,
+            },
+        }
+    if _cooldown_suppressed(config, fingerprint, now=now):
+        return {
+            "ok": True,
+            "should_alert": True,
+            "suppressed_by_cooldown": True,
+            "fingerprint": fingerprint,
+            "message": message,
+            "notification": {
+                "attempted": False,
+                "ok": True,
+                "detail": "cooldown suppressed",
+            },
+            "hermes_webhook": {
+                "attempted": False,
+                "ok": True,
+                "detail": "cooldown suppressed",
+            },
+        }
+    pushover = (
+        _post_pushover(
+            config, title="Enoch long-haul readiness blocked", message=message
+        )
+        if bool(config.get("pushover_alerts_enabled"))
+        else {"attempted": False, "ok": False, "detail": "pushover alerts disabled"}
+    )
+    webhook = (
+        _post_hermes_webhook(
+            config, fingerprint=fingerprint, message=message, readiness=readiness
+        )
+        if bool(config.get("hermes_alert_webhook_enabled"))
+        else {"attempted": False, "ok": False, "detail": "hermes webhook disabled"}
+    )
+    if pushover.get("ok") or webhook.get("ok"):
+        _record_readiness_alert(config, fingerprint, now=now)
+    return {
+        "ok": True,
+        "should_alert": True,
+        "suppressed_by_cooldown": False,
+        "fingerprint": fingerprint,
+        "message": message,
+        "notification": pushover,
+        "hermes_webhook": webhook,
+    }
 
 
 def _preflight_summary(preflight: dict) -> dict:
@@ -469,6 +728,9 @@ def main() -> int:
                 ),
             },
         )
+    readiness_alert = _check_and_notify_readiness(
+        config, base_url, token, dry_run=cli_dry_run
+    )
     queue_pump_enabled = bool(
         config.get("queue_pump_enabled", config.get("live_dispatch_enabled", False))
     )
@@ -513,6 +775,7 @@ def main() -> int:
     output = {
         "preflight": _preflight_summary(preflight),
         "alert": alert,
+        "readiness_alert": readiness_alert,
         "status": status_summary,
         "paper_draft": paper_draft,
         "followup_dry_run": followup_dry_run,

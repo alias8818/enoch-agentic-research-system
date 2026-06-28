@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from email.message import Message
 import importlib.util
@@ -33,3 +34,92 @@ def test_dispatch_error_summary_does_not_log_raw_response_body() -> None:
     assert "response_body_sha256" in summary
     assert "secret-token" not in serialized
     assert "nested preflight" not in serialized
+
+
+def test_readiness_alert_dry_run_does_not_notify(monkeypatch) -> None:
+    monkeypatch.setattr(
+        queue_alert_check,
+        "_get_json",
+        lambda *_args: {
+            "ok": False,
+            "label": "Long-haul mode: BLOCKED",
+            "blockers": ["blocked/needs-attention items exist"],
+        },
+    )
+
+    result = queue_alert_check._check_and_notify_readiness(
+        {"state_dir": "/tmp/not-used"},
+        "http://control.example",
+        "token",
+        dry_run=True,
+    )
+
+    assert result["should_alert"] is True
+    assert result["dry_run"] is True
+    assert result["notification"]["attempted"] is False
+    assert result["hermes_webhook"]["attempted"] is False
+
+
+def test_readiness_cooldown_suppresses_same_fingerprint(tmp_path: Path) -> None:
+    readiness = {
+        "ok": False,
+        "label": "Long-haul mode: BLOCKED",
+        "blockers": ["blocked/needs-attention items exist"],
+    }
+    fingerprint = queue_alert_check._readiness_fingerprint(readiness)
+    now = datetime(2026, 6, 28, tzinfo=timezone.utc)
+    state = tmp_path / queue_alert_check.READINESS_ALERT_STATE
+    state.write_text(
+        '{"fingerprint":"%s","last_sent_at":"%s"}\n'
+        % (
+            fingerprint,
+            (now - timedelta(seconds=60)).isoformat().replace("+00:00", "Z"),
+        ),
+        encoding="utf-8",
+    )
+
+    assert queue_alert_check._cooldown_suppressed(
+        {"state_dir": str(tmp_path), "queue_alert_cooldown_sec": 1800},
+        fingerprint,
+        now=now,
+    )
+
+
+def test_hermes_readiness_webhook_uses_hmac_not_authorization(monkeypatch) -> None:
+    observed = {}
+
+    class FakeResponse:
+        status = 202
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit: int) -> bytes:
+            return b"accepted"
+
+    def fake_urlopen(req, **_kwargs):  # noqa: ANN001 - urllib request object
+        observed["headers"] = dict(req.header_items())
+        observed["data"] = req.data
+        return FakeResponse()
+
+    monkeypatch.setattr(queue_alert_check, "urlopen_validated", fake_urlopen)
+
+    result = queue_alert_check._post_hermes_webhook(
+        {
+            "hermes_alert_webhook_url": "http://127.0.0.1:8644/webhooks/enoch-alert",
+            "hermes_alert_webhook_secret": "secret",
+        },
+        fingerprint="fp",
+        message="blocked",
+        readiness={"ok": False, "label": "blocked", "blockers": ["x"]},
+    )
+
+    normalized_headers = {
+        key.lower(): value for key, value in observed["headers"].items()
+    }
+    assert result["ok"] is True
+    assert "x-hub-signature-256" in normalized_headers
+    assert "authorization" not in normalized_headers
