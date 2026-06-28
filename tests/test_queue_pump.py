@@ -88,6 +88,11 @@ class QueuePumpTests(unittest.TestCase):
                 }
             raise AssertionError(path)
 
+        def fake_get(base_url: str, path: str, token: str) -> dict:
+            if path == "/control/api/v1/automation-readiness":
+                return {"ok": True, "label": "Long-haul mode: READY", "blockers": []}
+            return status
+
         with (
             patch.object(
                 queue_pump,
@@ -101,7 +106,7 @@ class QueuePumpTests(unittest.TestCase):
                 },
             ),
             patch.object(queue_pump, "_post_json", side_effect=fake_post),
-            patch.object(queue_pump, "_get_json", return_value=status),
+            patch.object(queue_pump, "_get_json", side_effect=fake_get),
         ):
             out = io.StringIO()
             with redirect_stdout(out):
