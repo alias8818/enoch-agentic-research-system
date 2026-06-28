@@ -17943,7 +17943,9 @@ def test_draft_next_revalidates_decision_gate_after_evidence_sync() -> None:
         assert snapshot["paper_rows"] == []
 
 
-def test_draft_next_uses_paper_scout_row_gate_after_stale_evidence_sync() -> None:
+def test_draft_next_keeps_synced_negative_artifact_authoritative_over_row_gate() -> (
+    None
+):
     with tempfile.TemporaryDirectory() as tmp:
         client = _client(tmp)
         headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -18036,14 +18038,20 @@ def test_draft_next_uses_paper_scout_row_gate_after_stale_evidence_sync() -> Non
 
         assert response.status_code == 200
         body = response.json()
-        assert body["action"] == "drafted"
-        assert body["candidate"]["project_id"] == "paper-scout-ready-sync"
-        decision_gate = body["candidate"]["writer"]["decision_gate"]
-        assert decision_gate["eligible"] is True
-        assert decision_gate["source"] == "control_plane_row"
-        assert decision_gate["local_decision_gate"]["eligible"] is False
+        assert body["action"] == "noop"
+        skipped = body.get("candidate", {}).get("skipped", [])
+        assert skipped
+        assert skipped[0]["project_id"] == "paper-scout-ready-sync"
+        assert (
+            skipped[0]["reason"]
+            == "project decision is not paper-ready after evidence sync"
+        )
+        decision_gate = skipped[0]["decision_gate"]
+        assert decision_gate["eligible"] is False
+        assert decision_gate["source"].endswith(".enoch/project_decision.json")
+        assert decision_gate["decision"] == "finalize_negative"
         snapshot = client.get("/control/export/snapshot", headers=headers).json()
-        assert len(snapshot["paper_rows"]) == 1
+        assert snapshot["paper_rows"] == []
 
 
 def test_paper_draft_event_failure_does_not_publish_partial_paper_row() -> None:

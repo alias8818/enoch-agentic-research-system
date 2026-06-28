@@ -6073,13 +6073,6 @@ def _register_control_plane_operator_legacy_routes(
                 str(evidence.get("artifact_root") or "")
             )
             if not post_sync_decision_gate.get("eligible"):
-                row_decision_gate = bounded_useful_signal_row_gate(candidate)
-                if row_decision_gate.get("eligible"):
-                    post_sync_decision_gate = {
-                        **row_decision_gate,
-                        "local_decision_gate": post_sync_decision_gate,
-                    }
-            if not post_sync_decision_gate.get("eligible"):
                 skipped.append(
                     {
                         "project_id": candidate.get("project_id"),
