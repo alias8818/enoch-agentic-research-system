@@ -829,7 +829,7 @@ def test_misc_endpoint_error_branches(tmp_path: Path, monkeypatch) -> None:
     headers = {"Authorization": f"Bearer {token}"}
     assert client.get("/livez").json()["ok"] is True
     assert client.get("/healthz").status_code == 503
-    assert client.get("/dashboard").status_code == 401
+    assert client.get("/dashboard").status_code == 200
     assert client.get("/dashboard", headers=headers).status_code == 200
     assert client.get("/favicon.ico").status_code in {200, 204}
 
@@ -1077,30 +1077,25 @@ def test_evaluator_registry_cancels_stale_running_task(monkeypatch: Any) -> None
     appmod.evaluation_task_started_at.pop("run", None)
 
 
-def test_control_dashboard_v2_requires_bearer_and_sets_security_headers(
+def test_control_dashboard_v2_shell_allows_token_entry_and_sets_security_headers(
     monkeypatch, tmp_path: Path
 ) -> None:
-    client, token = _client(tmp_path, monkeypatch)
+    client, _token = _client(tmp_path, monkeypatch)
 
-    unauthorized = client.get("/control/dashboard-v2")
-    assert unauthorized.status_code == 401
-
-    response = client.get(
-        "/control/dashboard-v2",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    response = client.get("/control/dashboard-v2")
 
     assert response.status_code == 200
+    assert "enoch-dashboard-v2-root" in response.text
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
 
 
-def test_control_dashboard_v2_assets_require_bearer(
+def test_control_dashboard_v2_assets_allow_shell_bootstrap_without_bearer(
     monkeypatch, tmp_path: Path
 ) -> None:
-    client, token = _client(tmp_path, monkeypatch)
+    client, _token = _client(tmp_path, monkeypatch)
     asset = next(
         (
             appmod.Path(appmod.__file__).parent
@@ -1111,10 +1106,7 @@ def test_control_dashboard_v2_assets_require_bearer(
     )
     path = f"/control/dashboard-v2/assets/{asset.name}"
 
-    unauthorized = client.get(path)
-    assert unauthorized.status_code == 401
-
-    response = client.get(path, headers={"Authorization": f"Bearer {token}"})
+    response = client.get(path)
     assert response.status_code == 200
     assert response.headers["X-Content-Type-Options"] == "nosniff"
 
