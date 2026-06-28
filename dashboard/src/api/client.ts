@@ -3,40 +3,16 @@ const TOKEN_COOKIE_NAME = 'enoch_dashboard_token'
 
 let currentToken = ''
 
-function browserStorage(): Pick<Storage, 'removeItem'> | undefined {
-  const storage = globalThis.window?.sessionStorage
+function removeStoredToken(storage: Storage | undefined): void {
   if (typeof storage?.removeItem === 'function') {
-    return storage
-  }
-  return undefined
-}
-
-function encodeCookieValue(value: string): string {
-  return encodeURIComponent(value)
-}
-
-function decodeCookieValue(value: string): string {
-  try {
-    return decodeURIComponent(value)
-  } catch {
-    return ''
+    storage.removeItem(TOKEN_STORAGE_KEY)
   }
 }
 
-function dashboardTokenCookie(): string {
-  return `${TOKEN_COOKIE_NAME}=`
-}
-
-function readTokenCookie(): string {
-  const cookie = globalThis.document?.cookie
-  if (!cookie) return ''
-  const prefix = dashboardTokenCookie()
-  const match = cookie
-    .split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(prefix))
-  if (!match) return ''
-  return decodeCookieValue(match.slice(prefix.length)).trim()
+function scrubStoredToken(): void {
+  removeStoredToken(globalThis.window?.localStorage)
+  removeStoredToken(globalThis.window?.sessionStorage)
+  expireTokenCookie()
 }
 
 function cookieAttributes(): string {
@@ -44,25 +20,18 @@ function cookieAttributes(): string {
   return `; Path=/control; SameSite=Strict${secure}`
 }
 
-function writeTokenCookie(token: string): void {
+function expireTokenCookie(): void {
   if (!globalThis.document) return
-  if (!token) {
-    globalThis.document.cookie = `${TOKEN_COOKIE_NAME}=; Max-Age=0${cookieAttributes()}`
-    return
-  }
-  globalThis.document.cookie = `${TOKEN_COOKIE_NAME}=${encodeCookieValue(token)}${cookieAttributes()}`
+  globalThis.document.cookie = `${TOKEN_COOKIE_NAME}=; Max-Age=0${cookieAttributes()}`
 }
 
 export function getSavedToken(): string {
-  if (currentToken) return currentToken
-  currentToken = readTokenCookie()
   return currentToken
 }
 
 export function saveToken(token: string): void {
   currentToken = token.trim()
-  browserStorage()?.removeItem(TOKEN_STORAGE_KEY)
-  writeTokenCookie(currentToken)
+  scrubStoredToken()
 }
 
 function authHeaders(token: string): { Authorization?: string } {

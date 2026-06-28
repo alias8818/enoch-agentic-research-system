@@ -238,4 +238,8 @@ export async function openDashboardWithToken(
   if (storedToken !== null) {
     throw new Error('dashboard bearer token was persisted to sessionStorage')
   }
+  const cookieToken = await page.evaluate(() => globalThis.document.cookie.includes('enoch_dashboard_token='))
+  if (cookieToken) {
+    throw new Error('dashboard bearer token was persisted to a script-readable cookie')
+  }
 }

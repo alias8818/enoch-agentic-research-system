@@ -4,28 +4,36 @@ import { apiGet, apiPost, getSavedToken, saveToken, TOKEN_STORAGE_KEY } from './
 afterEach(() => {
   vi.restoreAllMocks()
   saveToken('')
+  globalThis.window?.localStorage?.clear()
   globalThis.window?.sessionStorage?.clear()
   globalThis.document.cookie = 'enoch_dashboard_token=; Max-Age=0; Path=/control; SameSite=Strict'
 })
 
-it('keeps saved bearer tokens in a dashboard cookie and scrubs stale session storage', () => {
+it('keeps saved bearer tokens in memory only and scrubs script-readable storage', () => {
   globalThis.history.pushState(null, '', '/control/dashboard-v2')
+  globalThis.window.localStorage.setItem(TOKEN_STORAGE_KEY, 'stale-local-token')
   globalThis.window.sessionStorage.setItem(TOKEN_STORAGE_KEY, 'stale-session-token')
+  globalThis.document.cookie = 'enoch_dashboard_token=stale-cookie-token; Path=/control; SameSite=Strict'
 
   expect(getSavedToken()).toBe('')
 
   saveToken('  operator-token  ')
 
   expect(getSavedToken()).toBe('operator-token')
+  expect(globalThis.window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
   expect(globalThis.window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
-  expect(globalThis.document.cookie).toContain('enoch_dashboard_token=operator-token')
+  expect(globalThis.document.cookie).not.toContain('enoch_dashboard_token=')
 })
 
-it('loads saved bearer tokens from the dashboard cookie after reload', () => {
+it('does not load bearer tokens from script-readable dashboard cookies after reload', () => {
   globalThis.history.pushState(null, '', '/control/dashboard-v2')
   globalThis.document.cookie = 'enoch_dashboard_token=operator-token; Path=/control; SameSite=Strict'
 
-  expect(getSavedToken()).toBe('operator-token')
+  expect(getSavedToken()).toBe('')
+
+  saveToken('replacement-token')
+  expect(getSavedToken()).toBe('replacement-token')
+  expect(globalThis.document.cookie).not.toContain('enoch_dashboard_token=')
 
   saveToken('')
   expect(getSavedToken()).toBe('')
