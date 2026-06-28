@@ -176,6 +176,10 @@ or experiment mix as an operator question before widening automation.
 
 Raw states such as `wake_ready`, `draft_review`, `approved_for_corpus`, and `callback_pending` are debugging evidence. They are not the operator workflow.
 
+### Paper/corpus automation policy
+
+Paper-positive rows are meant to move automatically through write, finalize, publish/import, and public corpus push **as written** once deterministic gates pass. Do not add a normal manual editorial review stage between the generated paper body and corpus push. The valid blocking reasons are concrete gate failures: missing evidence bundle, claim ledger, manifest, packaging/provenance lint, strict claim/evidence audit, corpus import ledger, or generated public index/manifest validation. If those gates pass, push the generated artifact; if one fails, fix or report that gate.
+
 ## If active=0 and queued=0
 
 1. Check the readiness payload first. If `READY`, the system may simply be idle.
