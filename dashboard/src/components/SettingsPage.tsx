@@ -344,7 +344,7 @@ function SettingsValidationCard({ errors }: Readonly<{ errors: string[] }>) {
   if (!errors.length) return null
   return (
     <section className="state-card state-card--error state-card--compact" aria-label="Settings validation">
-      <strong>Settings needs attention.</strong>
+      <strong>Settings needs action.</strong>
       <ul className="settings-validation-list">
         {errors.map((error) => <li key={error}>{error}</li>)}
       </ul>

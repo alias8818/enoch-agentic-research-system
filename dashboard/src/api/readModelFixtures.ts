@@ -109,7 +109,7 @@ export const intakeIdeasFixture = {
     project_id: 'project-operator',
     operator_stage: 'ready_queue',
     operator_detail_stage: 'idea_queued',
-    operator_next_step: 'Review queue placement before dispatch.',
+    operator_next_step: 'Inspect queue placement before dispatch.',
     operator_stage_label: 'Queued for lane',
   }],
   skipped_reasons: { below_threshold: 2 },

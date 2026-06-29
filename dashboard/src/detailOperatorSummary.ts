@@ -25,7 +25,7 @@ export { deriveIntakeIdeaOperatorSummary } from './detailOperatorSummaryIntake'
 
 function projectNextStepMessage(attention: boolean, state: string, runState: string): string {
   if (attention) {
-    return 'Resolve the blocker or manual-review flag before dispatching again.'
+    return 'Resolve the blocker or manual gate flag before dispatching again.'
   }
   if (state === 'queued') {
     return 'Run a dispatch dry-run on the lane card before starting work.'
@@ -33,7 +33,7 @@ function projectNextStepMessage(attention: boolean, state: string, runState: str
   if (runState === 'running' || state === 'running') {
     return 'Open the current run and watch gate state plus recent events.'
   }
-  return 'Review paper status and recent events before taking a write action.'
+  return 'Inspect paper status and recent events before taking a write action.'
 }
 
 export type {
@@ -48,7 +48,7 @@ export type {
 function projectActionNeeded(attention: boolean, blocked: string): string | null {
   if (!attention) return null
   if (blocked !== '—') return blocked
-  return 'Operator attention required.'
+  return 'Operator action required.'
 }
 
 function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary {
@@ -108,7 +108,7 @@ function projectSummary(payload: Record<string, unknown>): DetailOperatorSummary
         answers: [
           { label: 'related paper', value: paperId },
           { label: 'paper status', value: paperStatus },
-          { label: 'review status', value: paperReview },
+          { label: 'publication gate status', value: paperReview },
           { label: 'finalization status', value: paperFinalization },
           { label: 'corpus imported', value: corpusImported },
         ],
@@ -143,7 +143,7 @@ function runNextStepMessage(errorState: boolean, outcome: string, state: string)
   if (state === 'running' || state === 'dispatching') {
     return 'Watch activity and recent events; intervene only if the gate stops moving.'
   }
-  return 'Review related paper artifacts before queuing another action.'
+  return 'Inspect related paper artifacts before queuing another action.'
 }
 
 function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
@@ -223,7 +223,7 @@ function runSummary(payload: Record<string, unknown>): DetailOperatorSummary {
         answers: [
           { label: 'related paper', value: paperId },
           { label: 'paper status', value: paperStatus },
-          { label: 'review status', value: paperReview },
+          { label: 'publication gate status', value: paperReview },
         ],
       },
       {
@@ -323,7 +323,7 @@ function emptyPayloadProofFallback(nested: Record<string, unknown>): OperatorAns
   const hasNestedKeys = nested && Object.keys(nested).length > 0
   return {
     label: 'payload',
-    value: hasNestedKeys ? 'present — expand Raw payload for full evidence' : 'empty',
+    value: hasNestedKeys ? 'present — expand Diagnostic payload for full evidence' : 'empty',
   }
 }
 
@@ -425,7 +425,7 @@ function researchCandidatePromotePath(
   projectId: string,
 ): string {
   if (rejected) return 'admission rejected — keep as negative evidence'
-  if (!admitted) return 'not admitted — review facility scoring before promote'
+  if (!admitted) return 'not admitted — inspect facility scoring before promote'
   if (!promoted) return 'admitted but not yet promoted to intake/queue'
   if (ideaId !== '—') return `promoted to idea ${shortId(ideaId)}`
   return `linked project ${shortId(projectId)}`
@@ -438,13 +438,13 @@ function researchCandidateNextStepMessage(rejected: boolean, admitted: boolean):
   if (admitted) {
     return 'Promote only after dry-run confirms this exact candidate still maps to a queue item.'
   }
-  return 'Review admission, source lineage, and machine target before promoting or queuing work.'
+  return 'Inspect admission, source lineage, and machine target before promoting or queuing work.'
 }
 
 function researchCandidateActionNeeded(attention: boolean, rejected: boolean): string | null {
   if (!attention) return null
   if (rejected) return 'Candidate rejected at admission.'
-  return 'Admission needs operator review before promote.'
+  return 'Admission needs operator decision before promote.'
 }
 
 export function deriveResearchCandidateOperatorSummary(row: Record<string, unknown>): IntakeIdeaOperatorSummary {

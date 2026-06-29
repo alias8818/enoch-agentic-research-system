@@ -47,10 +47,10 @@ function intakeNextStepMessage(
   if (queueStatus === 'active' || queueStatus === 'running') {
     return 'Open the current project/run detail and verify the lane is still moving.'
   }
-  if (ideaStatus === 'rejected') return 'Do not queue this idea; review admission rejection and source lineage.'
+  if (ideaStatus === 'rejected') return 'Do not queue this idea; inspect admission rejection and source lineage.'
   if (ideaStatus === 'candidate') return 'Admit or promote this candidate before expecting queue work.'
   if (nextHint !== '—') return `Follow backend hint: ${nextHint}.`
-  return 'Review source lineage and admission state before creating more queue work.'
+  return 'Inspect source lineage and admission state before creating more queue work.'
 }
 
 function intakeNeedsAttention(row: Record<string, unknown>, queueStatus: string, ideaStatus: string): boolean {

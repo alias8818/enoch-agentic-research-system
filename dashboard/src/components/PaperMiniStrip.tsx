@@ -113,7 +113,7 @@ export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: Ove
       <div className="paper-strip-head">
         <div>
           <p className="eyebrow">Paper pipeline</p>
-          <h2>Publication briefing</h2>
+          <h2>Publication automation gates</h2>
         </div>
         <span>{closestAction}</span>
       </div>
@@ -143,7 +143,7 @@ export function PaperMiniStrip({ pipeline, onRefresh }: Readonly<{ pipeline: Ove
       </div>
       {archiveCount > 0 || writeBlocked > 0 ? (
         <div className={writeBlocked > 0 ? 'paper-gate-note paper-gate-note--warn' : 'paper-gate-note'}>
-          <strong>{writeBlocked > 0 ? 'Paper gate needs attention' : 'Paper gate archive'}</strong>
+          <strong>{writeBlocked > 0 ? 'Paper gate blocked' : 'Paper gate archive'}</strong>
           <p>{archiveSummary} {writeBlocked} paper-writing candidate{writeBlocked === 1 ? ' is' : 's are'} currently blocked.</p>
         </div>
       ) : null}

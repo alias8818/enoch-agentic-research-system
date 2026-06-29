@@ -246,7 +246,7 @@ function detailFields(kind: DetailKind, payload: Record<string, unknown>, fallba
       { label: 'paper id', value: firstValue(payload.paper_id, paper.paper_id, fallbackId) },
       { label: 'project id', value: firstValue(payload.project_id, paper.project_id) },
       { label: 'status', value: firstValue(paper.paper_status, paper.status, payload.status, payload.paper_status) },
-      { label: 'review status', value: firstValue(paper.review_status, payload.review_status) },
+      { label: 'publication gate status', value: firstValue(paper.review_status, payload.review_status) },
       { label: 'updated', value: firstValue(payload.updated_at, paper.updated_at) },
     ]
   }
@@ -409,7 +409,7 @@ function StructuredDetail({ kind, id, payload, presentation = 'panel', operatorS
       {kind === 'paper' ? <PaperArtifacts id={id} payload={payload} /> : null}
       <RelatedDetails payload={payload} />
       {presentation === 'page' ? <RecordFields kind={kind} id={id} payload={payload} presentation={presentation} /> : null}
-      <RawJsonDetails summary="Raw payload" payload={payload} />
+      <RawJsonDetails summary="Diagnostic payload" payload={payload} />
     </div>
   )
 }

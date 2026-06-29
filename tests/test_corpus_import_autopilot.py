@@ -506,3 +506,118 @@ def test_validate_release_includes_promising_signals_repo_when_present(tmp_path)
     assert str(promising) in generate_cmd
     assert "--promising" in validate_cmd
     assert str(promising) in validate_cmd
+
+
+def test_refresh_paper_material_graph_uses_control_plane_and_release_roots(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "release"
+    control_plane = tmp_path / "control-plane"
+    (control_plane / "deploy").mkdir(parents=True)
+    root.mkdir()
+    calls: list[dict[str, Any]] = []
+
+    def fake_run(cmd, *, cwd, env=None):
+        calls.append({"cmd": cmd, "cwd": cwd, "env": env})
+        return CompletedProcess(
+            cmd,
+            0,
+            stdout=json.dumps({"ok": True, "paper_count": 393}),
+            stderr="",
+        )
+
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "ENOCH_CONTROL_PLANE_ROOT": str(control_plane),
+                "ENOCH_CORPUS_IMPORT_REFRESH_PAPER_MATERIAL_GRAPH": "1",
+            },
+            clear=False,
+        ),
+        patch.object(autopilot, "_run", side_effect=fake_run),
+    ):
+        result = autopilot._refresh_paper_material_graph(root)
+
+    assert result == {
+        "ok": True,
+        "paper_count": 393,
+        "action": "paper_material_graph_refreshed",
+    }
+    assert calls == [
+        {
+            "cmd": [str(control_plane / "deploy" / "enoch_paper_material_graph.sh")],
+            "cwd": control_plane.resolve(),
+            "env": {
+                "ENOCH_ENABLE_PAPER_MATERIAL_GRAPH": "1",
+                "ENOCH_RELEASE_ROOT": str(root),
+                "ENOCH_CONTROL_PLANE_ROOT": str(control_plane.resolve()),
+            },
+        }
+    ]
+
+
+def test_live_import_refreshes_paper_material_graph_before_reporting_success(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path
+    system = root / "enoch-agentic-research-system"
+    corpus = root / "enoch-ai-research-corpus"
+    system.mkdir()
+    corpus.mkdir()
+    dry_payload = {"failed": 0, "imported": 1, "updated": 0, "errors": []}
+    import_payload = {"failed": 0, "imported": 1, "updated": 0, "errors": []}
+
+    with (
+        patch.object(
+            autopilot,
+            "_run",
+            return_value=CompletedProcess(
+                ["import"], 0, stdout=json.dumps(import_payload), stderr=""
+            ),
+        ),
+        patch.object(autopilot, "_corpus_rebuild", return_value=[]),
+        patch.object(
+            autopilot,
+            "_update_public_counts",
+            return_value={"stats": {"artifact_count": 393}},
+        ),
+        patch.object(autopilot, "_corpus_trust_checks", return_value=[]),
+        patch.object(autopilot, "_maybe_github_metadata", return_value={}),
+        patch.object(autopilot, "_validate_release", return_value={"ok": True}),
+        patch.object(
+            autopilot,
+            "_refresh_paper_material_graph",
+            return_value={
+                "ok": True,
+                "action": "paper_material_graph_refreshed",
+                "paper_count": 393,
+            },
+        ) as refresh,
+        patch.object(autopilot, "_git_changed_repos", return_value=[]),
+        patch.object(autopilot, "_autocommit_and_push", return_value=([], [])),
+        patch.object(autopilot, "_maybe_ledger_sync", return_value={}),
+    ):
+        assert (
+            autopilot._execute_live_corpus_import(
+                root=root,
+                system=system,
+                corpus=corpus,
+                base_url="http://127.0.0.1:8787",
+                limit=1,
+                token_file=tmp_path / "token",
+                skip_github=True,
+                dry_payload=dry_payload,
+                dry_run_attempts=1,
+                fast_forwarded=[],
+            )
+            == 0
+        )
+
+    refresh.assert_called_once_with(root)
+    output = json.loads(capsys.readouterr().out)
+    assert output["paper_material_graph"] == {
+        "ok": True,
+        "action": "paper_material_graph_refreshed",
+        "paper_count": 393,
+    }

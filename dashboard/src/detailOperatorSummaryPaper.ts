@@ -45,7 +45,7 @@ function paperPublicationBlocker(
   imported: boolean,
 ): string {
   const blockers: ReadonlyArray<readonly [boolean, string]> = [
-    [review === 'rejected', 'Review rejected this paper.'],
+    [review === 'rejected', 'Publication gate rejected this paper.'],
     [operatorExplanation !== '—', operatorExplanation],
     [missingArtifacts.length > 0, `Missing: ${missingArtifacts.join(', ')}.`],
     [imported, 'Corpus import complete; no publication blockers.'],
@@ -63,7 +63,7 @@ function paperSummaryContext(
   if (missingArtifacts.length > 0) {
     return `Publication blocked: missing ${missingArtifacts.join(', ')}.`
   }
-  if (review !== '—') return `Review ${review}; all publication artifacts present.`
+  if (review !== '—') return `Publication gate ${review}; all publication artifacts present.`
   const evidence = artifactPresenceLabel(flags, 'evidence_bundle')
   const claimLedger = artifactPresenceLabel(flags, 'claim_ledger')
   return `Evidence paths ${evidence}; claim ledger ${claimLedger}.`
@@ -80,10 +80,10 @@ function paperSummaryNextStep(
     return operatorNextStep(stageSource, 'No corpus import action is needed for this paper.')
   }
   if (reviewRejected) {
-    return operatorNextStep(stageSource, 'Do not publish; start a new run or resolve review rejection first.')
+    return operatorNextStep(stageSource, 'Do not publish; start a new run or resolve the failed publication gate first.')
   }
   if (needsFinalization || missingArtifacts.length > 0) {
-    return operatorNextStep(stageSource, 'Preview artifacts, then finalize only after checklist items look correct.')
+    return operatorNextStep(stageSource, 'Preview generated artifacts, then finalize only after checklist gates pass.')
   }
   return operatorNextStep(stageSource, 'Run corpus import when the publication checklist is complete.')
 }
@@ -92,7 +92,7 @@ function paperSummaryActionNeeded(
   reviewRejected: boolean,
   missingArtifacts: string[],
 ): string | null {
-  if (reviewRejected) return 'Review rejected this paper; do not publish without a new run.'
+  if (reviewRejected) return 'Publication gate rejected this paper; do not publish without a new run.'
   if (missingArtifacts.length > 0) {
     return `Complete missing artifacts before publication: ${missingArtifacts.join(', ')}.`
   }
@@ -143,7 +143,7 @@ function paperSummarySections(
         { label: 'title', value: input.title },
         { label: 'paper status', value: input.status },
         { label: 'paper type', value: text(input.paper.paper_type) },
-        { label: 'review status', value: input.review },
+        { label: 'publication gate status', value: input.review },
       ],
     },
     {

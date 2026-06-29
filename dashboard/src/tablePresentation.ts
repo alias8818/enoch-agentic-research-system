@@ -42,7 +42,7 @@ export function formatAgeLabel(row: Record<string, unknown>): string {
 export function queueDispatchReadiness(row: Record<string, unknown>): { label: string; tone: 'ready' | 'blocked' | 'neutral' } {
   const status = displayText(firstValue(row.status, row.queue_status)).toLowerCase()
   const blocked = text(firstValue(row.blocked_reason, row.decision_summary))
-  if (row.manual_review_required === true) return { label: 'Needs operator review', tone: 'blocked' }
+  if (row.manual_review_required === true) return { label: 'Needs operator decision', tone: 'blocked' }
   if (blocked !== '—') return { label: blocked, tone: 'blocked' }
   if (status === 'queued') return { label: 'Queued — dry-run required before dispatch', tone: 'ready' }
   if (status) return { label: `Not dispatchable (${status})`, tone: 'neutral' }
@@ -70,7 +70,7 @@ export function paperPipelineStatus(row: Record<string, unknown>): string {
     return 'finalization ready'
   }
   const review = text(row.review_status)
-  if (review !== '—') return review
+  if (review !== '—') return review.replaceAll('review', 'gate').replaceAll('Review', 'Gate')
   return text(firstValue(row.paper_status, row.status))
 }
 

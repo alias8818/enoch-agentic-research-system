@@ -53,7 +53,7 @@ it('runs dispatch primary actions as safe dry-runs instead of only linking away'
   expect(screen.getByText('gb10')).toBeInTheDocument()
   expect(screen.getByText('Operator decision')).toBeInTheDocument()
   expect(screen.getByText('Safe to dispatch')).toBeInTheDocument()
-  expect(screen.getByText('Raw JSON')).toBeInTheDocument()
+  expect(screen.getByText('Diagnostic JSON')).toBeInTheDocument()
   expect(onRefresh).toHaveBeenCalledTimes(1)
 })
 

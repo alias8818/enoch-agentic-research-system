@@ -412,7 +412,7 @@ export function AutomationPage({
   async function runRewriteDraft(targetPaperId: string) {
     const ok = await confirm({
       title: 'Rewrite publication draft now?',
-      message: 'This runs a live rewrite/finalize for the selected paper. Review automation detail before proceeding.',
+      message: 'This runs a live rewrite/finalize for the selected paper. Inspect automation detail before proceeding.',
       confirmLabel: 'Rewrite draft',
       tone: 'danger',
     })
@@ -432,7 +432,7 @@ export function AutomationPage({
   async function runReject(targetPaperId: string) {
     const ok = await confirm({
       title: 'Reject this automation item?',
-      message: 'This marks the publication automation review as rejected.',
+      message: 'This marks the publication automation gate as rejected.',
       confirmLabel: 'Reject paper',
       tone: 'danger',
     })
@@ -488,9 +488,9 @@ export function AutomationPage({
 
       <ListFilterBar
         state={filters}
-        statusLabel="Review status"
+        statusLabel="Publication gate status"
         statusOptions={[
-          { label: 'all review statuses', value: '' },
+          { label: 'all publication gate statuses', value: '' },
           { label: 'triage ready', value: 'triage_ready' },
           { label: 'queued', value: 'queued' },
           { label: 'claimed', value: 'claimed' },

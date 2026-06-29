@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { displayCount } from './displayText'
 
 function labelOperatorKey(key: string): string {
+  if (key === 'needs_attention') return 'needs action'
   return key.replaceAll('_', ' ')
 }
 

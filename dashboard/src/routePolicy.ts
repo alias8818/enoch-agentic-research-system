@@ -138,7 +138,7 @@ export const ROUTE_CONSOLIDATION_MAP: ReadonlyArray<RouteConsolidationEntry> = [
     hash: '#observability',
     owner: 'Models and Observability',
     lifecycleStages: ['event_alert'],
-    operatorQuestion: 'Which model, provider, worker, memory, or route signal needs attention?',
+    operatorQuestion: 'Which model, provider, worker, memory, or route signal needs action?',
     decision: 'debug-support',
   },
   {

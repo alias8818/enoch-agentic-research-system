@@ -39,7 +39,7 @@ it('renders dispatch dry-run summary with decisive title and operator decision',
 
   assertJsonBlocksInRawDetails(container)
 
-  fireEvent.click(screen.getByText('Raw JSON'))
+  fireEvent.click(screen.getByText('Diagnostic JSON'))
   expect(screen.getByText(/"dry_run": true/)).toBeVisible()
 })
 

@@ -252,7 +252,7 @@ function sentryHeadline(enabled: boolean | undefined, configured: boolean | unde
 
 function modelObservabilityHeadline(data: ObservabilityLlmModels): string {
   if ((data.structurally_unhealthy_count || 0) > 0) return 'Model usefulness degraded'
-  if ((data.unhealthy_count || 0) > 0) return 'Model endpoint health needs attention'
+  if ((data.unhealthy_count || 0) > 0) return 'Model endpoint health needs action'
   if ((data.model_count || 0) > 0) return 'Models are measured'
   return 'No enabled models configured'
 }
@@ -266,7 +266,7 @@ function workflowRecommendationHeadline(items: ObservabilityWorkflowRecommendati
 
 function harnessTelemetryHeadline(data: ObservabilityLlmHarness): string {
   if ((data.event_count ?? 0) <= 0) return 'No harness telemetry recorded'
-  if ((data.failure_count ?? 0) > 0 || data.status === 'needs_attention') return 'Harness telemetry needs attention'
+  if ((data.failure_count ?? 0) > 0 || data.status === 'needs_attention') return 'Harness telemetry needs action'
   return 'Harness telemetry healthy'
 }
 
@@ -480,7 +480,7 @@ function prioritizedProjectRows(rows: ReadonlyArray<Record<string, unknown>>): R
 }
 
 function projectBriefingHeadline(attention: number, running: number, ready: number, rowCount: number): string {
-  if (attention > 0) return `${attention} workstream(s) need attention`
+  if (attention > 0) return `${attention} workstream(s) blocked or need action`
   if (running > 0) return `${running} workstream(s) actively moving`
   if (ready > 0) return `${ready} ready workstream(s) available`
   if (rowCount > 0) return 'Workstreams are quiet or recently completed'
@@ -505,11 +505,11 @@ function ProjectsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string
   return (
     <>
       <BriefingGrid>
-        <BriefingCard eyebrow="Workstream health" title={headline} detail="Projects now open with operator-stage health and action buckets before the raw project table." tone={tone}>
-          <MetricStrip ariaLabel="Project workstream health summary" items={[{ label: 'attention', value: attention }, { label: 'running', value: running }, { label: 'ready', value: ready }]} />
+        <BriefingCard eyebrow="Workstream health" title={headline} detail="Projects now open with operator-stage health and action buckets before the diagnostic project table." tone={tone}>
+          <MetricStrip ariaLabel="Project workstream health summary" items={[{ label: 'needs action', value: attention }, { label: 'running', value: running }, { label: 'ready', value: ready }]} />
         </BriefingCard>
         <BriefingCard eyebrow="Priority workstreams" title={highlightedRows.length > 0 ? 'Top visible workstreams are grouped by operator relevance' : 'No visible workstream to prioritize'} detail="Each card below answers what changed, whether the workstream is healthy, and the next action before IDs or copy controls." />
-        <BriefingCard eyebrow="Raw detail access" title="IDs and debug fields stay in row drilldowns" detail="Open a row for exact project ID, run links, dispatch history, paper artifacts, and raw JSON evidence; the table remains the bounded evidence ledger." >
+        <BriefingCard eyebrow="Drilldown evidence" title="IDs and diagnostic fields stay in row drilldowns" detail="Open a row for exact project ID, run links, dispatch history, paper artifacts, and diagnostic JSON evidence; the table remains the bounded evidence ledger." >
           <MetricStrip ariaLabel="Project evidence summary" items={[{ label: 'visible rows', value: rows.length }, { label: 'completed', value: completed }, { label: 'highlighted', value: highlightedRows.length }]} />
         </BriefingCard>
       </BriefingGrid>
@@ -728,11 +728,11 @@ function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, un
   return (
     <>
       <BriefingGrid>
-        <BriefingCard eyebrow="Run story" title={headline} detail="Runs now lead with outcome, callback, and evidence state before raw IDs, gates, and worker internals." tone={tone}>
-          <MetricStrip ariaLabel="Run story summary" items={[{ label: 'attention', value: attention }, { label: 'in progress', value: active }, { label: 'outcome', value: completed }]} />
+        <BriefingCard eyebrow="Run story" title={headline} detail="Runs now lead with outcome, callback, and evidence state before diagnostic IDs, gates, and worker internals." tone={tone}>
+          <MetricStrip ariaLabel="Run story summary" items={[{ label: 'needs action', value: attention }, { label: 'in progress', value: active }, { label: 'outcome', value: completed }]} />
         </BriefingCard>
-        <BriefingCard eyebrow="Timeline hierarchy" title={storyRows.length > 0 ? 'Top visible runs are summarized as timelines' : 'No visible run timeline'} detail="Each story card shows start, gate/worker step, callback/outcome, and evidence before the raw run ledger." />
-        <BriefingCard eyebrow="Forensic detail" title="Run IDs, callback internals, and logs stay in drilldowns" detail="Use the table and row detail panel for exact run identifiers, copied links, callback payloads, gates, and raw JSON evidence." />
+        <BriefingCard eyebrow="Timeline hierarchy" title={storyRows.length > 0 ? 'Top visible runs are summarized as timelines' : 'No visible run timeline'} detail="Each story card shows start, gate/worker step, callback/outcome, and evidence before the diagnostic run ledger." />
+        <BriefingCard eyebrow="Drilldown evidence" title="Run IDs, callback internals, and logs stay in drilldowns" detail="Use the table and row detail panel for exact run identifiers, copied links, callback evidence, gates, and diagnostic JSON evidence." />
       </BriefingGrid>
       <section className="run-story-cards" aria-label="Prioritized run stories">
         {storyRows.length > 0 ? storyRows.map((row) => {
@@ -825,7 +825,17 @@ function paperSubject(row: Record<string, unknown>): string {
 }
 
 function paperReadinessLabel(row: Record<string, unknown>): string {
-  return rowFieldText(row, ['operator_stage_label', 'operator_detail_stage_label', 'review_status', 'paper_status', 'status']) || 'Unknown readiness'
+  const label = rowFieldText(row, ['operator_stage_label', 'operator_detail_stage_label', 'review_status', 'paper_status', 'status'])
+  if (!label) return 'Unknown readiness'
+  return label.replaceAll('review', 'gate').replaceAll('Review', 'Gate')
+}
+
+function paperAutomationCopy(value: string): string {
+  return value
+    .replaceAll('paper/review', 'paper gate')
+    .replaceAll('Paper/review', 'Paper gate')
+    .replaceAll('review', 'gate')
+    .replaceAll('Review', 'Gate')
 }
 
 function paperEvidenceLabel(row: Record<string, unknown>): string {
@@ -843,7 +853,7 @@ function paperCorpusLabel(row: Record<string, unknown>): string {
 }
 
 function paperNextStep(row: Record<string, unknown>): string {
-  return rowFieldText(row, ['operator_next_step', 'operator_explanation']) || 'Open the row for artifact paths, draft IDs, and publication evidence.'
+  return paperAutomationCopy(rowFieldText(row, ['operator_next_step', 'operator_explanation']) || 'Open the row for artifact paths, draft IDs, and publication evidence.')
 }
 
 function prioritizedPaperRows(rows: ReadonlyArray<Record<string, unknown>>): Record<string, unknown>[] {
@@ -861,10 +871,10 @@ function prioritizedPaperRows(rows: ReadonlyArray<Record<string, unknown>>): Rec
 }
 
 function paperBriefingTitle(attention: number, evidenceReview: number, ready: number, rowCount: number): string {
-  if (attention > 0) return `${attention} paper artifact(s) need operator attention`
-  if (evidenceReview > 0) return `${evidenceReview} paper artifact(s) need evidence review`
-  if (ready > 0) return `${ready} paper artifact(s) have publication evidence`
-  if (rowCount > 0) return 'Publication artifacts need triage'
+  if (attention > 0) return `Current page: ${attention} of ${rowCount} visible paper row(s) are blocked by deterministic publication gates`
+  if (evidenceReview > 0) return `Current page: ${evidenceReview} of ${rowCount} visible paper row(s) need evidence-gate completion`
+  if (ready > 0) return `Current page: ${ready} of ${rowCount} visible paper row(s) passed publication evidence gates`
+  if (rowCount > 0) return 'Current page publication rows are awaiting gate classification'
   return 'No paper rows returned'
 }
 
@@ -882,7 +892,7 @@ function paperCardTone(row: Record<string, unknown>): BriefingTone {
   return 'neutral'
 }
 
-function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>> }>) {
+function PapersBriefing({ rows, counts, page }: Readonly<{ rows: ReadonlyArray<Record<string, unknown>>, counts?: Record<string, unknown>, page?: Record<string, unknown> }>) {
   const attention = rows.filter(paperNeedsAttention).length
   const evidenceReview = rows.filter(paperNeedsEvidence).length
   const ready = rows.filter(paperIsReady).length
@@ -890,14 +900,17 @@ function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, 
   const artifactRows = prioritizedPaperRows(rows)
   const title = paperBriefingTitle(attention, evidenceReview, ready, rows.length)
   const tone = paperBriefingTone(attention, evidenceReview, ready)
+  const totalRows = counts?.all ?? 'unknown'
+  const publicationRows = counts?.publication_draft ?? 'unknown'
+  const returnedRows = page?.returned ?? rows.length
   return (
     <>
       <BriefingGrid>
-        <BriefingCard eyebrow="Publication briefing" title={title} detail="Papers lead with customer-facing artifact readiness, evidence completeness, corpus posture, and next workflow action before raw draft IDs or paths." tone={tone}>
-          <MetricStrip ariaLabel="Paper readiness summary" items={[{ label: 'attention', value: attention }, { label: 'evidence review', value: evidenceReview }, { label: 'ready/imported', value: ready || imported }]} />
+        <BriefingCard eyebrow="Publication automation gates" title={title} detail={`This is an automation gate summary for the currently loaded table page/filter (${returnedRows} visible row(s)); it is not the public corpus total or Paper Material Graph count, and it is not a manual approval queue. Total SQL paper rows: ${totalRows}; publication-draft rows: ${publicationRows}.`} tone={tone}>
+          <MetricStrip ariaLabel="Paper automation gate summary" items={[{ label: 'visible rows', value: rows.length }, { label: 'visible gate-blocked', value: evidenceReview }, { label: 'visible imported', value: imported }]} />
         </BriefingCard>
-        <BriefingCard eyebrow="Artifact outcomes" title={artifactRows.length > 0 ? 'Top visible papers are summarized as publication artifacts' : 'No visible paper artifact'} detail="Each card below names the artifact, readiness, evidence package, corpus state, and next action while keeping exact draft IDs in the table/detail views." />
-        <BriefingCard eyebrow="Raw detail access" title="Draft IDs and artifact paths stay in drilldowns" detail="Use the table and row detail panel for composite paper IDs, import IDs, finalization package paths, corpus manifests, and raw JSON evidence." />
+        <BriefingCard eyebrow="Artifact outcomes" title={artifactRows.length > 0 ? 'Top visible papers are summarized as publication artifacts' : 'No visible paper artifact'} detail="Each card below names the artifact, deterministic gate state, evidence package, corpus state, and next automation step while keeping exact draft IDs in the table/detail views." />
+        <BriefingCard eyebrow="Drilldown evidence" title="Draft IDs and artifact paths stay in drilldowns" detail="Use the table and row detail panel for composite paper IDs, import IDs, finalization package paths, corpus manifests, and diagnostic JSON evidence." />
       </BriefingGrid>
       <section className="paper-artifact-cards" aria-label="Prioritized publication artifacts">
         {artifactRows.length > 0 ? artifactRows.map((row) => {
@@ -907,7 +920,7 @@ function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, 
             <article className={`paper-artifact-card paper-artifact-card--${tone}`} key={displayText(row.paper_id, subject)}>
               <p className="eyebrow">{paperReadinessLabel(row)}</p>
               <h3>{subject}</h3>
-              <p>{rowFieldText(row, ['operator_explanation']) || 'No operator explanation recorded for this paper artifact.'}</p>
+              <p>{paperAutomationCopy(rowFieldText(row, ['operator_explanation']) || 'No operator explanation recorded for this paper artifact.')}</p>
               <dl className="paper-artifact-card__facts">
                 <div>
                   <dt>Evidence</dt>
@@ -918,7 +931,7 @@ function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, 
                   <dd>{paperCorpusLabel(row)}</dd>
                 </div>
                 <div>
-                  <dt>Next action</dt>
+                  <dt>Next automation step</dt>
                   <dd>{paperNextStep(row)}</dd>
                 </div>
               </dl>
@@ -929,7 +942,7 @@ function PapersBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, 
             className="paper-artifact-card"
             title="No paper rows match this filter"
             impact="No publication artifact card can be prioritized from the current slice; research and dispatch lanes are unaffected."
-            nextAction="Clear filters or refresh before relying on Papers for publication readiness decisions."
+            nextAction="Clear filters or refresh before relying on Papers for publication gate state."
             diagnostics="Use the table empty state and Data source disclosure for raw query context."
           />
         )}
@@ -1238,7 +1251,7 @@ export function QueuePage({ route }: Readonly<{ route: Extract<DashboardRoute, {
   }
   return (
     <>
-      <PageShell title="Queue" subtitle="Review queue rows, dry-run dispatch, and start selected work safely." dataSource="/control/api/v1/queue" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || statusQuery.isFetching} onRefresh={() => { queueHasLiveStatusContext ? refetchAllInBackground(() => query.refetch(), () => statusQuery.refetch()) : refetchInBackground(() => query.refetch()) }} />}>
+      <PageShell title="Queue" subtitle="Inspect queue rows, dry-run dispatch, and start selected work safely." dataSource="/control/api/v1/queue" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching || statusQuery.isFetching} onRefresh={() => { queueHasLiveStatusContext ? refetchAllInBackground(() => query.refetch(), () => statusQuery.refetch()) : refetchInBackground(() => query.refetch()) }} />}>
         <QueueBriefing rows={rows} queueCounts={query.data?.counts} statusContext={statusQuery.data} statusUnavailable={statusQuery.isError} />
         <ListFilterBar savedFiltersTableId="queue" state={filters} statusOptions={[{ label: 'all statuses', value: '' }, { label: 'queued', value: 'queued' }, { label: 'active', value: 'active' }, { label: 'blocked', value: 'blocked' }, { label: 'completed', value: 'completed' }]} onApply={(next) => { setFilters(next); replaceRouteHash(queueHash(next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(queueHash(next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
         <QueueDispatchCommandCard
@@ -1315,10 +1328,10 @@ export function PapersPage({ route }: Readonly<{ route: Extract<DashboardRoute, 
   if (query.isError) return <ResourceErrorCard endpoint="papers" error={query.error} onRetry={() => { refetchInBackground(() => query.refetch()) }} retryLabel="Retry papers" />
   const rows = query.data?.rows || []
   return (
-    <PageShell title="Papers" subtitle="Track draft, finalization, and publication readiness." dataSource="/control/api/v1/papers" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
+    <PageShell title="Papers" subtitle="Track draft, finalization, and publication gate state." dataSource="/control/api/v1/papers" action={<PageRefreshAction generatedAt={query.data?.generated_at} isFetching={query.isFetching} onRefresh={() => { refetchInBackground(() => query.refetch()) }} />}>
       <PaperWorkflowNav active="papers" />
-      <PapersBriefing rows={rows} />
-      <ListFilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft review', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
+      <PapersBriefing rows={rows} counts={query.data?.counts} page={query.data?.page as Record<string, unknown> | undefined} />
+      <ListFilterBar state={filters} statusOptions={[{ label: 'all paper statuses', value: '' }, { label: 'publication draft', value: 'publication_draft' }, { label: 'draft gate', value: 'draft_review' }, { label: 'archived', value: 'archived' }]} onApply={(next) => { setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onReset={() => { const next = { search: '', status: route.status, pageSize: '50', cursor: '' }; setFilters(next); replaceRouteHash(statusHash('#papers', 'status', next)) }} onNext={() => setFilters({ ...filters, cursor: query.data?.page?.next_cursor || '' })} page={query.data?.page} />
       <DataTable rows={rows} columns={papersTableColumns} empty={derivePapersEmpty({ search: filters.search, status: filters.status })} cellHref={detailCellHref} onSelectRow={(row) => setSelection({ kind: 'paper', id: displayText(row.paper_id), row })} />
       <DetailPanel selection={selection} onClose={() => setSelection(null)} />
     </PageShell>
@@ -1446,7 +1459,7 @@ export function IntakePage({ route }: Readonly<{ route?: Extract<DashboardRoute,
   const rows = data.queued_projection || []
   const selectedRow = selection || rows.find((row) => displayText(row.idea_id) === routeIdeaId) || null
   return (
-    <PageShell title="Idea intake" subtitle="Review admitted ideas, queue state, and next operator actions." dataSource="/control/api/intake/ideas" action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); refetchInBackground(() => query.refetch()) }} refreshLabel="Refresh intake" />}>
+    <PageShell title="Idea intake" subtitle="Inspect admitted ideas, queue state, and next operator actions." dataSource="/control/api/intake/ideas" action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); refetchInBackground(() => query.refetch()) }} refreshLabel="Refresh intake" />}>
       <WorkbenchOperatorSummary summary={data.operator_summary} />
       <section className="result-card">
         <h2>Latest intake sync</h2>

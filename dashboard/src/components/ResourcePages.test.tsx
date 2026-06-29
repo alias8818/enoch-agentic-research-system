@@ -144,10 +144,10 @@ it('opens projects with workstream cards before raw ids and copy controls', asyn
   renderWithClient(<ProjectsPage route={{ page: 'projects', status: '', search: '', hash: '#projects' }} />)
 
   expect(await screen.findByText('Workstream health')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '1 workstream(s) need attention' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '1 workstream(s) blocked or need action' })).toBeInTheDocument()
   expect(screen.getByText('Priority workstreams')).toBeInTheDocument()
-  expect(screen.getByText('Raw detail access')).toBeInTheDocument()
-  expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('attention1')
+  expect(screen.getByText('Drilldown evidence')).toBeInTheDocument()
+  expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('needs action1')
   expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('running1')
   expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('ready1')
 
@@ -218,8 +218,8 @@ it('opens runs with timeline story cards before raw run ids and callback interna
   expect(await screen.findByText('Run story')).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '1 recent run(s) need investigation' })).toBeInTheDocument()
   expect(screen.getByText('Timeline hierarchy')).toBeInTheDocument()
-  expect(screen.getByText('Forensic detail')).toBeInTheDocument()
-  expect(screen.getByLabelText('Run story summary')).toHaveTextContent('attention1')
+  expect(screen.getByText('Drilldown evidence')).toBeInTheDocument()
+  expect(screen.getByLabelText('Run story summary')).toHaveTextContent('needs action1')
   expect(screen.getByLabelText('Run story summary')).toHaveTextContent('in progress1')
   expect(screen.getByLabelText('Run story summary')).toHaveTextContent('outcome1')
 
@@ -245,8 +245,8 @@ it('opens papers with publication artifact cards before raw draft ids and paths'
         corpus_imported: true,
         operator_stage_label: 'Finalized',
         operator_tone: 'good',
-        operator_explanation: 'Finalized paper package is available for publication review.',
-        operator_next_step: 'Open public corpus paper and verify customer-facing copy.',
+        operator_explanation: 'Finalized paper package has passed publication gates.',
+        operator_next_step: 'Open public corpus paper and verify generated corpus output.',
         artifact_paths_present: {
           evidence_bundle_path: true,
           claim_ledger_path: true,
@@ -265,7 +265,7 @@ it('opens papers with publication artifact cards before raw draft ids and paths'
         operator_stage_label: 'Needs Evidence',
         operator_tone: 'warn',
         operator_explanation: 'Draft exists but evidence package is incomplete.',
-        operator_next_step: 'Collect evidence bundle before publication review.',
+        operator_next_step: 'Collect evidence bundle before corpus import.',
         artifact_paths_present: { draft_markdown_path: true },
       },
     ],
@@ -274,13 +274,13 @@ it('opens papers with publication artifact cards before raw draft ids and paths'
 
   renderWithClient(<PapersPage route={{ page: 'papers', status: '', search: '', hash: '#papers' }} />)
 
-  expect(await screen.findByText('Publication briefing')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '1 paper artifact(s) need operator attention' })).toBeInTheDocument()
+  expect(await screen.findByText('Publication automation gates')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Current page: 1 of 2 visible paper row(s) are blocked by deterministic publication gates' })).toBeInTheDocument()
   expect(screen.getByText('Artifact outcomes')).toBeInTheDocument()
-  expect(screen.getByText('Raw detail access')).toBeInTheDocument()
-  expect(screen.getByLabelText('Paper readiness summary')).toHaveTextContent('attention1')
-  expect(screen.getByLabelText('Paper readiness summary')).toHaveTextContent('evidence review1')
-  expect(screen.getByLabelText('Paper readiness summary')).toHaveTextContent('ready/imported1')
+  expect(screen.getByText('Drilldown evidence')).toBeInTheDocument()
+  expect(screen.getByLabelText('Paper automation gate summary')).toHaveTextContent('visible rows2')
+  expect(screen.getByLabelText('Paper automation gate summary')).toHaveTextContent('visible gate-blocked1')
+  expect(screen.getByLabelText('Paper automation gate summary')).toHaveTextContent('visible imported1')
 
   const artifactCards = screen.getByLabelText('Prioritized publication artifacts')
   expect(within(artifactCards).getByRole('heading', { name: 'evidence gap study' })).toBeInTheDocument()
@@ -324,13 +324,13 @@ it('explains empty briefing-card slices with impact, next action, and diagnostic
 
   renderWithClient(<PapersPage route={{ page: 'papers', status: 'draft_review', search: 'missing subject', hash: '#papers?status=draft_review' }} />)
 
-  expect(await screen.findByText('Publication briefing')).toBeInTheDocument()
+  expect(await screen.findByText('Publication automation gates')).toBeInTheDocument()
   const artifactCards = screen.getByLabelText('Prioritized publication artifacts')
   expect(within(artifactCards).getByRole('heading', { name: 'No paper rows match this filter' })).toBeInTheDocument()
   expect(within(artifactCards).getByText('Impact')).toBeInTheDocument()
   expect(within(artifactCards).getByText('No publication artifact card can be prioritized from the current slice; research and dispatch lanes are unaffected.')).toBeInTheDocument()
   expect(within(artifactCards).getByText('Next action')).toBeInTheDocument()
-  expect(within(artifactCards).getByText('Clear filters or refresh before relying on Papers for publication readiness decisions.')).toBeInTheDocument()
+  expect(within(artifactCards).getByText('Clear filters or refresh before relying on Papers for publication gate state.')).toBeInTheDocument()
   expect(within(artifactCards).getByText('Diagnostics')).toBeInTheDocument()
   expect(within(artifactCards).getByText('Use the table empty state and Data source disclosure for raw query context.')).toBeInTheDocument()
 })
@@ -351,7 +351,7 @@ it('marks loaded resource data as stale before operator action when generated_at
   vi.useRealTimers()
 })
 
-it('adds human-first briefing vocabulary above resource page drilldown tables', async () => {
+it('adds automation-first briefing vocabulary above resource page drilldown tables', async () => {
   saveToken('test-token')
 
   vi.spyOn(globalThis, 'fetch')
@@ -383,8 +383,8 @@ it('adds human-first briefing vocabulary above resource page drilldown tables', 
     </QueryClientProvider>,
   )
 
-  expect(await screen.findByText('Publication briefing')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '1 paper artifact(s) need evidence review' })).toBeInTheDocument()
+  expect(await screen.findByText('Publication automation gates')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Current page: 1 of 1 visible paper row(s) need evidence-gate completion' })).toBeInTheDocument()
   expect(screen.getAllByText('Draft paper story')).not.toHaveLength(0)
 })
 
@@ -508,7 +508,7 @@ it('checks selected queued rows with dispatch-one dry-run only', async () => {
   expect(screen.getByText('Selected work')).toBeInTheDocument()
   expect(screen.getByText('Lane / target')).toBeInTheDocument()
   expect(screen.getAllByText('Next safe action').length).toBeGreaterThan(0)
-  expect(screen.getByText('Raw JSON')).toBeInTheDocument()
+  expect(screen.getByText('Diagnostic JSON')).toBeInTheDocument()
 })
 
 it('live-dispatches a selected queued row only after dry-run and dialog confirmation', async () => {
@@ -751,7 +751,7 @@ it('keeps visible filter controls synced after reset defaults are applied', asyn
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ paper_pipeline: { publish_ready: 0, published_imported: 0, publication_ready_total: 0 } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-draft', status: 'publication_draft', title: 'Draft paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-review', status: 'draft_review', title: 'Review paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-review', status: 'draft_review', title: 'Gate paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-reset', status: 'publication_draft', title: 'Reset paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
   renderWithClient(<CorpusPage />)
@@ -759,7 +759,7 @@ it('keeps visible filter controls synced after reset defaults are applied', asyn
 
   fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'draft_review' } })
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
-  await screen.findByText('Review paper')
+  await screen.findByText('Gate paper')
 
   fireEvent.click(screen.getByRole('button', { name: /Reset/i }))
   await screen.findByText('Reset paper')
@@ -786,7 +786,7 @@ it('writes applied event filters back to the V2 hash', async () => {
 it('applies paper and event filters to the backed endpoints', async () => {
   const fetchMock = vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-1', status: 'publication_draft', title: 'Draft paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-2', status: 'draft_review', title: 'Review paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ paper_id: 'paper-2', status: 'draft_review', title: 'Gate paper' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 7, event_type: 'Queue Alert', summary: 'Alert summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify({ rows: [{ id: 8, event_type: 'worker.callback', summary: 'Callback summary' }], page: { returned: 1, has_more: false } }), { status: 200 }))
 
@@ -800,7 +800,7 @@ it('applies paper and event filters to the backed endpoints', async () => {
   fireEvent.change(screen.getByLabelText(/Search/i), { target: { value: 'trace' } })
   fireEvent.change(screen.getByLabelText(/Status/i), { target: { value: 'draft_review' } })
   fireEvent.click(screen.getByRole('button', { name: /Apply filters/i }))
-  expect(await screen.findAllByText('Review paper')).not.toHaveLength(0)
+  expect(await screen.findAllByText('Gate paper')).not.toHaveLength(0)
 
   let url = fetchMockUrl(fetchMock, 1)
   expect(url.pathname).toBe('/control/api/v1/papers')
@@ -965,7 +965,7 @@ it('loads observability health and memory from backed V1 endpoints', async () =>
   expect(screen.getByText('Recommendations use measured prompt-contract probes, not endpoint health alone.')).toBeInTheDocument()
   expect(screen.getByText('prefer owl for Research agents; remove or tune degraded pool entries')).toBeInTheDocument()
   expect(screen.getByText('increase max_tokens or remove GLM for candidate_json until visible structured output passes')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: 'Harness telemetry needs attention' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Harness telemetry needs action' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Latest route decision' })).toBeInTheDocument()
   expect(screen.getByText('openrouter / kimi-k2')).toBeInTheDocument()
   expect(screen.getByText('cheap model passed required structured-output probe')).toBeInTheDocument()

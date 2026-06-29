@@ -273,7 +273,7 @@ it('uses one dominant Overview readiness answer with compact worker and paper br
   expect(screen.getByLabelText('Readiness check')).toHaveTextContent('Control flags')
   expect(screen.getByLabelText('Worker lane briefing')).toHaveTextContent('Lane posture')
   expect(screen.getByLabelText('Worker lane briefing')).toHaveTextContent('Workers are busy')
-  expect(screen.getByRole('heading', { name: 'Publication briefing' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Publication automation gates' })).toBeInTheDocument()
   expect(screen.getByLabelText('Paper pipeline briefing')).toHaveTextContent('Finalize')
 })
 
@@ -1098,7 +1098,7 @@ it('surfaces the movement diagnosis before lane and action controls', async () =
   expect(within(diagnosis).getByText('No admitted candidates')).toBeInTheDocument()
 })
 
-it('keeps overview command result raw JSON inside collapsed details', async () => {
+it('keeps overview command result diagnostic JSON inside collapsed details', async () => {
   vi.spyOn(globalThis, 'fetch')
     .mockResolvedValueOnce(new Response(JSON.stringify({
       ok: true,
@@ -1383,7 +1383,7 @@ it('shows operator queue counts inside the collapsed overview secondary fold', a
   fireEvent.click(screen.getByText('Show secondary details'))
   const snapshot = screen.getByLabelText('Operator queue snapshot')
   expect(within(snapshot).getByRole('heading', { name: 'Operator queue snapshot' })).toBeInTheDocument()
-  expect(within(snapshot).getByText('needs attention')).toBeInTheDocument()
+  expect(within(snapshot).getByText('needs action')).toBeInTheDocument()
   expect(within(snapshot).getAllByText('2')).toHaveLength(2)
   expect(within(snapshot).getByText('write paper')).toBeInTheDocument()
   expect(within(snapshot).getByText('3')).toBeInTheDocument()

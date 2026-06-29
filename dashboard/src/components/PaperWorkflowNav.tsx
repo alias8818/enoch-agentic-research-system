@@ -12,7 +12,7 @@ const PAPER_WORKFLOW_LINKS: ReadonlyArray<{
     page: 'papers',
     label: 'Papers',
     href: dashboardV2Href('#papers'),
-    detail: 'Drafts, statuses, and publication readiness',
+    detail: 'Drafts, statuses, and publication gate state',
   },
   {
     page: 'corpus',

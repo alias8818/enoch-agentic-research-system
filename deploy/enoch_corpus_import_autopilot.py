@@ -505,6 +505,36 @@ def _update_public_counts(system: Path, root: Path, manifest: Path) -> dict[str,
     return json.loads(result.stdout)
 
 
+def _control_plane_root() -> Path:
+    return Path(
+        os.environ.get("ENOCH_CONTROL_PLANE_ROOT")
+        or Path(__file__).resolve().parents[1]
+    ).resolve()
+
+
+def _refresh_paper_material_graph(root: Path) -> dict[str, Any]:
+    if not _truthy("ENOCH_CORPUS_IMPORT_REFRESH_PAPER_MATERIAL_GRAPH", "1"):
+        return {"ok": True, "action": "skipped", "reason": "disabled"}
+    control_plane = _control_plane_root()
+    script = control_plane / "deploy" / "enoch_paper_material_graph.sh"
+    result = _run(
+        [str(script)],
+        cwd=control_plane,
+        env={
+            "ENOCH_ENABLE_PAPER_MATERIAL_GRAPH": "1",
+            "ENOCH_RELEASE_ROOT": str(root),
+            "ENOCH_CONTROL_PLANE_ROOT": str(control_plane),
+        },
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        payload = {"ok": True, "stdout_tail": result.stdout[-1200:]}
+    payload.setdefault("ok", True)
+    payload["action"] = "paper_material_graph_refreshed"
+    return payload
+
+
 def _is_clean_noop_dry_run(payload: dict[str, Any]) -> bool:
     """Return true when there is simply nothing importable right now."""
 
@@ -887,6 +917,7 @@ def _execute_live_corpus_import(
         ecosystem_manifest,
         skip_github_metadata=skip_github,
     )
+    paper_material_graph = _refresh_paper_material_graph(root)
     changed_repos = _git_changed_repos(root)
     commits, pushed = _autocommit_and_push(root, live_payload, count_update)
     ledger_sync = _maybe_ledger_sync(system, corpus, pushed)
@@ -903,6 +934,7 @@ def _execute_live_corpus_import(
                 "corpus_checks": checks,
                 "github_metadata": github_metadata,
                 "release_validation": release_validation,
+                "paper_material_graph": paper_material_graph,
                 "changed_repos": changed_repos,
                 "commits": commits,
                 "pushed": pushed,

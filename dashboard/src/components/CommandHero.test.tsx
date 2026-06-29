@@ -68,7 +68,7 @@ describe('CommandHero state strip', () => {
     expect(strip).toHaveTextContent('queued')
     expect(strip).toHaveTextContent('14')
     expect(strip).not.toHaveTextContent('drafts')
-    expect(screen.getByRole('heading', { level: 2, name: 'Publication briefing' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Publication automation gates' })).toBeInTheDocument()
     expect(screen.getByLabelText('Paper pipeline briefing')).toHaveTextContent('Write')
     expect(screen.getByLabelText('Paper pipeline briefing')).toHaveTextContent('Finalize')
     expect(screen.getByLabelText('Paper pipeline briefing')).toHaveTextContent('Publish')

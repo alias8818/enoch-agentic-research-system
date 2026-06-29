@@ -90,7 +90,7 @@ export function CommandResultSummary({ result, className = '' }: Readonly<{ resu
         <SummaryField label="Operator decision" value={presentation.decision} />
       </dl>
       <details className="raw-details command-result-raw">
-        <summary>Raw JSON</summary>
+        <summary>Diagnostic JSON</summary>
         <pre className="json-block">{JSON.stringify(payload, null, 2)}</pre>
       </details>
     </section>

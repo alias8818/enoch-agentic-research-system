@@ -30,7 +30,7 @@ it('renders project detail as structured fields with raw payload collapsed', asy
   expect(await screen.findByRole('heading', { name: 'Structured project' })).toBeInTheDocument()
   expect(screen.getByText('machine target')).toBeInTheDocument()
   expect(screen.getAllByText('gb10').length).toBeGreaterThan(0)
-  expect(screen.getByText('Raw payload')).toBeInTheDocument()
+  expect(screen.getByText('Diagnostic payload')).toBeInTheDocument()
   assertJsonBlocksInRawDetails(document.body)
 })
 
@@ -52,7 +52,7 @@ it('renders event detail from the selected row without fetching an event endpoin
 
   expect(screen.getAllByText('Queue Alert').length).toBeGreaterThan(0)
   expect(screen.getByRole('heading', { name: 'Lane blocked' })).toBeInTheDocument()
-  expect(screen.getByText('Raw payload')).toBeInTheDocument()
+  expect(screen.getByText('Diagnostic payload')).toBeInTheDocument()
   expect(fetchMock).not.toHaveBeenCalled()
   assertJsonBlocksInRawDetails(document.body)
 })
@@ -327,7 +327,7 @@ it('renders P2 operator question sections for event detail with entity links', a
   expect(screen.getByText('Record fields')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: /project: project-1/ })).toHaveAttribute('href', '/control/dashboard-v2#project:project-1')
   expect(screen.getByRole('link', { name: /run: run-1/ })).toHaveAttribute('href', '/control/dashboard-v2#run:run-1')
-  const rawDetails = screen.getByText('Raw payload').closest('details')
+  const rawDetails = screen.getByText('Diagnostic payload').closest('details')
   expect(rawDetails).not.toHaveAttribute('open')
 })
 

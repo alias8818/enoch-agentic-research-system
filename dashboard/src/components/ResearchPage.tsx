@@ -483,7 +483,7 @@ function useResearchPageController(route?: ResearchPageRoute) {
   async function runLiveGenerateBatch() {
     await runConfirmedOperatorAction(derived.canLiveGenerateBatch, confirm, {
       title: 'Generate research candidates now?',
-      message: 'This writes new internal research candidates to the facility ledger. Review dry-run counts before proceeding.',
+      message: 'This writes new internal research candidates to the facility ledger. Inspect dry-run counts before proceeding.',
       confirmLabel: 'Generate candidates',
       tone: 'warn',
     }, () => generateBatch.mutateAsync({ dry_run: false, max_candidates: 3, requested_by: 'dashboard-v2' }))
@@ -492,7 +492,7 @@ function useResearchPageController(route?: ResearchPageRoute) {
   async function runLiveProviderBatch() {
     await runConfirmedOperatorAction(derived.canLiveProviderBatch, confirm, {
       title: 'Generate provider-backed candidates now?',
-      message: 'This spends provider inference budget and writes candidates to the facility ledger. Review dry-run budget checks first.',
+      message: 'This spends provider inference budget and writes candidates to the facility ledger. Inspect dry-run budget checks first.',
       confirmLabel: 'Generate provider batch',
       tone: 'danger',
     }, () => generateProviderBatch.mutateAsync({ dry_run: false, max_candidates: 2, requested_by: 'dashboard-v2' }))

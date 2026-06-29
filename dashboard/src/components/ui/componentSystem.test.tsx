@@ -20,11 +20,11 @@ describe('dashboard ui component system', () => {
     expect(files.length).toBeGreaterThanOrEqual(8)
   })
   it('keeps raw JSON inside details.raw-details via RawJsonDetails', () => {
-    const { container } = render(<RawJsonDetails summary="Raw payload" payload={{ ok: true }} />)
+    const { container } = render(<RawJsonDetails summary="Diagnostic payload" payload={{ ok: true }} />)
     expect(container.querySelector('.json-block')?.closest('details.raw-details')).not.toBeNull()
   })
   it('renders operator detail summary with current state and next action', () => {
-    render(<OperatorDetailSummary state="Queued" context="Lane gb10 owns dispatch." next="Review queue row before dispatch." />)
+    render(<OperatorDetailSummary state="Queued" context="Lane gb10 owns dispatch." next="Inspect queue row before dispatch." />)
     expect(screen.getByText('Current state')).toBeInTheDocument()
     expect(screen.getByText('Next safe action')).toBeInTheDocument()
   })

@@ -128,7 +128,7 @@ export function deriveResourceErrorCopy(endpoint: ResourceEndpoint, error: unkno
       eyebrow: 'Idea intake read model',
       title: 'Intake workbench could not load',
       summary: 'The bounded intake projection failed before idea rows could render.',
-      dispatchImpact: 'Intake review is unavailable; admitted ideas may still queue through backend automation.',
+      dispatchImpact: 'Intake decision state is unavailable; admitted ideas may still queue through backend automation.',
       ...base,
     }
   }
@@ -250,12 +250,12 @@ export function derivePapersEmpty(context: ListFilterContext): ComposedEmptyStat
   if (hasActiveFilters(context)) {
     return filteredEmpty(
       'No papers match these filters',
-      'Clear search or choose a broader paper status to find draft or review work.',
+      'Clear search or choose a broader paper status to find draft or gate work.',
     )
   }
   return idleEmpty(
     'No paper actions pending',
-    'Nothing in the papers slice needs operator attention right now.',
+    'Nothing in the papers slice is blocked on publication gates right now.',
     'Paper actions and paper corpus import may still have work on other routes.',
   )
 }
@@ -291,7 +291,7 @@ export function deriveIntakeEmpty(): ComposedEmptyStateCopy {
   return idleEmpty(
     'No admitted ideas in the intake projection',
     'The bounded intake workbench returned no queued ideas. Intake may be caught up or waiting on the next sync.',
-    'Review Latest intake sync above — a stale or failed sync can explain an empty projection.',
+    'Inspect Latest intake sync above — a stale or failed sync can explain an empty projection.',
   )
 }
 
