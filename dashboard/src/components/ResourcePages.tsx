@@ -385,6 +385,17 @@ function firstHumanTitle(rows: ReadonlyArray<Record<string, unknown>>, keys: str
   return fallback
 }
 
+function BriefingSupportDetails({ summary, items }: Readonly<{ summary: string; items: readonly string[] }>) {
+  return (
+    <details className="briefing-support-details">
+      <summary>{summary}</summary>
+      <ul>
+        {items.map((item) => <li key={item}>{item}</li>)}
+      </ul>
+    </details>
+  )
+}
+
 function EmptyBriefingArticle({
   className,
   eyebrow = 'Empty slice',
@@ -505,14 +516,14 @@ function ProjectsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string
   return (
     <>
       <BriefingGrid>
-        <BriefingCard eyebrow="Workstream health" title={headline} detail="Projects now open with operator-stage health and action buckets before the diagnostic project table." tone={tone}>
-          <MetricStrip ariaLabel="Project workstream health summary" items={[{ label: 'needs action', value: attention }, { label: 'running', value: running }, { label: 'ready', value: ready }]} />
-        </BriefingCard>
-        <BriefingCard eyebrow="Priority workstreams" title={highlightedRows.length > 0 ? 'Top visible workstreams are grouped by operator relevance' : 'No visible workstream to prioritize'} detail="Each card below answers what changed, whether the workstream is healthy, and the next action before IDs or copy controls." />
-        <BriefingCard eyebrow="Drilldown evidence" title="IDs and diagnostic fields stay in row drilldowns" detail="Open a row for exact project ID, run links, dispatch history, paper artifacts, and diagnostic JSON evidence; the table remains the bounded evidence ledger." >
-          <MetricStrip ariaLabel="Project evidence summary" items={[{ label: 'visible rows', value: rows.length }, { label: 'completed', value: completed }, { label: 'highlighted', value: highlightedRows.length }]} />
+        <BriefingCard eyebrow="Workstream cockpit" title={headline} detail="One operational answer leads the page; prioritized workstream cards and the table carry the supporting evidence below." tone={tone}>
+          <MetricStrip ariaLabel="Project workstream cockpit summary" items={[{ label: 'needs action', value: attention }, { label: 'running', value: running }, { label: 'ready', value: ready }, { label: 'visible rows', value: rows.length }, { label: 'highlighted', value: highlightedRows.length }, { label: 'completed', value: completed }]} />
         </BriefingCard>
       </BriefingGrid>
+      <BriefingSupportDetails summary="How to use Projects" items={[
+        'Top cards below answer what changed, whether the workstream is healthy, and the next action before IDs or copy controls.',
+        'Exact project IDs, run links, dispatch history, paper artifacts, and diagnostic JSON stay in row drilldowns.',
+      ]} />
       <section className="project-workstream-cards" aria-label="Prioritized project workstreams">
         {highlightedRows.length > 0 ? highlightedRows.map((row) => {
           const title = firstHumanTitle([row], ['project_name', 'title', 'project_id'], 'Untitled project')
@@ -609,15 +620,18 @@ function QueueBriefing({
   const candidateTitle = queueCandidateTitle(canInspectDispatch)
   const candidateTone = queueCandidateTone(blocked)
   return (
-    <BriefingGrid>
-      <BriefingCard eyebrow="Dispatch safety" title={safetyTitle} detail={safetyDetail} tone={safetyTone}>
-        <MetricStrip ariaLabel="Queue dispatch safety summary" items={[{ label: 'queued', value: queued }, { label: 'active lanes', value: activeCount }, { label: 'blockers', value: blockers.length }]} />
-      </BriefingCard>
-      <BriefingCard eyebrow="Candidate groups" title={candidateTitle} detail="Rows below remain the evidence table; this briefing translates queue status into operator action buckets first." tone={candidateTone}>
-        <MetricStrip ariaLabel="Queue candidate grouping summary" items={[{ label: 'ready here', value: readyHere }, { label: 'blocked here', value: blocked }, { label: 'completed here', value: completed }]} />
-      </BriefingCard>
-      <BriefingCard eyebrow="Action sequence" title="Select candidate → dry-run → dispatch" detail="Live dispatch stays disabled until the selected queued row passes a dry-run and remains unchanged after refresh." />
-    </BriefingGrid>
+    <>
+      <BriefingGrid>
+        <BriefingCard eyebrow="Dispatch cockpit" title={safetyTitle} detail={safetyDetail} tone={blocked > 0 ? candidateTone : safetyTone}>
+          <MetricStrip ariaLabel="Queue cockpit summary" items={[{ label: 'queued', value: queued }, { label: 'active lanes', value: activeCount }, { label: 'blockers', value: blockers.length }, { label: 'ready here', value: readyHere }, { label: 'blocked here', value: blocked }, { label: 'completed here', value: completed }]} />
+        </BriefingCard>
+      </BriefingGrid>
+      <BriefingSupportDetails summary="Dispatch sequence" items={[
+        candidateTitle,
+        'Select candidate → dry-run → dispatch; live dispatch stays disabled until the selected queued row passes preflight and remains unchanged after refresh.',
+        'Rows below remain the evidence table when an operator needs exact queue records.',
+      ]} />
+    </>
   )
 }
 
@@ -728,12 +742,14 @@ function RunsBriefing({ rows }: Readonly<{ rows: ReadonlyArray<Record<string, un
   return (
     <>
       <BriefingGrid>
-        <BriefingCard eyebrow="Run story" title={headline} detail="Runs now lead with outcome, callback, and evidence state before diagnostic IDs, gates, and worker internals." tone={tone}>
-          <MetricStrip ariaLabel="Run story summary" items={[{ label: 'needs action', value: attention }, { label: 'in progress', value: active }, { label: 'outcome', value: completed }]} />
+        <BriefingCard eyebrow="Run cockpit" title={headline} detail="Recent runs reduce to one outcome read first; timelines below show start, gate/worker step, callback/outcome, and evidence only when needed." tone={tone}>
+          <MetricStrip ariaLabel="Run cockpit summary" items={[{ label: 'needs action', value: attention }, { label: 'in progress', value: active }, { label: 'outcome', value: completed }, { label: 'visible stories', value: storyRows.length }]} />
         </BriefingCard>
-        <BriefingCard eyebrow="Timeline hierarchy" title={storyRows.length > 0 ? 'Top visible runs are summarized as timelines' : 'No visible run timeline'} detail="Each story card shows start, gate/worker step, callback/outcome, and evidence before the diagnostic run ledger." />
-        <BriefingCard eyebrow="Drilldown evidence" title="Run IDs, callback internals, and logs stay in drilldowns" detail="Use the table and row detail panel for exact run identifiers, copied links, callback evidence, gates, and diagnostic JSON evidence." />
       </BriefingGrid>
+      <BriefingSupportDetails summary="Run drilldowns" items={[
+        storyRows.length > 0 ? 'Top visible runs are summarized as compact timelines below.' : 'No visible run timeline is available in this slice.',
+        'Exact run IDs, callback internals, logs, copied links, gates, and diagnostic JSON stay in row drilldowns.',
+      ]} />
       <section className="run-story-cards" aria-label="Prioritized run stories">
         {storyRows.length > 0 ? storyRows.map((row) => {
           const title = runSubject(row)
@@ -900,18 +916,20 @@ function PapersBriefing({ rows, counts, page }: Readonly<{ rows: ReadonlyArray<R
   const artifactRows = prioritizedPaperRows(rows)
   const title = paperBriefingTitle(attention, evidenceReview, ready, rows.length)
   const tone = paperBriefingTone(attention, evidenceReview, ready)
-  const totalRows = counts?.all ?? 'unknown'
-  const publicationRows = counts?.publication_draft ?? 'unknown'
+  const totalRows = displayText(counts?.all, 'unknown')
+  const publicationRows = displayText(counts?.publication_draft, 'unknown')
   const returnedRows = page?.returned ?? rows.length
   return (
     <>
       <BriefingGrid>
         <BriefingCard eyebrow="Publication automation gates" title={title} detail={`This is an automation gate summary for the currently loaded table page/filter (${returnedRows} visible row(s)); it is not the public corpus total or Paper Material Graph count, and it is not a manual approval queue. Total SQL paper rows: ${totalRows}; publication-draft rows: ${publicationRows}.`} tone={tone}>
-          <MetricStrip ariaLabel="Paper automation gate summary" items={[{ label: 'visible rows', value: rows.length }, { label: 'visible gate-blocked', value: evidenceReview }, { label: 'visible imported', value: imported }]} />
+          <MetricStrip ariaLabel="Paper automation gate summary" items={[{ label: 'visible rows', value: rows.length }, { label: 'visible gate-blocked', value: evidenceReview }, { label: 'visible imported', value: imported }, { label: 'publication rows', value: publicationRows }]} />
         </BriefingCard>
-        <BriefingCard eyebrow="Artifact outcomes" title={artifactRows.length > 0 ? 'Top visible papers are summarized as publication artifacts' : 'No visible paper artifact'} detail="Each card below names the artifact, deterministic gate state, evidence package, corpus state, and next automation step while keeping exact draft IDs in the table/detail views." />
-        <BriefingCard eyebrow="Drilldown evidence" title="Draft IDs and artifact paths stay in drilldowns" detail="Use the table and row detail panel for composite paper IDs, import IDs, finalization package paths, corpus manifests, and diagnostic JSON evidence." />
       </BriefingGrid>
+      <BriefingSupportDetails summary="Publication artifact drilldowns" items={[
+        artifactRows.length > 0 ? 'Top visible papers below name the artifact, deterministic gate state, evidence package, corpus state, and next automation step.' : 'No visible paper artifact is available in this slice.',
+        'Exact draft IDs, artifact paths, import IDs, finalization package paths, corpus manifests, and diagnostic JSON stay in table/detail views.',
+      ]} />
       <section className="paper-artifact-cards" aria-label="Prioritized publication artifacts">
         {artifactRows.length > 0 ? artifactRows.map((row) => {
           const subject = paperSubject(row)

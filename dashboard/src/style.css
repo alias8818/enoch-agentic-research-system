@@ -333,6 +333,33 @@ button:disabled { cursor: not-allowed; }
 .briefing-card--warn { border-color: rgba(226, 177, 91, 0.38); }
 .briefing-card--risk { border-color: rgba(194, 80, 70, 0.45); }
 
+.briefing-support-details {
+  margin-top: 0.65rem;
+  border: 1px solid rgba(244, 241, 234, 0.1);
+  border-radius: 1rem;
+  background: rgba(0, 0, 0, 0.16);
+  color: rgba(255, 248, 234, 0.68);
+  padding: 0.78rem 0.9rem;
+}
+
+.briefing-support-details summary {
+  cursor: pointer;
+  color: #eee7da;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.briefing-support-details ul {
+  margin: 0.65rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.briefing-support-details li {
+  margin: 0.36rem 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
 .project-workstream-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));

@@ -54,6 +54,13 @@ it('keeps ResourcePages briefing helpers away from Sonar nested ternary regressi
   expect(resourcePagesSource).not.toContain("tone={attention > 0 ? 'risk'")
   expect(resourcePagesSource).not.toContain("? 'info' : runIsComplete(row) ? 'good'")
   expect(resourcePagesSource).not.toContain("? 'warn' : paperIsReady(row) ? 'good'")
+  expect(resourcePagesSource).not.toContain('BriefingCard eyebrow="Priority workstreams"')
+  expect(resourcePagesSource).not.toContain('BriefingCard eyebrow="Timeline hierarchy"')
+  expect(resourcePagesSource).not.toContain('BriefingCard eyebrow="Artifact outcomes"')
+  expect(resourcePagesSource).not.toContain('BriefingCard eyebrow="Drilldown evidence"')
+  expect(sourceSlice('ProjectsBriefing')).toContain('Workstream cockpit')
+  expect(sourceSlice('QueueBriefing')).toContain('Dispatch cockpit')
+  expect(sourceSlice('RunsBriefing')).toContain('Run cockpit')
 })
 
 it('loads queue rows from the V1 queue endpoint with the route queue slice', async () => {
@@ -90,12 +97,13 @@ it('uses live queue status context to explain dispatch safety before row parsing
 
   renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
 
-  expect(await screen.findByText('Dispatch safety')).toBeInTheDocument()
+  expect(await screen.findByText('Dispatch cockpit')).toBeInTheDocument()
   expect(await screen.findByRole('heading', { name: 'Dispatch waits: all configured worker lanes active' })).toBeInTheDocument()
   expect(screen.getByText('The table still shows candidate readiness, but live dispatch should wait until the global safety blocker clears.')).toBeInTheDocument()
-  expect(screen.getByLabelText('Queue dispatch safety summary')).toHaveTextContent('queued24')
-  expect(screen.getByLabelText('Queue dispatch safety summary')).toHaveTextContent('active lanes2')
-  expect(screen.getByLabelText('Queue candidate grouping summary')).toHaveTextContent('ready here1')
+  expect(screen.getByLabelText('Queue cockpit summary')).toHaveTextContent('queued24')
+  expect(screen.getByLabelText('Queue cockpit summary')).toHaveTextContent('active lanes2')
+  expect(screen.getByLabelText('Queue cockpit summary')).toHaveTextContent('ready here1')
+  expect(screen.getByText('Dispatch sequence')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/status?refresh_worker=true', expect.objectContaining({ headers: { Authorization: 'Bearer test-token' } }))
 })
 
@@ -143,13 +151,14 @@ it('opens projects with workstream cards before raw ids and copy controls', asyn
 
   renderWithClient(<ProjectsPage route={{ page: 'projects', status: '', search: '', hash: '#projects' }} />)
 
-  expect(await screen.findByText('Workstream health')).toBeInTheDocument()
+  expect(await screen.findByText('Workstream cockpit')).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '1 workstream(s) blocked or need action' })).toBeInTheDocument()
-  expect(screen.getByText('Priority workstreams')).toBeInTheDocument()
-  expect(screen.getByText('Drilldown evidence')).toBeInTheDocument()
-  expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('needs action1')
-  expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('running1')
-  expect(screen.getByLabelText('Project workstream health summary')).toHaveTextContent('ready1')
+  expect(screen.getByText('How to use Projects')).toBeInTheDocument()
+  expect(screen.queryByText('Priority workstreams')).not.toBeInTheDocument()
+  expect(screen.queryByText('Drilldown evidence')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Project workstream cockpit summary')).toHaveTextContent('needs action1')
+  expect(screen.getByLabelText('Project workstream cockpit summary')).toHaveTextContent('running1')
+  expect(screen.getByLabelText('Project workstream cockpit summary')).toHaveTextContent('ready1')
 
   const workstreamCards = screen.getByLabelText('Prioritized project workstreams')
   expect(within(workstreamCards).getByRole('heading', { name: 'Blocked compiler oracle' })).toBeInTheDocument()
@@ -215,13 +224,14 @@ it('opens runs with timeline story cards before raw run ids and callback interna
 
   renderWithClient(<RunsPage route={{ page: 'runs', state: '', search: '', hash: '#runs' }} />)
 
-  expect(await screen.findByText('Run story')).toBeInTheDocument()
+  expect(await screen.findByText('Run cockpit')).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '1 recent run(s) need investigation' })).toBeInTheDocument()
-  expect(screen.getByText('Timeline hierarchy')).toBeInTheDocument()
-  expect(screen.getByText('Drilldown evidence')).toBeInTheDocument()
-  expect(screen.getByLabelText('Run story summary')).toHaveTextContent('needs action1')
-  expect(screen.getByLabelText('Run story summary')).toHaveTextContent('in progress1')
-  expect(screen.getByLabelText('Run story summary')).toHaveTextContent('outcome1')
+  expect(screen.getByText('Run drilldowns')).toBeInTheDocument()
+  expect(screen.queryByText('Timeline hierarchy')).not.toBeInTheDocument()
+  expect(screen.queryByText('Drilldown evidence')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Run cockpit summary')).toHaveTextContent('needs action1')
+  expect(screen.getByLabelText('Run cockpit summary')).toHaveTextContent('in progress1')
+  expect(screen.getByLabelText('Run cockpit summary')).toHaveTextContent('outcome1')
 
   const runStories = screen.getByLabelText('Prioritized run stories')
   expect(within(runStories).getByRole('heading', { name: 'Failed callback run' })).toBeInTheDocument()
@@ -276,8 +286,9 @@ it('opens papers with publication artifact cards before raw draft ids and paths'
 
   expect(await screen.findByText('Publication automation gates')).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Current page: 1 of 2 visible paper row(s) are blocked by deterministic publication gates' })).toBeInTheDocument()
-  expect(screen.getByText('Artifact outcomes')).toBeInTheDocument()
-  expect(screen.getByText('Drilldown evidence')).toBeInTheDocument()
+  expect(screen.getByText('Publication artifact drilldowns')).toBeInTheDocument()
+  expect(screen.queryByText('Artifact outcomes')).not.toBeInTheDocument()
+  expect(screen.queryByText('Drilldown evidence')).not.toBeInTheDocument()
   expect(screen.getByLabelText('Paper automation gate summary')).toHaveTextContent('visible rows2')
   expect(screen.getByLabelText('Paper automation gate summary')).toHaveTextContent('visible gate-blocked1')
   expect(screen.getByLabelText('Paper automation gate summary')).toHaveTextContent('visible imported1')
@@ -361,10 +372,10 @@ it('adds automation-first briefing vocabulary above resource page drilldown tabl
 
   const { rerender } = renderWithClient(<QueuePage route={{ page: 'queue', status: 'queued', search: '', hash: '#queue:queued' }} />)
 
-  expect(await screen.findByText('Dispatch safety')).toBeInTheDocument()
+  expect(await screen.findByText('Dispatch cockpit')).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Ready candidates are waiting for lane capacity' })).toBeInTheDocument()
-  expect(screen.getByText('Candidate groups')).toBeInTheDocument()
-  expect(screen.getByText('Action sequence')).toBeInTheDocument()
+  expect(screen.queryByText('Candidate groups')).not.toBeInTheDocument()
+  expect(screen.getByText('Dispatch sequence')).toBeInTheDocument()
   expect(screen.getByText('Queue item')).toBeInTheDocument()
 
   rerender(
@@ -373,7 +384,7 @@ it('adds automation-first briefing vocabulary above resource page drilldown tabl
     </QueryClientProvider>,
   )
 
-  expect(await screen.findByText('Run story')).toBeInTheDocument()
+  expect(await screen.findByText('Run cockpit')).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '1 run(s) are in progress' })).toBeInTheDocument()
   expect(screen.getAllByText('Active run story')).not.toHaveLength(0)
 
