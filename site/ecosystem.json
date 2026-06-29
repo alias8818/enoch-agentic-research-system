@@ -1,10 +1,10 @@
 {
-  "artifact_count": 389,
+  "artifact_count": 393,
   "claim_ledgers_empty": 0,
   "gate_name": "packaging_provenance_gate",
   "gate_scope": "artifact packaging, provenance, placeholder, and overclaim linting",
   "gate_version": "1.0",
-  "generated_at": "2026-05-28T15:19:56Z",
+  "generated_at": "2026-06-29T12:30:20Z",
   "not_validated": [
     "peer_review",
     "scientific_correctness",
@@ -14,7 +14,7 @@
     "citation_accuracy",
     "strict_claim_evidence_audit"
   ],
-  "packaging_provenance_pass_count": 389,
+  "packaging_provenance_pass_count": 393,
   "promising_signal_count": 519,
   "repos": {
     "corpus": {
@@ -30,13 +30,13 @@
       "name": "alias8818/enoch-agentic-research-system"
     }
   },
-  "result_file_refs": 1167,
+  "result_file_refs": 1179,
   "result_file_refs_missing": 0,
   "strict_claim_evidence_gap_summary": "Claim ledgers are empty or result_file references are not publicly present; packaging/provenance lint must not be read as deep claim audit.",
   "strict_claim_evidence_gate_name": "strict_claim_evidence_audit",
   "strict_claim_evidence_gate_status": "strict_pass",
-  "strict_claim_evidence_pass_count": 389,
-  "strict_claim_evidence_total_count": 389,
+  "strict_claim_evidence_pass_count": 393,
+  "strict_claim_evidence_total_count": 393,
   "validated": [
     "ai_provenance_notice_present",
     "no_placeholder_citation_patterns",
