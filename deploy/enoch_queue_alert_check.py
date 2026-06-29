@@ -263,31 +263,33 @@ def _post_hermes_webhook(
 def _check_and_notify_readiness(
     config: dict, base_url: str, token: str, *, dry_run: bool
 ) -> dict:
-    try:
-        readiness = _get_json(base_url, "/control/api/v1/automation-readiness", token)
-    except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        retry_delay = float(config.get("readiness_endpoint_retry_delay_sec") or 2.0)
-        if retry_delay > 0:
+    retry_delay = float(config.get("readiness_endpoint_retry_delay_sec") or 5.0)
+    retry_attempts = max(1, int(config.get("readiness_endpoint_retry_attempts") or 8))
+    last_exc: Exception | None = None
+    readiness: dict[str, object] | None = None
+    for attempt in range(retry_attempts):
+        try:
+            readiness = _get_json(
+                base_url, "/control/api/v1/automation-readiness", token
+            )
+            break
+        except (error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last_exc = exc
+            if retry_delay <= 0 or attempt >= retry_attempts - 1:
+                break
             time.sleep(retry_delay)
-            try:
-                readiness = _get_json(
-                    base_url, "/control/api/v1/automation-readiness", token
-                )
-            except (error.URLError, TimeoutError, json.JSONDecodeError) as retry_exc:
-                readiness = {
-                    "ok": False,
-                    "label": "Long-haul readiness check failed",
-                    "blockers": [
-                        "readiness endpoint failed after retry: "
-                        f"{type(retry_exc).__name__}: {retry_exc}"
-                    ],
-                }
-        else:
-            readiness = {
-                "ok": False,
-                "label": "Long-haul readiness check failed",
-                "blockers": [f"readiness endpoint failed: {type(exc).__name__}: {exc}"],
-            }
+
+    if readiness is None:
+        assert last_exc is not None
+        retry_word = "retry" if retry_attempts <= 2 else f"{retry_attempts} attempts"
+        readiness = {
+            "ok": False,
+            "label": "Long-haul readiness check failed",
+            "blockers": [
+                f"readiness endpoint failed after {retry_word}: "
+                f"{type(last_exc).__name__}: {last_exc}"
+            ],
+        }
     if readiness.get("ok") is True:
         return {"ok": True, "should_alert": False, "readiness_ok": True}
     fingerprint = _readiness_fingerprint(readiness)

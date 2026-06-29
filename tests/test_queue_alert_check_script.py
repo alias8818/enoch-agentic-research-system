@@ -91,6 +91,67 @@ def test_readiness_endpoint_refused_retries_before_alerting(
     assert result == {"ok": True, "should_alert": False, "readiness_ok": True}
 
 
+def test_readiness_endpoint_refused_waits_through_control_plane_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+    sleeps = []
+
+    def fake_get_json(*_args: object) -> dict[str, Any]:
+        calls.append(len(calls))
+        if len(calls) < 5:
+            raise error.URLError(ConnectionRefusedError(111, "Connection refused"))
+        return {"ok": True, "label": "Long-haul mode: READY", "blockers": []}
+
+    def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(queue_alert_check, "_get_json", fake_get_json)
+    monkeypatch.setattr(queue_alert_check.time, "sleep", fake_sleep)
+
+    result = queue_alert_check._check_and_notify_readiness(
+        {"state_dir": "/tmp/not-used"},
+        "http://control.example",
+        "token",
+        dry_run=False,
+    )
+
+    assert calls == [0, 1, 2, 3, 4]
+    assert sleeps == [5.0, 5.0, 5.0, 5.0]
+    assert result == {"ok": True, "should_alert": False, "readiness_ok": True}
+
+
+def test_readiness_endpoint_refused_reports_all_configured_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    def fake_get_json(*_args: object) -> dict[str, Any]:
+        calls.append(len(calls))
+        raise error.URLError(ConnectionRefusedError(111, "Connection refused"))
+
+    def fake_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(queue_alert_check, "_get_json", fake_get_json)
+    monkeypatch.setattr(queue_alert_check.time, "sleep", fake_sleep)
+
+    result = queue_alert_check._check_and_notify_readiness(
+        {
+            "state_dir": "/tmp/not-used",
+            "readiness_endpoint_retry_attempts": 3,
+            "readiness_endpoint_retry_delay_sec": 1,
+        },
+        "http://control.example",
+        "token",
+        dry_run=True,
+    )
+
+    assert calls == [0, 1, 2]
+    assert result["should_alert"] is True
+    assert "failed after 3 attempts" in result["message"]
+
+
 def test_readiness_cooldown_suppresses_same_fingerprint(tmp_path: Path) -> None:
     readiness = {
         "ok": False,
