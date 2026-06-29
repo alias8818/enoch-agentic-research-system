@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
-import { openDashboardWithToken } from './fixtures'
+import { installDashboardApiMocks, openDashboardWithToken } from './fixtures'
 
 test('token gate blocks API calls until token is saved', async ({ page }) => {
+  await installDashboardApiMocks(page)
   await page.goto('/control/dashboard-v2/')
   await expect(page.getByRole('heading', { name: 'Bearer token required' })).toBeVisible()
   await expect(page.getByLabel('Bearer token')).toBeVisible()

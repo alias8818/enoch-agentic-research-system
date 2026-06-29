@@ -56,7 +56,14 @@ async function fetchDashboardSession(method: 'GET' | 'POST' | 'DELETE', token?: 
 
 export async function hasDashboardSession(): Promise<boolean> {
   const response = await fetchDashboardSession('GET')
-  if (response.ok) return true
+  if (response.ok) {
+    try {
+      const payload = await response.json() as { ok?: unknown }
+      return payload.ok === true
+    } catch {
+      return false
+    }
+  }
   if (response.status === 401) return false
   throw new Error(await errorMessageForResponse(DASHBOARD_SESSION_PATH, response))
 }

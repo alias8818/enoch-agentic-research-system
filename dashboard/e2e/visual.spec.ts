@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { openDashboardWithToken } from './fixtures'
+import { installDashboardApiMocks, openDashboardWithToken } from './fixtures'
 
 /**
  * Narrow visual-regression foundation for operator-critical surfaces.
@@ -8,6 +8,7 @@ import { openDashboardWithToken } from './fixtures'
  * Full route coverage waits until copy polish (hero/movement panels) settles.
  */
 test('token gate matches baseline screenshot @visual', async ({ page }) => {
+  await installDashboardApiMocks(page)
   await page.goto('/control/dashboard-v2/')
   await expect(page.getByRole('heading', { name: 'Bearer token required' })).toBeVisible()
   await expect(page.locator('main')).toHaveScreenshot('token-gate.png', {

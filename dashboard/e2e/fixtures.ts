@@ -168,6 +168,19 @@ const papersListPayload = {
 }
 
 export async function installDashboardApiMocks(page: Page): Promise<void> {
+  await page.route('**/control/dashboard-v2/session', async (route) => {
+    const method = route.request().method()
+    if (method === 'GET') {
+      await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ detail: 'invalid bearer token' }) })
+      return
+    }
+    if (method === 'POST' || method === 'DELETE') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) })
+      return
+    }
+    await route.fallback()
+  })
+
   await page.route('**/control/api/v1/**', async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname
