@@ -1654,9 +1654,9 @@ def test_supabase_followup_launch_records_parent_run_source_and_lineage(
     assert "source_type, source_id, target_type, target_id, relation_type" in joined
     assert (
         "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-        not in joined
+        in joined
     )
-    assert "where not exists" in joined
+    assert "where not exists" not in joined
     assert any(followup_id in params for _sql, params in lineage_inserts)
     assert "followup_parent" in joined
     assert "branched_from" not in joined
