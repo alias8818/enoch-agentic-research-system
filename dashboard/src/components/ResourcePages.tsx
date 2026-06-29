@@ -275,6 +275,24 @@ function healthLabel(value: string | undefined): string {
   return value.replaceAll('_', ' ')
 }
 
+function modelHealthCardTitle(model: ObservabilityLlmModel): string {
+  const label = model.label || model.model_id || 'unknown model'
+  if (model.endpoint_health !== 'healthy') return `${label} endpoint blocked`
+  if (model.visible_output_health === 'empty') return `${label} output empty`
+  if (model.reasoning_budget_health === 'length_limited') return `${label} budget limited`
+  if (model.format_health === 'degraded') return `${label} format degraded`
+  return `${label} usable`
+}
+
+function workflowHealthCardTitle(workflow: ObservabilityWorkflowRecommendation): string {
+  const label = workflow.label || workflow.workflow_id || 'unknown workflow'
+  const status = healthLabel(workflow.status)
+  if (workflow.status === 'needs_attention') return `${label} pool needs tuning`
+  if (workflow.status === 'blocked') return `${label} pool blocked`
+  if (workflow.status === 'healthy' || workflow.status === 'usable') return `${label} pool usable`
+  return `${label} pool ${status}`
+}
+
 function costText(value: number | undefined): string {
   return typeof value === 'number' && Number.isFinite(value) ? `$${value.toFixed(6)}` : '$0.000000'
 }
@@ -1567,12 +1585,12 @@ export function ObservabilityPage() {
           <div className="detail-field"><dt>usefulness issues</dt><dd>{llmData.structurally_unhealthy_count ?? 0}</dd></div>
           <div className="detail-field"><dt>sampled</dt><dd>{llmData.generated_at || '—'}</dd></div>
         </dl>
-        <section className="detail-operator-questions" aria-label="Model operator questions">
+        <section className="detail-operator-questions" aria-label="Model health questions">
           {visibleModels.length > 0 ? visibleModels.map((model) => {
             const title = model.label || model.model_id || 'unknown model'
             return (
               <article key={`${model.provider_id || 'provider'}:${model.model_id || title}`} className="detail-operator-question">
-                <h4>{title}</h4>
+                <h4>{modelHealthCardTitle(model)}</h4>
                 <p>{model.operator_action || 'No action recorded for this model.'}</p>
                 <dl className="detail-field-grid">
                   <div className="detail-field"><dt>provider</dt><dd>{model.provider_label || model.provider_id || '—'}</dd></div>
@@ -1585,12 +1603,12 @@ export function ObservabilityPage() {
                   <div className="detail-field"><dt>endpoint success</dt><dd>{percentText(model.success_rate)}</dd></div>
                   <div className="detail-field"><dt>format success</dt><dd>{percentText(model.format_success_rate)}</dd></div>
                 </dl>
-                <RawJsonDetails summary="Latest redacted model preview" payload={model.latest_preview || ''} />
+                <RawJsonDetails summary="Debug model preview" payload={model.latest_preview || ''} />
               </article>
             )
           }) : <article className="detail-operator-question"><h4>No enabled model rows</h4><p>Configure at least one model before relying on automated model health.</p></article>}
         </section>
-        <section className="detail-operator-questions" aria-label="Workflow model pool recommendations">
+        <section className="detail-operator-questions" aria-label="Workflow model-pool health">
           <article className="detail-operator-question">
             <h4>{workflowRecommendationHeadline(workflowRecommendations)}</h4>
             <p>Recommendations use measured prompt-contract probes, not endpoint health alone.</p>
@@ -1608,7 +1626,7 @@ export function ObservabilityPage() {
               .slice(0, 3)
             return (
               <article key={workflow.workflow_id || label} className="detail-operator-question">
-                <h4>{label}</h4>
+                <h4>{workflowHealthCardTitle(workflow)}</h4>
                 <p>{workflow.operator_action || 'No workflow recommendation recorded.'}</p>
                 <dl className="detail-field-grid">
                   <div className="detail-field"><dt>status</dt><dd>{healthLabel(workflow.status)}</dd></div>

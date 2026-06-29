@@ -60,6 +60,10 @@ jobs:
         working-directory: enoch-agentic-research-system
         run: |
           python3 scripts/generate_ecosystem_manifest.py --corpus ../enoch-ai-research-corpus --docs ../enoch-docs --promising ../enoch-promising-signals --output /tmp/enoch-ecosystem.generated.json
+      - name: Generate fresh paper material graph before validation
+        working-directory: enoch-agentic-research-system
+        run: |
+          python3 scripts/build_paper_material_graph.py --corpus-repo ../enoch-ai-research-corpus --promising-repo ../enoch-promising-signals --json-output docs/paper-material-graph/paper-material-graph.json --markdown-output docs/paper-material-graph/README.md --candidate-packet-dir docs/paper-material-graph/candidates
       - name: Validate committed public release accounting and wording
         working-directory: enoch-agentic-research-system
         env:

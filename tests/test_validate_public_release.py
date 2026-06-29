@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from scripts import validate_public_release
 
 
@@ -460,3 +462,94 @@ def test_strict_all_pass_prose_rejects_overclaim_when_failures_exist(tmp_path) -
     assert failures == [
         f"strict audit all-pass prose drift in {page}:1: all 3 != 3/385"
     ]
+
+
+def test_paper_material_graph_validation_rejects_stale_counts_and_missing_packets(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    graph_dir = tmp_path / "docs" / "paper-material-graph"
+    graph_dir.mkdir(parents=True)
+    (graph_dir / "paper-material-graph.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "enoch_paper_material_graph_v1",
+                "summary": {
+                    "paper_count": 389,
+                    "signal_count": 519,
+                    "synthesis_candidates": [
+                        {"packet_path": "candidates/synthesis/missing.md"}
+                    ],
+                    "negative_result_candidates": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (graph_dir / "README.md").write_text(
+        "# Enoch Paper Material Graph\n\n- Papers: 389\n- Signals: 519\n",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_paper_material_graph(
+        graph_dir,
+        artifact_count=393,
+        promising_signal_count=519,
+        failures=failures,
+    )
+
+    assert "paper material graph paper_count drift: 389 != 393" in failures
+    assert "paper material graph README papers count drift: 389 != 393" in failures
+    assert (
+        "paper material graph missing candidate packet: candidates/synthesis/missing.md"
+        in failures
+    )
+
+
+def test_paper_material_graph_validation_scans_public_graph_artifacts(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    graph_dir = tmp_path / "docs" / "paper-material-graph"
+    packet_dir = graph_dir / "candidates" / "synthesis"
+    packet_dir.mkdir(parents=True)
+    (packet_dir / "safe.md").write_text(
+        "# Candidate\n\nSYNTHETIC_API_KEY=syn_abcdefghijklmnopqrstuvwxyz1234567890\n",
+        encoding="utf-8",
+    )
+    (graph_dir / "paper-material-graph.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "enoch_paper_material_graph_v1",
+                "inputs": {"corpus_repo": "/home/jeremy/private"},
+                "summary": {
+                    "paper_count": 1,
+                    "signal_count": 2,
+                    "synthesis_candidates": [
+                        {"packet_path": "candidates/synthesis/safe.md"}
+                    ],
+                    "negative_result_candidates": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (graph_dir / "README.md").write_text(
+        "# Enoch Paper Material Graph\n\n- Papers: 1\n- Signals: 2\n",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_paper_material_graph(
+        graph_dir, artifact_count=1, promising_signal_count=2, failures=failures
+    )
+
+    assert any(
+        "secret-like token in public release surface" in item for item in failures
+    )
+    assert any(
+        "private path leaked in paper material graph" in item for item in failures
+    )

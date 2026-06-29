@@ -371,7 +371,7 @@ it('shows research signal quality below the command-center secondary fold', asyn
           consecutive_zero_promoted_ticks: 0,
           latest_yield_status: 'yielding',
           yield_operator_action: 'provider generation yielded 3 candidate(s) and promoted 1; use yield counts alongside malformed-output recovery',
-          operator_action: 'provider generation has 2 clean ticks since the last malformed response; review the last malformed model before widening automation',
+          operator_action: 'provider generation has 2 clean ticks since the last malformed response; check the last malformed model before widening automation',
         },
         useful_adjacent_followup_evidence: {
           current: [{
@@ -476,7 +476,7 @@ it('shows research signal quality below the command-center secondary fold', asyn
             score: 0.4,
             problems: ['weak_or_missing_evidence_strength'],
           }],
-          operator_action: 'review 2 below-floor Research Quality artifacts before widening automation or treating outputs as externally useful',
+          operator_action: 'check 2 below-floor Research Quality artifacts before widening automation or treating outputs as externally useful',
         },
         decision_posture: {
           available: true,
@@ -707,7 +707,7 @@ it('shows research signal quality below the command-center secondary fold', asyn
             high_similarity_pair_count: 0,
           },
         },
-        operator_summary: 'quality=warnings; quality floor=review 2 below 0.70; quality-window posture=followup only (2 useful; 0 paper-ready); quality-window follow-ups=1 ready / 2 recommended; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)',
+        operator_summary: 'quality=warnings; quality floor=check 2 below 0.70; quality-window posture=followup only (2 useful; 0 paper-ready); quality-window follow-ups=1 ready / 2 recommended; weak evidence=2; provider malformed=active (7 responses across 4 recent ticks); useful follow-up=active decline -4.0 (2 current vs 6 previous)',
         operator_recommendations: ['inspect provider-generation failures before trusting new idea volume'],
         recommendations: ['No critical quality-layer warnings from the read-only audit heuristics.'],
         top_problem_details: [{
@@ -746,7 +746,7 @@ it('shows research signal quality below the command-center secondary fold', asyn
   expect(within(quality).getByText('-4')).toBeInTheDocument()
   const qualitySummary = within(quality).getByLabelText('Research quality summary')
   expect(within(qualitySummary).getByText('Quality floor')).toBeInTheDocument()
-  expect(within(qualitySummary).getByText('review 2 below 0.70')).toBeInTheDocument()
+  expect(within(qualitySummary).getByText('check 2 below 0.70')).toBeInTheDocument()
   expect(within(qualitySummary).getByText('Quality window posture')).toBeInTheDocument()
   expect(within(qualitySummary).getByText('followup only (2 useful; 0 paper-ready)')).toBeInTheDocument()
   expect(within(qualitySummary).getByText('Quality window follow ups')).toBeInTheDocument()
@@ -755,7 +755,7 @@ it('shows research signal quality below the command-center secondary fold', asyn
   expect(within(qualitySummary).getByText('active (7 responses across 4 recent ticks)')).toBeInTheDocument()
   expect(within(qualitySummary).getByText('Useful follow up')).toBeInTheDocument()
   expect(within(qualitySummary).getByText('active decline -4.0 (2 current vs 6 previous)')).toBeInTheDocument()
-  expect(within(quality).getByText('Output readiness')).toBeInTheDocument()
+  expect(within(quality).getByText('Research output gate')).toBeInTheDocument()
   expect(within(quality).getByText('Research output readiness: blocked by quality decline')).toBeInTheDocument()
   expect(within(quality).getByText('blocked by research quality / maintenance hold')).toBeInTheDocument()
   expect(within(quality).getByText('Useful follow-up signal must not decline: 2 / required >= 6 / previous 6 / delta -4')).toBeInTheDocument()
@@ -765,15 +765,15 @@ it('shows research signal quality below the command-center secondary fold', asyn
   expect(within(quality).getByText('Useful follow-up signal declined from 6 to 2; no bounded paper-ready outputs are available; queue bounded follow-up investigation: Queue a follow-up investigation. Maintenance mode is holding automation; clear it only after the research-quality blockers are resolved.')).toBeInTheDocument()
   expect(within(quality).getByText('Report age')).toBeInTheDocument()
   expect(within(quality).getByText('120.0h')).toBeInTheDocument()
-  expect(within(quality).getByText('Signal verdict')).toBeInTheDocument()
+  expect(within(quality).getByText('Research signal status')).toBeInTheDocument()
   expect(within(quality).getByText('Research signal: stale')).toBeInTheDocument()
   expect(within(quality).getByText('quality report is stale')).toBeInTheDocument()
   expect(within(quality).getByText('refresh the Research Quality report before relying on unattended automation')).toBeInTheDocument()
-  expect(within(quality).getByText('Provider warning evidence')).toBeInTheDocument()
+  expect(within(quality).getByText('Provider warning details')).toBeInTheDocument()
   expect(within(quality).getByText('hf:model-a')).toBeInTheDocument()
   expect(within(quality).getByText('2 malformed responses at 2026-05-30T03:00:30Z')).toBeInTheDocument()
   expect(within(quality).getByText('inspect provider-generation output for this tick before trusting new idea volume')).toBeInTheDocument()
-  expect(within(quality).getByText('Provider recovery')).toBeInTheDocument()
+  expect(within(quality).getByText('Provider recovery state')).toBeInTheDocument()
   expect(within(quality).getByText('provider warning recovered')).toBeInTheDocument()
   expect(within(quality).getByText('2 clean ticks since last malformed')).toBeInTheDocument()
   expect(within(quality).getByText('latest hf:model-b clean at 2026-05-30T04:00:30Z')).toBeInTheDocument()
@@ -782,29 +782,29 @@ it('shows research signal quality below the command-center secondary fold', asyn
   expect(within(quality).getByText('0 zero-generation ticks / 0 zero-promotion ticks')).toBeInTheDocument()
   expect(within(quality).getByText('provider generation yielded 3 candidate(s) and promoted 1; use yield counts alongside malformed-output recovery')).toBeInTheDocument()
   expect(within(quality).getByText('last malformed hf:model-a 2 at 2026-05-30T03:00:30Z')).toBeInTheDocument()
-  expect(within(quality).getByText('provider generation has 2 clean ticks since the last malformed response; review the last malformed model before widening automation')).toBeInTheDocument()
+  expect(within(quality).getByText('provider generation has 2 clean ticks since the last malformed response; check the last malformed model before widening automation')).toBeInTheDocument()
   expect(within(quality).getByText('Follow-up trend evidence')).toBeInTheDocument()
   expect(within(quality).getByText('Current: Current follow-up')).toBeInTheDocument()
   expect(within(quality).getByText('Previous: Previous follow-up')).toBeInTheDocument()
   expect(within(quality).getByText('post-project / post-run')).toBeInTheDocument()
   expect(within(quality).getByText('Portfolio composition')).toBeInTheDocument()
   expect(within(quality).getByText('admitted 45')).toBeInTheDocument()
-  expect(within(quality).getByText('needs review 53')).toBeInTheDocument()
+  expect(within(quality).getByText('needs quality check 53')).toBeInTheDocument()
   expect(within(quality).getByText('finalize negative / mixed 50')).toBeInTheDocument()
   expect(within(quality).getByText('home-training 22')).toBeInTheDocument()
   expect(within(quality).getByText('Portfolio evidence')).toBeInTheDocument()
   expect(within(quality).getByText('admitted: Admitted candidate')).toBeInTheDocument()
   expect(within(quality).getByText('candidate-admitted')).toBeInTheDocument()
-  expect(within(quality).getByText('needs review: Needs review candidate')).toBeInTheDocument()
+  expect(within(quality).getByText('needs quality check: Needs review candidate')).toBeInTheDocument()
   expect(within(quality).getByText('candidate-needs-review')).toBeInTheDocument()
   expect(within(quality).getByText('finalize negative / mixed: Mixed project')).toBeInTheDocument()
   expect(within(quality).getByText('project-mixed / run-mixed')).toBeInTheDocument()
   expect(within(quality).getAllByText('Quality floor').length).toBeGreaterThan(0)
-  expect(within(quality).getByText('floor review required at 0.70')).toBeInTheDocument()
+  expect(within(quality).getByText('floor quality check required at 0.70')).toBeInTheDocument()
   expect(within(quality).getByText('below floor 2 / 95 checked')).toBeInTheDocument()
   expect(within(quality).getByText('candidate Thin candidate 0.55')).toBeInTheDocument()
   expect(within(quality).getByText('decision Thin decision 0.40')).toBeInTheDocument()
-  expect(within(quality).getByText('review 2 below-floor Research Quality artifacts before widening automation or treating outputs as externally useful')).toBeInTheDocument()
+  expect(within(quality).getByText('check 2 below-floor Research Quality artifacts before widening automation or treating outputs as externally useful')).toBeInTheDocument()
   expect(within(quality).getByText('Decision posture')).toBeInTheDocument()
   expect(within(quality).getByText('useful signals 2 / 3 decisions')).toBeInTheDocument()
   expect(within(quality).getByText('publication-ready 0')).toBeInTheDocument()
@@ -866,14 +866,14 @@ it('prefers active research signal reasons over recovered context', async () => 
         status: 'clean',
         ok: true,
         signal_verdict: 'review_required',
-        signal_label: 'Research signal: review required',
-        signal_operator_action: 'review recent follow-up quality before increasing throughput',
+        signal_label: 'Research signal: quality check required',
+        signal_operator_action: 'check recent follow-up quality before increasing throughput',
         signal_reasons: [
           {
             code: 'provider_generation_recovered',
             severity: 'info',
             message: 'provider generation recovered after malformed responses',
-            operator_action: 'provider generation recovered; review the last malformed model before widening automation',
+            operator_action: 'provider generation recovered; check the last malformed model before widening automation',
             status: 'recovered',
             active: false,
           },
@@ -881,7 +881,7 @@ it('prefers active research signal reasons over recovered context', async () => 
             code: 'useful_followup_decline',
             severity: 'warning',
             message: 'useful adjacent follow-up signal declined',
-            operator_action: 'review recent follow-up quality before increasing throughput',
+            operator_action: 'check recent follow-up quality before increasing throughput',
             status: 'active',
             active: true,
           },
@@ -901,10 +901,10 @@ it('prefers active research signal reasons over recovered context', async () => 
   expect(quality).not.toBeVisible()
   fireEvent.click(screen.getByText('Show secondary details'))
   expect(quality).toBeVisible()
-  expect(within(quality).getByText('Signal verdict')).toBeInTheDocument()
-  expect(within(quality).getByText('Research signal: review required')).toBeInTheDocument()
+  expect(within(quality).getByText('Research signal status')).toBeInTheDocument()
+  expect(within(quality).getByText('Research signal: quality check required')).toBeInTheDocument()
   expect(within(quality).getByText('useful adjacent follow-up signal declined')).toBeInTheDocument()
-  expect(within(quality).getByText('review recent follow-up quality before increasing throughput')).toBeInTheDocument()
+  expect(within(quality).getByText('check recent follow-up quality before increasing throughput')).toBeInTheDocument()
   expect(within(quality).queryByText('provider generation recovered after malformed responses')).not.toBeInTheDocument()
 })
 

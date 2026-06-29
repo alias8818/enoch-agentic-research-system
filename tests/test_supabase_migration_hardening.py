@@ -122,6 +122,21 @@ def test_research_lineage_source_constraint_widening_validates_existing_rows() -
         assert "raise exception" in sql
 
 
+def test_research_lineage_has_unique_identity_index_for_atomic_idempotency() -> None:
+    sql = " ".join(
+        _migration("20260509140339_enoch_research_facility_ledgers.sql").lower().split()
+    )
+
+    assert (
+        "create unique index concurrently if not exists idx_research_lineage_identity_unique"
+        in sql
+    )
+    assert (
+        "on enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type)"
+        in sql
+    )
+
+
 def test_latest_research_source_kind_constraint_preserves_prior_values() -> None:
     initial = _migration("20260509140339_enoch_research_facility_ledgers.sql")
     followup = _migration("20260519122000_research_lineage_followup_parent_source.sql")

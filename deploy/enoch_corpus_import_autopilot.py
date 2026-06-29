@@ -512,10 +512,12 @@ def _control_plane_root() -> Path:
     ).resolve()
 
 
-def _refresh_paper_material_graph(root: Path) -> dict[str, Any]:
+def _refresh_paper_material_graph(
+    root: Path, *, control_plane_root: Path | None = None
+) -> dict[str, Any]:
     if not _truthy("ENOCH_CORPUS_IMPORT_REFRESH_PAPER_MATERIAL_GRAPH", "1"):
         return {"ok": True, "action": "skipped", "reason": "disabled"}
-    control_plane = _control_plane_root()
+    control_plane = (control_plane_root or _control_plane_root()).resolve()
     script = control_plane / "deploy" / "enoch_paper_material_graph.sh"
     result = _run(
         [str(script)],
@@ -799,6 +801,9 @@ def _run_preflight_import(
             tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json"
         )
         checks.extend(_corpus_trust_checks(tmp_corpus))
+        paper_material_graph = _refresh_paper_material_graph(
+            tmp_root, control_plane_root=tmp_system
+        )
         release_validation = _validate_release(
             tmp_system,
             tmp_root,
@@ -810,6 +815,7 @@ def _run_preflight_import(
         "live_payload": live_payload,
         "checks": checks,
         "count_update": count_update,
+        "paper_material_graph": paper_material_graph,
         "release_validation": release_validation,
     }
 
@@ -833,6 +839,7 @@ def _print_preflight_only_result(
                 "preflight_import": preflight["live_payload"],
                 "count_update": preflight["count_update"],
                 "corpus_checks": preflight["checks"],
+                "paper_material_graph": preflight["paper_material_graph"],
                 "release_validation": preflight["release_validation"],
                 "fast_forwarded": fast_forwarded,
             },
@@ -910,6 +917,9 @@ def _execute_live_corpus_import(
     count_update = _update_public_counts(system, root, ecosystem_manifest)
     checks.extend(_corpus_trust_checks(corpus))
     github_metadata = _maybe_github_metadata(count_update)
+    paper_material_graph = _refresh_paper_material_graph(
+        root, control_plane_root=system
+    )
     release_validation = _validate_release(
         system,
         root,
@@ -917,7 +927,6 @@ def _execute_live_corpus_import(
         ecosystem_manifest,
         skip_github_metadata=skip_github,
     )
-    paper_material_graph = _refresh_paper_material_graph(root)
     changed_repos = _git_changed_repos(root)
     commits, pushed = _autocommit_and_push(root, live_payload, count_update)
     ledger_sync = _maybe_ledger_sync(system, corpus, pushed)

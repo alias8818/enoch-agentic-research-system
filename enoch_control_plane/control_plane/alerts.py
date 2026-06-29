@@ -895,7 +895,10 @@ def _lane_matches_worker_live_without_active_finding(
 
 
 def _recent_worker_live_without_vm_match(
-    status: DashboardStatusResponse, finding: DashboardFinding
+    status: DashboardStatusResponse,
+    finding: DashboardFinding,
+    *,
+    trusted_dispatch_projects: set[str] | None = None,
 ) -> bool:
     """Return True for lane-matched live worker observations inside race grace.
 
@@ -913,11 +916,17 @@ def _recent_worker_live_without_vm_match(
             continue
         if not _lane_matches_worker_live_without_active_finding(lane, finding):
             continue
-        return any(
-            _worker_run_is_live_or_active(run)
-            and _worker_run_updated_within_dispatch_grace(run)
-            for run in _runs_from_worker_lane(lane)
-        )
+        for run in _runs_from_worker_lane(lane):
+            if not (
+                _worker_run_is_live_or_active(run)
+                and _worker_run_updated_within_dispatch_grace(run)
+            ):
+                continue
+            if trusted_dispatch_projects is None:
+                return True
+            project_id = str(run.get("project_id") or "").strip()
+            if project_id and project_id in trusted_dispatch_projects:
+                return True
     return False
 
 
@@ -930,10 +939,12 @@ def _should_apply_dispatch_race_suppression(
     store: ControlPlaneStore,
     status: DashboardStatusResponse,
     findings: list[DashboardFinding],
+    recent_projects: set[str] | None = None,
 ) -> bool:
     if not findings or not status.active_items:
         return False
-    recent_projects = _recent_dispatch_transition_projects(store)
+    if recent_projects is None:
+        recent_projects = _recent_dispatch_transition_projects(store)
     if not recent_projects:
         return False
     return bool(_active_project_ids(status) & recent_projects)
@@ -943,13 +954,19 @@ def _partition_dispatch_race_findings(
     findings: list[DashboardFinding],
     *,
     status: DashboardStatusResponse,
+    trusted_dispatch_projects: set[str] | None = None,
     suppress_settling_backpressure: bool = False,
     suppress_dispatch_race: bool = True,
 ) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
     kept: list[DashboardFinding] = []
     suppressed: list[DashboardFinding] = []
     suppress_recent_live_orphan = any(
-        _recent_worker_live_without_vm_match(status, finding) for finding in findings
+        _recent_worker_live_without_vm_match(
+            status,
+            finding,
+            trusted_dispatch_projects=trusted_dispatch_projects,
+        )
+        for finding in findings
     )
     for finding in findings:
         if _is_reconcile_grace_worker_preflight_finding(finding):
@@ -958,7 +975,11 @@ def _partition_dispatch_race_findings(
         if suppress_dispatch_race and _is_active_row_worker_preflight_race(finding):
             suppressed.append(finding)
             continue
-        if _recent_worker_live_without_vm_match(status, finding):
+        if _recent_worker_live_without_vm_match(
+            status,
+            finding,
+            trusted_dispatch_projects=trusted_dispatch_projects,
+        ):
             suppressed.append(finding)
             continue
         if suppress_recent_live_orphan and _is_cached_worker_preflight_warning(finding):
@@ -983,22 +1004,32 @@ def _suppress_dispatch_race_findings(
     status: DashboardStatusResponse,
     findings: list[DashboardFinding],
 ) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
+    trusted_dispatch_projects = _recent_dispatch_transition_projects(store)
     suppress_settling_backpressure = any(
         "worker settling" in str(blocker).lower()
         for blocker in status.dispatch_blockers
     )
     suppress_recent_live_orphan = any(
-        _recent_worker_live_without_vm_match(status, finding) for finding in findings
+        _recent_worker_live_without_vm_match(
+            status,
+            finding,
+            trusted_dispatch_projects=trusted_dispatch_projects,
+        )
+        for finding in findings
     )
     suppress_reconcile_grace = any(
         _is_reconcile_grace_worker_preflight_finding(finding) for finding in findings
     )
     if _should_apply_dispatch_race_suppression(
-        store=store, status=status, findings=findings
+        store=store,
+        status=status,
+        findings=findings,
+        recent_projects=trusted_dispatch_projects,
     ):
         return _partition_dispatch_race_findings(
             findings,
             status=status,
+            trusted_dispatch_projects=trusted_dispatch_projects,
             suppress_settling_backpressure=suppress_settling_backpressure,
             suppress_dispatch_race=True,
         )
@@ -1010,6 +1041,7 @@ def _suppress_dispatch_race_findings(
         return _partition_dispatch_race_findings(
             findings,
             status=status,
+            trusted_dispatch_projects=trusted_dispatch_projects,
             suppress_settling_backpressure=suppress_settling_backpressure,
             suppress_dispatch_race=False,
         )

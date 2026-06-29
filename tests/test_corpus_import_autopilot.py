@@ -614,7 +614,7 @@ def test_live_import_refreshes_paper_material_graph_before_reporting_success(
             == 0
         )
 
-    refresh.assert_called_once_with(root)
+    refresh.assert_called_once_with(root, control_plane_root=system)
     output = json.loads(capsys.readouterr().out)
     assert output["paper_material_graph"] == {
         "ok": True,

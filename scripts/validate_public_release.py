@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
@@ -170,6 +171,14 @@ PUBLIC_SECRET_SCAN_EXTENSIONS = {
     ".txt",
     ".csv",
 }
+PAPER_MATERIAL_GRAPH_SCHEMA_VERSION = "enoch_paper_material_graph_v1"
+PAPER_MATERIAL_GRAPH_FILES = ["paper-material-graph.json", README_MD]
+PRIVATE_GRAPH_PATH_ROOTS = (
+    "/var/lib/enoch-control-plane",
+    "/opt/enoch-control-plane",
+    "/home/jeremy",
+    "/root",
+)
 
 
 def load_json(path: Path) -> dict:
@@ -816,6 +825,129 @@ def check_corpus_public_trust_validator(
         )
 
 
+def _paper_material_graph_public_paths(graph_dir: Path) -> list[Path]:
+    paths = existing(graph_dir, PAPER_MATERIAL_GRAPH_FILES)
+    candidate_dir = graph_dir / "candidates"
+    if candidate_dir.exists():
+        paths.extend(
+            path
+            for path in candidate_dir.rglob("*.md")
+            if path.is_file() and not path.is_symlink()
+        )
+    return paths
+
+
+def _check_graph_for_private_paths(path: Path, text: str, failures: list[str]) -> None:
+    for private_root in PRIVATE_GRAPH_PATH_ROOTS:
+        offset = text.find(private_root)
+        if offset != -1:
+            fail(
+                f"private path leaked in paper material graph {path}:{line_for(text, offset)}: {private_root}",
+                failures,
+            )
+
+
+def _check_graph_markdown_count(
+    readme: Path,
+    *,
+    label: str,
+    expected: int,
+    failures: list[str],
+) -> None:
+    text = readme.read_text(encoding="utf-8", errors="replace")
+    pattern = re.compile(rf"^- {re.escape(label)}: (\d+)\s*$", re.M)
+    match = pattern.search(text)
+    if match is None:
+        fail(f"paper material graph README missing {label.lower()} count", failures)
+        return
+    actual = int(match.group(1))
+    if actual != expected:
+        fail(
+            f"paper material graph README {label.lower()} count drift: {actual} != {expected}",
+            failures,
+        )
+
+
+def _check_graph_candidate_packets(
+    graph_dir: Path, graph: dict[str, Any], failures: list[str]
+) -> None:
+    summary_value = graph.get("summary")
+    summary = summary_value if isinstance(summary_value, dict) else {}
+    for key in ("synthesis_candidates", "negative_result_candidates"):
+        for candidate in summary.get(key) or []:
+            if not isinstance(candidate, dict):
+                continue
+            rel_path = str(candidate.get("packet_path") or "").strip()
+            if not rel_path:
+                continue
+            packet = graph_dir / rel_path
+            try:
+                packet.resolve().relative_to(graph_dir.resolve())
+            except (OSError, ValueError):
+                fail(
+                    f"paper material graph packet path escapes graph dir: {rel_path}",
+                    failures,
+                )
+                continue
+            if not packet.exists():
+                fail(
+                    f"paper material graph missing candidate packet: {rel_path}",
+                    failures,
+                )
+
+
+def check_paper_material_graph(
+    graph_dir: Path,
+    *,
+    artifact_count: int,
+    promising_signal_count: int,
+    failures: list[str],
+) -> None:
+    graph_path = graph_dir / "paper-material-graph.json"
+    readme = graph_dir / README_MD
+    if not graph_path.exists():
+        fail(f"missing paper material graph artifact: {graph_path}", failures)
+        return
+    if not readme.exists():
+        fail(f"missing paper material graph README: {readme}", failures)
+        return
+    try:
+        graph = load_json(graph_path)
+    except json.JSONDecodeError as exc:
+        fail(f"paper material graph JSON is invalid: {exc}", failures)
+        return
+    if graph.get("schema_version") != PAPER_MATERIAL_GRAPH_SCHEMA_VERSION:
+        fail(
+            f"paper material graph schema drift: {graph.get('schema_version')!r} != {PAPER_MATERIAL_GRAPH_SCHEMA_VERSION!r}",
+            failures,
+        )
+    summary_value = graph.get("summary")
+    summary = summary_value if isinstance(summary_value, dict) else {}
+    if int(summary.get("paper_count") or -1) != artifact_count:
+        fail(
+            f"paper material graph paper_count drift: {summary.get('paper_count')} != {artifact_count}",
+            failures,
+        )
+    if int(summary.get("signal_count") or -1) != promising_signal_count:
+        fail(
+            f"paper material graph signal_count drift: {summary.get('signal_count')} != {promising_signal_count}",
+            failures,
+        )
+    _check_graph_markdown_count(
+        readme, label="Papers", expected=artifact_count, failures=failures
+    )
+    _check_graph_markdown_count(
+        readme, label="Signals", expected=promising_signal_count, failures=failures
+    )
+    _check_graph_candidate_packets(graph_dir, graph, failures)
+    public_paths = _paper_material_graph_public_paths(graph_dir)
+    check_public_secret_tokens(public_paths, failures)
+    for path in public_paths:
+        _check_graph_for_private_paths(
+            path, path.read_text(encoding="utf-8", errors="replace"), failures
+        )
+
+
 def _validate_manifest_alignment(
     manifest: dict,
     index: dict,
@@ -1004,6 +1136,13 @@ def main(argv: list[str] | None = None) -> int:
 
     _, _, promising_count = _validate_manifest_alignment(
         manifest, index, report, generated_manifest, promising, failures
+    )
+    artifact_count = int(manifest.get("artifact_count") or 0)
+    check_paper_material_graph(
+        system / "docs" / "paper-material-graph",
+        artifact_count=artifact_count,
+        promising_signal_count=promising_count,
+        failures=failures,
     )
     public_paths = collect_public_validation_paths(
         system, profile, docs, corpus, owner_profile, personal_site

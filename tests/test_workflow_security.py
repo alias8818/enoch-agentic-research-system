@@ -130,6 +130,25 @@ def test_public_release_integrity_authenticates_github_metadata_fetches() -> Non
     assert "python3 scripts/validate_public_release.py" in validate_step
 
 
+def test_public_release_integrity_regenerates_graph_before_validation() -> None:
+    workflow = Path(".github/workflows/public-release-integrity.yml").read_text(
+        encoding="utf-8"
+    )
+
+    graph_step = workflow.split(
+        "- name: Generate fresh paper material graph before validation", 1
+    )[1].split("- name: Validate committed public release accounting and wording", 1)[0]
+    validate_step = workflow.split(
+        "- name: Validate committed public release accounting and wording", 1
+    )[1].split("- name: Render Supabase corpus import ledger validation SQL", 1)[0]
+    assert "python3 scripts/build_paper_material_graph.py" in graph_step
+    assert (
+        "--json-output docs/paper-material-graph/paper-material-graph.json"
+        in graph_step
+    )
+    assert "python3 scripts/validate_public_release.py" in validate_step
+
+
 def test_public_release_integrity_treats_promising_signals_checkout_as_data() -> None:
     workflow = Path(".github/workflows/public-release-integrity.yml").read_text(
         encoding="utf-8"

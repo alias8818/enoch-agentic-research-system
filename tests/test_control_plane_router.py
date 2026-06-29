@@ -10927,7 +10927,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(kept, [])
             self.assertEqual(suppressed, findings)
 
-    def test_queue_alert_suppresses_recent_live_worker_orphan_during_other_active_lane(
+    def test_queue_alert_keeps_recent_live_worker_orphan_without_trusted_dispatch_evidence(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -11001,15 +11001,22 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 store=store, status=status, findings=findings
             )
 
-            self.assertEqual(kept, [])
-            self.assertEqual(suppressed, findings)
+            self.assertEqual(kept, findings)
+            self.assertEqual(suppressed, [])
 
-    def test_queue_alert_suppresses_recent_cpu_live_worker_orphan_without_active_lane(
+    def test_queue_alert_suppresses_recent_cpu_live_worker_orphan_with_dispatch_evidence(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
             now = datetime.now(timezone.utc).isoformat()
+            store.append_event(
+                idempotency_key="dispatch-race-cpu-worker-orphan",
+                event_type="controller.live_dispatch",
+                entity_type="project",
+                entity_id="recent-cpu-live-run",
+                payload={"project_id": "recent-cpu-live-run"},
+            )
             status = SimpleNamespace(
                 active_items=[],
                 dispatch_blockers=[
@@ -13215,7 +13222,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 0,
             )
 
-    def test_draft_next_honors_bounded_row_gate_after_synced_local_negative_artifact(
+    def test_draft_next_rechecks_synced_negative_artifact_before_row_gate_fallback(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -13290,11 +13297,16 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
             self.assertEqual(draft.status_code, 200)
             body = draft.json()
-            self.assertEqual(body["action"], "drafted")
-            decision_gate = body["candidate"]["writer"]["decision_gate"]
-            self.assertEqual(decision_gate["source"], "control_plane_row")
+            self.assertEqual(body["action"], "noop")
+            skipped = body["candidate"]["skipped"]
             self.assertEqual(
-                decision_gate["local_decision_gate"]["reason"],
+                skipped[0]["reason"],
+                "project decision is not paper-ready after evidence sync",
+            )
+            decision_gate = skipped[0]["decision_gate"]
+            self.assertFalse(decision_gate["eligible"])
+            self.assertEqual(
+                decision_gate["reason"],
                 "project decision is not positive",
             )
 
@@ -18096,7 +18108,9 @@ def test_draft_next_revalidates_decision_gate_after_evidence_sync() -> None:
         assert snapshot["paper_rows"] == []
 
 
-def test_draft_next_honors_bounded_row_gate_after_synced_negative_artifact() -> None:
+def test_draft_next_does_not_override_synced_negative_artifact_with_stale_row_gate() -> (
+    None
+):
     with tempfile.TemporaryDirectory() as tmp:
         client = _client(tmp)
         headers = {"Authorization": f"Bearer {TOKEN}"}
@@ -18189,17 +18203,19 @@ def test_draft_next_honors_bounded_row_gate_after_synced_negative_artifact() -> 
 
         assert response.status_code == 200
         body = response.json()
-        assert body["action"] == "drafted"
-        decision_gate = body["candidate"]["writer"]["decision_gate"]
-        assert decision_gate["eligible"] is True
-        assert decision_gate["source"] == "control_plane_row"
-        assert decision_gate["local_decision_gate"]["eligible"] is False
-        assert decision_gate["local_decision_gate"]["source"].endswith(
-            ".enoch/project_decision.json"
+        assert body["action"] == "noop"
+        skipped = body.get("candidate", {}).get("skipped", [])
+        assert skipped
+        assert (
+            skipped[0]["reason"]
+            == "project decision is not paper-ready after evidence sync"
         )
-        assert decision_gate["local_decision_gate"]["decision"] == "finalize_negative"
+        decision_gate = skipped[0]["decision_gate"]
+        assert decision_gate["eligible"] is False
+        assert decision_gate["source"].endswith(".enoch/project_decision.json")
+        assert decision_gate["decision"] == "finalize_negative"
         snapshot = client.get("/control/export/snapshot", headers=headers).json()
-        assert len(snapshot["paper_rows"]) == 1
+        assert snapshot["paper_rows"] == []
 
 
 def test_paper_draft_event_failure_does_not_publish_partial_paper_row() -> None:

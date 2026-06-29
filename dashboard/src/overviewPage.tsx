@@ -292,7 +292,22 @@ function followupEvidenceId(row: UsefulFollowupEvidence): string {
 }
 
 function portfolioLabel(value: string | undefined): string {
-  return displayText(value, 'unknown').replaceAll('_', ' ')
+  return researchQualityCopy(displayText(value, 'unknown').replaceAll('_', ' '))
+}
+
+function researchQualityCopy(value: string | undefined | null): string {
+  return displayText(value, '')
+    .replaceAll('review_required', 'quality_check_required')
+    .replaceAll('review required', 'quality check required')
+    .replaceAll('Review required', 'Quality check required')
+    .replaceAll('needs_review', 'needs_quality_check')
+    .replaceAll('needs review', 'needs quality check')
+    .replaceAll('Needs review', 'Needs quality check')
+    .replaceAll('review recent', 'check recent')
+    .replaceAll('Review recent', 'Check recent')
+    .replaceAll('review the last', 'check the last')
+    .replaceAll('review 2 below', 'check 2 below')
+    .replaceAll('review 2 below-floor', 'check 2 below-floor')
 }
 
 function decisionOutcomeLabel(row: DecisionOutcomeCount): string {
@@ -677,10 +692,10 @@ function ResearchQualitySignalVerdict({ quality }: Readonly<{ quality: ResearchS
   const signalReason = activeSignalReason(quality)
   if (!quality.signal_label && !signalReason) return null
   return (
-    <QualitySnapshotDetail title="Signal verdict" defaultOpen>
-      <p>{displayText(quality.signal_label || quality.signal_verdict, 'No signal verdict returned.')}</p>
-      {signalReason ? <p>{displayText(signalReason.message || signalReason.code, 'No signal reason returned.')}</p> : null}
-      <p>{displayText(quality.signal_operator_action || signalReason?.operator_action, 'Inspect Research Quality before resuming unattended automation.')}</p>
+    <QualitySnapshotDetail title="Research signal status" defaultOpen>
+      <p>{researchQualityCopy(quality.signal_label || quality.signal_verdict) || 'No signal verdict returned.'}</p>
+      {signalReason ? <p>{researchQualityCopy(signalReason.message || signalReason.code) || 'No signal reason returned.'}</p> : null}
+      <p>{researchQualityCopy(quality.signal_operator_action || signalReason?.operator_action) || 'Inspect Research Quality before resuming unattended automation.'}</p>
     </QualitySnapshotDetail>
   )
 }
@@ -711,15 +726,15 @@ function ResearchOutputReadiness({ readiness }: Readonly<{ readiness: ResearchSi
     ? `blocked by ${portfolioLabel(displayText(readiness.blocked_by, 'none'))} / ${portfolioLabel(displayText(readiness.hold_state, 'none'))}`
     : ''
   return (
-    <QualitySnapshotDetail title="Output readiness" defaultOpen>
-      <p>{displayText(readiness.label || readiness.state, 'No output-readiness contract returned.')}</p>
+    <QualitySnapshotDetail title="Research output gate" defaultOpen>
+      <p>{researchQualityCopy(readiness.label || readiness.state) || 'No output-readiness contract returned.'}</p>
       {blocker ? <p>{blocker}</p> : null}
       {failed.map((invariant) => (
         <p key={invariant.code ?? invariant.label}>{readinessInvariantLabel(invariant)}</p>
       ))}
       {nextAction?.title ? <p>{`Next bounded action: ${nextAction.title}`}</p> : null}
       {affected ? <p>{readinessArtifactLabel(affected)}</p> : null}
-      <p>{displayText(readiness.operator_action, 'Inspect Research Quality output readiness before resuming automation.')}</p>
+      <p>{researchQualityCopy(readiness.operator_action) || 'Inspect Research Quality output readiness before resuming automation.'}</p>
     </QualitySnapshotDetail>
   )
 }
@@ -729,12 +744,12 @@ function ResearchQualityProviderEvidence({ quality }: Readonly<{ quality: Resear
   const postPromptWarning = quality.post_prompt_warning_details?.[0]
   if (!providerEvidence && !postPromptWarning) return null
   return (
-    <QualitySnapshotDetail title="Provider warning evidence">
+    <QualitySnapshotDetail title="Provider warning details">
       {providerEvidence ? (
         <>
           <p>{displayText(providerEvidence.provider_model, 'Unknown provider model')}</p>
           <p>{malformedProviderEvidenceLabel(providerEvidence)}</p>
-          <p>{displayText(providerEvidence.operator_action, 'Inspect provider-generation output before trusting new idea volume.')}</p>
+          <p>{researchQualityCopy(providerEvidence.operator_action) || 'Inspect provider-generation output before trusting new idea volume.'}</p>
         </>
       ) : <p>{displayText(postPromptWarning?.message || postPromptWarning?.code, 'No provider warning detail returned.')}</p>}
     </QualitySnapshotDetail>
@@ -744,16 +759,16 @@ function ResearchQualityProviderEvidence({ quality }: Readonly<{ quality: Resear
 function ResearchQualityProviderRecovery({ providerHealth }: Readonly<{ providerHealth: ResearchSignalQuality['provider_generation_health'] }>) {
   if (!providerHealth) return null
   return (
-    <QualitySnapshotDetail title="Provider recovery">
+    <QualitySnapshotDetail title="Provider recovery state">
       <p>{providerWarningPostureLabel(providerHealth)}</p>
       <p>{providerCleanStreakLabel(providerHealth)}</p>
       <p>{providerLatestTickLabel(providerHealth)}</p>
       <h4>Provider yield</h4>
       <p>{providerYieldLabel(providerHealth)}</p>
       <p>{providerYieldStreakLabel(providerHealth)}</p>
-      <p>{displayText(providerHealth.yield_operator_action, 'Inspect provider-generation yield before trusting idea volume.')}</p>
+      <p>{researchQualityCopy(providerHealth.yield_operator_action) || 'Inspect provider-generation yield before trusting idea volume.'}</p>
       <p>{providerLastMalformedLabel(providerHealth)}</p>
-      <p>{displayText(providerHealth.operator_action, 'Inspect provider-generation history before trusting new idea volume.')}</p>
+      <p>{researchQualityCopy(providerHealth.operator_action) || 'Inspect provider-generation history before trusting new idea volume.'}</p>
     </QualitySnapshotDetail>
   )
 }
@@ -837,7 +852,7 @@ function ResearchQualityFloor({ qualityFloor }: Readonly<{ qualityFloor: Researc
       <p>{qualityFloorCountLabel(qualityFloor)}</p>
       {qualityFloorCandidate ? <p>{qualityFloorCandidateTitle(qualityFloorCandidate)}</p> : null}
       {qualityFloorDecision ? <p>{qualityFloorDecisionTitle(qualityFloorDecision)}</p> : null}
-      <p>{displayText(qualityFloor.operator_action, 'Inspect quality-floor posture before widening automation.')}</p>
+      <p>{researchQualityCopy(qualityFloor.operator_action) || 'Inspect quality-floor posture before widening automation.'}</p>
     </QualitySnapshotDetail>
   )
 }
@@ -858,7 +873,7 @@ function ResearchQualityDecisionPosture({ decisionPosture }: Readonly<{ decision
           <EntityLinkChips links={researchQualitySampleLinks(decisionPostureSample)} />
         </>
       ) : null}
-      <p>{displayText(decisionPosture.operator_action, 'Inspect decision posture before treating throughput as publication output.')}</p>
+      <p>{researchQualityCopy(decisionPosture.operator_action) || 'Inspect decision posture before treating throughput as publication output.'}</p>
     </QualitySnapshotDetail>
   )
 }
@@ -935,7 +950,7 @@ function ResearchQualityFollowupScope({ followupScopeAlignment }: Readonly<{ fol
       <p>{followupScopeCandidateLabel('global', followupScopeAlignment.global_candidate)}</p>
       <p>{followupScopeCandidateLabel('quality window', followupScopeAlignment.quality_window_candidate)}</p>
       <p>{followupScopePostureLabel(followupScopeAlignment)}</p>
-      <p>{displayText(followupScopeAlignment.operator_action, 'Compare global ranked follow-up selection against Research Quality window samples.')}</p>
+      <p>{researchQualityCopy(followupScopeAlignment.operator_action) || 'Compare global ranked follow-up selection against Research Quality window samples.'}</p>
     </QualitySnapshotDetail>
   )
 }
@@ -991,7 +1006,7 @@ function ResearchQualityAffectedArtifact({ affected }: Readonly<{ affected: NonN
     <QualitySnapshotDetail title="Affected artifact">
       <p>{displayText(affected.title || affected.project_id || affected.candidate_id, 'Unnamed artifact')}</p>
       <p>{displayText(affected.problem, 'No quality problem returned.')}</p>
-      <p>{displayText(affected.operator_action, 'Inspect the affected artifact before resuming unattended automation.')}</p>
+      <p>{researchQualityCopy(affected.operator_action) || 'Inspect the affected artifact before resuming unattended automation.'}</p>
     </QualitySnapshotDetail>
   )
 }
