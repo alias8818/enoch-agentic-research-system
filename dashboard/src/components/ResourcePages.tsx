@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { displayText } from '../displayText'
 import { formatReadinessErrorMessage } from '../readinessErrors'
 import { useQuery } from '@tanstack/react-query'
@@ -1479,6 +1479,97 @@ function intakeCellHref(row: Record<string, unknown>, column: string): string | 
   return ideaId ? dashboardV2Href(`#intake:${encodeURIComponent(ideaId)}`) : undefined
 }
 
+type ResearchCouncilIdeaRequestState = {
+  title: string
+  prompt: string
+  goalContext: string
+  acceptanceCriteria: string
+  constraints: string
+}
+
+const EMPTY_RESEARCH_COUNCIL_REQUEST: ResearchCouncilIdeaRequestState = {
+  title: '',
+  prompt: '',
+  goalContext: '',
+  acceptanceCriteria: '',
+  constraints: '',
+}
+
+function requestSlug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'untitled'
+}
+
+function ResearchCouncilRequestForm({ onSubmitted }: Readonly<{ onSubmitted: () => void }>) {
+  const [form, setForm] = useState<ResearchCouncilIdeaRequestState>(EMPTY_RESEARCH_COUNCIL_REQUEST)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState<Record<string, unknown> | null>(null)
+  const update = (field: keyof ResearchCouncilIdeaRequestState, value: string) => {
+    setForm((current) => ({ ...current, [field]: value }))
+  }
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setSubmitting(true)
+    setError('')
+    setResult(null)
+    const requestId = `dashboard-research-council:${requestSlug(form.title)}:${Date.now().toString(36)}`
+    try {
+      const response = await apiPost<Record<string, unknown>>('/control/api/research/idea-requests', {
+        request_id: requestId,
+        title: form.title,
+        prompt: form.prompt,
+        goal_context: form.goalContext,
+        acceptance_criteria: form.acceptanceCriteria,
+        constraints: form.constraints,
+        requested_by: 'dashboard-v2',
+      })
+      setResult(response)
+      setForm(EMPTY_RESEARCH_COUNCIL_REQUEST)
+      onSubmitted()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Research Council request failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+  return (
+    <section className="result-card" aria-label="Research Council request form">
+      <p className="eyebrow">Research Council intake</p>
+      <h2>Request ideas or research/testing</h2>
+      <p className="resource-card-copy">Write the question you want the council to turn into research ideas, probes, or tests. This records a request in the control-plane event log; it does not dispatch workers or promote candidates.</p>
+      <form className="settings-form" onSubmit={submit}>
+        <label>
+          Request title
+          <input value={form.title} onChange={(event) => update('title', event.target.value)} required placeholder="e.g. Test whether queue admission needs a falsification pass" />
+        </label>
+        <label>
+          Research/testing prompt
+          <textarea value={form.prompt} onChange={(event) => update('prompt', event.target.value)} required rows={4} placeholder="What should the Research Council generate ideas, evidence, or tests for?" />
+        </label>
+        <label>
+          Goal / context
+          <textarea value={form.goalContext} onChange={(event) => update('goalContext', event.target.value)} rows={3} placeholder="Why this matters, relevant project/run, or current uncertainty." />
+        </label>
+        <label>
+          Acceptance criteria
+          <textarea value={form.acceptanceCriteria} onChange={(event) => update('acceptanceCriteria', event.target.value)} rows={3} placeholder="What would make the generated ideas or tests usable?" />
+        </label>
+        <label>
+          Constraints
+          <textarea value={form.constraints} onChange={(event) => update('constraints', event.target.value)} rows={2} placeholder="Budget, data access, safety, machine, or scope constraints." />
+        </label>
+        <ActionRow>
+          <button className="primary-button" type="submit" disabled={submitting}>{submitting ? 'Recording request…' : 'Send to Research Council intake'}</button>
+        </ActionRow>
+      </form>
+      {error ? <p className="error-copy" role="alert">{error}</p> : null}
+      {result ? (
+        <p className="success-copy" role="status">Request recorded as {displayText(result.request_id)}. No dispatch was started.</p>
+      ) : null}
+    </section>
+  )
+}
+
 export function IntakePage({ route }: Readonly<{ route?: Extract<DashboardRoute, { page: 'intake' }> }>) {
   const [selection, setSelection] = useState<Record<string, unknown> | null>(null)
   const query = useQuery({
@@ -1496,6 +1587,7 @@ export function IntakePage({ route }: Readonly<{ route?: Extract<DashboardRoute,
   const selectedRow = selection || rows.find((row) => displayText(row.idea_id) === routeIdeaId) || null
   return (
     <PageShell title="Idea intake" subtitle="Inspect admitted ideas, queue state, and next operator actions." dataSource="/control/api/intake/ideas" action={<PageRefreshAction generatedAt={data.generated_at} isFetching={query.isFetching} onRefresh={() => { setSelection(null); refetchInBackground(() => query.refetch()) }} refreshLabel="Refresh intake" />}>
+      <ResearchCouncilRequestForm onSubmitted={() => { refetchInBackground(() => query.refetch()) }} />
       <WorkbenchOperatorSummary summary={data.operator_summary} />
       <section className="result-card">
         <h2>Latest intake sync</h2>

@@ -4721,6 +4721,74 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         return response
 
     @router.post(
+        "/api/research/idea-requests", responses=_HTTP_WRITABLE_IDEMPOTENCY_RESPONSES
+    )
+    def dashboard_research_idea_request(
+        payload: dict[str, Any] | None = Body(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        authorize(authorization)
+        _require_writable_store("Research Council idea request")
+        body = payload or {}
+        title = str(body.get("title") or "").strip()
+        prompt = str(body.get("prompt") or "").strip()
+        if not title:
+            raise HTTPException(status_code=422, detail="title is required")
+        if not prompt:
+            raise HTTPException(
+                status_code=422, detail="research/testing prompt is required"
+            )
+        request_id = str(
+            body.get("request_id") or body.get("idempotency_key") or ""
+        ).strip()
+        if not request_id:
+            request_id = f"research-council-request:{utc_now()}"
+        request_payload = {
+            "request_id": request_id,
+            "title": title[:240],
+            "prompt": prompt[:8000],
+            "goal_context": str(body.get("goal_context") or "").strip()[:8000],
+            "acceptance_criteria": str(body.get("acceptance_criteria") or "").strip()[
+                :8000
+            ],
+            "constraints": str(body.get("constraints") or "").strip()[:8000],
+            "requested_by": str(body.get("requested_by") or "dashboard-v2")[:80],
+            "source": "dashboard_research_council_request",
+            "intake_target": "research_council_idea_request",
+            "queue_admitted": False,
+            "dispatch_requested": False,
+        }
+        event_id, inserted = store.append_event(
+            idempotency_key=request_id,
+            event_type="research_council.idea_request",
+            entity_type="research_council_request",
+            entity_id=request_id,
+            payload=request_payload,
+        )
+        if inserted and hasattr(store, "upsert_dashboard_observation"):
+            store.upsert_dashboard_observation(
+                source="idea_intake",
+                status="ok",
+                ttl_seconds=3600,
+                payload={
+                    "request_id": request_id,
+                    "title": title[:240],
+                    "event_id": event_id,
+                    "queue_admitted": False,
+                    "dispatch_requested": False,
+                },
+            )
+        return {
+            "ok": True,
+            "request_id": request_id,
+            "event_id": event_id,
+            "inserted": inserted,
+            "queue_admitted": False,
+            "dispatch_requested": False,
+            "authority": "append-only control event log: research_council.idea_request",
+        }
+
+    @router.post(
         "/api/research/generate-provider-batch", responses=_HTTP_501_SUPABASE_LEDGER
     )
     def dashboard_research_generate_provider_batch(

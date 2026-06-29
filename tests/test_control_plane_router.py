@@ -2165,6 +2165,46 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(projection.status_code, 200)
             self.assertIn("testing", projection.json()["counts"])
 
+    def test_research_council_idea_request_records_event_without_dispatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            client = _client(tmp)
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+
+            response = client.post(
+                "/control/api/research/idea-requests",
+                headers=headers,
+                json={
+                    "request_id": "dashboard-research-council:test-request",
+                    "title": "Find queue admission probes",
+                    "prompt": "Generate test ideas for falsifying queue admission quality.",
+                    "goal_context": "Operator wants research council ideas before dispatch.",
+                    "acceptance_criteria": "Return ideas with deterministic tests.",
+                    "constraints": "No worker dispatch from the request form.",
+                },
+            )
+
+            self.assertEqual(response.status_code, 200)
+            body = response.json()
+            self.assertTrue(body["ok"])
+            self.assertTrue(body["inserted"])
+            self.assertFalse(body["queue_admitted"])
+            self.assertFalse(body["dispatch_requested"])
+
+            events = client.get(
+                "/control/api/v1/events?event_type=research_council.idea_request&include_payload=true",
+                headers=headers,
+            )
+            self.assertEqual(events.status_code, 200)
+            rows = events.json()["rows"]
+            self.assertEqual(rows[0]["event_type"], "research_council.idea_request")
+            self.assertEqual(rows[0]["entity_type"], "research_council_request")
+            self.assertEqual(
+                rows[0]["entity_id"], "dashboard-research-council:test-request"
+            )
+            self.assertEqual(rows[0]["payload"]["title"], "Find queue admission probes")
+            self.assertFalse(rows[0]["payload"]["queue_admitted"])
+            self.assertFalse(rows[0]["payload"]["dispatch_requested"])
+
     def test_ideas_intake_dashboard_falls_back_when_batched_parts_are_malformed(
         self,
     ) -> None:

@@ -1606,6 +1606,54 @@ it('opens intake hashes in the V2 ideas intake page instead of legacy fallback',
   expect(fetchMock).toHaveBeenCalledWith('/control/api/intake/ideas?page_size=100', expect.any(Object))
 })
 
+it('records Research Council idea requests from the intake page without dispatching', async () => {
+  globalThis.location.hash = '#intake'
+  const intakePayload = {
+    latest_sync: { source: 'idea_intake', status: 'ok', observed_at: '2026-05-21T00:00:00Z' },
+    projection_counts: {},
+    queued_projection: [],
+  }
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+    const path = String(input)
+    if (path === '/control/api/intake/ideas?page_size=100') {
+      return Promise.resolve(new Response(JSON.stringify(intakePayload), { status: 200 }))
+    }
+    if (path === '/control/api/research/idea-requests' && init?.method === 'POST') {
+      return Promise.resolve(new Response(JSON.stringify({
+        ok: true,
+        request_id: 'dashboard-research-council:queue-probes:test',
+        inserted: true,
+        queue_admitted: false,
+        dispatch_requested: false,
+      }), { status: 200 }))
+    }
+    return Promise.resolve(new Response(JSON.stringify({ ok: false }), { status: 404 }))
+  })
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Request ideas or research/testing' })).toBeInTheDocument()
+  expect(screen.getByText(/does not dispatch workers or promote candidates/i)).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Request title'), { target: { value: 'Queue probes' } })
+  fireEvent.change(screen.getByLabelText('Research/testing prompt'), { target: { value: 'Generate tests for queue admission.' } })
+  fireEvent.change(screen.getByLabelText('Goal / context'), { target: { value: 'Need council ideas before implementation.' } })
+  fireEvent.change(screen.getByLabelText('Acceptance criteria'), { target: { value: 'Ideas include deterministic tests.' } })
+  fireEvent.change(screen.getByLabelText('Constraints'), { target: { value: 'No worker dispatch.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send to Research Council intake' }))
+
+  await screen.findByText(/Request recorded as dashboard-research-council:queue-probes:test/i)
+  const postCall = fetchMock.mock.calls.find(([path, init]) => path === '/control/api/research/idea-requests' && init?.method === 'POST')
+  expect(postCall).toBeDefined()
+  const body = JSON.parse(String(postCall?.[1]?.body))
+  expect(body.title).toBe('Queue probes')
+  expect(body.prompt).toBe('Generate tests for queue admission.')
+  expect(body.goal_context).toBe('Need council ideas before implementation.')
+  expect(body.acceptance_criteria).toBe('Ideas include deterministic tests.')
+  expect(body.constraints).toBe('No worker dispatch.')
+  expect(body.requested_by).toBe('dashboard-v2')
+})
+
 it('opens intake idea hashes as first-class V2 details', async () => {
   globalThis.location.hash = '#idea:idea-1'
   const fetchMock = vi.spyOn(globalThis, 'fetch')
