@@ -242,6 +242,37 @@ def test_system_workflow_is_part_of_public_validation_surface() -> None:
     assert "docs/system-workflow.md" in validate_public_release.PUBLIC_FILES
 
 
+def test_paper_material_graph_outputs_are_part_of_public_validation_surface(
+    tmp_path,
+) -> None:
+    system = tmp_path / "system"
+    profile = tmp_path / "profile"
+    docs = tmp_path / "docs"
+    corpus = tmp_path / "corpus"
+    graph = system / "docs" / "paper-material-graph"
+    candidate_dir = graph / "candidates"
+    candidate_dir.mkdir(parents=True)
+    (graph / "paper-material-graph.json").write_text(
+        '{"token":"GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz"}',
+        encoding="utf-8",
+    )
+    (graph / "README.md").write_text("Graph summary", encoding="utf-8")
+    (candidate_dir / "candidate.md").write_text("Candidate packet", encoding="utf-8")
+
+    paths = validate_public_release.collect_public_validation_paths(
+        system, profile, docs, corpus, owner_profile=None, personal_site=None
+    )
+
+    assert graph / "paper-material-graph.json" in paths
+    assert graph / "README.md" in paths
+    assert candidate_dir / "candidate.md" in paths
+    failures: list[str] = []
+    validate_public_release.check_public_secret_tokens(paths, failures)
+    assert failures == [
+        f"secret-like token in public release surface {graph / 'paper-material-graph.json'}:1"
+    ]
+
+
 def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
     hf = tmp_path / "hf"
     hf.mkdir()

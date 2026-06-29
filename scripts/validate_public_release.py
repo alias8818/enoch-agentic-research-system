@@ -189,15 +189,20 @@ def line_for(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
-def corpus_artifact_public_paths(corpus: Path) -> list[Path]:
-    roots = [corpus / "papers", corpus / "quality"]
+def public_secret_scan_paths(root: Path) -> list[Path]:
     paths: list[Path] = []
-    for root in roots:
-        if not root.exists():
-            continue
-        for path in root.rglob("*"):
-            if path.is_file() and path.suffix.lower() in PUBLIC_SECRET_SCAN_EXTENSIONS:
-                paths.append(path)
+    if not root.exists():
+        return paths
+    for path in root.rglob("*"):
+        if path.is_file() and path.suffix.lower() in PUBLIC_SECRET_SCAN_EXTENSIONS:
+            paths.append(path)
+    return sorted(paths)
+
+
+def corpus_artifact_public_paths(corpus: Path) -> list[Path]:
+    paths: list[Path] = []
+    for root in [corpus / "papers", corpus / "quality"]:
+        paths.extend(public_secret_scan_paths(root))
     return paths
 
 
@@ -864,6 +869,7 @@ def collect_public_validation_paths(
 ) -> list[Path]:
     public_paths = (
         existing(system, PUBLIC_FILES)
+        + public_secret_scan_paths(system / "docs" / "paper-material-graph")
         + existing(profile, PROFILE_FILES)
         + existing(docs, DOC_FILES)
     )

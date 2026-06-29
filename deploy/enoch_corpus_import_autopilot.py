@@ -910,6 +910,7 @@ def _execute_live_corpus_import(
     count_update = _update_public_counts(system, root, ecosystem_manifest)
     checks.extend(_corpus_trust_checks(corpus))
     github_metadata = _maybe_github_metadata(count_update)
+    paper_material_graph = _refresh_paper_material_graph(root)
     release_validation = _validate_release(
         system,
         root,
@@ -917,7 +918,6 @@ def _execute_live_corpus_import(
         ecosystem_manifest,
         skip_github_metadata=skip_github,
     )
-    paper_material_graph = _refresh_paper_material_graph(root)
     changed_repos = _git_changed_repos(root)
     commits, pushed = _autocommit_and_push(root, live_payload, count_update)
     ledger_sync = _maybe_ledger_sync(system, corpus, pushed)

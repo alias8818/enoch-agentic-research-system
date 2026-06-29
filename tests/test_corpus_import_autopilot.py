@@ -557,7 +557,7 @@ def test_refresh_paper_material_graph_uses_control_plane_and_release_roots(
     ]
 
 
-def test_live_import_refreshes_paper_material_graph_before_reporting_success(
+def test_live_import_validates_release_after_refreshing_paper_material_graph(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = tmp_path
@@ -567,6 +567,19 @@ def test_live_import_refreshes_paper_material_graph_before_reporting_success(
     corpus.mkdir()
     dry_payload = {"failed": 0, "imported": 1, "updated": 0, "errors": []}
     import_payload = {"failed": 0, "imported": 1, "updated": 0, "errors": []}
+    events: list[str] = []
+
+    def fake_validate_release(*args, **kwargs):
+        events.append("validate")
+        return {"ok": True}
+
+    def fake_refresh_graph(*args, **kwargs):
+        events.append("refresh")
+        return {
+            "ok": True,
+            "action": "paper_material_graph_refreshed",
+            "paper_count": 393,
+        }
 
     with (
         patch.object(
@@ -584,15 +597,11 @@ def test_live_import_refreshes_paper_material_graph_before_reporting_success(
         ),
         patch.object(autopilot, "_corpus_trust_checks", return_value=[]),
         patch.object(autopilot, "_maybe_github_metadata", return_value={}),
-        patch.object(autopilot, "_validate_release", return_value={"ok": True}),
+        patch.object(autopilot, "_validate_release", side_effect=fake_validate_release),
         patch.object(
             autopilot,
             "_refresh_paper_material_graph",
-            return_value={
-                "ok": True,
-                "action": "paper_material_graph_refreshed",
-                "paper_count": 393,
-            },
+            side_effect=fake_refresh_graph,
         ) as refresh,
         patch.object(autopilot, "_git_changed_repos", return_value=[]),
         patch.object(autopilot, "_autocommit_and_push", return_value=([], [])),
@@ -615,6 +624,7 @@ def test_live_import_refreshes_paper_material_graph_before_reporting_success(
         )
 
     refresh.assert_called_once_with(root)
+    assert events == ["refresh", "validate"]
     output = json.loads(capsys.readouterr().out)
     assert output["paper_material_graph"] == {
         "ok": True,
