@@ -25,7 +25,7 @@ from urllib.parse import urlparse
 
 from ..url_safety import urlopen_validated, validate_http_url
 
-from fastapi import APIRouter, Body, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Cookie, Header, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 

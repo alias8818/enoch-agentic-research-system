@@ -1,5 +1,6 @@
 export const TOKEN_STORAGE_KEY = 'enochControlToken'
 const TOKEN_COOKIE_NAME = 'enoch_dashboard_token'
+const DASHBOARD_SESSION_PATH = '/control/dashboard-v2/session'
 
 let currentToken = ''
 
@@ -42,6 +43,48 @@ function authHeaders(token: string): { Authorization?: string } {
   return { Authorization: `Bearer ${trimmed}` }
 }
 
+async function fetchDashboardSession(method: 'GET' | 'POST' | 'DELETE', token?: string): Promise<Response> {
+  const headers: HeadersInit = token === undefined ? {} : { 'Content-Type': 'application/json' }
+  return fetch(DASHBOARD_SESSION_PATH, {
+    method,
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers,
+    body: token === undefined ? undefined : JSON.stringify({ token }),
+  })
+}
+
+export async function hasDashboardSession(): Promise<boolean> {
+  const response = await fetchDashboardSession('GET')
+  if (response.ok) return true
+  if (response.status === 401) return false
+  throw new Error(await errorMessageForResponse(DASHBOARD_SESSION_PATH, response))
+}
+
+export async function establishDashboardSession(token: string): Promise<void> {
+  const trimmed = token.trim()
+  if (!trimmed) {
+    saveToken('')
+    throw new Error('Bearer token required')
+  }
+  const response = await fetchDashboardSession('POST', trimmed)
+  if (!response.ok) {
+    saveToken('')
+    throw new Error(await errorMessageForResponse(DASHBOARD_SESSION_PATH, response))
+  }
+  saveToken(trimmed)
+}
+
+export async function clearDashboardSession(): Promise<void> {
+  saveToken('')
+  try {
+    await fetchDashboardSession('DELETE')
+  } catch {
+    // Clearing in-memory/script-readable storage is the critical local action;
+    // the server cookie will expire naturally if the network is unavailable.
+  }
+}
+
 function stringifyApiDetail(value: unknown): string {
   if (typeof value === 'string') return value
   if (value === null || value === undefined) return ''
@@ -76,6 +119,7 @@ async function errorMessageForResponse(path: string, response: Response): Promis
 export async function apiGet<T>(path: string, token = getSavedToken()): Promise<T> {
   const response = await fetch(path, {
     cache: 'no-store',
+    credentials: 'same-origin',
     headers: authHeaders(token),
   })
   if (!response.ok) {
@@ -88,6 +132,7 @@ export async function apiPost<T>(path: string, payload: unknown, token = getSave
   const response = await fetch(path, {
     method: 'POST',
     cache: 'no-store',
+    credentials: 'same-origin',
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })

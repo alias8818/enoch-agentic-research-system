@@ -30,6 +30,27 @@ it('keeps dashboard bearer tokens in memory only and scrubs stale browser storag
   expect(globalThis.document.cookie).not.toContain('enoch_dashboard_token=')
 })
 
+it('uses an existing backend dashboard session after refresh without a readable bearer token', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, generated_at: '2026-05-20T12:00:00Z', counts: { active: 0, queued: 0 }, paper_counts: {}, movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] }, flags: {} }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ generated_at: '2026-05-20T12:00:05Z', worker_lanes: [] }), { status: 200 }))
+    .mockResolvedValue(new Response(JSON.stringify({ ok: true, generated_at: '2026-05-20T12:01:00Z', counts: { active: 0, queued: 0 }, paper_counts: {}, movement_diagnosis: { status: 'ready', primary_reason: 'No blockers.', blockers: [] }, flags: {} }), { status: 200 }))
+
+  render(<App />)
+
+  expect(screen.getByRole('heading', { name: 'Checking dashboard session…' })).toBeInTheDocument()
+  expect(await screen.findByText('Can I leave this running?')).toBeInTheDocument()
+  expect(getSavedToken()).toBe('')
+  expect(globalThis.fetch).toHaveBeenNthCalledWith(1, '/control/dashboard-v2/session', {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: {},
+    body: undefined,
+  })
+})
+
 const emptyPaperMaterialGraphResponse = {
   ok: false,
   message: 'paper material graph fixture omitted',
@@ -1453,9 +1474,12 @@ it('redirects legacy status hashes to the command center', () => {
 })
 
 
-it('uses V2-authored token and fallback surfaces', () => {
+it('uses V2-authored token and fallback surfaces', async () => {
+  vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'invalid bearer token' }), { status: 401 }))
+
   render(<App />)
-  expect(screen.getByRole('heading', { name: 'Bearer token required' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Bearer token required' })).toBeInTheDocument()
   expect(screen.getByLabelText('Bearer token')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Save token' })).toBeInTheDocument()
   expect(screen.queryByRole('link', { name: 'Open legacy dashboard' })).not.toBeInTheDocument()
@@ -1652,6 +1676,33 @@ it('records Research Council idea requests from the intake page without dispatch
   expect(body.acceptance_criteria).toBe('Ideas include deterministic tests.')
   expect(body.constraints).toBe('No worker dispatch.')
   expect(body.requested_by).toBe('dashboard-v2')
+})
+
+it('explains research candidate inventory as operator choices instead of raw promotion metrics', async () => {
+  globalThis.location.hash = '#research'
+  const fetchMock = vi.spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      ok: true,
+      operator_summary: '5,248 accepted idea(s) in the candidate ledger; 1,648 draft idea(s) need cleanup. These are idea-pool counts, not running workers or papers.',
+      counts: { admitted: 5248, needs_review: 1648, rewrite_needed: 1603 },
+      rows: [{ candidate_id: 'candidate-1', title: 'Candidate one', status: 'admitted', admission_decision: 'admitted', machine_target: 'gb10', updated_at: '2026-06-29T18:55:00Z' }],
+      page: { returned: 1 },
+    }), { status: 200 }))
+  saveToken('test-token')
+
+  render(<App />)
+
+  expect(await screen.findByRole('heading', { name: 'Research direction' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'What should Enoch do next?' })).toBeInTheDocument()
+  expect(screen.getByText('Use the current idea pool')).toBeInTheDocument()
+  expect(screen.getByText('Improve weak ideas first')).toBeInTheDocument()
+  expect(screen.getByText('Ask for fresh direction')).toBeInTheDocument()
+  expect(screen.getByText(/Candidate counts are supporting detail, not the main decision/i)).toBeInTheDocument()
+  expect(screen.queryByText(/Good, Better, or Best/i)).not.toBeInTheDocument()
+  expect(screen.getByText(/5,248 accepted idea\(s\) are already in the pool/i)).toBeInTheDocument()
+  expect(screen.getByText(/3,251 draft idea\(s\) need cleanup or rewrite/i)).toBeInTheDocument()
+  expect(screen.queryByText(/admitted candidate\(s\) ready to promote/i)).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/control/api/research/facility?page_size=50', expect.any(Object))
 })
 
 it('opens intake idea hashes as first-class V2 details', async () => {

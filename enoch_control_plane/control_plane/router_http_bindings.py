@@ -18,6 +18,7 @@ import inspect
 asyncio: Any = None
 Annotated: Any = None
 Body: Any = None
+Cookie: Any = None
 CONTROL_PLANE_DB_WORKER_PREFLIGHT_SOURCE: Any = None
 CROSS_SOURCE_ACTIVE_LANE_RECONCILIATION_AUTHORITY: Any = None
 ControlStateResponse: Any = None
@@ -99,6 +100,7 @@ Query: Any = None
 RESEARCH_FACILITY_LEDGER_REQUIRES_SUPABASE_STORE: Any = None
 RedirectResponse: Any = None
 Response: Any = None
+Request: Any = None
 ResumeRequest: Any = None
 SUPABASE_NATIVE_IDEAS_WORKBENCH_AUTHORITY: Any = None
 UnresolvableConfiguredProjectRootError: Any = None
@@ -106,6 +108,7 @@ WakeGateUrlNotAllowedError: Any = None
 WorkerPreflightRequest: Any = None
 WorkerPreflightResponse: Any = None
 WorkerPreflightUrlNotConfiguredError: Any = None
+_DASHBOARD_SESSION_COOKIE_NAME: Any = None
 _DEFAULT_RESEARCH_MODEL: Any = None
 _HTTP_400_PREFLIGHT_WAKE_GATE: Any = None
 _HTTP_400_RESEARCH_CANDIDATE_ID: Any = None
@@ -797,11 +800,26 @@ def _prepare_control_plane_http_bindings_core(ns: MutableMapping[str, Any]) -> N
         _require_writable_store, \
         _research_lane_feed_pressure, \
         _worker_lane_capacity
-    global _worker_lane_key, authorize
+    global _DASHBOARD_SESSION_COOKIE_NAME, _worker_lane_key, authorize
     _sync_namespace(ns)
 
-    def authorize(authorization: str | None) -> None:
-        require_bearer(authorization)
+    _DASHBOARD_SESSION_COOKIE_NAME = "enoch_dashboard_session"
+
+    def _control_auth_from_dashboard_session(
+        authorization: str | None, dashboard_session: str | None
+    ) -> str | None:
+        if authorization:
+            return authorization
+        if dashboard_session:
+            return f"Bearer {dashboard_session}"
+        return None
+
+    def authorize(
+        authorization: str | None, dashboard_session: str | None = None
+    ) -> None:
+        require_bearer(
+            _control_auth_from_dashboard_session(authorization, dashboard_session)
+        )
 
     _require_writable_store = partial(
         _require_writable_store_http, backend=config.control_plane_store_backend
@@ -871,6 +889,7 @@ def _prepare_control_plane_http_bindings_core(ns: MutableMapping[str, Any]) -> N
     _export_namespace(
         ns,
         (
+            "_DASHBOARD_SESSION_COOKIE_NAME",
             "_active_items_fast",
             "_annotate_dispatch_route",
             "_callback_acceptance_token_fingerprint",
@@ -2260,6 +2279,9 @@ def _prepare_control_plane_http_bindings_publication(
     def _dashboard_paper_reviews_response(
         *,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         review_status: str = "",
@@ -2269,7 +2291,7 @@ def _prepare_control_plane_http_bindings_publication(
         include_rank_reasons: bool = True,
         queue_label: str = "publication_automation",
     ) -> DashboardPaperReviewsResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         rows = store.paper_review_rows(include_rank_reasons=include_rank_reasons)
         all_counts = _review_counts(rows)
         if review_status:
@@ -2348,11 +2370,14 @@ def _prepare_control_plane_http_bindings_publication(
     def _dashboard_next_paper_review_response(
         *,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         review_status: str = "",
         paper_status: str = "publication_draft",
         search: str = "",
     ) -> DashboardPaperReviewDetailResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         rows = store.paper_review_rows(include_rank_reasons=True)
         if review_status:
             rows = [
@@ -2767,12 +2792,21 @@ def _register_control_plane_dashboard_shell_routes(
         dashboard_v1_overview, \
         dashboard_v1_research_quality, \
         dashboard_v1_source_lineage
-    global dashboard_v2, dashboard_v2_asset, get_state, health, worker_callback
+    global dashboard_v2, dashboard_v2_asset, dashboard_v2_session_clear
+    global \
+        dashboard_v2_session_create, \
+        dashboard_v2_session_status, \
+        get_state, \
+        health, \
+        worker_callback
     _sync_namespace(ns)
 
     @router.get("/dashboard")
     def dashboard(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> RedirectResponse:
         """Legacy dashboard URL redirects to canonical Dashboard V2 (hash preserved client-side)."""
         return RedirectResponse(url="/control/dashboard-v2", status_code=307)
@@ -2782,6 +2816,9 @@ def _register_control_plane_dashboard_shell_routes(
     )
     def dashboard_v2(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> HTMLResponse:
         index_path = DASHBOARD_V2_DIST_PATH / "index.html"
         if not index_path.is_file():
@@ -2798,7 +2835,11 @@ def _register_control_plane_dashboard_shell_routes(
         "/dashboard-v2/assets/{asset_path:path}", responses=_HTTP_404_DASHBOARD_ASSET
     )
     def dashboard_v2_asset(
-        asset_path: str, authorization: Annotated[str | None, Header()] = None
+        asset_path: str,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> Response:
         asset_root = (DASHBOARD_V2_DIST_PATH / "assets").resolve()
         raw_candidate = asset_root / asset_path
@@ -2820,9 +2861,68 @@ def _register_control_plane_dashboard_shell_routes(
             headers={"Cache-Control": "no-store"},
         )
 
+    def _dashboard_cookie_secure(request: Request) -> bool:
+        forwarded_proto = request.headers.get("x-forwarded-proto", "")
+        return request.url.scheme == "https" or forwarded_proto.lower() == "https"
+
+    def _set_dashboard_session_cookie(
+        response: Response, request: Request, token: str
+    ) -> None:
+        response.set_cookie(
+            _DASHBOARD_SESSION_COOKIE_NAME,
+            token,
+            httponly=True,
+            secure=_dashboard_cookie_secure(request),
+            samesite="strict",
+            path="/control",
+        )
+
+    def _clear_dashboard_session_cookie(response: Response, request: Request) -> None:
+        response.delete_cookie(
+            _DASHBOARD_SESSION_COOKIE_NAME,
+            secure=_dashboard_cookie_secure(request),
+            samesite="strict",
+            path="/control",
+        )
+
+    @router.get("/dashboard-v2/session")
+    def dashboard_v2_session_status(
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
+    ) -> dict[str, bool]:
+        authorize(authorization, dashboard_session)
+        return {"ok": True}
+
+    @router.post("/dashboard-v2/session")
+    def dashboard_v2_session_create(
+        payload: Annotated[dict[str, Any], Body()],
+        response: Response,
+        request: Request,
+    ) -> dict[str, bool]:
+        token = str(payload.get("token") or "").strip()
+        if not token:
+            raise HTTPException(status_code=401, detail="invalid bearer token")
+        require_bearer(f"Bearer {token}")
+        _set_dashboard_session_cookie(response, request, token)
+        return {"ok": True}
+
+    @router.delete("/dashboard-v2/session")
+    def dashboard_v2_session_clear(
+        response: Response, request: Request
+    ) -> dict[str, bool]:
+        _clear_dashboard_session_cookie(response, request)
+        return {"ok": True}
+
     @router.get("/health")
-    def health(authorization: Annotated[str | None, Header()] = None) -> dict:
-        authorize(authorization)
+    def health(
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
+    ) -> dict:
+        authorize(authorization, dashboard_session)
         backend = config.control_plane_store_backend
         db_path = str(getattr(store, "path", backend))
         return {
@@ -2836,16 +2936,22 @@ def _register_control_plane_dashboard_shell_routes(
     @router.get("/state")
     def get_state(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ControlStateResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         return state_response()
 
     @router.get("/api/status")
     def dashboard_status(
         refresh_worker: Annotated[bool, Query()] = False,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DashboardStatusResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         # Dashboard reads must be cheap and side-effect-free by default. Operators
         # can still request a live worker refresh explicitly with refresh_worker=true.
         return dashboard_status_response(
@@ -2859,8 +2965,11 @@ def _register_control_plane_dashboard_shell_routes(
     def dashboard_queue_alert_check(
         payload: dict[str, Any] | None = None,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         request_payload = payload or {}
         dry_run = bool(request_payload.get("dry_run", True))
         requested_by = str(request_payload.get("requested_by") or "operator")
@@ -2971,8 +3080,11 @@ def _register_control_plane_dashboard_shell_routes(
     def dashboard_queue_health(
         refresh_worker: Annotated[bool, Query()] = False,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         status = dashboard_status_response(refresh_worker=refresh_worker)
         active = status.active_items[0] if status.active_items else None
         run_id = str((active or {}).get("current_run_id") or "")
@@ -3011,9 +3123,13 @@ def _register_control_plane_dashboard_shell_routes(
         responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
     )
     def worker_callback(
-        callback: GateCallback, authorization: Annotated[str | None, Header()] = None
+        callback: GateCallback,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("worker callback recording")
         try:
             event_id, inserted, row = store.record_worker_callback(callback)
@@ -3107,31 +3223,43 @@ def _register_control_plane_dashboard_shell_routes(
     @router.get("/api/v1/research-quality")
     def dashboard_v1_research_quality(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         return _research_quality_payload()
 
     @router.get("/api/v1/source-lineage")
     def dashboard_v1_source_lineage(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         return _source_lineage_payload()
 
     @router.get("/api/v1/automation-readiness")
     def dashboard_v1_automation_readiness(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         return _automation_readiness_payload()
 
     @router.get("/api/v1/overview")
     def dashboard_v1_overview(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         active_limit: Annotated[int, Query(ge=1, le=25)] = 5,
         event_limit: Annotated[int, Query(ge=0, le=50)] = 10,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         # Compute worker-lane capacity once and feed it into the overview read
         # model so `top_actions.dispatch_next` is lane-aware. Aggregate
         # `counts.active` / `counts.queued` are NOT used to imply lane dispatch
@@ -3231,8 +3359,11 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     def launch_next_followup(
         payload: FollowupLaunchRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> FollowupLaunchResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         if not payload.dry_run:
             _require_writable_store("follow-up launch")
             flags = store.flags()
@@ -3277,8 +3408,11 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     @router.get("/api/v1/lanes")
     def dashboard_v1_lanes(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         active_for_lanes = _active_items_fast(limit=10)
         queued_for_lanes = _queued_items_fast()
         active = [read_models.summarize_queue_row(row) for row in active_for_lanes]
@@ -3300,6 +3434,9 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     @router.get("/api/v1/queue")
     def dashboard_v1_queue(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         queue: Annotated[str, Query()] = "all",
         status: str = "",
         search: str = "",
@@ -3307,7 +3444,7 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         sort: str = "priority",
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.queue_page(
             queue=queue,
@@ -3343,6 +3480,9 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     @router.get("/api/v1/runs")
     def dashboard_v1_runs(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         state: str = "",
         project_id: str = "",
         search: str = "",
@@ -3350,7 +3490,7 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         sort: str = "recent",
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.run_page(
             state=state,
@@ -3386,9 +3526,12 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     def dashboard_v1_run_detail(
         run_id: str,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         event_limit: Annotated[int, Query(ge=0, le=100)] = 50,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         run = store.run_row(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="run not found")
@@ -3434,13 +3577,16 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     @router.get("/api/v1/projects")
     def dashboard_v1_projects(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         status: str = "",
         search: str = "",
         cursor: str = "",
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         sort: str = "recent",
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.project_page(
             status=status, search=search, cursor=cursor, page_size=safe_size, sort=sort
@@ -3466,9 +3612,12 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     def dashboard_v1_project_detail(
         project_id: str,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         event_limit: Annotated[int, Query(ge=0, le=100)] = 50,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         project = store.project_row(project_id)
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
@@ -3522,13 +3671,16 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     @router.get("/api/v1/papers")
     def dashboard_v1_papers(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         status: str = "",
         search: str = "",
         cursor: str = "",
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         sort: str = "recent",
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.paper_page(
             status=status, search=search, cursor=cursor, page_size=safe_size, sort=sort
@@ -3555,9 +3707,12 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     def dashboard_v1_paper_detail(
         paper_id: str,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         event_limit: Annotated[int, Query(ge=0, le=100)] = 50,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         paper = store.paper_row(paper_id)
         if paper is None:
             raise HTTPException(status_code=404, detail=_HTTP_404_PAPER_DETAIL)
@@ -3594,6 +3749,9 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     @router.get("/api/v1/events")
     def dashboard_v1_events(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         event_id: str = "",
         entity_type: str = "",
         entity_id: str = "",
@@ -3604,7 +3762,7 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
         include_payload: bool = False,
         sort: str = "recent",
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         safe_size = read_models.page_size(page_size)
         rows, next_cursor, has_more = store.event_page(
             event_id=event_id,
@@ -3644,8 +3802,11 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     @router.get("/api/v1/observability/health")
     def dashboard_v1_observability_health(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         latest_route_observation = None
         if config.route_observability_enabled:
             path = (
@@ -3689,8 +3850,11 @@ def _register_control_plane_dashboard_v1_routes(ns: MutableMapping[str, Any]) ->
     @router.get("/api/v1/observability/memory")
     def dashboard_v1_observability_memory(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         rss = current_rss_mib()
         peak = peak_rss_mib()
         warn_threshold = config.route_observability_memory_warn_rss_mib
@@ -3735,13 +3899,16 @@ def _register_control_plane_api_read_routes(ns: MutableMapping[str, Any]) -> Non
     def dashboard_queue(
         queue: str,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         search: str = "",
         status: str = "",
         sort: str = "dispatch_priority",
     ) -> DashboardQueueResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         all_rows = [_enrich_queue_row(row) for row in store.queue_rows()]
         selected = (
             [row for row in all_rows if queue in _classify_queue(row)]
@@ -3777,9 +3944,13 @@ def _register_control_plane_api_read_routes(ns: MutableMapping[str, Any]) -> Non
 
     @router.get("/api/projects/{project_id}", responses=_HTTP_404_PROJECT)
     def dashboard_project(
-        project_id: str, authorization: Annotated[str | None, Header()] = None
+        project_id: str,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DashboardProjectDetailResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         project = store.project_row(project_id)
         queue_item = store.queue_row(project_id)
         if project is None and queue_item is None:
@@ -3836,9 +4007,13 @@ def _register_control_plane_api_read_routes(ns: MutableMapping[str, Any]) -> Non
 
     @router.get("/api/runs/{run_id}", responses=_HTTP_404_RUN)
     def dashboard_run(
-        run_id: str, authorization: Annotated[str | None, Header()] = None
+        run_id: str,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DashboardRunDetailResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         run = store.run_row(run_id)
         queue_item = next(
             (row for row in store.queue_rows() if row.get("current_run_id") == run_id),
@@ -3926,8 +4101,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     def dashboard_paper_reviews_backfill(
         payload: PaperReviewBackfillRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> PaperReviewBackfillResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("publication automation backfill")
         try:
             inserted, created, updated, skipped, errors = store.backfill_paper_reviews(
@@ -3947,6 +4125,9 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     @router.get("/api/publication-automation")
     def dashboard_publication_automation(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         review_status: str = "",
@@ -3970,6 +4151,9 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     @router.get("/api/paper-reviews")
     def dashboard_paper_reviews(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         review_status: str = "",
@@ -3996,6 +4180,9 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     )
     def dashboard_next_publication_automation(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         review_status: str = "",
         paper_status: str = "publication_draft",
         search: str = "",
@@ -4015,6 +4202,9 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     )
     def dashboard_next_paper_review(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         review_status: str = "",
         paper_status: str = "publication_draft",
         search: str = "",
@@ -4034,9 +4224,13 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         responses=_HTTP_PUBLICATION_AUTOMATION_DETAIL_RESPONSES,
     )
     def dashboard_publication_automation_item(
-        paper_id: str, authorization: Annotated[str | None, Header()] = None
+        paper_id: str,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DashboardPaperReviewDetailResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             return _paper_review_detail_response(paper_id)
         except PublicationAutomationNotFoundError as exc:
@@ -4049,9 +4243,13 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         responses=_HTTP_PUBLICATION_AUTOMATION_DETAIL_RESPONSES,
     )
     def dashboard_paper_review(
-        paper_id: str, authorization: Annotated[str | None, Header()] = None
+        paper_id: str,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DashboardPaperReviewDetailResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             return _paper_review_detail_response(paper_id)
         except PublicationAutomationNotFoundError as exc:
@@ -4071,8 +4269,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         paper_id: str,
         payload: PaperReviewClaimRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> PaperReviewMutationResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("publication automation claim")
         try:
             event_id, inserted, item = store.claim_paper_review(paper_id, payload)
@@ -4097,8 +4298,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         item_id: str,
         payload: PaperReviewChecklistUpdateRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> PaperReviewMutationResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("publication automation checklist update")
         try:
             event_id, inserted, item = store.update_paper_review_checklist(
@@ -4124,8 +4328,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         paper_id: str,
         payload: PaperReviewStatusUpdateRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> PaperReviewMutationResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("publication automation status update")
         try:
             event_id, inserted, item = store.update_paper_review_status(
@@ -4151,8 +4358,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         paper_id: str,
         payload: PaperReviewApproveFinalizationRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> PaperReviewMutationResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("publication automation finalization approval")
         try:
             event_id, inserted, item = store.approve_paper_review_finalization(
@@ -4177,8 +4387,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     def dashboard_paper_reviews_rewrite_batch(
         payload: PaperReviewBulkRewriteRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> PaperReviewBulkRewriteResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         if not payload.dry_run:
             _require_writable_store("publication automation rewrite batch")
         rows = store.paper_review_rows(include_rank_reasons=True)
@@ -4324,8 +4537,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         paper_id: str,
         payload: PaperReviewRewriteDraftRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> PaperReviewRewriteDraftResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("publication automation draft rewrite")
         try:
             return _rewrite_paper_review_draft(paper_id, payload)
@@ -4369,8 +4585,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         paper_id: str,
         payload: PaperReviewPrepareFinalizationRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> PaperReviewFinalizationPackageResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("publication automation finalization package")
         _require_safe_paper_artifact_root(paper_id)
         try:
@@ -4395,13 +4614,16 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     @router.get("/api/papers")
     def dashboard_papers(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=500)] = 50,
         search: str = "",
         status: str = "",
         sort: str = "-updated_at",
     ) -> DashboardPapersResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         rows = store.paper_rows()
         all_counts = _paper_counts(rows)
         if status:
@@ -4443,9 +4665,14 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
     )
     def dashboard_paper_artifact(
-        paper_id: str, field: str, authorization: Annotated[str | None, Header()] = None
+        paper_id: str,
+        field: str,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         paper = store.paper_row(paper_id)
         if paper is None:
             raise HTTPException(status_code=404, detail=_HTTP_404_PAPER_DETAIL)
@@ -4476,9 +4703,13 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
 
     @router.get("/api/papers/{paper_id}", responses=_HTTP_404_PAPER)
     def dashboard_paper(
-        paper_id: str, authorization: Annotated[str | None, Header()] = None
+        paper_id: str,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DashboardPaperDetailResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         paper = store.paper_row(paper_id)
         if paper is None:
             raise HTTPException(status_code=404, detail=_HTTP_404_PAPER_DETAIL)
@@ -4523,6 +4754,9 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     @router.get("/api/events")
     def dashboard_events(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=500)] = 100,
         entity_type: str = "",
@@ -4530,7 +4764,7 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
         event_type: str = "",
         search: str = "",
     ) -> DashboardEventsResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         rows = store.event_rows(
             limit=1000,
             entity_type=entity_type,
@@ -4564,10 +4798,13 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     @router.get("/api/intake/ideas")
     def dashboard_ideas_intake(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         include_latest_payload: Annotated[bool, Query()] = False,
     ) -> DashboardIntakeResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         return _dashboard_ideas_intake_response(
             page_size=page_size, include_latest_payload=include_latest_payload
         )
@@ -4575,9 +4812,12 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     @router.get("/api/research/facility")
     def dashboard_research_facility(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         rows = (
             store.research_facility_workbench_projection(limit=page_size)
             if hasattr(store, "research_facility_workbench_projection")
@@ -4613,8 +4853,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     def dashboard_research_generate_batch(
         payload: Annotated[dict[str, Any] | None, Body()] = None,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         from argparse import Namespace
         from scripts import research_facility, research_facility_scan
 
@@ -4726,8 +4969,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     def dashboard_research_idea_request(
         payload: dict[str, Any] | None = Body(default=None),
         authorization: str | None = Header(default=None),
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("Research Council idea request")
         body = payload or {}
         title = str(body.get("title") or "").strip()
@@ -4794,8 +5040,11 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
     def dashboard_research_generate_provider_batch(
         payload: Annotated[dict[str, Any] | None, Body()] = None,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         from argparse import Namespace
         from scripts import (
             research_facility,
@@ -5061,6 +5310,9 @@ def _register_control_plane_papers_events_routes(ns: MutableMapping[str, Any]) -
     async def dashboard_research_run_cycle(
         payload: Annotated[dict[str, Any] | None, Body()] = None,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
         """Run one bounded Research Facility cycle.
 
@@ -5071,7 +5323,7 @@ def _register_control_plane_papers_events_routes(ns: MutableMapping[str, Any]) -
         queue and every mutating stage is bounded by per-run limits.
         """
 
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         from argparse import Namespace
         from scripts import (
             research_facility,
@@ -5390,8 +5642,11 @@ def _register_control_plane_papers_events_routes(ns: MutableMapping[str, Any]) -
     def dashboard_research_promote_candidate(
         payload: Annotated[dict[str, Any] | None, Body()] = None,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         body = payload or {}
         candidate_id = _validate_research_candidate_id(
             str(body.get("candidate_id") or "")
@@ -5412,13 +5667,16 @@ def _register_control_plane_papers_events_routes(ns: MutableMapping[str, Any]) -
     @router.get("/api/research/provider-budget")
     def dashboard_research_provider_budget(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         estimated_requests: Annotated[int, Query(ge=0, le=100)] = 2,
         reserve_requests: Annotated[int, Query(ge=0, le=100)] = 2,
         min_remaining_credits: Annotated[float, Query(ge=0.0)] = 5.0,
         min_rolling_remaining: Annotated[int, Query(ge=0)] = 10,
         timeout: Annotated[int, Query(ge=1, le=60)] = 20,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         from scripts import research_provider_budget
 
         base_url, provider_api_key = _resolve_synthetic_budget_provider(
@@ -5488,10 +5746,13 @@ def _register_control_plane_papers_events_routes(ns: MutableMapping[str, Any]) -
     @router.get("/api/intake/notion", responses=_HTTP_410_LEGACY_NOTION_API)
     def dashboard_notion_intake(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
         include_latest_payload: Annotated[bool, Query()] = False,
     ) -> DashboardIntakeResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             _require_legacy_notion_api_enabled()
         except LegacyNotionApiDisabledError as exc:
@@ -5533,9 +5794,13 @@ def _register_control_plane_research_routes(ns: MutableMapping[str, Any]) -> Non
 
     @router.post("/pause", responses=_HTTP_501_WRITABLE_STORE)
     def pause(
-        payload: PauseRequest, authorization: Annotated[str | None, Header()] = None
+        payload: PauseRequest,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("operator pause")
         flags, pause_event_id = store.pause(
             reason=payload.reason,
@@ -5559,9 +5824,13 @@ def _register_control_plane_research_routes(ns: MutableMapping[str, Any]) -> Non
 
     @router.post("/resume", responses=_HTTP_501_WRITABLE_STORE)
     def resume(
-        payload: ResumeRequest, authorization: Annotated[str | None, Header()] = None
+        payload: ResumeRequest,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ControlStateResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("operator resume")
         store.resume(
             resumed_by=payload.resumed_by, maintenance_mode=payload.maintenance_mode
@@ -5575,8 +5844,11 @@ def _register_control_plane_research_routes(ns: MutableMapping[str, Any]) -> Non
     def mark_queue_item_paused(
         payload: MarkQueueItemPausedRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ControlStateResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("queue item pause")
         if not store.mark_queue_item_paused(
             project_id=payload.project_id,
@@ -5592,8 +5864,11 @@ def _register_control_plane_research_routes(ns: MutableMapping[str, Any]) -> Non
     def import_snapshot(
         payload: ImportSnapshotRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ImportSnapshotResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("legacy snapshot import")
         try:
             inserted, projects, queue_items, papers = store.import_snapshot(payload)
@@ -5623,8 +5898,11 @@ def _register_control_plane_research_routes(ns: MutableMapping[str, Any]) -> Non
     def intake_notion_ideas(
         payload: NotionIntakeRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> NotionIntakeResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             _require_legacy_notion_api_enabled()
         except LegacyNotionApiDisabledError as exc:
@@ -5675,8 +5953,11 @@ def _register_control_plane_research_routes(ns: MutableMapping[str, Any]) -> Non
     def intake_ideas(
         payload: IdeaIntakeRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> IdeaIntakeResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         if not payload.dry_run:
             _require_writable_store("ideas intake")
         if payload.default_machine_target == DEFAULT_MACHINE_TARGET:
@@ -5717,9 +5998,13 @@ def _register_control_plane_research_routes(ns: MutableMapping[str, Any]) -> Non
         "/api/intake/notion-observation", responses=_HTTP_410_LEGACY_NOTION_API
     )
     def record_notion_observation(
-        payload: dict[str, Any], authorization: Annotated[str | None, Header()] = None
+        payload: dict[str, Any],
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             _require_legacy_notion_api_enabled()
         except LegacyNotionApiDisabledError as exc:
@@ -5746,9 +6031,13 @@ def _register_control_plane_research_routes(ns: MutableMapping[str, Any]) -> Non
 
     @router.post("/api/intake/ideas-observation")
     def record_ideas_observation(
-        payload: dict[str, Any], authorization: Annotated[str | None, Header()] = None
+        payload: dict[str, Any],
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         _require_writable_store("intake observation")
         status = str(payload.get("status") or "ok")
         if status not in {"ok", "warn", "error", "unavailable"}:
@@ -5797,8 +6086,11 @@ def _register_control_plane_operator_legacy_routes(
     def worker_preflight(
         payload: WorkerPreflightRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> WorkerPreflightResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             worker_url = _configured_worker_preflight_url()
         except WorkerPreflightUrlNotConfiguredError as exc:
@@ -5822,8 +6114,11 @@ def _register_control_plane_operator_legacy_routes(
     def dashboard_preflight(
         payload: WorkerPreflightRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> WorkerPreflightResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             payload = _target_aware_preflight_payload(payload)
         except WakeGateUrlNotAllowedError as exc:
@@ -5838,8 +6133,11 @@ def _register_control_plane_operator_legacy_routes(
     def dispatch_next(
         payload: DispatchNextRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DispatchNextResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         if not payload.dry_run:
             _require_writable_store("live dispatch")
             active = store.active_items()
@@ -5895,8 +6193,11 @@ def _register_control_plane_operator_legacy_routes(
     def dispatch_one(
         payload: DispatchOneRequest,
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DispatchNextResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         project_id = str(payload.project_id or "").strip()
         if not project_id:
             raise HTTPException(status_code=400, detail="project_id is required")
@@ -5944,8 +6245,13 @@ def _register_control_plane_operator_legacy_routes(
         )
 
     @router.get("/queue")
-    def queue(authorization: Annotated[str | None, Header()] = None) -> dict:
-        authorize(authorization)
+    def queue(
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
+    ) -> dict:
+        authorize(authorization, dashboard_session)
         return {
             "ok": True,
             "rows": store.queue_rows(),
@@ -5954,15 +6260,23 @@ def _register_control_plane_operator_legacy_routes(
         }
 
     @router.get("/papers")
-    def papers(authorization: Annotated[str | None, Header()] = None) -> dict:
-        authorize(authorization)
+    def papers(
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
+    ) -> dict:
+        authorize(authorization, dashboard_session)
         return {"ok": True, "rows": store.paper_rows()}
 
     @router.get("/export/snapshot")
     def export_snapshot(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ExportSnapshotResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         snapshot = store.export_snapshot()
         return ExportSnapshotResponse(
             flags=store.flags(),
@@ -5974,8 +6288,11 @@ def _register_control_plane_operator_legacy_routes(
     @router.get("/projections/notion/queue", responses=_HTTP_410_LEGACY_NOTION_API)
     def notion_queue_projection(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ProjectionResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             _require_legacy_notion_api_enabled()
         except LegacyNotionApiDisabledError as exc:
@@ -5992,8 +6309,11 @@ def _register_control_plane_operator_legacy_routes(
     @router.get("/projections/ideas/workbench")
     def ideas_workbench_projection(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ProjectionResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         rows = (
             store.idea_workbench_projection()
             if hasattr(store, "idea_workbench_projection")
@@ -6008,8 +6328,11 @@ def _register_control_plane_operator_legacy_routes(
     @router.get("/projections/notion/papers", responses=_HTTP_410_LEGACY_NOTION_API)
     def notion_papers_projection(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ProjectionResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             _require_legacy_notion_api_enabled()
         except LegacyNotionApiDisabledError as exc:
@@ -6032,8 +6355,11 @@ def _register_control_plane_operator_legacy_routes(
     )
     def notion_execution_updates_projection(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> ProjectionResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         try:
             _require_legacy_notion_api_enabled()
         except LegacyNotionApiDisabledError as exc:
@@ -6052,9 +6378,13 @@ def _register_control_plane_operator_legacy_routes(
         responses=_HTTP_500_UNRESOLVABLE_ARTIFACT_ROOT,
     )
     def draft_next(
-        payload: DraftNextRequest, authorization: Annotated[str | None, Header()] = None
+        payload: DraftNextRequest,
+        authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> DraftNextResponse:
-        authorize(authorization)
+        authorize(authorization, dashboard_session)
         candidates = eligible_paper_draft_candidates(
             store.queue_rows(), store.paper_rows()
         )

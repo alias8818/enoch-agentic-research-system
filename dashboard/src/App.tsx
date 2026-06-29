@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { type KeyboardEvent, type RefObject, type SyntheticEvent, useEffect, useRef, useState } from 'react'
 import { RoutedPage } from './appRouting'
-import { getSavedToken, saveToken } from './api/client'
+import { clearDashboardSession, establishDashboardSession, getSavedToken, hasDashboardSession } from './api/client'
 import { KeyboardShortcutHelp } from './components/KeyboardShortcutHelp'
 import { DASHBOARD_V2_PATH, canonicalDashboardHash, dashboardRouteTitle, dashboardV2Href, parseDashboardRoute } from './routes'
 import type { DashboardRoute } from './routes'
@@ -9,8 +9,10 @@ import { detailParentPage } from './routePolicy'
 import { applyTheme, getSavedTheme, saveTheme, toggleTheme, type DashboardTheme } from './theme'
 import { useDashboardKeyboardShortcuts } from './useDashboardKeyboardShortcuts'
 
-function TokenGate({ onSave }: Readonly<{ onSave: () => void }>) {
+function TokenGate({ onSave }: Readonly<{ onSave: (token: string) => Promise<void> }>) {
   const [token, setToken] = useState(getSavedToken())
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
   return (
     <main className="auth-frame">
       <section className="auth-card">
@@ -21,13 +23,17 @@ function TokenGate({ onSave }: Readonly<{ onSave: () => void }>) {
           className="auth-form"
           onSubmit={(event) => {
             event.preventDefault()
-            saveToken(token)
-            onSave()
+            setError('')
+            setSaving(true)
+            onSave(token).catch((caught: unknown) => {
+              setError(caught instanceof Error ? caught.message : 'Unable to save dashboard session')
+            }).finally(() => setSaving(false))
           }}
         >
           <input type="password" value={token} onChange={(event) => setToken(event.target.value)} placeholder="Bearer token" aria-label="Bearer token" />
-          <button className="primary-button" type="submit">Save token</button>
+          <button className="primary-button" type="submit" disabled={saving}>{saving ? 'Saving session…' : 'Save token'}</button>
         </form>
+        {error ? <p className="auth-error" role="alert">{error}</p> : null}
       </section>
     </main>
   )
@@ -181,6 +187,7 @@ function ShellHeader({
 
 function Shell() {
   const [hasToken, setHasToken] = useState(Boolean(getSavedToken()))
+  const [checkingSession, setCheckingSession] = useState(!getSavedToken())
   const [route, setRoute] = useState<DashboardRoute>(() => currentRoute())
   const [theme, setTheme] = useState<DashboardTheme>(() => getSavedTheme())
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
@@ -196,6 +203,27 @@ function Shell() {
     return () => globalThis.removeEventListener('hashchange', onHashChange)
   }, [])
 
+  useEffect(() => {
+    if (getSavedToken()) {
+      setCheckingSession(false)
+      return
+    }
+    let cancelled = false
+    hasDashboardSession()
+      .then((active) => {
+        if (!cancelled && active) setHasToken(true)
+      })
+      .catch(() => {
+        if (!cancelled) setHasToken(false)
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingSession(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   useDashboardKeyboardShortcuts({
     helpOpen: shortcutHelpOpen,
     onToggleHelp: () => setShortcutHelpOpen((current) => !current),
@@ -203,7 +231,22 @@ function Shell() {
     searchInputRef,
   })
 
-  if (!hasToken) return <TokenGate onSave={() => setHasToken(Boolean(getSavedToken()))} />
+  if (checkingSession) {
+    return (
+      <main className="auth-frame">
+        <section className="auth-card">
+          <p className="eyebrow">Enoch Dashboard V2</p>
+          <h1>Checking dashboard session…</h1>
+        </section>
+      </main>
+    )
+  }
+  if (!hasToken) {
+    return <TokenGate onSave={async (token) => {
+      await establishDashboardSession(token)
+      setHasToken(true)
+    }} />
+  }
   return (
     <main className="app-frame">
       <div className="app-shell">
@@ -214,7 +257,7 @@ function Shell() {
           onOpenShortcuts={() => setShortcutHelpOpen(true)}
           onToggleTheme={() => applyThemeToggle(theme, setTheme)}
           onClearToken={() => {
-            saveToken('')
+            void clearDashboardSession()
             setHasToken(false)
           }}
         />

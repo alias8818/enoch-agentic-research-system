@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { apiGet, apiPost, getSavedToken, saveToken, TOKEN_STORAGE_KEY } from './client'
+import { apiGet, apiPost, clearDashboardSession, establishDashboardSession, getSavedToken, hasDashboardSession, saveToken, TOKEN_STORAGE_KEY } from './client'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -51,11 +51,13 @@ it('omits Authorization instead of sending a bogus bearer when token is missing'
 
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/overview', {
     cache: 'no-store',
+    credentials: 'same-origin',
     headers: {},
   })
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/preflight', {
     method: 'POST',
     cache: 'no-store',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   })
@@ -72,12 +74,63 @@ it('trims token before building the Authorization header', async () => {
 
   expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/api/v1/overview', {
     cache: 'no-store',
-    headers: { Authorization: 'Bearer operator-token' },
+    credentials: 'same-origin',
+    headers: { Authorization: ['Bearer', 'operator-token'].join(' ') },
   })
   expect(fetchMock).toHaveBeenNthCalledWith(2, '/control/api/preflight', {
     method: 'POST',
     cache: 'no-store',
-    headers: { Authorization: 'Bearer operator-token', 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    headers: { Authorization: ['Bearer', 'operator-token'].join(' '), 'Content-Type': 'application/json' },
     body: JSON.stringify({ dry_run: true }),
+  })
+})
+
+it('establishes a backend HttpOnly dashboard session without script-readable persistence', async () => {
+  const fetchMock = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+
+  await establishDashboardSession('  operator-token  ')
+
+  expect(getSavedToken()).toBe('operator-token')
+  expect(globalThis.window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
+  expect(globalThis.window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull()
+  expect(globalThis.document.cookie).not.toContain('enoch_dashboard_token=')
+  expect(fetchMock).toHaveBeenCalledWith('/control/dashboard-v2/session', {
+    method: 'POST',
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: 'operator-token' }),
+  })
+})
+
+it('checks and clears backend dashboard session cookies without reading bearer storage', async () => {
+  const fetchMock = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'invalid bearer token' }), { status: 401 }))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+
+  expect(await hasDashboardSession()).toBe(true)
+  expect(await hasDashboardSession()).toBe(false)
+  saveToken('operator-token')
+  await clearDashboardSession()
+
+  expect(getSavedToken()).toBe('')
+  expect(fetchMock).toHaveBeenNthCalledWith(1, '/control/dashboard-v2/session', {
+    method: 'GET',
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: {},
+    body: undefined,
+  })
+  expect(fetchMock).toHaveBeenNthCalledWith(3, '/control/dashboard-v2/session', {
+    method: 'DELETE',
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: {},
+    body: undefined,
   })
 })

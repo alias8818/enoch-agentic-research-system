@@ -287,6 +287,58 @@ def test_dashboard_v2_shell_and_assets_allow_token_entry_before_api_auth(
     assert auth_calls == [None]
 
 
+def test_dashboard_v2_session_cookie_survives_refresh_without_script_readable_storage(
+    tmp_path: Path,
+) -> None:
+    app = FastAPI()
+    config = _config(str(tmp_path))
+    auth_calls: list[str | None] = []
+
+    def require(auth: str | None) -> None:
+        auth_calls.append(auth)
+        if auth != f"Bearer {TOKEN}":
+            raise HTTPException(status_code=401, detail="invalid bearer token")
+
+    app.include_router(create_control_plane_router(config, require))
+    client = TestClient(app)
+
+    rejected = client.post("/control/dashboard-v2/session", json={"token": "wrong"})
+    assert rejected.status_code == 401
+    assert "set-cookie" not in rejected.headers
+
+    created = client.post("/control/dashboard-v2/session", json={"token": TOKEN})
+    assert created.status_code == 200
+    session_cookie = created.headers["set-cookie"]
+    assert "enoch_dashboard_session=" in session_cookie
+    assert "HttpOnly" in session_cookie
+    assert "SameSite=strict" in session_cookie
+    assert "Path=/control" in session_cookie
+
+    status = client.get("/control/dashboard-v2/session")
+    assert status.status_code == 200
+    assert status.json() == {"ok": True}
+
+    health = client.get("/control/health")
+    assert health.status_code == 200
+    assert health.json()["ok"] is True
+
+    cleared = client.delete("/control/dashboard-v2/session")
+    assert cleared.status_code == 200
+    assert "enoch_dashboard_session=" in cleared.headers["set-cookie"]
+
+    after_clear = client.get("/control/health")
+    assert after_clear.status_code == 401
+    assert after_clear.json()["detail"] == "invalid bearer token"
+
+    assert auth_calls == [
+        "Bearer wrong",
+        f"Bearer {TOKEN}",
+        f"Bearer {TOKEN}",
+        f"Bearer {TOKEN}",
+        None,
+    ]
+
+
 def test_paper_material_graph_response_is_bounded_read_only(tmp_path: Path) -> None:
     graph_path = tmp_path / "paper-material-graph.json"
     graph_path.write_text(
