@@ -948,7 +948,7 @@ def _partition_dispatch_race_findings(
 ) -> tuple[list[DashboardFinding], list[DashboardFinding]]:
     kept: list[DashboardFinding] = []
     suppressed: list[DashboardFinding] = []
-    suppress_recent_live_orphan = suppress_dispatch_race and any(
+    suppress_recent_live_orphan = any(
         _recent_worker_live_without_vm_match(status, finding) for finding in findings
     )
     for finding in findings:
@@ -958,9 +958,7 @@ def _partition_dispatch_race_findings(
         if suppress_dispatch_race and _is_active_row_worker_preflight_race(finding):
             suppressed.append(finding)
             continue
-        if suppress_dispatch_race and _recent_worker_live_without_vm_match(
-            status, finding
-        ):
+        if _recent_worker_live_without_vm_match(status, finding):
             suppressed.append(finding)
             continue
         if suppress_recent_live_orphan and _is_cached_worker_preflight_warning(finding):

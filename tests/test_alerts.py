@@ -2592,7 +2592,6 @@ def test_dispatch_race_partition_keeps_worker_timestamp_only_live_orphan() -> No
                             {
                                 "run_id": "orphan-run",
                                 "project_id": "orphan-project",
-                                "is_live": True,
                                 "updated_at": now,
                             }
                         ]
