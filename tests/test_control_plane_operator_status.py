@@ -384,7 +384,10 @@ class OperatorStatusTests(unittest.TestCase):
             counts={"admitted": 4, "needs_review": 2},
             returned_rows=1,
         )
-        self.assertIn("2 need review before promotion", summary)
+        self.assertIn("4 accepted idea(s) in the candidate ledger", summary)
+        self.assertIn("2 draft idea(s) need cleanup", summary)
+        self.assertIn("not running workers or papers", summary)
+        self.assertNotIn("ready to promote", summary)
 
     def test_summarize_automation_workbench_reports_triage_ready(self) -> None:
         summary = summarize_automation_workbench(

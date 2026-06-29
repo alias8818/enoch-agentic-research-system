@@ -172,6 +172,47 @@ function researchCandidateDetailHref(candidateId: string): string {
   return dashboardV2Href(`#research:${encodeURIComponent(candidateId)}`)
 }
 
+function countValue(counts: Record<string, unknown>, key: string): number {
+  const value = counts[key]
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value, 10)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+function formatCount(value: number): string {
+  return value.toLocaleString('en-US')
+}
+
+function ResearchChoiceCards({ counts }: Readonly<{ counts: Record<string, unknown> }>) {
+  const accepted = countValue(counts, 'admitted')
+  const needsCleanup = countValue(counts, 'needs_review') + countValue(counts, 'rewrite_needed')
+  return (
+    <section className="detail-summary" aria-label="Research direction choices">
+      <p className="eyebrow">Research direction</p>
+      <h2>What should Enoch do next?</h2>
+      <p>Choose an operating direction first. Candidate counts are supporting detail, not the main decision.</p>
+      <section className="detail-operator-questions">
+        <article className="detail-operator-question">
+          <h4>Use the current idea pool</h4>
+          <p>{accepted ? `${formatCount(accepted)} accepted idea(s) are already in the pool. Use this when you want Enoch to work from the current backlog.` : 'No accepted ideas are visible in the current ledger counts.'}</p>
+        </article>
+        <article className="detail-operator-question">
+          <h4>Improve weak ideas first</h4>
+          <p>{needsCleanup ? `${formatCount(needsCleanup)} draft idea(s) need cleanup or rewrite before they are useful. Use this when quality matters more than volume.` : 'No draft cleanup backlog is visible in the current ledger counts.'}</p>
+        </article>
+        <article className="detail-operator-question">
+          <h4>Ask for fresh direction</h4>
+          <p>Start with a focused request when you want fresh ideas, research questions, or tests before adding more candidate volume.</p>
+          <a className="secondary-button secondary-button--link" href={dashboardV2Href('#intake')}>Open Research Council intake</a>
+        </article>
+      </section>
+    </section>
+  )
+}
+
 type ResearchGenerationSectionProps = Readonly<{
   generateBatchPending: boolean
   generateProviderBatchPending: boolean
@@ -548,8 +589,8 @@ export function ResearchPage({ route }: Readonly<{ route?: ResearchPageRoute }>)
   return (
     <section className="page-stack">
       <PageHeader
-        title="Candidate generation"
-        subtitle="Promote admitted candidates and run bounded research cycles safely."
+        title="Research direction"
+        subtitle="Choose what Enoch should do next before looking at candidate-ledger details."
         dataSource="/control/api/v1/research-facility and autopilot endpoints"
         action={(
           <>
@@ -569,6 +610,9 @@ export function ResearchPage({ route }: Readonly<{ route?: ResearchPageRoute }>)
       />
       {page.cycleDisabledReason ? <p className="primary-action-disabled-reason">{page.cycleDisabledReason}</p> : null}
 
+      <ResearchChoiceCards counts={page.counts} />
+      <WorkbenchOperatorSummary summary={page.facility.data?.operator_summary} />
+
       <ResearchGenerationSection
         generateBatchPending={page.generateBatch.isPending}
         generateProviderBatchPending={page.generateProviderBatch.isPending}
@@ -581,8 +625,6 @@ export function ResearchPage({ route }: Readonly<{ route?: ResearchPageRoute }>)
         onDryRunProviderBatch={() => { page.generateProviderBatch.mutateAsync({ dry_run: true, max_candidates: 2, requested_by: 'dashboard-v2' }).catch(() => undefined) }}
         onLiveProviderBatch={() => { page.runLiveProviderBatch().catch(() => undefined) }}
       />
-
-      <WorkbenchOperatorSummary summary={page.facility.data?.operator_summary} />
 
       <ResultCard result={page.budget.data} context={{ commandFamily: 'research' }} />
       <ResultCard result={page.cycle.data} context={{ commandFamily: 'research' }} stale={page.staleCycleDryRun} />

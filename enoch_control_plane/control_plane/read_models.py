@@ -1156,11 +1156,14 @@ def summarize_research_facility_workbench(
     else:
         parts: list[str] = []
         if admitted:
-            parts.append(f"{admitted} admitted candidate(s) ready to promote")
+            parts.append(f"{admitted} accepted idea(s) in the candidate ledger")
         if needs_review:
-            parts.append(f"{needs_review} need review before promotion")
+            parts.append(f"{needs_review} draft idea(s) need cleanup")
         if parts:
-            message = "; ".join(parts) + "."
+            message = (
+                "; ".join(parts)
+                + ". These are idea-pool counts, not running workers or papers."
+            )
         elif returned_rows:
             message = (
                 f"{returned_rows} candidate row(s) visible in this slice; select "
