@@ -608,8 +608,15 @@ def _record_internal_project_source_lineage(
           ('source', %s, 'idea', %s, 'generated_from', %s),
           ('idea', %s, 'project', %s, 'queued_as', %s)
         ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-
-        on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing
+        where not exists (
+          select 1
+          from research_lineage rl
+          where rl.source_type = v.source_type
+            and rl.source_id = v.source_id
+            and rl.target_type = v.target_type
+            and rl.target_id = v.target_id
+            and rl.relation_type = v.relation_type
+        )
         """,
         (
             source["source_id"],
@@ -4566,8 +4573,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
               ('candidate', %s, 'idea', %s, 'admitted_as', %s),
               ('idea', %s, 'project', %s, 'queued_as', %s)
             ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-    
-        on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing
+            where not exists (
+              select 1
+              from research_lineage rl
+              where rl.source_type = v.source_type
+                and rl.source_id = v.source_id
+                and rl.target_type = v.target_type
+                and rl.target_id = v.target_id
+                and rl.relation_type = v.relation_type
+            )
             """,
             (
                 candidate_id,
@@ -4854,12 +4868,22 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
                 """
                 insert into research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json)
                 select 'source', %s, 'candidate', %s, 'generated_from', %s::jsonb
-                on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing
+                where not exists (
+                  select 1
+                  from research_lineage rl
+                  where rl.source_type = 'source'
+                    and rl.source_id = %s
+                    and rl.target_type = 'candidate'
+                    and rl.target_id = %s
+                    and rl.relation_type = 'generated_from'
+                )
                 """,
                 (
                     str(source_id),
                     candidate_id,
                     self._json_text({"source_ids": source_ids}),
+                    str(source_id),
+                    candidate_id,
                 ),
             )
             inserted += int(cur.rowcount or 0)
@@ -5668,8 +5692,15 @@ class SupabaseControlPlaneStore(SupabaseReadOnlyControlPlaneStore):
               ('source', %s, 'candidate', %s, 'generated_from', %s),
               ('project', %s, 'project', %s, 'followup_parent', %s)
             ) as v(source_type, source_id, target_type, target_id, relation_type, evidence_json)
-    
-        on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing
+            where not exists (
+              select 1
+              from research_lineage rl
+              where rl.source_type = v.source_type
+                and rl.source_id = v.source_id
+                and rl.target_type = v.target_type
+                and rl.target_id = v.target_id
+                and rl.relation_type = v.relation_type
+            )
             """,
             (
                 parent_source["source_id"],
