@@ -18095,9 +18095,7 @@ def test_draft_next_revalidates_decision_gate_after_evidence_sync() -> None:
         assert snapshot["paper_rows"] == []
 
 
-def test_draft_next_honors_bounded_row_gate_after_synced_negative_artifact() -> (
-    None
-):
+def test_draft_next_honors_bounded_row_gate_after_synced_negative_artifact() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         client = _client(tmp)
         headers = {"Authorization": f"Bearer {TOKEN}"}
