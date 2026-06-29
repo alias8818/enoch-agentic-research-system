@@ -897,8 +897,27 @@ def _lane_matches_worker_live_without_active_finding(
 def _recent_worker_live_without_vm_match(
     status: DashboardStatusResponse, finding: DashboardFinding
 ) -> bool:
-    """Worker-only timestamps are not authoritative enough to suppress orphans."""
+    """Return True for lane-matched live worker observations inside race grace.
 
+    Worker-only live state is not enough to suppress a durable orphan.  It is,
+    however, enough to suppress a page when the exact lane's worker run is both
+    live/active and freshly updated inside the dispatch-race grace window.  That
+    keeps short callback/quiet-window transitions as dispatch backpressure while
+    leaving stale live-worker/no-active-row findings alertable.
+    """
+
+    if not _is_worker_live_without_vm_active_row(finding):
+        return False
+    for lane in getattr(status, "worker_lanes", []) or []:
+        if not isinstance(lane, dict):
+            continue
+        if not _lane_matches_worker_live_without_active_finding(lane, finding):
+            continue
+        return any(
+            _worker_run_is_live_or_active(run)
+            and _worker_run_updated_within_dispatch_grace(run)
+            for run in _runs_from_worker_lane(lane)
+        )
     return False
 
 

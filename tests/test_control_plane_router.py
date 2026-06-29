@@ -11000,8 +11000,77 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 store=store, status=status, findings=findings
             )
 
-            self.assertEqual(kept, findings)
-            self.assertEqual(suppressed, [])
+            self.assertEqual(kept, [])
+            self.assertEqual(suppressed, findings)
+
+    def test_queue_alert_suppresses_recent_cpu_live_worker_orphan_without_active_lane(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ControlPlaneStore(Path(tmp) / "state" / "control_plane.sqlite3")
+            now = datetime.now(timezone.utc).isoformat()
+            status = SimpleNamespace(
+                active_items=[],
+                dispatch_blockers=[
+                    "worker_preflight not ok",
+                    "worker live run without active control-plane row: cpu_worker",
+                ],
+                worker_lanes=[
+                    {
+                        "lane_key": "http://enoch-worker-cpu-1:8787",
+                        "machine_target": "cpu-proxmox-1",
+                        "worker_role": "cpu_worker",
+                        "active_count": 0,
+                        "worker_observations": {
+                            "worker_preflight": {
+                                "payload": {
+                                    "body": {
+                                        "runs": [
+                                            {
+                                                "run_id": "recent-cpu-live-run",
+                                                "project_id": "recent-cpu-live-run",
+                                                "lifecycle_state": "active",
+                                                "is_live": True,
+                                                "active_process_count": 1,
+                                                "updated_at": now,
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                    }
+                ],
+            )
+            findings = [
+                DashboardFinding(
+                    severity="critical",
+                    source="control_plane_db+worker_preflight",
+                    authority="cross-source active-lane reconciliation",
+                    message=(
+                        "cpu_worker worker reports live work but the control plane "
+                        "has no active row for that lane"
+                    ),
+                    suggested_action="pause dispatch and reconcile the orphan worker run",
+                    data={
+                        "lane_key": "http://enoch-worker-cpu-1:8787",
+                        "machine_target": "cpu-proxmox-1",
+                        "worker_check": {
+                            "name": "worker_no_live_runs",
+                            "ok": False,
+                            "detail": "active_or_waiting=1, live=1",
+                            "data": {"active_or_waiting": 1, "live": 1},
+                        },
+                    },
+                )
+            ]
+
+            kept, suppressed = _suppress_dispatch_race_findings(
+                store=store, status=status, findings=findings
+            )
+
+            self.assertEqual(kept, [])
+            self.assertEqual(suppressed, findings)
 
     def test_queue_alert_keeps_stale_live_worker_orphan_alertable(
         self,
