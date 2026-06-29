@@ -50,7 +50,7 @@ def test_supabase_research_admission_idempotency_inserts_before_select() -> None
     assert "returning admission_id" in source
 
 
-def test_supabase_source_candidate_lineage_uses_atomic_conflict_idempotency() -> None:
+def test_supabase_source_candidate_lineage_uses_schema_agnostic_idempotency() -> None:
     source = inspect.getsource(
         s.SupabaseControlPlaneStore._insert_source_candidate_lineage
     )
@@ -58,22 +58,23 @@ def test_supabase_source_candidate_lineage_uses_atomic_conflict_idempotency() ->
 
     assert (
         "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-        in normalized
+        not in normalized
     )
-    assert "where not exists" not in normalized
+    assert "where not exists" in normalized
 
 
-def test_supabase_research_lineage_writes_use_atomic_conflict_idempotency() -> None:
+def test_supabase_research_lineage_writes_use_schema_agnostic_idempotency() -> None:
     source = Path(s.__file__).read_text(encoding="utf-8").lower()
     normalized = " ".join(source.split())
     lineage_insert_count = normalized.count("insert into research_lineage")
     atomic_conflict_count = normalized.count(
         "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
     )
+    where_not_exists_count = normalized.count("where not exists")
 
     assert lineage_insert_count == 4
-    assert atomic_conflict_count == lineage_insert_count
-    assert "where not exists" not in normalized
+    assert atomic_conflict_count == 0
+    assert where_not_exists_count >= lineage_insert_count
 
 
 def test_supabase_late_terminal_success_missing_queue_row_is_runtime_error(
@@ -1653,9 +1654,9 @@ def test_supabase_followup_launch_records_parent_run_source_and_lineage(
     assert "source_type, source_id, target_type, target_id, relation_type" in joined
     assert (
         "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-        in joined
+        not in joined
     )
-    assert "where not exists" not in joined
+    assert "where not exists" in joined
     assert any(followup_id in params for _sql, params in lineage_inserts)
     assert "followup_parent" in joined
     assert "branched_from" not in joined
