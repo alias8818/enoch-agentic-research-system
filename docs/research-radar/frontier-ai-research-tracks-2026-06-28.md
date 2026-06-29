@@ -14,7 +14,7 @@ The common theme is **quality-adjusted efficiency**:
 2. Post-training asks whether we can get more capability per parameter/update.
 3. Dataset-quality benchmarking asks whether we can get more generalization per token.
 
-That is a coherent Enoch direction because it fits the existing Research Facility contract: source-grounded, falsifiable, evidence-led, and measurable on local/GB10 hardware.
+That is a coherent Enoch direction because it fits the existing Research Facility contract: source-grounded, falsifiable, evidence-led, and measurable on local/GB10 hardware. Runtime topology and host/storage assumptions must be checked against [`../current-runtime-snapshot.md`](../current-runtime-snapshot.md) before scheduling GB10 or Research Facility work.
 
 ## Track 1 — DSpark / DeepSpec speculative decoding
 
