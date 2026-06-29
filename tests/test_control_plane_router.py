@@ -10667,8 +10667,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
                                             "lifecycle_state": "active",
                                             "is_live": True,
                                             "active_process_count": 1,
-                                            "updated_at": datetime.now(
-                                                timezone.utc
+                                            "updated_at": (
+                                                datetime.now(timezone.utc)
+                                                - timedelta(hours=2)
                                             ).isoformat(),
                                         }
                                     ],
