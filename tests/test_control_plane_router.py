@@ -3399,7 +3399,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertEqual(body["page"]["counts_scope"], "all_rows")
             self.assertEqual(body["counts"], {"admitted": 104, "needs_review": 34})
             self.assertIn("operator_summary", body)
-            self.assertIn("need review before promotion", body["operator_summary"])
+            self.assertIn("draft idea(s) need cleanup", body["operator_summary"])
 
     def test_research_facility_generate_batch_dry_run_does_not_queue_or_dispatch(
         self,
