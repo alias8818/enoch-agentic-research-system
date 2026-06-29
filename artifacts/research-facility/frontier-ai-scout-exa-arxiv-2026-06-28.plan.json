@@ -1,0 +1,924 @@
+{
+  "admitted_count": 5,
+  "candidate_count": 5,
+  "history_count": 0,
+  "input": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.candidates.json",
+  "needs_review_count": 0,
+  "ok": true,
+  "plans": [
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 73.4 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "viasd-slim-verifier-speculative-decoding-20260628",
+      "candidate": {
+        "accessibility_delta": "Improves home/local inference efficiency by extracting more throughput from existing model families without requiring a new trained drafter.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Binary accept/full-verify speculative decoding or the current DSpark/DeepSpec static verifier path measured on the same prompts and backend.",
+        "candidate_id": "viasd-slim-verifier-speculative-decoding-20260628",
+        "category": "inference-systems",
+        "dedupe_key": "research:inference-systems-via-sd-slim-verifier-tier-speculative-decoding-use-direct-acceptance-high-confidence:87094ad618d6",
+        "description": "Test whether VIA-SD's intra-model routing idea is practical for Enoch's GB10/local inference workloads and agentic prompt mix.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "viasd_source_note.md",
+          "slim_verifier_routing_trace.jsonl",
+          "spec_decode_comparison_metrics.json",
+          "quality_regression_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.5,
+        "feasibility_score": 7.0,
+        "generated_by": "hermes.manual_research_facility_intake",
+        "generation_mode": "fresh_grounded",
+        "hypothesis": "A three-tier speculative decoding verifier policy can improve local inference throughput by routing medium-confidence draft tokens through a slim verifier instead of forcing binary accept-or-full-recompute decisions.",
+        "implementation": "Review the VIA-SD paper/project page, build a small local proxy for slim verification, instrument accept/slim/full routing decisions, and compare against binary speculative decoding on fixed prompts.",
+        "kill_condition": "Stop if no practical local slim-verifier proxy can be implemented, if routing overhead exceeds saved verification time, or if medium-confidence routing degrades correctness on reasoning/coding prompts.",
+        "likely_failure_modes": [
+          "slim verifier proxy is not equivalent to intra-model routing",
+          "routing overhead dominates",
+          "medium-confidence tokens are too rare on Enoch prompts",
+          "quality regressions appear before speed gains"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Use direct acceptance for high-confidence draft tokens, a slim verifier for moderate-confidence tokens, and full target-model verification only for uncertain tokens; approximate the slim verifier locally with layer skipping, early-exit logits, or a smaller same-family model.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Sharper than generic speculative decoding because the tested invariant is a three-tier verifier path for medium-confidence drafts, not merely draft length tuning.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "high",
+        "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+        "provider": "manual",
+        "provider_model": "exa+arxiv",
+        "raw_candidate_json": {
+          "accessibility_delta": "Improves home/local inference efficiency by extracting more throughput from existing model families without requiring a new trained drafter.",
+          "accessibility_score": 8.0,
+          "baseline_to_beat": "Binary accept/full-verify speculative decoding or the current DSpark/DeepSpec static verifier path measured on the same prompts and backend.",
+          "candidate_id": "viasd-slim-verifier-speculative-decoding-20260628",
+          "category": "inference-systems",
+          "description": "Test whether VIA-SD's intra-model routing idea is practical for Enoch's GB10/local inference workloads and agentic prompt mix.",
+          "estimated_runtime_class": "medium",
+          "expected_artifacts": [
+            "viasd_source_note.md",
+            "slim_verifier_routing_trace.jsonl",
+            "spec_decode_comparison_metrics.json",
+            "quality_regression_cases.json",
+            ".enoch/project_decision.json"
+          ],
+          "expected_token_budget": "medium",
+          "falsifiability_score": 8.5,
+          "feasibility_score": 7.0,
+          "generated_by": "hermes.manual_research_facility_intake",
+          "generation_mode": "fresh_grounded",
+          "hypothesis": "A three-tier speculative decoding verifier policy can improve local inference throughput by routing medium-confidence draft tokens through a slim verifier instead of forcing binary accept-or-full-recompute decisions.",
+          "implementation": "Review the VIA-SD paper/project page, build a small local proxy for slim verification, instrument accept/slim/full routing decisions, and compare against binary speculative decoding on fixed prompts.",
+          "kill_condition": "Stop if no practical local slim-verifier proxy can be implemented, if routing overhead exceeds saved verification time, or if medium-confidence routing degrades correctness on reasoning/coding prompts.",
+          "likely_failure_modes": [
+            "slim verifier proxy is not equivalent to intra-model routing",
+            "routing overhead dominates",
+            "medium-confidence tokens are too rare on Enoch prompts",
+            "quality regressions appear before speed gains"
+          ],
+          "machine_target": "gb10",
+          "mechanism": "Use direct acceptance for high-confidence draft tokens, a slim verifier for moderate-confidence tokens, and full target-model verification only for uncertain tokens; approximate the slim verifier locally with layer skipping, early-exit logits, or a smaller same-family model.",
+          "model": "gpt-5.5",
+          "novelty_comparison": "Sharper than generic speculative decoding because the tested invariant is a three-tier verifier path for medium-confidence drafts, not merely draft length tuning.",
+          "novelty_score": 8.0,
+          "priority": "high",
+          "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+          "provider": "manual",
+          "provider_model": "exa+arxiv",
+          "required_evidence": [
+            "VIA-SD source review",
+            "binary vs three-tier routing metrics",
+            "accepted tokens/sec and p50/p95 latency",
+            "quality regression sample audit",
+            "runtime assumptions checked against docs/current-runtime-snapshot.md"
+          ],
+          "risk_notes": "Project-page code was marked coming soon during scout; start with proxy implementation or wait for released code.",
+          "sandbox": "danger-full-access",
+          "source_ids": [
+            "frontier-ai-scout-exa-arxiv-20260628",
+            "linear-ALI-206"
+          ],
+          "source_kind": "manual_note",
+          "source_records": [
+            {
+              "payload_json": {
+                "linear_child": "ALI-206",
+                "linear_parent": "ALI-205",
+                "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+              },
+              "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+              "source_kind": "user_supplied",
+              "summary": "Scout identified VIA-SD as a concrete DSpark/DeepSpec-adjacent speculative decoding candidate for Enoch Research Facility intake.",
+              "title": "Exa/arXiv frontier AI scout shortlist",
+              "url": ""
+            }
+          ],
+          "source_urls": [
+            "https://arxiv.org/abs/2606.12243v1",
+            "https://zju-xyc.github.io/VIA-SD-Project-Page/"
+          ],
+          "status": "generated",
+          "success_threshold": "Show a reproducible reduction in full-verifier calls or rejection rate with neutral-or-better output quality and a positive accepted-token/sec or latency result; otherwise produce bottleneck evidence falsifying slim-verifier usefulness.",
+          "title": "VIA-SD slim-verifier tier for speculative decoding"
+        },
+        "required_evidence": [
+          "VIA-SD source review",
+          "binary vs three-tier routing metrics",
+          "accepted tokens/sec and p50/p95 latency",
+          "quality regression sample audit",
+          "runtime assumptions checked against docs/current-runtime-snapshot.md"
+        ],
+        "risk_notes": "Project-page code was marked coming soon during scout; start with proxy implementation or wait for released code.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 18.7,
+          "feasibility_weighted": 11.9,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 2.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "frontier-ai-scout-exa-arxiv-20260628",
+          "linear-ALI-206"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "payload_json": {
+              "linear_child": "ALI-206",
+              "linear_parent": "ALI-205",
+              "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+            },
+            "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+            "source_kind": "user_supplied",
+            "summary": "Scout identified VIA-SD as a concrete DSpark/DeepSpec-adjacent speculative decoding candidate for Enoch Research Facility intake.",
+            "title": "Exa/arXiv frontier AI scout shortlist",
+            "url": ""
+          }
+        ],
+        "source_urls": [
+          "https://arxiv.org/abs/2606.12243v1",
+          "https://zju-xyc.github.io/VIA-SD-Project-Page/"
+        ],
+        "status": "admitted",
+        "success_threshold": "Show a reproducible reduction in full-verifier calls or rejection rate with neutral-or-better output quality and a positive accepted-token/sec or latency result; otherwise produce bottleneck evidence falsifying slim-verifier usefulness.",
+        "title": "VIA-SD slim-verifier tier for speculative decoding",
+        "total_score": 73.4
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 18.7,
+        "feasibility_weighted": 11.9,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 2.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 73.4
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 73.15 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "learning-to-draft-throughput-controller-20260628",
+      "candidate": {
+        "accessibility_delta": "Improves local serving efficiency by learning cheap runtime policies instead of relying on expensive larger-model capacity.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Static Eagle3/DSpark-style draft depth and verification-size policy under identical prompt/backend conditions.",
+        "candidate_id": "learning-to-draft-throughput-controller-20260628",
+        "category": "inference-systems",
+        "dedupe_key": "research:inference-systems-learning-to-draft-throughput-controller-speculative-decoding-model-speculative-decoding-as-a:b78b8bfc1dab",
+        "description": "Translate the Learning to Draft objective into a bounded Enoch experiment using recorded or generated speculative-decoding traces.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "ltd_source_note.md",
+          "spec_decode_trace_schema.json",
+          "controller_replay_metrics.json",
+          "scheduler_overhead_report.md",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 7.5,
+        "generated_by": "hermes.manual_research_facility_intake",
+        "generation_mode": "fresh_grounded",
+        "hypothesis": "Optimizing speculative decoding controllers for accepted tokens per draft-plus-verify wall-clock cycle will beat static depth/verification schedules on Enoch workloads.",
+        "implementation": "Review LTD, record draft/verify cycle traces, implement static, heuristic dynamic, and learned/offline controller baselines, then compare accepted tokens/sec and scheduler overhead.",
+        "kill_condition": "Stop if trace collection is not possible, if controller decisions are unstable across prompt classes, or if scheduler compute dominates the speculative-decoding gain.",
+        "likely_failure_modes": [
+          "accepted length proxy diverges from throughput",
+          "offline traces do not transfer to live serving",
+          "policy overfits prompt mix",
+          "runtime instrumentation changes performance"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Model speculative decoding as a control problem over draft depth and verification size, using throughput reward rather than acceptance length alone; start with offline trace replay before full reinforcement learning.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Distinct from prior DSpark scheduler idea because it operationalizes a throughput reward and controller-replay harness rather than only online heuristic scheduling.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "high",
+        "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+        "provider": "manual",
+        "provider_model": "exa+arxiv",
+        "raw_candidate_json": {
+          "accessibility_delta": "Improves local serving efficiency by learning cheap runtime policies instead of relying on expensive larger-model capacity.",
+          "accessibility_score": 8.0,
+          "baseline_to_beat": "Static Eagle3/DSpark-style draft depth and verification-size policy under identical prompt/backend conditions.",
+          "candidate_id": "learning-to-draft-throughput-controller-20260628",
+          "category": "inference-systems",
+          "description": "Translate the Learning to Draft objective into a bounded Enoch experiment using recorded or generated speculative-decoding traces.",
+          "estimated_runtime_class": "medium",
+          "expected_artifacts": [
+            "ltd_source_note.md",
+            "spec_decode_trace_schema.json",
+            "controller_replay_metrics.json",
+            "scheduler_overhead_report.md",
+            ".enoch/project_decision.json"
+          ],
+          "expected_token_budget": "medium",
+          "falsifiability_score": 8.0,
+          "feasibility_score": 7.5,
+          "generated_by": "hermes.manual_research_facility_intake",
+          "generation_mode": "fresh_grounded",
+          "hypothesis": "Optimizing speculative decoding controllers for accepted tokens per draft-plus-verify wall-clock cycle will beat static depth/verification schedules on Enoch workloads.",
+          "implementation": "Review LTD, record draft/verify cycle traces, implement static, heuristic dynamic, and learned/offline controller baselines, then compare accepted tokens/sec and scheduler overhead.",
+          "kill_condition": "Stop if trace collection is not possible, if controller decisions are unstable across prompt classes, or if scheduler compute dominates the speculative-decoding gain.",
+          "likely_failure_modes": [
+            "accepted length proxy diverges from throughput",
+            "offline traces do not transfer to live serving",
+            "policy overfits prompt mix",
+            "runtime instrumentation changes performance"
+          ],
+          "machine_target": "gb10",
+          "mechanism": "Model speculative decoding as a control problem over draft depth and verification size, using throughput reward rather than acceptance length alone; start with offline trace replay before full reinforcement learning.",
+          "model": "gpt-5.5",
+          "novelty_comparison": "Distinct from prior DSpark scheduler idea because it operationalizes a throughput reward and controller-replay harness rather than only online heuristic scheduling.",
+          "novelty_score": 8.0,
+          "priority": "high",
+          "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+          "provider": "manual",
+          "provider_model": "exa+arxiv",
+          "required_evidence": [
+            "LTD paper review",
+            "trace schema",
+            "static vs dynamic vs learned policy comparison",
+            "accepted tokens/sec and overhead accounting"
+          ],
+          "risk_notes": "Full RL may be too expensive; require a trace-replay/dry-run milestone before any long training run.",
+          "sandbox": "danger-full-access",
+          "source_ids": [
+            "frontier-ai-scout-exa-arxiv-20260628",
+            "linear-ALI-206"
+          ],
+          "source_kind": "manual_note",
+          "source_records": [
+            {
+              "payload_json": {
+                "linear_child": "ALI-206",
+                "linear_parent": "ALI-205",
+                "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+              },
+              "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+              "source_kind": "user_supplied",
+              "summary": "Scout identified Learning to Draft as a scheduler/control candidate for DSpark/DeepSpec follow-up.",
+              "title": "Exa/arXiv frontier AI scout shortlist",
+              "url": ""
+            }
+          ],
+          "source_urls": [
+            "https://arxiv.org/abs/2603.01639v1"
+          ],
+          "status": "generated",
+          "success_threshold": "A trace-replay or live harness shows the learned/offline controller improves accepted tokens/sec or latency after accounting for controller overhead, or falsifies the controller with clear overhead/bottleneck data.",
+          "title": "Learning-to-Draft throughput controller for speculative decoding"
+        },
+        "required_evidence": [
+          "LTD paper review",
+          "trace schema",
+          "static vs dynamic vs learned policy comparison",
+          "accepted tokens/sec and overhead accounting"
+        ],
+        "risk_notes": "Full RL may be too expensive; require a trace-replay/dry-run milestone before any long training run.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 12.75,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 2.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "frontier-ai-scout-exa-arxiv-20260628",
+          "linear-ALI-206"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "payload_json": {
+              "linear_child": "ALI-206",
+              "linear_parent": "ALI-205",
+              "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+            },
+            "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+            "source_kind": "user_supplied",
+            "summary": "Scout identified Learning to Draft as a scheduler/control candidate for DSpark/DeepSpec follow-up.",
+            "title": "Exa/arXiv frontier AI scout shortlist",
+            "url": ""
+          }
+        ],
+        "source_urls": [
+          "https://arxiv.org/abs/2603.01639v1"
+        ],
+        "status": "admitted",
+        "success_threshold": "A trace-replay or live harness shows the learned/offline controller improves accepted tokens/sec or latency after accounting for controller overhead, or falsifies the controller with clear overhead/bottleneck data.",
+        "title": "Learning-to-Draft throughput controller for speculative decoding",
+        "total_score": 73.15
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 12.75,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 2.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 73.15
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 77.65 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "early-reasoning-quality-token-loss-curation-20260628",
+      "candidate": {
+        "accessibility_delta": "Makes local post-training cheaper by reducing the token budget needed to find useful reasoning data.",
+        "accessibility_score": 8.5,
+        "baseline_to_beat": "Random subset selection and simple embedding-diversity selection under the same dataset size and model budget.",
+        "candidate_id": "early-reasoning-quality-token-loss-curation-20260628",
+        "category": "dataset-quality",
+        "dedupe_key": "research:dataset-quality-early-token-reasoning-quality-scorer-post-training-data-curation-evaluate-early-reasoning:7fd148544416",
+        "description": "Prototype a cheap early-token scorer for reasoning-trace datasets and compare it to random, diversity-only, and full-trace selectors.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "early_reasoning_quality_source_note.md",
+          "early_token_loss_scores.jsonl",
+          "selection_manifest.json",
+          "proxy_eval_metrics.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "small",
+        "falsifiability_score": 8.5,
+        "feasibility_score": 8.0,
+        "generated_by": "hermes.manual_research_facility_intake",
+        "generation_mode": "fresh_grounded",
+        "hypothesis": "The loss pattern of the first 100-1000 reasoning tokens can cheaply identify high-value reasoning traces for SFT, reducing curation cost while preserving or improving downstream reasoning performance.",
+        "implementation": "Choose a small reasoning dataset, compute early-token loss curves with a local model, select subsets by score/difficulty bands, and run a tiny SFT or proxy evaluation against held-out reasoning tasks.",
+        "kill_condition": "Stop if early-token scores are not stable across seeds/checkpoints, if proxy evaluation cannot distinguish subsets, or if scoring cost approaches full-trace curation cost.",
+        "likely_failure_modes": [
+          "early loss selects hard but unlearnable examples",
+          "scores are checkpoint-sensitive",
+          "tiny SFT signal is too noisy",
+          "reasoning traces have leakage or inconsistent formatting"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Evaluate early reasoning tokens with a small or perturbed checkpoint, use early loss/trajectory similarity as a difficulty/diversity proxy, then select examples before any expensive full-trace filtering.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Directly tests whether pre-training-trajectory early-token loss can become an Enoch dataset-quality metric rather than relying on LLM judge curation.",
+        "novelty_score": 8.5,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "high",
+        "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+        "provider": "manual",
+        "provider_model": "exa+arxiv",
+        "raw_candidate_json": {
+          "accessibility_delta": "Makes local post-training cheaper by reducing the token budget needed to find useful reasoning data.",
+          "accessibility_score": 8.5,
+          "baseline_to_beat": "Random subset selection and simple embedding-diversity selection under the same dataset size and model budget.",
+          "candidate_id": "early-reasoning-quality-token-loss-curation-20260628",
+          "category": "dataset-quality",
+          "description": "Prototype a cheap early-token scorer for reasoning-trace datasets and compare it to random, diversity-only, and full-trace selectors.",
+          "estimated_runtime_class": "medium",
+          "expected_artifacts": [
+            "early_reasoning_quality_source_note.md",
+            "early_token_loss_scores.jsonl",
+            "selection_manifest.json",
+            "proxy_eval_metrics.json",
+            ".enoch/project_decision.json"
+          ],
+          "expected_token_budget": "small",
+          "falsifiability_score": 8.5,
+          "feasibility_score": 8.0,
+          "generated_by": "hermes.manual_research_facility_intake",
+          "generation_mode": "fresh_grounded",
+          "hypothesis": "The loss pattern of the first 100-1000 reasoning tokens can cheaply identify high-value reasoning traces for SFT, reducing curation cost while preserving or improving downstream reasoning performance.",
+          "implementation": "Choose a small reasoning dataset, compute early-token loss curves with a local model, select subsets by score/difficulty bands, and run a tiny SFT or proxy evaluation against held-out reasoning tasks.",
+          "kill_condition": "Stop if early-token scores are not stable across seeds/checkpoints, if proxy evaluation cannot distinguish subsets, or if scoring cost approaches full-trace curation cost.",
+          "likely_failure_modes": [
+            "early loss selects hard but unlearnable examples",
+            "scores are checkpoint-sensitive",
+            "tiny SFT signal is too noisy",
+            "reasoning traces have leakage or inconsistent formatting"
+          ],
+          "machine_target": "gb10",
+          "mechanism": "Evaluate early reasoning tokens with a small or perturbed checkpoint, use early loss/trajectory similarity as a difficulty/diversity proxy, then select examples before any expensive full-trace filtering.",
+          "model": "gpt-5.5",
+          "novelty_comparison": "Directly tests whether pre-training-trajectory early-token loss can become an Enoch dataset-quality metric rather than relying on LLM judge curation.",
+          "novelty_score": 8.5,
+          "priority": "high",
+          "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+          "provider": "manual",
+          "provider_model": "exa+arxiv",
+          "required_evidence": [
+            "paper review",
+            "early-token scoring script or dry-run",
+            "selection manifest",
+            "random/diversity baseline comparison",
+            "token-budget accounting"
+          ],
+          "risk_notes": "Must guard against leakage and distinguish useful difficulty from noisy/unlearnable traces.",
+          "sandbox": "danger-full-access",
+          "source_ids": [
+            "frontier-ai-scout-exa-arxiv-20260628",
+            "linear-ALI-207",
+            "linear-ALI-208"
+          ],
+          "source_kind": "manual_note",
+          "source_records": [
+            {
+              "payload_json": {
+                "linear_children": [
+                  "ALI-207",
+                  "ALI-208"
+                ],
+                "linear_parent": "ALI-205",
+                "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+              },
+              "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+              "source_kind": "user_supplied",
+              "summary": "Scout identified early reasoning-token loss as a bridge between dataset quality scoring and post-training experiments.",
+              "title": "Exa/arXiv frontier AI scout shortlist",
+              "url": ""
+            }
+          ],
+          "source_urls": [
+            "https://arxiv.org/abs/2606.26797v1"
+          ],
+          "status": "generated",
+          "success_threshold": "Early-token selected data matches or beats random/diversity baselines on a held-out or proxy reasoning eval with substantially lower scoring token budget.",
+          "title": "Early-token reasoning quality scorer for post-training data curation"
+        },
+        "required_evidence": [
+          "paper review",
+          "early-token scoring script or dry-run",
+          "selection manifest",
+          "random/diversity baseline comparison",
+          "token-budget accounting"
+        ],
+        "risk_notes": "Must guard against leakage and distinguish useful difficulty from noisy/unlearnable traces.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 21.25,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 18.7,
+          "feasibility_weighted": 13.6,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 2.0,
+          "novelty_weighted": 22.1,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "frontier-ai-scout-exa-arxiv-20260628",
+          "linear-ALI-207",
+          "linear-ALI-208"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "payload_json": {
+              "linear_children": [
+                "ALI-207",
+                "ALI-208"
+              ],
+              "linear_parent": "ALI-205",
+              "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+            },
+            "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+            "source_kind": "user_supplied",
+            "summary": "Scout identified early reasoning-token loss as a bridge between dataset quality scoring and post-training experiments.",
+            "title": "Exa/arXiv frontier AI scout shortlist",
+            "url": ""
+          }
+        ],
+        "source_urls": [
+          "https://arxiv.org/abs/2606.26797v1"
+        ],
+        "status": "admitted",
+        "success_threshold": "Early-token selected data matches or beats random/diversity baselines on a held-out or proxy reasoning eval with substantially lower scoring token budget.",
+        "title": "Early-token reasoning quality scorer for post-training data curation",
+        "total_score": 77.65
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 21.25,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 18.7,
+        "feasibility_weighted": 13.6,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 2.0,
+        "novelty_weighted": 22.1,
+        "review_threshold": 58.0,
+        "total_score": 77.65
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 78.5 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "adg-answer-divergence-data-selection-20260628",
+      "candidate": {
+        "accessibility_delta": "Gives local researchers a practical data-selection method that may reduce the amount of instruction data needed for useful fine-tuning.",
+        "accessibility_score": 8.5,
+        "baseline_to_beat": "Random selection, simple instruction embedding diversity, and any existing one-reference quality score under the same sample budget.",
+        "candidate_id": "adg-answer-divergence-data-selection-20260628",
+        "category": "dataset-quality",
+        "dedupe_key": "research:dataset-quality-answer-divergence-instruction-data-selection-benchmark-generate-multiple-high-temperature-responses-per:f94f58349830",
+        "description": "Run or adapt the ADG pipeline as a concrete dataset-quality benchmark for Enoch's generalized-understanding scorer.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "adg_source_note.md",
+          "answer_divergence_scores.jsonl",
+          "subset_manifests.json",
+          "proxy_eval_metrics.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.5,
+        "feasibility_score": 8.5,
+        "generated_by": "hermes.manual_research_facility_intake",
+        "generation_mode": "fresh_grounded",
+        "hypothesis": "Instructions whose sampled answers occupy diverse multi-modal regions in embedding space are higher-value post-training examples than examples selected by one-reference quality or simple embedding diversity alone.",
+        "implementation": "Clone/inspect WisdomShell/ADG, run scoring on two small instruction pools or fixtures, select subsets using ADG/random/embedding-diversity, and compare downstream proxy metrics.",
+        "kill_condition": "Stop if response generation cost is too high for the budget, if embeddings collapse to topical clusters only, or if ADG score does not correlate with proxy eval outcomes.",
+        "likely_failure_modes": [
+          "answer divergence rewards ambiguity instead of learnability",
+          "multi-sample generation is too expensive",
+          "small fixture eval is underpowered",
+          "code assumptions do not fit local Qwen/Llama paths"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Generate multiple high-temperature responses per instruction, embed responses, score dispersion magnitude plus shape anisotropy, then perform bin-wise selection to preserve semantic coverage.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "More runnable than broad dataset-quality theory because ADG has public code and a specific answer-geometry metric to test.",
+        "novelty_score": 8.5,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "high",
+        "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+        "provider": "manual",
+        "provider_model": "exa+arxiv",
+        "raw_candidate_json": {
+          "accessibility_delta": "Gives local researchers a practical data-selection method that may reduce the amount of instruction data needed for useful fine-tuning.",
+          "accessibility_score": 8.5,
+          "baseline_to_beat": "Random selection, simple instruction embedding diversity, and any existing one-reference quality score under the same sample budget.",
+          "candidate_id": "adg-answer-divergence-data-selection-20260628",
+          "category": "dataset-quality",
+          "description": "Run or adapt the ADG pipeline as a concrete dataset-quality benchmark for Enoch's generalized-understanding scorer.",
+          "estimated_runtime_class": "medium",
+          "expected_artifacts": [
+            "adg_source_note.md",
+            "answer_divergence_scores.jsonl",
+            "subset_manifests.json",
+            "proxy_eval_metrics.json",
+            ".enoch/project_decision.json"
+          ],
+          "expected_token_budget": "medium",
+          "falsifiability_score": 8.5,
+          "feasibility_score": 8.5,
+          "generated_by": "hermes.manual_research_facility_intake",
+          "generation_mode": "fresh_grounded",
+          "hypothesis": "Instructions whose sampled answers occupy diverse multi-modal regions in embedding space are higher-value post-training examples than examples selected by one-reference quality or simple embedding diversity alone.",
+          "implementation": "Clone/inspect WisdomShell/ADG, run scoring on two small instruction pools or fixtures, select subsets using ADG/random/embedding-diversity, and compare downstream proxy metrics.",
+          "kill_condition": "Stop if response generation cost is too high for the budget, if embeddings collapse to topical clusters only, or if ADG score does not correlate with proxy eval outcomes.",
+          "likely_failure_modes": [
+            "answer divergence rewards ambiguity instead of learnability",
+            "multi-sample generation is too expensive",
+            "small fixture eval is underpowered",
+            "code assumptions do not fit local Qwen/Llama paths"
+          ],
+          "machine_target": "gb10",
+          "mechanism": "Generate multiple high-temperature responses per instruction, embed responses, score dispersion magnitude plus shape anisotropy, then perform bin-wise selection to preserve semantic coverage.",
+          "model": "gpt-5.5",
+          "novelty_comparison": "More runnable than broad dataset-quality theory because ADG has public code and a specific answer-geometry metric to test.",
+          "novelty_score": 8.5,
+          "priority": "high",
+          "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+          "provider": "manual",
+          "provider_model": "exa+arxiv",
+          "required_evidence": [
+            "ADG source/code review",
+            "two fixture pools",
+            "ADG vs random vs embedding-diversity comparison",
+            "cost/token accounting",
+            "anti-gaming examples"
+          ],
+          "risk_notes": "Need anti-gaming checks: high answer divergence can indicate ambiguity, contradiction, or poor prompt design rather than high training value.",
+          "sandbox": "danger-full-access",
+          "source_ids": [
+            "frontier-ai-scout-exa-arxiv-20260628",
+            "linear-ALI-208"
+          ],
+          "source_kind": "manual_note",
+          "source_records": [
+            {
+              "payload_json": {
+                "linear_child": "ALI-208",
+                "linear_parent": "ALI-205",
+                "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+              },
+              "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+              "source_kind": "user_supplied",
+              "summary": "Scout identified ADG as the strongest runnable dataset-quality injection candidate because public code exists.",
+              "title": "Exa/arXiv frontier AI scout shortlist",
+              "url": ""
+            }
+          ],
+          "source_urls": [
+            "https://arxiv.org/abs/2604.10448v1",
+            "https://github.com/WisdomShell/ADG"
+          ],
+          "status": "generated",
+          "success_threshold": "ADG-selected subset outperforms or provides clearer coverage/failure evidence than baselines on at least one small reasoning, knowledge, or coding eval; otherwise produce a falsifying report.",
+          "title": "Answer-divergence instruction data selection benchmark"
+        },
+        "required_evidence": [
+          "ADG source/code review",
+          "two fixture pools",
+          "ADG vs random vs embedding-diversity comparison",
+          "cost/token accounting",
+          "anti-gaming examples"
+        ],
+        "risk_notes": "Need anti-gaming checks: high answer divergence can indicate ambiguity, contradiction, or poor prompt design rather than high training value.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 21.25,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 18.7,
+          "feasibility_weighted": 14.45,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 2.0,
+          "novelty_weighted": 22.1,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "frontier-ai-scout-exa-arxiv-20260628",
+          "linear-ALI-208"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "payload_json": {
+              "linear_child": "ALI-208",
+              "linear_parent": "ALI-205",
+              "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+            },
+            "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+            "source_kind": "user_supplied",
+            "summary": "Scout identified ADG as the strongest runnable dataset-quality injection candidate because public code exists.",
+            "title": "Exa/arXiv frontier AI scout shortlist",
+            "url": ""
+          }
+        ],
+        "source_urls": [
+          "https://arxiv.org/abs/2604.10448v1",
+          "https://github.com/WisdomShell/ADG"
+        ],
+        "status": "admitted",
+        "success_threshold": "ADG-selected subset outperforms or provides clearer coverage/failure evidence than baselines on at least one small reasoning, knowledge, or coding eval; otherwise produce a falsifying report.",
+        "title": "Answer-divergence instruction data selection benchmark",
+        "total_score": 78.5
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 21.25,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 18.7,
+        "feasibility_weighted": 14.45,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 2.0,
+        "novelty_weighted": 22.1,
+        "review_threshold": 58.0,
+        "total_score": 78.5
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 73.55 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "curatorkit-auditable-curation-ledger-20260628",
+      "candidate": {
+        "accessibility_delta": "Improves local training reliability by making dataset curation decisions auditable without requiring expensive external curation services.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "A flat dataset manifest with only include/exclude flags and no per-sample provenance or rejection reason.",
+        "candidate_id": "curatorkit-auditable-curation-ledger-20260628",
+        "category": "dataset-quality-infrastructure",
+        "dedupe_key": "research:dataset-quality-infrastructure-auditable-post-training-curation-ledger-inspired-by-curatorkit-model-each-dataset:1af8784eee3b",
+        "description": "Prototype a minimal Enoch curation ledger/schema and fixture pipeline inspired by CuratorKIT rather than relying on opaque one-off dataset filters.",
+        "estimated_runtime_class": "small",
+        "expected_artifacts": [
+          "curation_ledger_schema.json",
+          "fixture_curation_events.jsonl",
+          "rejection_report.md",
+          "training_export_manifest.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "small",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 8.5,
+        "generated_by": "hermes.manual_research_facility_intake",
+        "generation_mode": "fresh_grounded",
+        "hypothesis": "Enoch post-training experiments will be more reproducible and debuggable if every sample selection, rejection, hygiene check, synthetic generation step, and export decision is captured in an append-only curation ledger.",
+        "implementation": "Review CuratorKIT, define a small JSON/SQLite/Postgres fixture schema, run two dataset fixture slices through hygiene and quality gates, and produce structured rejection/export reports usable by ALI-208 scorers.",
+        "kill_condition": "Stop if the schema becomes too broad for a small fixture, if gates cannot be made deterministic, or if the ledger does not improve reproducibility/debuggability of ALI-208/ALI-207 experiments.",
+        "likely_failure_modes": [
+          "scope creep into a full data platform",
+          "quality gates are subjective rather than deterministic",
+          "ledger overhead exceeds value for small experiments",
+          "exports do not match training stack needs"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Model each dataset item as a provenance chain with source, hygiene, quality-gate, hallucination/grounding, rejection reason, recovery, and export compatibility events before training.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Infrastructure candidate rather than a paper replication: it tests whether provenance-first curation improves Enoch's own dataset-quality workflow.",
+        "novelty_score": 7.5,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "medium-high",
+        "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+        "provider": "manual",
+        "provider_model": "exa+arxiv",
+        "raw_candidate_json": {
+          "accessibility_delta": "Improves local training reliability by making dataset curation decisions auditable without requiring expensive external curation services.",
+          "accessibility_score": 8.0,
+          "baseline_to_beat": "A flat dataset manifest with only include/exclude flags and no per-sample provenance or rejection reason.",
+          "candidate_id": "curatorkit-auditable-curation-ledger-20260628",
+          "category": "dataset-quality-infrastructure",
+          "description": "Prototype a minimal Enoch curation ledger/schema and fixture pipeline inspired by CuratorKIT rather than relying on opaque one-off dataset filters.",
+          "estimated_runtime_class": "small",
+          "expected_artifacts": [
+            "curation_ledger_schema.json",
+            "fixture_curation_events.jsonl",
+            "rejection_report.md",
+            "training_export_manifest.json",
+            ".enoch/project_decision.json"
+          ],
+          "expected_token_budget": "small",
+          "falsifiability_score": 8.0,
+          "feasibility_score": 8.5,
+          "generated_by": "hermes.manual_research_facility_intake",
+          "generation_mode": "fresh_grounded",
+          "hypothesis": "Enoch post-training experiments will be more reproducible and debuggable if every sample selection, rejection, hygiene check, synthetic generation step, and export decision is captured in an append-only curation ledger.",
+          "implementation": "Review CuratorKIT, define a small JSON/SQLite/Postgres fixture schema, run two dataset fixture slices through hygiene and quality gates, and produce structured rejection/export reports usable by ALI-208 scorers.",
+          "kill_condition": "Stop if the schema becomes too broad for a small fixture, if gates cannot be made deterministic, or if the ledger does not improve reproducibility/debuggability of ALI-208/ALI-207 experiments.",
+          "likely_failure_modes": [
+            "scope creep into a full data platform",
+            "quality gates are subjective rather than deterministic",
+            "ledger overhead exceeds value for small experiments",
+            "exports do not match training stack needs"
+          ],
+          "machine_target": "gb10",
+          "mechanism": "Model each dataset item as a provenance chain with source, hygiene, quality-gate, hallucination/grounding, rejection reason, recovery, and export compatibility events before training.",
+          "model": "gpt-5.5",
+          "novelty_comparison": "Infrastructure candidate rather than a paper replication: it tests whether provenance-first curation improves Enoch's own dataset-quality workflow.",
+          "novelty_score": 7.5,
+          "priority": "medium-high",
+          "prompt_version": "frontier_ai_scout_exa_arxiv_20260628",
+          "provider": "manual",
+          "provider_model": "exa+arxiv",
+          "required_evidence": [
+            "CuratorKIT paper review",
+            "schema or fixture implementation",
+            "per-sample provenance examples",
+            "structured rejection reasons",
+            "export manifest dry-run"
+          ],
+          "risk_notes": "Keep v0 intentionally tiny; do not build a broad data platform before proving the ledger helps one downstream scorer.",
+          "sandbox": "danger-full-access",
+          "source_ids": [
+            "frontier-ai-scout-exa-arxiv-20260628",
+            "linear-ALI-207",
+            "linear-ALI-208"
+          ],
+          "source_kind": "manual_note",
+          "source_records": [
+            {
+              "payload_json": {
+                "linear_children": [
+                  "ALI-207",
+                  "ALI-208"
+                ],
+                "linear_parent": "ALI-205",
+                "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+              },
+              "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+              "source_kind": "user_supplied",
+              "summary": "Scout identified CuratorKIT-style provenance as infrastructure for Enoch dataset-quality and post-training experiments.",
+              "title": "Exa/arXiv frontier AI scout shortlist",
+              "url": ""
+            }
+          ],
+          "source_urls": [
+            "https://arxiv.org/abs/2606.21631v1"
+          ],
+          "status": "generated",
+          "success_threshold": "The prototype records deterministic per-sample provenance and rejection reasons for fixture data and can export a training-ready manifest consumed by a downstream scorer or dry-run trainer.",
+          "title": "Auditable post-training curation ledger inspired by CuratorKIT"
+        },
+        "required_evidence": [
+          "CuratorKIT paper review",
+          "schema or fixture implementation",
+          "per-sample provenance examples",
+          "structured rejection reasons",
+          "export manifest dry-run"
+        ],
+        "risk_notes": "Keep v0 intentionally tiny; do not build a broad data platform before proving the ledger helps one downstream scorer.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 14.45,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 2.0,
+          "novelty_weighted": 19.5,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "frontier-ai-scout-exa-arxiv-20260628",
+          "linear-ALI-207",
+          "linear-ALI-208"
+        ],
+        "source_kind": "manual_note",
+        "source_records": [
+          {
+            "payload_json": {
+              "linear_children": [
+                "ALI-207",
+                "ALI-208"
+              ],
+              "linear_parent": "ALI-205",
+              "source_artifact": "artifacts/research-facility/frontier-ai-scout-exa-arxiv-2026-06-28.md"
+            },
+            "source_id": "frontier-ai-scout-exa-arxiv-20260628",
+            "source_kind": "user_supplied",
+            "summary": "Scout identified CuratorKIT-style provenance as infrastructure for Enoch dataset-quality and post-training experiments.",
+            "title": "Exa/arXiv frontier AI scout shortlist",
+            "url": ""
+          }
+        ],
+        "source_urls": [
+          "https://arxiv.org/abs/2606.21631v1"
+        ],
+        "status": "admitted",
+        "success_threshold": "The prototype records deterministic per-sample provenance and rejection reasons for fixture data and can export a training-ready manifest consumed by a downstream scorer or dry-run trainer.",
+        "title": "Auditable post-training curation ledger inspired by CuratorKIT",
+        "total_score": 73.55
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 14.45,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 2.0,
+        "novelty_weighted": 19.5,
+        "review_threshold": 58.0,
+        "total_score": 73.55
+      },
+      "warnings": []
+    }
+  ],
+  "rejected_count": 0
+}

@@ -92,7 +92,7 @@ def _get_json(base_url: str, path: str, token: str, *, timeout: int = 30) -> dic
         req,
         timeout=timeout,
         field_name="deploy/enoch_corpus_import_autopilot.py url",
-        allow_private=False,
+        allow_private=True,
     ) as resp:
         return json.loads(resp.read().decode("utf-8"))
 

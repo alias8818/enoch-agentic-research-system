@@ -6,6 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 from subprocess import CalledProcessError, CompletedProcess
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -39,6 +40,51 @@ def test_base_url_allows_explicit_environment_override(monkeypatch):
     assert autopilot._base_url({"listen_host": "0.0.0.0", "listen_port": 8787}) == (
         "https://control.example"
     )
+
+
+def test_get_json_allows_loopback_control_plane_status_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return b'{"flags":{"queue_paused":false}}'
+
+    calls = []
+
+    def fake_urlopen_validated(
+        req: Any, *, timeout: int, field_name: str, allow_private: bool
+    ) -> FakeResponse:
+        calls.append(
+            {
+                "url": req.full_url,
+                "timeout": timeout,
+                "field_name": field_name,
+                "allow_private": allow_private,
+            }
+        )
+        return FakeResponse()
+
+    monkeypatch.setattr(autopilot, "urlopen_validated", fake_urlopen_validated)
+
+    assert autopilot._get_json(
+        "http://127.0.0.1:8787", "/control/api/status", "token"
+    ) == {"flags": {"queue_paused": False}}
+    assert calls == [
+        {
+            "url": "http://127.0.0.1:8787/control/api/status",
+            "timeout": 30,
+            "field_name": "deploy/enoch_corpus_import_autopilot.py url",
+            "allow_private": True,
+        }
+    ]
 
 
 def test_corpus_import_autopilot_skips_before_repo_work_during_control_hold(

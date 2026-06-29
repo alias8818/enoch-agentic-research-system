@@ -920,6 +920,19 @@ This is a long sentence that mentions evidence and was validated in testing with
         # Should not include the header or non-signal
         self.assertNotIn("header", joined)
 
+    def test_sentence_claims_unwraps_full_document_markdown_fence(self) -> None:
+        md = """
+```markdown
+# Generated Paper
+
+The result showed 500/500 material drift detection and improved localization versus the output-only baseline.
+```
+"""
+        claims = _sentence_claims(md)
+        joined = " ".join(claims).lower()
+        self.assertIn("500/500", joined)
+        self.assertIn("baseline", joined)
+
 
 if __name__ == "__main__":
     unittest.main()

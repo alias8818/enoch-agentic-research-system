@@ -1,0 +1,532 @@
+{
+  "admitted_count": 3,
+  "candidate_count": 3,
+  "history_count": 0,
+  "input": "artifacts/research-facility/frontier-ai-research-tracks-2026-06-28.candidates.json",
+  "needs_review_count": 0,
+  "ok": true,
+  "plans": [
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 75.55 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "frontier-dspark-deepspec-gb10-scheduler-20260628",
+      "candidate": {
+        "accessibility_delta": "If successful, local/GB10 inference becomes faster per watt and more useful for home research infrastructure without requiring larger hosted models.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Published/static speculative-decoding schedule or local backend default measured by accepted tokens per cycle, end-to-end decode tok/s, and p50/p95 latency at concurrency 1/N.",
+        "candidate_id": "frontier-dspark-deepspec-gb10-scheduler-20260628",
+        "category": "inference-systems",
+        "dedupe_key": "research:inference-systems-dspark-deepspec-gb10-speculative-decoding-scheduler-experiment-track-recent-acceptance-by-position:4f548105f5b7",
+        "description": "Review DeepSpec/DSpark source material and run the smallest credible local or GB10 baseline to measure where speculative decoding time is actually spent before changing scheduler policy.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "source_note.md",
+          "spec_decode_metrics.json",
+          "scheduler_trace.jsonl",
+          "failure_cases.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.5,
+        "feasibility_score": 7.5,
+        "generated_by": "hermes.manual_research_facility_intake",
+        "generation_mode": "fresh_grounded",
+        "hypothesis": "Adaptive online verification scheduling for DSpark-style speculative decoding can beat static SPS(B)-style draft/verify curves on Enoch agentic workloads while preserving output correctness.",
+        "implementation": "Inspect DeepSpec paper/code, choose a small supported Qwen/Gemma or equivalent local model path, record baseline acceptance and latency curves, then test one adaptive scheduler policy against the static baseline.",
+        "kill_condition": "Stop escalation if the smallest supported model path cannot run reproducibly, if acceptance improvements do not translate to wall-clock throughput, or if GB10 bottlenecks are dominated by unrelated backend limitations.",
+        "likely_failure_modes": [
+          "DeepSpec dependencies or cache footprint too large",
+          "scheduler overhead erases acceptance gains",
+          "GB10 bottleneck is KV/cache movement rather than drafter math",
+          "agentic prompts have poor acceptance profiles"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Track recent acceptance-by-position, entropy/prompt class, backend load, and KV/cache pressure, then choose draft lengths and verification budget dynamically instead of using one static schedule.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Distinct from generic speculative decoding because the proposed unit is scheduler adaptation on Enoch/GB10 agentic workload traces with wall-clock falsification.",
+        "novelty_score": 8.5,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "high",
+        "prompt_version": "frontier_ai_research_tracks_20260628",
+        "provider": "manual",
+        "provider_model": "user_supplied",
+        "raw_candidate_json": {
+          "accessibility_delta": "If successful, local/GB10 inference becomes faster per watt and more useful for home research infrastructure without requiring larger hosted models.",
+          "accessibility_score": 8.0,
+          "baseline_to_beat": "Published/static speculative-decoding schedule or local backend default measured by accepted tokens per cycle, end-to-end decode tok/s, and p50/p95 latency at concurrency 1/N.",
+          "candidate_id": "frontier-dspark-deepspec-gb10-scheduler-20260628",
+          "category": "inference-systems",
+          "description": "Review DeepSpec/DSpark source material and run the smallest credible local or GB10 baseline to measure where speculative decoding time is actually spent before changing scheduler policy.",
+          "estimated_runtime_class": "medium",
+          "expected_artifacts": [
+            "source_note.md",
+            "spec_decode_metrics.json",
+            "scheduler_trace.jsonl",
+            "failure_cases.json",
+            ".enoch/project_decision.json"
+          ],
+          "expected_token_budget": "medium",
+          "falsifiability_score": 8.5,
+          "feasibility_score": 7.5,
+          "generated_by": "hermes.manual_research_facility_intake",
+          "generation_mode": "fresh_grounded",
+          "hypothesis": "Adaptive online verification scheduling for DSpark-style speculative decoding can beat static SPS(B)-style draft/verify curves on Enoch agentic workloads while preserving output correctness.",
+          "implementation": "Inspect DeepSpec paper/code, choose a small supported Qwen/Gemma or equivalent local model path, record baseline acceptance and latency curves, then test one adaptive scheduler policy against the static baseline.",
+          "kill_condition": "Stop escalation if the smallest supported model path cannot run reproducibly, if acceptance improvements do not translate to wall-clock throughput, or if GB10 bottlenecks are dominated by unrelated backend limitations.",
+          "likely_failure_modes": [
+            "DeepSpec dependencies or cache footprint too large",
+            "scheduler overhead erases acceptance gains",
+            "GB10 bottleneck is KV/cache movement rather than drafter math",
+            "agentic prompts have poor acceptance profiles"
+          ],
+          "machine_target": "gb10",
+          "mechanism": "Track recent acceptance-by-position, entropy/prompt class, backend load, and KV/cache pressure, then choose draft lengths and verification budget dynamically instead of using one static schedule.",
+          "model": "gpt-5.5",
+          "novelty_comparison": "Distinct from generic speculative decoding because the proposed unit is scheduler adaptation on Enoch/GB10 agentic workload traces with wall-clock falsification.",
+          "novelty_score": 8.5,
+          "priority": "high",
+          "prompt_version": "frontier_ai_research_tracks_20260628",
+          "provider": "manual",
+          "provider_model": "user_supplied",
+          "required_evidence": [
+            "DeepSpec/DSpark source review",
+            "baseline acceptance/latency curve",
+            "adaptive vs static scheduler comparison",
+            "hardware/storage/runtime notes checked against current-runtime-snapshot.md"
+          ],
+          "risk_notes": "Do not assume GB10 topology, storage, or backend availability without checking docs/current-runtime-snapshot.md first.",
+          "sandbox": "danger-full-access",
+          "source_ids": [
+            "user-frontier-ai-research-tracks-20260628",
+            "linear-ALI-206"
+          ],
+          "source_kind": "user_supplied",
+          "source_records": [
+            {
+              "payload_json": {
+                "linear_child": "ALI-206",
+                "linear_parent": "ALI-205"
+              },
+              "source_id": "user-frontier-ai-research-tracks-20260628",
+              "source_kind": "user_supplied",
+              "summary": "User-supplied research agenda captured into Enoch Research Facility intake rather than only Linear/docs.",
+              "title": "Jeremy frontier AI research intake: DSpark, post-training, dataset quality",
+              "url": ""
+            }
+          ],
+          "source_urls": [
+            "https://github.com/deepseek-ai/DeepSpec",
+            "https://raw.githubusercontent.com/deepseek-ai/DeepSpec/refs/heads/main/DSpark_paper.pdf"
+          ],
+          "status": "generated",
+          "success_threshold": "A reproducible harness reports baseline metrics and either shows at least a measurable accepted-token/sec or latency improvement for an adaptive policy, or falsifies the improvement with bottleneck evidence.",
+          "title": "DSpark/DeepSpec GB10 speculative-decoding scheduler experiment"
+        },
+        "required_evidence": [
+          "DeepSpec/DSpark source review",
+          "baseline acceptance/latency curve",
+          "adaptive vs static scheduler comparison",
+          "hardware/storage/runtime notes checked against current-runtime-snapshot.md"
+        ],
+        "risk_notes": "Do not assume GB10 topology, storage, or backend availability without checking docs/current-runtime-snapshot.md first.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 18.7,
+          "feasibility_weighted": 12.75,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 2.0,
+          "novelty_weighted": 22.1,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "user-frontier-ai-research-tracks-20260628",
+          "linear-ALI-206"
+        ],
+        "source_kind": "user_supplied",
+        "source_records": [
+          {
+            "payload_json": {
+              "linear_child": "ALI-206",
+              "linear_parent": "ALI-205"
+            },
+            "source_id": "user-frontier-ai-research-tracks-20260628",
+            "source_kind": "user_supplied",
+            "summary": "User-supplied research agenda captured into Enoch Research Facility intake rather than only Linear/docs.",
+            "title": "Jeremy frontier AI research intake: DSpark, post-training, dataset quality",
+            "url": ""
+          }
+        ],
+        "source_urls": [
+          "https://github.com/deepseek-ai/DeepSpec",
+          "https://raw.githubusercontent.com/deepseek-ai/DeepSpec/refs/heads/main/DSpark_paper.pdf"
+        ],
+        "status": "admitted",
+        "success_threshold": "A reproducible harness reports baseline metrics and either shows at least a measurable accepted-token/sec or latency improvement for an adaptive policy, or falsifies the improvement with bottleneck evidence.",
+        "title": "DSpark/DeepSpec GB10 speculative-decoding scheduler experiment",
+        "total_score": 75.55
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 18.7,
+        "feasibility_weighted": 12.75,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 2.0,
+        "novelty_weighted": 22.1,
+        "review_threshold": 58.0,
+        "total_score": 75.55
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 73.15 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "frontier-post-training-quality-adjusted-efficiency-20260628",
+      "candidate": {
+        "accessibility_delta": "Improves local-model usefulness by finding post-training recipes that extract more capability per parameter/update instead of requiring larger hosted models.",
+        "accessibility_score": 8.0,
+        "baseline_to_beat": "Naive small-data SFT or few-shot/no-finetune baseline under the same model, data volume, and evaluation harness.",
+        "candidate_id": "frontier-post-training-quality-adjusted-efficiency-20260628",
+        "category": "post-training",
+        "dedupe_key": "research:post-training-post-training-quality-adjusted-efficiency-experiment-matrix-hold-model-compute-budget-fixed:02aed344fb1b",
+        "description": "Turn the post-training/fine-tuning research idea into a bounded empirical matrix rather than a literature-only survey.",
+        "estimated_runtime_class": "medium",
+        "expected_artifacts": [
+          "literature_matrix.md",
+          "dataset_manifest.json",
+          "train_eval_plan.json",
+          "baseline_metrics.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "medium",
+        "falsifiability_score": 8.0,
+        "feasibility_score": 7.5,
+        "generated_by": "hermes.manual_research_facility_intake",
+        "generation_mode": "fresh_grounded",
+        "hypothesis": "Small, controlled post-training experiments can reveal capability-per-update gains from data difficulty, trace quality, selective updates, ordering, and replay that broad SFT/RL comparisons hide.",
+        "implementation": "Build a literature matrix, choose one low-cost base model and target capability suite, define leakage-controlled train/eval manifests, and run or dry-run a tiny baseline once the dataset-quality scorer has a v0 fixture.",
+        "kill_condition": "Stop if data provenance/leakage cannot be controlled, if training cost exceeds the bounded local budget, or if metrics cannot distinguish in-domain memorization from transfer.",
+        "likely_failure_modes": [
+          "dataset leakage masks real transfer",
+          "tiny run too underpowered",
+          "training stack cost exceeds local budget",
+          "method axis confounded by dataset quality"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Hold model and compute budget fixed while varying dataset selection, difficulty bands, diversity score, LoRA target modules, and replay/regularization, then compare in-domain and OOD transfer.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Distinct from generic fine-tuning exploration because the metric is capability per update under controlled data-quality and OOD transfer axes.",
+        "novelty_score": 8.0,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "high",
+        "prompt_version": "frontier_ai_research_tracks_20260628",
+        "provider": "manual",
+        "provider_model": "user_supplied",
+        "raw_candidate_json": {
+          "accessibility_delta": "Improves local-model usefulness by finding post-training recipes that extract more capability per parameter/update instead of requiring larger hosted models.",
+          "accessibility_score": 8.0,
+          "baseline_to_beat": "Naive small-data SFT or few-shot/no-finetune baseline under the same model, data volume, and evaluation harness.",
+          "candidate_id": "frontier-post-training-quality-adjusted-efficiency-20260628",
+          "category": "post-training",
+          "description": "Turn the post-training/fine-tuning research idea into a bounded empirical matrix rather than a literature-only survey.",
+          "estimated_runtime_class": "medium",
+          "expected_artifacts": [
+            "literature_matrix.md",
+            "dataset_manifest.json",
+            "train_eval_plan.json",
+            "baseline_metrics.json",
+            ".enoch/project_decision.json"
+          ],
+          "expected_token_budget": "medium",
+          "falsifiability_score": 8.0,
+          "feasibility_score": 7.5,
+          "generated_by": "hermes.manual_research_facility_intake",
+          "generation_mode": "fresh_grounded",
+          "hypothesis": "Small, controlled post-training experiments can reveal capability-per-update gains from data difficulty, trace quality, selective updates, ordering, and replay that broad SFT/RL comparisons hide.",
+          "implementation": "Build a literature matrix, choose one low-cost base model and target capability suite, define leakage-controlled train/eval manifests, and run or dry-run a tiny baseline once the dataset-quality scorer has a v0 fixture.",
+          "kill_condition": "Stop if data provenance/leakage cannot be controlled, if training cost exceeds the bounded local budget, or if metrics cannot distinguish in-domain memorization from transfer.",
+          "likely_failure_modes": [
+            "dataset leakage masks real transfer",
+            "tiny run too underpowered",
+            "training stack cost exceeds local budget",
+            "method axis confounded by dataset quality"
+          ],
+          "machine_target": "gb10",
+          "mechanism": "Hold model and compute budget fixed while varying dataset selection, difficulty bands, diversity score, LoRA target modules, and replay/regularization, then compare in-domain and OOD transfer.",
+          "model": "gpt-5.5",
+          "novelty_comparison": "Distinct from generic fine-tuning exploration because the metric is capability per update under controlled data-quality and OOD transfer axes.",
+          "novelty_score": 8.0,
+          "priority": "high",
+          "prompt_version": "frontier_ai_research_tracks_20260628",
+          "provider": "manual",
+          "provider_model": "user_supplied",
+          "required_evidence": [
+            "paper/method matrix",
+            "held-out and OOD eval definition",
+            "checkpoint provenance",
+            "cost/time cap",
+            "failure and regression examples"
+          ],
+          "risk_notes": "Sequence after the dataset-quality scorer v0 so the data-selection lens is measurable rather than manual intuition only.",
+          "sandbox": "danger-full-access",
+          "source_ids": [
+            "user-frontier-ai-research-tracks-20260628",
+            "linear-ALI-207"
+          ],
+          "source_kind": "user_supplied",
+          "source_records": [
+            {
+              "payload_json": {
+                "linear_child": "ALI-207",
+                "linear_parent": "ALI-205"
+              },
+              "source_id": "user-frontier-ai-research-tracks-20260628",
+              "source_kind": "user_supplied",
+              "summary": "User-supplied research agenda captured into Enoch Research Facility intake rather than only Linear/docs.",
+              "title": "Jeremy frontier AI research intake: DSpark, post-training, dataset quality",
+              "url": ""
+            }
+          ],
+          "source_urls": [],
+          "status": "generated",
+          "success_threshold": "At least one controlled axis produces a measurable OOD or held-out improvement over naive SFT, or the run produces a falsifying matrix identifying which axis was not useful under the fixed budget.",
+          "title": "Post-training quality-adjusted efficiency experiment matrix"
+        },
+        "required_evidence": [
+          "paper/method matrix",
+          "held-out and OOD eval definition",
+          "checkpoint provenance",
+          "cost/time cap",
+          "failure and regression examples"
+        ],
+        "risk_notes": "Sequence after the dataset-quality scorer v0 so the data-selection lens is measurable rather than manual intuition only.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 20.0,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 17.6,
+          "feasibility_weighted": 12.75,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 2.0,
+          "novelty_weighted": 20.8,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "user-frontier-ai-research-tracks-20260628",
+          "linear-ALI-207"
+        ],
+        "source_kind": "user_supplied",
+        "source_records": [
+          {
+            "payload_json": {
+              "linear_child": "ALI-207",
+              "linear_parent": "ALI-205"
+            },
+            "source_id": "user-frontier-ai-research-tracks-20260628",
+            "source_kind": "user_supplied",
+            "summary": "User-supplied research agenda captured into Enoch Research Facility intake rather than only Linear/docs.",
+            "title": "Jeremy frontier AI research intake: DSpark, post-training, dataset quality",
+            "url": ""
+          }
+        ],
+        "source_urls": [],
+        "status": "admitted",
+        "success_threshold": "At least one controlled axis produces a measurable OOD or held-out improvement over naive SFT, or the run produces a falsifying matrix identifying which axis was not useful under the fixed budget.",
+        "title": "Post-training quality-adjusted efficiency experiment matrix",
+        "total_score": 73.15
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 20.0,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 17.6,
+        "feasibility_weighted": 12.75,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 2.0,
+        "novelty_weighted": 20.8,
+        "review_threshold": 58.0,
+        "total_score": 73.15
+      },
+      "warnings": []
+    },
+    {
+      "admission_decision": "admitted",
+      "admission_reason": "score 77.65 >= admit threshold 72.0 with required research contract present",
+      "admitted_idea_id": "frontier-dataset-quality-generalized-understanding-benchmark-20260628",
+      "candidate": {
+        "accessibility_delta": "Helps local researchers train smaller models more efficiently by selecting higher-signal data instead of chasing raw data scale.",
+        "accessibility_score": 8.5,
+        "baseline_to_beat": "Size-only, random-slice, or simple cleanliness/dedup heuristics for choosing training data.",
+        "candidate_id": "frontier-dataset-quality-generalized-understanding-benchmark-20260628",
+        "category": "dataset-quality",
+        "dedupe_key": "research:dataset-quality-dataset-quality-benchmark-generalized-understanding-beyond-scale-score-datasets-before-training-across:8c5d55c63a88",
+        "description": "Prototype a dataset-quality scorer that measures generalized learning signal rather than only corpus size or superficial cleanliness.",
+        "estimated_runtime_class": "small",
+        "expected_artifacts": [
+          "dataset_quality_schema.json",
+          "fixture_score_report.md",
+          "dataset_scores.json",
+          "transfer_proxy_metrics.json",
+          ".enoch/project_decision.json"
+        ],
+        "expected_token_budget": "small",
+        "falsifiability_score": 8.5,
+        "feasibility_score": 8.0,
+        "generated_by": "hermes.manual_research_facility_intake",
+        "generation_mode": "fresh_grounded",
+        "hypothesis": "Dataset diversity, concept coverage, compositional richness, difficulty balance, and transfer proxy scores can predict when a smaller model can approach a larger model with better data.",
+        "implementation": "Define a v0 metric schema, run it on two or more contrasting fixture datasets, generate per-axis reports, then correlate at least one score with a tiny downstream fine-tune/eval or proxy evaluation.",
+        "kill_condition": "Stop or redesign if the metrics are dominated by noise, can be gamed by diverse-but-wrong text, or do not correlate with any downstream/proxy outcome on fixture slices.",
+        "likely_failure_modes": [
+          "semantic diversity rewards noise",
+          "embedding/gradient proxies too expensive",
+          "fixture datasets too small to correlate",
+          "anti-gaming checks under-specified"
+        ],
+        "machine_target": "gb10",
+        "mechanism": "Score datasets before training across lexical entropy, semantic cluster richness, concept/relation graph density, compositional held-out coverage, gradient-space diversity, difficulty bands, redundancy, and downstream transfer proxy.",
+        "model": "gpt-5.5",
+        "novelty_comparison": "Distinct from model-output benchmarks because it scores training data learnability before training and checks against transfer outcomes.",
+        "novelty_score": 8.5,
+        "parent_project_id": "",
+        "parent_run_id": "",
+        "priority": "high",
+        "prompt_version": "frontier_ai_research_tracks_20260628",
+        "provider": "manual",
+        "provider_model": "user_supplied",
+        "raw_candidate_json": {
+          "accessibility_delta": "Helps local researchers train smaller models more efficiently by selecting higher-signal data instead of chasing raw data scale.",
+          "accessibility_score": 8.5,
+          "baseline_to_beat": "Size-only, random-slice, or simple cleanliness/dedup heuristics for choosing training data.",
+          "candidate_id": "frontier-dataset-quality-generalized-understanding-benchmark-20260628",
+          "category": "dataset-quality",
+          "description": "Prototype a dataset-quality scorer that measures generalized learning signal rather than only corpus size or superficial cleanliness.",
+          "estimated_runtime_class": "small",
+          "expected_artifacts": [
+            "dataset_quality_schema.json",
+            "fixture_score_report.md",
+            "dataset_scores.json",
+            "transfer_proxy_metrics.json",
+            ".enoch/project_decision.json"
+          ],
+          "expected_token_budget": "small",
+          "falsifiability_score": 8.5,
+          "feasibility_score": 8.0,
+          "generated_by": "hermes.manual_research_facility_intake",
+          "generation_mode": "fresh_grounded",
+          "hypothesis": "Dataset diversity, concept coverage, compositional richness, difficulty balance, and transfer proxy scores can predict when a smaller model can approach a larger model with better data.",
+          "implementation": "Define a v0 metric schema, run it on two or more contrasting fixture datasets, generate per-axis reports, then correlate at least one score with a tiny downstream fine-tune/eval or proxy evaluation.",
+          "kill_condition": "Stop or redesign if the metrics are dominated by noise, can be gamed by diverse-but-wrong text, or do not correlate with any downstream/proxy outcome on fixture slices.",
+          "likely_failure_modes": [
+            "semantic diversity rewards noise",
+            "embedding/gradient proxies too expensive",
+            "fixture datasets too small to correlate",
+            "anti-gaming checks under-specified"
+          ],
+          "machine_target": "gb10",
+          "mechanism": "Score datasets before training across lexical entropy, semantic cluster richness, concept/relation graph density, compositional held-out coverage, gradient-space diversity, difficulty bands, redundancy, and downstream transfer proxy.",
+          "model": "gpt-5.5",
+          "novelty_comparison": "Distinct from model-output benchmarks because it scores training data learnability before training and checks against transfer outcomes.",
+          "novelty_score": 8.5,
+          "priority": "high",
+          "prompt_version": "frontier_ai_research_tracks_20260628",
+          "provider": "manual",
+          "provider_model": "user_supplied",
+          "required_evidence": [
+            "metric definitions and anti-gaming checks",
+            "two contrasting dataset fixtures",
+            "deterministic scorer output",
+            "downstream or proxy correlation check"
+          ],
+          "risk_notes": "Anti-gaming checks are mandatory: high diversity without correctness, consistency, or learnability should be penalized.",
+          "sandbox": "danger-full-access",
+          "source_ids": [
+            "user-frontier-ai-research-tracks-20260628",
+            "linear-ALI-208"
+          ],
+          "source_kind": "user_supplied",
+          "source_records": [
+            {
+              "payload_json": {
+                "linear_child": "ALI-208",
+                "linear_parent": "ALI-205"
+              },
+              "source_id": "user-frontier-ai-research-tracks-20260628",
+              "source_kind": "user_supplied",
+              "summary": "User-supplied research agenda captured into Enoch Research Facility intake rather than only Linear/docs.",
+              "title": "Jeremy frontier AI research intake: DSpark, post-training, dataset quality",
+              "url": ""
+            }
+          ],
+          "source_urls": [],
+          "status": "generated",
+          "success_threshold": "A deterministic scorer produces stable per-axis reports and at least one score axis correlates with held-out/OOD improvement or clearly falsifies the proxy under the fixture setup.",
+          "title": "Dataset quality benchmark for generalized understanding beyond scale"
+        },
+        "required_evidence": [
+          "metric definitions and anti-gaming checks",
+          "two contrasting dataset fixtures",
+          "deterministic scorer output",
+          "downstream or proxy correlation check"
+        ],
+        "risk_notes": "Anti-gaming checks are mandatory: high diversity without correctness, consistency, or learnability should be penalized.",
+        "sandbox": "danger-full-access",
+        "score_breakdown": {
+          "accessibility_weighted": 21.25,
+          "admit_threshold": 72.0,
+          "falsifiability_weighted": 18.7,
+          "feasibility_weighted": 13.6,
+          "hard_failure_penalty": 0.0,
+          "mode_bonus": 2.0,
+          "novelty_weighted": 22.1,
+          "review_threshold": 58.0
+        },
+        "similar_prior_projects": [],
+        "source_ids": [
+          "user-frontier-ai-research-tracks-20260628",
+          "linear-ALI-208"
+        ],
+        "source_kind": "user_supplied",
+        "source_records": [
+          {
+            "payload_json": {
+              "linear_child": "ALI-208",
+              "linear_parent": "ALI-205"
+            },
+            "source_id": "user-frontier-ai-research-tracks-20260628",
+            "source_kind": "user_supplied",
+            "summary": "User-supplied research agenda captured into Enoch Research Facility intake rather than only Linear/docs.",
+            "title": "Jeremy frontier AI research intake: DSpark, post-training, dataset quality",
+            "url": ""
+          }
+        ],
+        "source_urls": [],
+        "status": "admitted",
+        "success_threshold": "A deterministic scorer produces stable per-axis reports and at least one score axis correlates with held-out/OOD improvement or clearly falsifies the proxy under the fixture setup.",
+        "title": "Dataset quality benchmark for generalized understanding beyond scale",
+        "total_score": 77.65
+      },
+      "hard_failures": [],
+      "score_breakdown": {
+        "accessibility_weighted": 21.25,
+        "admit_threshold": 72.0,
+        "falsifiability_weighted": 18.7,
+        "feasibility_weighted": 13.6,
+        "hard_failure_penalty": 0.0,
+        "mode_bonus": 2.0,
+        "novelty_weighted": 22.1,
+        "review_threshold": 58.0,
+        "total_score": 77.65
+      },
+      "warnings": []
+    }
+  ],
+  "rejected_count": 0
+}

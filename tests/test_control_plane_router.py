@@ -13214,6 +13214,89 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 0,
             )
 
+    def test_draft_next_honors_bounded_row_gate_after_synced_local_negative_artifact(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = Path(tmp) / "projects" / "idea-row-gate-paper"
+            (project_dir / ".enoch").mkdir(parents=True)
+            (project_dir / "run_notes.md").write_text(
+                "Useful bounded signal; local artifact lacks the paper-ready row gate.\n",
+                encoding="utf-8",
+            )
+            (project_dir / ".enoch" / "project_decision.json").write_text(
+                json.dumps(
+                    {
+                        "project_decision": "finalize_negative",
+                        "research_outcome": "useful_signal",
+                        "hypothesis_status": "supported",
+                        "evidence_strength": "moderate",
+                        "bounded_paper_ready": False,
+                        "claim_scope": "bounded row gate claim",
+                        "scale_limits": "synthetic local test only",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = _client_with_config(_live_config(tmp))
+            headers = {"Authorization": f"Bearer {TOKEN}"}
+            client.post(
+                "/control/import/legacy-snapshot",
+                headers=headers,
+                json={
+                    "idempotency_key": "row-gate-paper-project-import",
+                    "queue_rows": [
+                        {
+                            "project_id": "idea-row-gate-paper",
+                            "project_name": "Row Gate Paper",
+                            "project_dir": "idea-row-gate-paper",
+                            "status": "completed",
+                            "last_run_state": "wake_ready",
+                            "next_action_hint": "draft_paper_or_select_next_project",
+                            "current_run_id": "run-row-gate-paper",
+                        }
+                    ],
+                },
+            )
+            candidate = {
+                "project_id": "idea-row-gate-paper",
+                "project_name": "Row Gate Paper",
+                "project_dir": str(project_dir),
+                "status": "completed",
+                "last_run_state": "wake_ready",
+                "next_action_hint": "draft_paper_or_select_next_project",
+                "current_run_id": "run-row-gate-paper",
+                "research_outcome": "useful_signal",
+                "hypothesis_status": "supported",
+                "evidence_strength": "moderate",
+                "bounded_paper_ready": True,
+                "claim_scope": "bounded row gate claim",
+                "scale_limits": "synthetic local test only",
+            }
+
+            with (
+                patch.object(ControlPlaneStore, "queue_rows", return_value=[candidate]),
+                patch.object(ControlPlaneStore, "paper_rows", return_value=[]),
+            ):
+                draft = client.post(
+                    "/control/papers/draft-next",
+                    headers=headers,
+                    json={
+                        "force": True,
+                        "override_hold_action": "draft-next-while-held",
+                    },
+                )
+
+            self.assertEqual(draft.status_code, 200)
+            body = draft.json()
+            self.assertEqual(body["action"], "drafted")
+            decision_gate = body["candidate"]["writer"]["decision_gate"]
+            self.assertEqual(decision_gate["source"], "control_plane_row")
+            self.assertEqual(
+                decision_gate["local_decision_gate"]["reason"],
+                "project decision is not positive",
+            )
+
     def test_paper_draft_writer_failure_does_not_mutate_project_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             client = _client(tmp)

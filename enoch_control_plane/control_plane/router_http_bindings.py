@@ -6073,17 +6073,25 @@ def _register_control_plane_operator_legacy_routes(
                 str(evidence.get("artifact_root") or "")
             )
             if not post_sync_decision_gate.get("eligible"):
-                skipped.append(
-                    {
-                        "project_id": candidate.get("project_id"),
-                        "run_id": candidate.get("current_run_id"),
-                        "reason": "project decision is not paper-ready after evidence sync",
-                        "decision_gate": post_sync_decision_gate,
-                        "artifact_root": evidence.get("artifact_root"),
-                        "evidence_sync": evidence.get("evidence_sync"),
+                local_decision_gate = post_sync_decision_gate
+                row_gate = bounded_useful_signal_row_gate(candidate)
+                if row_gate.get("eligible"):
+                    post_sync_decision_gate = {
+                        **row_gate,
+                        "local_decision_gate": local_decision_gate,
                     }
-                )
-                continue
+                else:
+                    skipped.append(
+                        {
+                            "project_id": candidate.get("project_id"),
+                            "run_id": candidate.get("current_run_id"),
+                            "reason": "project decision is not paper-ready after evidence sync",
+                            "decision_gate": post_sync_decision_gate,
+                            "artifact_root": evidence.get("artifact_root"),
+                            "evidence_sync": evidence.get("evidence_sync"),
+                        }
+                    )
+                    continue
             paper = _paper_record_from_candidate(candidate)
             candidate_for_write = {
                 **candidate,

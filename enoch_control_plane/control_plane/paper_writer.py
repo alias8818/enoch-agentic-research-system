@@ -594,9 +594,16 @@ def _is_atx_heading_line(line: str) -> bool:
 
 def _markdown_body_without_fences_and_headers(markdown: str) -> str:
     """Drop fenced code blocks and ATX headings without backtracking-prone regex."""
+    lines = markdown.splitlines()
+    non_empty = [idx for idx, line in enumerate(lines) if line.strip()]
+    if len(non_empty) >= 2:
+        first = non_empty[0]
+        last = non_empty[-1]
+        if lines[first].strip().startswith("```") and lines[last].strip() == "```":
+            lines = lines[first + 1 : last]
     kept: list[str] = []
     in_fence = False
-    for line in markdown.splitlines():
+    for line in lines:
         stripped = line.strip()
         if stripped.startswith("```"):
             in_fence = not in_fence
