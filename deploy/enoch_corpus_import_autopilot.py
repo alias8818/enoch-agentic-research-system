@@ -873,8 +873,6 @@ def _no_import_dry_run_exit(
         return None
     if _is_clean_noop_dry_run(dry_payload):
         ledger_sync: dict[str, Any] = {}
-        if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
-            ledger_sync = _sync_corpus_ledger(system, corpus)
         promising_signals = _refresh_promising_signals(system, root)
         count_update: dict[str, Any] = {}
         github_metadata: dict[str, Any] = {}
@@ -893,10 +891,12 @@ def _no_import_dry_run_exit(
                 root,
                 corpus,
                 ecosystem_manifest,
-                skip_github_metadata=skip_github or github_metadata.get("ok") is False,
+                skip_github_metadata=skip_github,
             )
             changed_repos = _git_changed_repos(root)
             commits, pushed = _autocommit_and_push(root, dry_payload, count_update)
+        if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
+            ledger_sync = _maybe_ledger_sync(system, corpus, pushed)
         print(
             json.dumps(
                 {
@@ -1033,7 +1033,7 @@ def _maybe_github_metadata(count_update: dict[str, Any]) -> dict[str, Any]:
         )
     try:
         metadata: dict[str, Any] = {"corpus": _update_github_metadata(artifact_count)}
-    except (HTTPError, URLError, RuntimeError) as exc:
+    except (HTTPError, URLError, RuntimeError, ValueError) as exc:
         return {
             "ok": False,
             "action": "skipped",
@@ -1046,7 +1046,7 @@ def _maybe_github_metadata(count_update: dict[str, Any]) -> dict[str, Any]:
             metadata["promising_signals"] = _update_promising_github_metadata(
                 promising_signal_count
             )
-        except (HTTPError, URLError, RuntimeError) as exc:
+        except (HTTPError, URLError, RuntimeError, ValueError) as exc:
             metadata["promising_signals"] = {
                 "ok": False,
                 "action": "skipped",
@@ -1081,6 +1081,10 @@ def _maybe_ledger_sync(
         raise RuntimeError(
             "ledger sync requires pushed commits when ENOCH_CORPUS_IMPORT_PUSH=1"
         )
+    failed_pushes = [item for item in pushed if item.get("ok") != "true"]
+    if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and failed_pushes:
+        repos = ", ".join(str(item.get("repo") or "<unknown>") for item in failed_pushes)
+        raise RuntimeError(f"ledger sync blocked by failed pushes: {repos}")
     return _sync_corpus_ledger(system, corpus)
 
 
@@ -1114,7 +1118,7 @@ def _execute_live_corpus_import(
         root,
         corpus,
         ecosystem_manifest,
-        skip_github_metadata=skip_github or github_metadata.get("ok") is False,
+        skip_github_metadata=skip_github,
     )
     changed_repos = _git_changed_repos(root)
     commits, pushed = _autocommit_and_push(root, live_payload, count_update)

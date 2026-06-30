@@ -293,7 +293,7 @@ def test_hf_export_check_accepts_promising_signal_split(tmp_path) -> None:
         json.dumps(
             {
                 "artifact_count": 393,
-                "promising_signal_count": 6381,
+                "promising_signal_count": 2,
                 "promising_signal_data_file": "data/promising_signals.jsonl",
                 "strict_claim_evidence_pass_count": 393,
                 "strict_claim_evidence_total_count": 393,
@@ -301,14 +301,23 @@ def test_hf_export_check_accepts_promising_signal_split(tmp_path) -> None:
         ),
         encoding="utf-8",
     )
+    rows = [
+        {
+            "project_id": f"signal-{index}",
+            "status": "useful_signal",
+            "do_not_overclaim": {"disclaimer": "These are not validated papers."},
+            "evidence": {"public_evidence_copied": False},
+        }
+        for index in range(2)
+    ]
     (data / "promising_signals.jsonl").write_text(
-        "".join("{}\n" for _ in range(6381)), encoding="utf-8"
+        "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
     )
     (hf / "README.md").write_text(
         "This dataset contains 393 AI-generated research artifacts. "
         "The current public corpus indexes **393 AI-generated research artifacts**. "
         "Current strict claim/evidence audit status is **393 / 393 passing**. "
-        "The companion promising-signals split currently includes **6,381 bounded promising-signal rows**. "
+        "The companion promising-signals split currently includes **2 bounded promising-signal rows**. "
         "data/promising_signals.jsonl",
         encoding="utf-8",
     )
@@ -318,11 +327,113 @@ def test_hf_export_check_accepts_promising_signal_split(tmp_path) -> None:
         hf,
         artifact_count=393,
         strict_pass_count=393,
-        promising_count=6381,
+        promising_count=2,
         failures=failures,
     )
 
     assert failures == []
+
+
+def test_hf_export_check_rejects_malformed_promising_signal_rows(
+    tmp_path: Path,
+) -> None:
+    hf = tmp_path / "hf"
+    data = hf / "data"
+    data.mkdir(parents=True)
+    (hf / "dataset_summary.json").write_text(
+        json.dumps(
+            {
+                "artifact_count": 1,
+                "promising_signal_count": 1,
+                "promising_signal_data_file": "data/promising_signals.jsonl",
+                "strict_claim_evidence_pass_count": 1,
+                "strict_claim_evidence_total_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (data / "promising_signals.jsonl").write_text("{}\n", encoding="utf-8")
+    (hf / "README.md").write_text(
+        "This dataset contains 1 AI-generated research artifacts. "
+        "The current public corpus indexes **1 AI-generated research artifacts**. "
+        "Current strict claim/evidence audit status is **1 / 1 passing**. "
+        "The companion promising-signals split currently includes **1 bounded promising-signal rows**. "
+        "data/promising_signals.jsonl",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_hf_export(
+        hf,
+        artifact_count=1,
+        strict_pass_count=1,
+        promising_count=1,
+        failures=failures,
+    )
+
+    assert any(
+        "HF export promising signal <missing> has invalid status" in failure
+        for failure in failures
+    )
+
+
+def test_hf_export_check_rejects_private_promising_signal_rows(
+    tmp_path: Path,
+) -> None:
+    hf = tmp_path / "hf"
+    data = hf / "data"
+    data.mkdir(parents=True)
+    row = {
+        "project_id": "private-lan-probe",
+        "status": "useful_signal",
+        "do_not_overclaim": {"disclaimer": "These are not validated papers."},
+        "evidence": {
+            "public_evidence_copied": False,
+            "artifact_root": "/home/jeremy/projects/private-lan-probe",
+        },
+        "claim_scope": "Host 192.168.1.77 had 28 SSH-like ports open.",
+    }
+    (hf / "dataset_summary.json").write_text(
+        json.dumps(
+            {
+                "artifact_count": 1,
+                "promising_signal_count": 1,
+                "promising_signal_data_file": "data/promising_signals.jsonl",
+                "strict_claim_evidence_pass_count": 1,
+                "strict_claim_evidence_total_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (data / "promising_signals.jsonl").write_text(
+        json.dumps(row) + "\n", encoding="utf-8"
+    )
+    (hf / "README.md").write_text(
+        "This dataset contains 1 AI-generated research artifacts. "
+        "The current public corpus indexes **1 AI-generated research artifacts**. "
+        "Current strict claim/evidence audit status is **1 / 1 passing**. "
+        "The companion promising-signals split currently includes **1 bounded promising-signal rows**. "
+        "data/promising_signals.jsonl",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_hf_export(
+        hf,
+        artifact_count=1,
+        strict_pass_count=1,
+        promising_count=1,
+        failures=failures,
+    )
+
+    assert any(
+        "private path leaked in HF promising signals export" in failure
+        for failure in failures
+    )
+    assert any(
+        "private network detail leaked in HF promising signals export" in failure
+        for failure in failures
+    )
 
 
 def test_manifest_strict_claim_evidence_reports_malformed_counts() -> None:
@@ -392,8 +503,7 @@ def test_public_secret_token_check_rejects_generic_bearer_jwt_and_provider_envs(
     paper = tmp_path / "paper.md"
     paper.write_text(
         "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456\n"
-        "SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-        "abcdefghijklmnopqrstuvwxyz1234567890.abcdefghijklmnopqrstuvwxyz1234567890\n"
+        "ENOCH_DATABASE_URL=postgresql://public.example/database-password-12345\n"
         "ENOCH_CONTROL_TOKEN=control-plane-token-value-12345\n",
         encoding="utf-8",
     )
@@ -607,4 +717,40 @@ def test_paper_material_graph_validation_scans_public_graph_artifacts(
     )
     assert any(
         "private path leaked in paper material graph" in item for item in failures
+    )
+
+
+def test_paper_material_graph_validation_rejects_private_lan_scan_details(
+    tmp_path: Path,
+) -> None:
+    graph_dir = tmp_path / "docs" / "paper-material-graph"
+    graph_dir.mkdir(parents=True)
+    (graph_dir / "paper-material-graph.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "enoch_paper_material_graph_v1",
+                "summary": {"paper_count": 1, "signal_count": 1},
+                "nodes": [
+                    {
+                        "id": "signal:private-lan",
+                        "claim_scope": "On host 192.168.1.77, 56 peers were ping-responsive and 28 SSH-like ports were open after non-interactive SSH probing.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (graph_dir / "README.md").write_text(
+        "# Enoch Paper Material Graph\n\n- Papers: 1\n- Signals: 1\n",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_paper_material_graph(
+        graph_dir, artifact_count=1, promising_signal_count=1, failures=failures
+    )
+
+    assert any(
+        "private network detail leaked in paper material graph" in item
+        for item in failures
     )

@@ -24,6 +24,11 @@ PRIVATE_PATH_ROOTS = (
     "/home/jeremy",
     "/root",
 )
+PRIVATE_IPV4 = re.compile(
+    r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b"
+)
+LOCAL_ONLY_PUBLIC_TEXT = "Local-only operational evidence is omitted from the public graph."
+MAX_SIMILAR_TERM_POSTINGS = 128
 STOPWORDS = {
     "the",
     "and",
@@ -100,7 +105,20 @@ def _safe_text(value: Any) -> str:
     text = _text(value)
     for root in PRIVATE_PATH_ROOTS:
         text = text.replace(root, "<local-path>")
+    text = PRIVATE_IPV4.sub("<private-ip>", text)
     return text
+
+
+def _is_local_only_signal(record: dict[str, Any]) -> bool:
+    evidence_value = record.get("evidence")
+    evidence = evidence_value if isinstance(evidence_value, dict) else {}
+    return evidence.get("local_only") is True and evidence.get("public_evidence_copied") is False
+
+
+def _public_signal_text(record: dict[str, Any], key: str) -> str:
+    if _is_local_only_signal(record):
+        return LOCAL_ONLY_PUBLIC_TEXT
+    return _safe_text(record.get(key))
 
 
 def _is_safe_existing_child(root: Path, path: Path) -> bool:
@@ -238,8 +256,8 @@ def _load_signal_records(promising_repo: Path) -> list[dict[str, Any]]:
 def _signal_node(record: dict[str, Any]) -> dict[str, Any]:
     project_id = _safe_text(record.get("project_id"))
     title = _safe_text(record.get("title")) or project_id
-    claim_scope = _safe_text(record.get("claim_scope"))
-    useful_summary = _safe_text(record.get("useful_signal_summary"))
+    claim_scope = _public_signal_text(record, "claim_scope")
+    useful_summary = _public_signal_text(record, "useful_signal_summary")
     return {
         "id": f"signal:{project_id}",
         "kind": "signal",
@@ -251,7 +269,7 @@ def _signal_node(record: dict[str, Any]) -> dict[str, Any]:
         "hypothesis_status": _safe_text(record.get("hypothesis_status")),
         "evidence_strength": _safe_text(record.get("evidence_strength")),
         "claim_scope": claim_scope,
-        "scale_limits": _safe_text(record.get("scale_limits")),
+        "scale_limits": _public_signal_text(record, "scale_limits"),
         "useful_signal_summary": useful_summary,
         "curation": record.get("curation") or {},
         "followup": record.get("followup") or {},
@@ -336,7 +354,7 @@ def _similar_topic_edge_candidates(
     # local-neighborhood edges but can create millions of pair increments.
     pair_shared_counts: Counter[tuple[int, int]] = Counter()
     for postings in term_index.values():
-        if len(postings) < 2 or len(postings) > 500:
+        if len(postings) < 2 or len(postings) > MAX_SIMILAR_TERM_POSTINGS:
             continue
         for left_offset, left_index in enumerate(postings):
             for right_index in postings[left_offset + 1 :]:

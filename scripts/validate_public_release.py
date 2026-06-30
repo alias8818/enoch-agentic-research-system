@@ -179,6 +179,13 @@ PRIVATE_GRAPH_PATH_ROOTS = (
     "/home/jeremy",
     "/root",
 )
+PRIVATE_IPV4 = re.compile(
+    r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b"
+)
+PRIVATE_NETWORK_DETAIL = re.compile(
+    r"\b(?:ping-responsive|ssh-like|non-interactive\s+ssh|remote\s+peers?)\b",
+    re.I,
+)
 
 
 def load_json(path: Path) -> dict:
@@ -809,16 +816,15 @@ def check_hf_export(
     if not promising_path.exists():
         fail(f"HF export missing promising signals JSONL: {promising_path}", failures)
     else:
-        row_count = sum(
-            1
-            for line in promising_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        )
+        promising_text = promising_path.read_text(encoding="utf-8")
+        row_count = sum(1 for line in promising_text.splitlines() if line.strip())
         if row_count != promising_count:
             fail(
                 f"HF export promising_signals.jsonl row count {row_count} != {promising_count}",
                 failures,
             )
+        check_public_secret_tokens([promising_path], failures)
+        _check_hf_promising_signal_rows(promising_path, promising_text, failures)
     readme = readme_path.read_text(encoding="utf-8", errors="replace")
     expected_fragments = [
         f"This dataset contains {artifact_count} AI-generated research artifacts",
@@ -832,6 +838,62 @@ def check_hf_export(
             fail(
                 f"HF export README missing current count fragment: {fragment}", failures
             )
+
+
+def _check_hf_promising_signal_rows(
+    promising_path: Path, promising_text: str, failures: list[str]
+) -> None:
+    allowed = {"useful_signal", "promising_if_scaled", "compute_scale_blocked"}
+    for line_number, line in enumerate(promising_text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            fail(
+                f"HF export promising signal row {line_number} is invalid JSON: {exc}",
+                failures,
+            )
+            continue
+        if not isinstance(record, dict):
+            fail(f"HF export promising signal row {line_number} is not an object", failures)
+            continue
+        project_id = str(record.get("project_id") or "<missing>")
+        if record.get("status") not in allowed:
+            fail(
+                f"HF export promising signal {project_id} has invalid status {record.get('status')!r}",
+                failures,
+            )
+        disclaimer = (
+            record.get("do_not_overclaim")
+            if isinstance(record.get("do_not_overclaim"), dict)
+            else {}
+        )
+        if "not validated papers" not in str(disclaimer.get("disclaimer") or ""):
+            fail(
+                f"HF export promising signal {project_id} missing not-validated-papers disclaimer",
+                failures,
+            )
+        evidence_value = record.get("evidence")
+        evidence = evidence_value if isinstance(evidence_value, dict) else {}
+        if evidence.get("public_evidence_copied") is not False:
+            fail(
+                f"HF export promising signal {project_id} public_evidence_copied must be false",
+                failures,
+            )
+        row_text = json.dumps(record, sort_keys=True)
+        for private_root in PRIVATE_GRAPH_PATH_ROOTS:
+            if private_root in row_text:
+                fail(
+                    f"private path leaked in HF promising signals export {promising_path}:{line_number}: {private_root}",
+                    failures,
+                )
+        _check_private_network_details(
+            path=promising_path,
+            text=row_text,
+            surface="HF promising signals export",
+            failures=failures,
+        )
 
 
 def check_corpus_public_trust_validator(
@@ -874,6 +936,17 @@ def _check_graph_for_private_paths(path: Path, text: str, failures: list[str]) -
         if offset != -1:
             fail(
                 f"private path leaked in paper material graph {path}:{line_for(text, offset)}: {private_root}",
+                failures,
+            )
+
+
+def _check_private_network_details(
+    *, path: Path, text: str, surface: str, failures: list[str]
+) -> None:
+    for pattern in (PRIVATE_IPV4, PRIVATE_NETWORK_DETAIL):
+        for match in pattern.finditer(text):
+            fail(
+                f"private network detail leaked in {surface} {path}:{line_for(text, match.start())}: {match.group(0)}",
                 failures,
             )
 
@@ -974,8 +1047,13 @@ def check_paper_material_graph(
     public_paths = _paper_material_graph_public_paths(graph_dir)
     check_public_secret_tokens(public_paths, failures)
     for path in public_paths:
-        _check_graph_for_private_paths(
-            path, path.read_text(encoding="utf-8", errors="replace"), failures
+        text = path.read_text(encoding="utf-8", errors="replace")
+        _check_graph_for_private_paths(path, text, failures)
+        _check_private_network_details(
+            path=path,
+            text=text,
+            surface="paper material graph",
+            failures=failures,
         )
 
 

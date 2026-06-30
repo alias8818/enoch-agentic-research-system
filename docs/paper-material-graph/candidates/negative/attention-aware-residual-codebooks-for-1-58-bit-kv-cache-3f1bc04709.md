@@ -1,6 +1,6 @@
 # Attention-aware residual codebooks for 1.58-bit KV cache
 
-Generated from graph: `2026-06-30T18:44:52.350174+00:00`
+Generated from graph: `2026-06-30T23:41:30.655739+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `negative`
 Signal: `signal:attention-aware-residual-codebooks-for-1-58-bit-kv-cache-3f1bc04709`
@@ -13,8 +13,8 @@ End-to-end GPT-2 KV-cache evaluation for attention-aware 1.58-bit codebooks
 
 ## Scope and limits
 
-- Claim scope: Historical bounded rejudge only: preserves the original local/toy/small/medium evidence as a useful signal without asserting full-scale validation.
-- Scale limits: Historical rejudge found scale/full-validation limits in the original stop reason or next action; park unless a cheaper bounded test is defined.
+- Claim scope: Local-only operational evidence is omitted from the public graph.
+- Scale limits: Local-only operational evidence is omitted from the public graph.
 - Hypothesis status: `supported`
 - Evidence strength: `moderate`
 

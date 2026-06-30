@@ -1,6 +1,6 @@
 # Longer GPT-2-small LoRA persistence test for 8-bit SGDM momentum
 
-Generated from graph: `2026-06-30T18:44:52.350174+00:00`
+Generated from graph: `2026-06-30T23:41:30.655739+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:longer-gpt-2-small-lora-persistence-test-for-8-bit-sgdm-mo-5c80a550a7`
@@ -13,7 +13,7 @@ Longer multi-dataset GPT-2-small LoRA validation for persisted 8-bit SGDM moment
 
 ## Related paper material
 
-- **Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small** (`paper:multi-seed-adamw-inclusive-gpt-2-small-lora-validation-for-persisted-8-bit-sgdm-momentum`) — shared terms: bit, every, fine-tuning, fp32, gpt-2-small, lora, loss, momentum, outperformed, per-tensor, persisted, seed
+- **Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small** (`paper:multi-seed-adamw-inclusive-gpt-2-small-lora-validation-for-persisted-8-bit-sgdm-momentum`) — shared terms: bit, gpt-2-small, lora, momentum, sgdm
 
 ## Source lineage
 

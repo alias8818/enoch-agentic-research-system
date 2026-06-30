@@ -1,6 +1,6 @@
 # Longer multi-dataset GPT-2-small LoRA validation for persisted 8-bit SGDM momentum
 
-Generated from graph: `2026-06-30T18:44:52.350174+00:00`
+Generated from graph: `2026-06-30T23:41:30.655739+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:longer-multi-dataset-gpt-2-small-lora-validation-for-persi-53ef4d6e0f`
@@ -13,7 +13,7 @@ Multi-seed AdamW-inclusive GPT-2-small LoRA validation for persisted 8-bit SGDM 
 
 ## Related paper material
 
-- **Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small** (`paper:multi-seed-adamw-inclusive-gpt-2-small-lora-validation-for-persisted-8-bit-sgdm-momentum`) — shared terms: bit, fp32, gpt-2-small, lora, loss, matched, momentum, no-momentum, optimizer, per-tensor, persisted, sgd
+- **Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small** (`paper:multi-seed-adamw-inclusive-gpt-2-small-lora-validation-for-persisted-8-bit-sgdm-momentum`) — shared terms: bit, gpt-2-small, lora, momentum, persisted, sgdm
 
 ## Source lineage
 

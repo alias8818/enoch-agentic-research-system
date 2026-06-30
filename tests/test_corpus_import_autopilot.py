@@ -732,6 +732,92 @@ def test_maybe_github_metadata_reports_unavailable_token_without_failing(
     assert "RuntimeError" in payload["error"]
 
 
+def test_maybe_github_metadata_catches_url_safety_and_json_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "1")
+    for exc in (ValueError("private resolved address"), json.JSONDecodeError("bad", "{", 0)):
+        with patch.object(autopilot, "_update_github_metadata", side_effect=exc):
+            payload = autopilot._maybe_github_metadata(
+                {"stats": {"artifact_count": 393, "promising_signal_count": 6379}}
+            )
+
+        assert payload["ok"] is False
+        assert payload["reason"] == "github metadata update unavailable"
+
+
+def test_github_metadata_update_failure_does_not_skip_release_validation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path
+    system = root / "enoch-agentic-research-system"
+    corpus = root / "enoch-ai-research-corpus"
+    system.mkdir()
+    corpus.mkdir()
+    dry_payload = {"failed": 0, "imported": 1, "updated": 0, "errors": []}
+    import_payload = {"failed": 0, "imported": 1, "updated": 0, "errors": []}
+
+    with (
+        patch.object(
+            autopilot,
+            "_run",
+            return_value=CompletedProcess(
+                ["import"], 0, stdout=json.dumps(import_payload), stderr=""
+            ),
+        ),
+        patch.object(autopilot, "_corpus_rebuild", return_value=[]),
+        patch.object(
+            autopilot,
+            "_update_public_counts",
+            return_value={"stats": {"artifact_count": 393}},
+        ),
+        patch.object(autopilot, "_corpus_trust_checks", return_value=[]),
+        patch.object(
+            autopilot,
+            "_maybe_github_metadata",
+            return_value={"ok": False, "reason": "github metadata update unavailable"},
+        ),
+        patch.object(autopilot, "_refresh_paper_material_graph", return_value={}),
+        patch.object(autopilot, "_git_changed_repos", return_value=[]),
+        patch.object(autopilot, "_autocommit_and_push", return_value=([], [])),
+        patch.object(autopilot, "_maybe_ledger_sync", return_value={}),
+        patch.object(autopilot, "_validate_release", return_value={"ok": True}) as validate,
+    ):
+        assert (
+            autopilot._execute_live_corpus_import(
+                root=root,
+                system=system,
+                corpus=corpus,
+                base_url="http://127.0.0.1:8787",
+                limit=1,
+                token_file=tmp_path / "token",
+                skip_github=False,
+                dry_payload=dry_payload,
+                dry_run_attempts=1,
+                fast_forwarded=[],
+            )
+            == 0
+        )
+
+    validate.assert_called_once()
+    assert validate.call_args.kwargs["skip_github_metadata"] is False
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_ledger_sync_requires_all_required_pushes_to_succeed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "1")
+    monkeypatch.setenv("ENOCH_CORPUS_IMPORT_PUSH", "1")
+    pushed = [
+        {"repo": "enoch-ai-research-corpus", "sha": "abc123", "ok": "true"},
+        {"repo": "enoch-docs", "sha": "def456", "ok": "false"},
+    ]
+
+    with pytest.raises(RuntimeError, match="failed pushes"):
+        autopilot._maybe_ledger_sync(tmp_path, tmp_path, pushed)
+
+
 def test_live_import_refreshes_paper_material_graph_before_reporting_success(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

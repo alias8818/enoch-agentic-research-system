@@ -203,6 +203,17 @@ def test_similarity_candidates_use_inverted_index_without_all_pairs(
     )
 
 
+def test_similarity_candidate_generation_caps_moderately_common_pair_explosion() -> None:
+    nodes = [
+        {"id": f"signal:{index}", "kind": "signal", "terms": ["alpha", "beta"]}
+        for index in range(500)
+    ]
+
+    candidates = builder._similar_topic_edge_candidates(nodes, min_shared_terms=2)
+
+    assert len(candidates) <= 2_000
+
+
 def test_similarity_edges_are_bounded_to_strongest_local_neighborhood(
     tmp_path: Path,
 ) -> None:
