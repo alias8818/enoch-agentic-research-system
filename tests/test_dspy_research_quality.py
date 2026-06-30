@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from enoch_control_plane.research_quality.artifacts import build_quality_report
 from enoch_control_plane.research_quality.datasets import (
@@ -247,9 +248,113 @@ def test_dspy_research_quality_parses_string_booleans() -> None:
         }
     )
 
+    assert row is not None
     assert row.followup_recommended is False
     assert row.bounded_paper_ready is False
     assert row.compute_scale_blocked is True
+
+
+def test_dspy_research_quality_skips_active_placeholder_decisions(
+    tmp_path: Path,
+) -> None:
+    candidates = tmp_path / "candidates.json"
+    decisions = tmp_path / "decisions.json"
+    output = tmp_path / "report.json"
+    candidates.write_text("[]", encoding="utf-8")
+    decisions.write_text(
+        json.dumps(
+            [
+                {
+                    "project_id": "active-project",
+                    "project_name": "Active Project",
+                    "run_id": "active-run",
+                    "payload_json": {
+                        "project_decision": "scaffold_ready_for_worker",
+                        "summary": "bootstrap placeholder awaiting worker output",
+                    },
+                    "created_at": "2026-06-30T06:00:00Z",
+                },
+                {
+                    "project_id": "complete-project",
+                    "project_name": "Complete Project",
+                    "run_id": "complete-run",
+                    "payload_json": {
+                        "project_decision": {
+                            "project_decision": "finalize_negative",
+                            "hypothesis_status": "mixed",
+                            "evidence_strength": "moderate",
+                            "stop_reason": "The bounded result was useful but not paper-ready.",
+                            "recommended_next_action": "Run a stronger follow-up.",
+                        }
+                    },
+                    "created_at": "2026-06-30T05:00:00Z",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        dspy_research_quality.main(
+            [
+                "--candidate-json",
+                str(candidates),
+                "--decision-json",
+                str(decisions),
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["summary"]["decision_count"] == 1
+    assert report["decision_scores"][0]["project_id"] == "complete-project"
+    assert "unknown_decision" not in report["summary"]["problem_counts"]
+
+
+def test_dspy_research_quality_uses_run_notes_final_decision_for_stale_scaffold(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    project_dir = tmp_path / "project-1"
+    project_dir.mkdir()
+    (project_dir / "run_notes.md").write_text(
+        """
+## Final Decision
+
+Decision: `finalize_negative`
+
+Research outcome: `useful_signal`
+
+Rationale: this bounded toy mechanism is useful signal, but it is not publication-grade evidence for a paper-positive claim.
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(dspy_research_quality, "DEFAULT_PROJECT_ROOTS", (tmp_path,))
+
+    row = dspy_research_quality._decision_from_mapping(
+        {
+            "project_id": "project-1",
+            "project_name": "Project 1",
+            "run_id": "run-1",
+            "payload_json": {
+                "project_decision": {
+                    "decision": "scaffold_ready_for_worker",
+                    "summary": "Bootstrap placeholder; replace with final project decision before handoff.",
+                }
+            },
+        }
+    )
+
+    assert row.decision == "finalize_negative"
+    assert row.hypothesis_status == "supported"
+    assert row.evidence_strength == "moderate"
+    assert row.research_outcome == "useful_signal"
+    assert row.bounded_paper_ready is False
+    _score, problems = classify_decision_quality(row)
+    assert "unknown_decision" not in problems
+    assert "weak_or_missing_evidence_strength" not in problems
 
 
 def test_supported_negative_does_not_pass_on_broad_real_or_direct_words_only() -> None:

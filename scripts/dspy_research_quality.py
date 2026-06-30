@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,14 @@ from enoch_control_plane.research_quality.datasets import (
     as_text,
 )
 from enoch_control_plane.research_quality.dspy_programs import dspy_available
+
+
+DEFAULT_PROJECT_ROOTS = (
+    Path(os.environ.get("ENOCH_PROJECT_ROOT", ""))
+    if os.environ.get("ENOCH_PROJECT_ROOT")
+    else None,
+    Path("/var/lib/enoch-control-plane/projects"),
+)
 
 
 def _json_len(value: Any) -> int:
@@ -63,6 +72,83 @@ def _project_decision_from_row(row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _is_placeholder_decision(project_decision: dict[str, Any]) -> bool:
+    action = as_text(
+        project_decision.get("project_decision") or project_decision.get("decision")
+    )
+    summary = as_text(project_decision.get("summary")).lower()
+    return (
+        action in {"", "scaffold_ready_for_worker"}
+        or "bootstrap placeholder" in summary
+    )
+
+
+def _extract_final_decision_from_run_notes(text: str) -> dict[str, Any]:
+    """Return a conservative structured decision from a worker's final notes.
+
+    Some older worker scaffolds left the bootstrap `project_decision.json` in
+    place while writing a concrete `## Final Decision` block in `run_notes.md`.
+    Research Quality should not page forever on the stale bootstrap artifact
+    when a deterministic final-decision block exists next to it.
+    """
+
+    marker = re.search(r"(?im)^##\s+Final Decision\s*$", text)
+    if not marker:
+        return {}
+    tail = text[marker.end() : marker.end() + 4000]
+    decision_match = re.search(r"(?im)^\s*Decision:\s*`?([a-z_]+)`?\s*$", tail)
+    outcome_match = re.search(r"(?im)^\s*Research outcome:\s*`?([a-z_]+)`?\s*$", tail)
+    rationale_match = re.search(r"(?ims)^\s*Rationale:\s*(.+?)(?:\n\s*\n|\Z)", tail)
+    decision = as_text(decision_match.group(1) if decision_match else "")
+    if decision not in {
+        "finalize_negative",
+        "finalize_positive",
+        "blocked",
+        "needs_review",
+    }:
+        return {}
+    rationale = as_text(rationale_match.group(1) if rationale_match else "")
+    outcome = as_text(outcome_match.group(1) if outcome_match else "")
+    hypothesis_status = "supported" if outcome == "useful_signal" else "inconclusive"
+    if decision == "finalize_positive":
+        hypothesis_status = "supported"
+    return {
+        "project_decision": decision,
+        "hypothesis_status": hypothesis_status,
+        "evidence_strength": "moderate",
+        "confidence": "medium",
+        "research_outcome": outcome,
+        "bounded_paper_ready": decision == "finalize_positive",
+        "stop_reason": rationale,
+        "recommended_next_action": (
+            "Treat this as no-paper useful-signal evidence unless a later "
+            "bounded follow-up supplies broader publication-grade validation."
+        ),
+        "decision_source": "run_notes_final_decision_fallback",
+    }
+
+
+def _project_decision_from_run_notes_fallback(row: dict[str, Any]) -> dict[str, Any]:
+    project_id = as_text(row.get("project_id"))
+    if not project_id:
+        return {}
+    for root in DEFAULT_PROJECT_ROOTS:
+        if root is None:
+            continue
+        path = root / project_id / "run_notes.md"
+        try:
+            if not path.is_file():
+                continue
+            extracted = _extract_final_decision_from_run_notes(
+                path.read_text(encoding="utf-8", errors="ignore")
+            )
+        except OSError:
+            continue
+        if extracted:
+            return extracted
+    return {}
+
+
 def _coalesce_text(
     row: dict[str, Any],
     project_decision: dict[str, Any],
@@ -90,8 +176,13 @@ def _coalesce_bool(
     return as_bool(source)
 
 
-def _decision_from_mapping(row: dict[str, Any]) -> DecisionRow:
+def _decision_from_mapping(row: dict[str, Any]) -> DecisionRow | None:
     project_decision = _project_decision_from_row(row)
+    if _is_placeholder_decision(project_decision):
+        fallback = _project_decision_from_run_notes_fallback(row)
+        if not fallback:
+            return None
+        project_decision = fallback
     return DecisionRow(
         project_id=as_text(row.get("project_id")),
         project_name=as_text(row.get("project_name")),
@@ -161,6 +252,15 @@ def _load_json_rows(path: Path) -> list[dict[str, Any]]:
     return [row for row in data if isinstance(row, dict)]
 
 
+def _decision_rows_from_mappings(rows: list[dict[str, Any]]) -> list[DecisionRow]:
+    decisions: list[DecisionRow] = []
+    for row in rows:
+        decision = _decision_from_mapping(row)
+        if decision is not None:
+            decisions.append(decision)
+    return decisions
+
+
 def _fetch_from_database(
     database_url: str, *, limit: int
 ) -> tuple[list[CandidateRow], list[DecisionRow]]:
@@ -197,9 +297,9 @@ def _fetch_from_database(
                 """,
                 (safe_limit,),
             ).fetchall()
-    return [_candidate_from_mapping(dict(row)) for row in candidate_rows], [
-        _decision_from_mapping(dict(row)) for row in decision_rows
-    ]
+    return [
+        _candidate_from_mapping(dict(row)) for row in candidate_rows
+    ], _decision_rows_from_mappings([dict(row) for row in decision_rows])
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -243,12 +343,9 @@ def main(argv: list[str] | None = None) -> int:
                 _load_json_rows(args.candidate_json) if args.candidate_json else []
             )
         ]
-        decisions = [
-            _decision_from_mapping(row)
-            for row in (
-                _load_json_rows(args.decision_json) if args.decision_json else []
-            )
-        ]
+        decisions = _decision_rows_from_mappings(
+            _load_json_rows(args.decision_json) if args.decision_json else []
+        )
     else:
         if not args.database_url:
             raise SystemExit(
