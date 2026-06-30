@@ -653,6 +653,29 @@ def test_refresh_paper_material_graph_uses_control_plane_and_release_roots(
     ]
 
 
+def test_push_commits_records_auth_failure_without_raising(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    commits = [{"repo": "repo", "sha": "abc123"}]
+    with patch.object(
+        autopilot,
+        "_run",
+        side_effect=CalledProcessError(
+            128,
+            ["git", "push"],
+            output="",
+            stderr="fatal: could not read Username for 'https://github.com'",
+        ),
+    ):
+        pushed = autopilot._push_commits(tmp_path, commits)
+
+    assert pushed[0]["repo"] == "repo"
+    assert pushed[0]["sha"] == "abc123"
+    assert pushed[0]["ok"] == "false"
+    assert pushed[0]["action"] == "push_skipped"
+    assert "could not read Username" in pushed[0]["error"]
+
+
 def test_maybe_github_metadata_reports_unavailable_token_without_failing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

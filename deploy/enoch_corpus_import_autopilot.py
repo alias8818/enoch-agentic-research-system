@@ -210,8 +210,19 @@ def _commit_changed_repos(
 def _push_commits(root: Path, commits: list[dict[str, str]]) -> list[dict[str, str]]:
     pushed: list[dict[str, str]] = []
     for item in commits:
-        _run(["git", "push"], cwd=root / item["repo"])
-        pushed.append(item)
+        try:
+            _run(["git", "push"], cwd=root / item["repo"])
+        except subprocess.CalledProcessError as exc:
+            pushed.append(
+                {
+                    **item,
+                    "ok": "false",
+                    "action": "push_skipped",
+                    "error": _exception_summary(exc),
+                }
+            )
+            continue
+        pushed.append({**item, "ok": "true"})
     return pushed
 
 
