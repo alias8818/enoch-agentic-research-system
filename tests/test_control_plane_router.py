@@ -52,6 +52,7 @@ from enoch_control_plane.control_plane.llm_harness_telemetry import (
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.alerts import (
     DISPATCH_RACE_GRACE_SEC,
+    _has_confirmed_active_worker_lane,
     _has_live_worker_run,
     _suppress_dispatch_race_findings,
 )
@@ -11823,6 +11824,37 @@ class ControlPlaneRouterTests(unittest.TestCase):
 
         self.assertTrue(_has_live_worker_run(status, run_id))
         self.assertFalse(_has_live_worker_run(status, "different-run"))
+
+    def test_queue_alert_check_suppresses_hang_when_worker_lane_confirms_run(
+        self,
+    ) -> None:
+        run_id = "run-active-confirmed-worker-lane"
+        status = cast(
+            Any,
+            SimpleNamespace(
+                observations={"worker_dashboard_api": {"payload": {"ok": True, "runs": []}}},
+                worker_lanes=[
+                    {
+                        "machine_target": "cpu-proxmox-1",
+                        "active_count": 1,
+                        "status": "active",
+                        "active_confirmation": {
+                            "matched": True,
+                            "matched_run_id": run_id,
+                            "matched_project_id": "project-active-confirmed-worker-lane",
+                            "state": "active_confirmed",
+                            "reason": "matched worker run/session marker",
+                            "active_process_count": 0,
+                        },
+                    }
+                ],
+            ),
+        )
+
+        self.assertTrue(_has_confirmed_active_worker_lane(status, run_id))
+        self.assertFalse(
+            _has_confirmed_active_worker_lane(status, "different-run")
+        )
 
     def test_queue_alert_check_suppresses_dispatch_preflight_race(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

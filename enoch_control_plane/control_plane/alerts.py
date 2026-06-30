@@ -155,6 +155,25 @@ def _has_live_worker_run(status: DashboardStatusResponse, run_id: str | None) ->
     return False
 
 
+def _has_confirmed_active_worker_lane(
+    status: DashboardStatusResponse, run_id: str | None
+) -> bool:
+    if not run_id:
+        return False
+    for lane in _worker_lane_dicts(status):
+        confirmation = lane.get("active_confirmation")
+        if not isinstance(confirmation, dict):
+            continue
+        if str(confirmation.get("matched_run_id") or "") != str(run_id):
+            continue
+        if str(confirmation.get("state") or "").lower() != "active_confirmed":
+            continue
+        if confirmation.get("matched") is False:
+            continue
+        return True
+    return False
+
+
 def _lane_has_dispatchable_queued_work(lane: dict[str, Any]) -> bool:
     return (
         bool(lane.get("dispatch_available")) and int(lane.get("queued_count") or 0) > 0
@@ -179,7 +198,10 @@ def _has_idle_lane_dispatch_opportunity(status: DashboardStatusResponse) -> bool
 def _skip_active_lane_alert_for_live_run(
     status: DashboardStatusResponse, row: dict[str, Any]
 ) -> bool:
-    return _has_live_worker_run(status, str(row.get("current_run_id") or ""))
+    run_id = str(row.get("current_run_id") or "")
+    return _has_live_worker_run(status, run_id) or _has_confirmed_active_worker_lane(
+        status, run_id
+    )
 
 
 def _stale_active_lane_finding(
