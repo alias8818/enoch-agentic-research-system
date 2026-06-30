@@ -253,7 +253,14 @@ def _hf_steps(args: argparse.Namespace, paths: ReleasePaths) -> list[Step]:
         steps.append(
             Step(
                 "build Hugging Face export",
-                [sys.executable, "build_from_corpus.py", "--corpus", str(paths.corpus)],
+                [
+                    sys.executable,
+                    "build_from_corpus.py",
+                    "--corpus",
+                    str(paths.corpus),
+                    "--promising",
+                    str(paths.promising),
+                ],
                 paths.hf_export,
             )
         )

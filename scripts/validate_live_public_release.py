@@ -68,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hf-summary", default=DEFAULT_TARGETS["hf_summary"])
     parser.add_argument("--hf-readme", default=DEFAULT_TARGETS["hf_readme"])
     parser.add_argument("--expected-count", type=int, default=None)
+    parser.add_argument("--expected-promising-signal-count", type=int, default=None)
     parser.add_argument("--expected-strict-pass", type=int, default=None)
     parser.add_argument("--expected-gate", default="packaging_provenance_gate")
     args = parser.parse_args(argv)
@@ -90,6 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         args.expected_strict_pass
         if args.expected_strict_pass is not None
         else manifest.get("strict_claim_evidence_pass_count")
+    )
+    expected_promising_count = int(
+        args.expected_promising_signal_count
+        if args.expected_promising_signal_count is not None
+        else manifest.get("promising_signal_count")
     )
 
     reject_stale("launch", launch, failures)
@@ -193,11 +199,12 @@ def main(argv: list[str] | None = None) -> int:
         "manifest missing strict audit gate name",
         failures,
     )
-    require(
-        manifest.get("strict_claim_evidence_gate_status") != "strict_pass",
-        "manifest should not claim strict_pass for current corpus",
-        failures,
-    )
+    if expected_strict_pass < expected_count:
+        require(
+            manifest.get("strict_claim_evidence_gate_status") != "strict_pass",
+            "manifest should not claim strict_pass while strict audit is incomplete",
+            failures,
+        )
     require(
         "scientific_correctness" in manifest.get("not_validated", []),
         "manifest missing scientific_correctness not_validated",
@@ -226,6 +233,16 @@ def main(argv: list[str] | None = None) -> int:
         failures,
     )
     require(
+        hf_summary.get("promising_signal_count") == expected_promising_count,
+        f"HF summary promising_signal_count != {expected_promising_count}",
+        failures,
+    )
+    require(
+        hf_summary.get("promising_signal_data_file") == "data/promising_signals.jsonl",
+        "HF summary missing promising signal data file",
+        failures,
+    )
+    require(
         f"This dataset contains {expected_count} AI-generated research artifacts"
         in hf_readme,
         "HF README missing current artifact count",
@@ -235,6 +252,17 @@ def main(argv: list[str] | None = None) -> int:
         f"Current strict claim/evidence audit status is **{expected_strict_pass} / {expected_count} passing**"
         in hf_readme,
         "HF README missing current strict audit count",
+        failures,
+    )
+    require(
+        f"The companion promising-signals split currently includes **{expected_promising_count:,} bounded promising-signal rows**"
+        in hf_readme,
+        "HF README missing current promising-signal count",
+        failures,
+    )
+    require(
+        "data/promising_signals.jsonl" in hf_readme,
+        "HF README missing promising-signals split path",
         failures,
     )
 

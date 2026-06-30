@@ -30,6 +30,7 @@ def test_live_public_validation_defaults_expected_count_from_manifest(
         "strict_claim_evidence_total_count": 388,
         "strict_claim_evidence_gate_name": "strict_claim_evidence_audit",
         "strict_claim_evidence_gate_status": "blocked_audit_gaps",
+        "promising_signal_count": 6381,
         "not_validated": ["scientific_correctness"],
     }
     launch = (
@@ -40,10 +41,17 @@ def test_live_public_validation_defaults_expected_count_from_manifest(
     docs = "Current docs without stale wording"
     hf_summary = {
         "artifact_count": 388,
+        "promising_signal_count": 6381,
+        "promising_signal_data_file": "data/promising_signals.jsonl",
         "strict_claim_evidence_pass_count": 3,
         "strict_claim_evidence_total_count": 388,
     }
-    hf_readme = "This dataset contains 388 AI-generated research artifacts. Current strict claim/evidence audit status is **3 / 388 passing**."
+    hf_readme = (
+        "This dataset contains 388 AI-generated research artifacts. "
+        "Current strict claim/evidence audit status is **3 / 388 passing**. "
+        "The companion promising-signals split currently includes **6,381 bounded promising-signal rows**. "
+        "data/promising_signals.jsonl"
+    )
     responses = {
         "https://launch": launch,
         "https://profile": profile,

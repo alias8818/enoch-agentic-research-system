@@ -760,7 +760,11 @@ def check_promising_signals_repo(
 
 
 def check_hf_export(
-    hf_export: Path, artifact_count: int, strict_pass_count: int, failures: list[str]
+    hf_export: Path,
+    artifact_count: int,
+    strict_pass_count: int,
+    promising_count: int,
+    failures: list[str],
 ) -> None:
     summary_path = hf_export / "dataset_summary.json"
     readme_path = hf_export / README_MD
@@ -790,11 +794,38 @@ def check_hf_export(
             f"HF export strict total {summary.get('strict_claim_evidence_total_count')} != {artifact_count}",
             failures,
         )
+    if int(summary.get("promising_signal_count") or -1) != promising_count:
+        fail(
+            f"HF export promising_signal_count {summary.get('promising_signal_count')} != {promising_count}",
+            failures,
+        )
+    promising_file = summary.get("promising_signal_data_file") or ""
+    if promising_file != "data/promising_signals.jsonl":
+        fail(
+            f"HF export promising_signal_data_file {promising_file!r} != 'data/promising_signals.jsonl'",
+            failures,
+        )
+    promising_path = hf_export / "data" / "promising_signals.jsonl"
+    if not promising_path.exists():
+        fail(f"HF export missing promising signals JSONL: {promising_path}", failures)
+    else:
+        row_count = sum(
+            1
+            for line in promising_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
+        if row_count != promising_count:
+            fail(
+                f"HF export promising_signals.jsonl row count {row_count} != {promising_count}",
+                failures,
+            )
     readme = readme_path.read_text(encoding="utf-8", errors="replace")
     expected_fragments = [
         f"This dataset contains {artifact_count} AI-generated research artifacts",
         f"current public corpus indexes **{artifact_count} AI-generated research artifacts**",
         f"Current strict claim/evidence audit status is **{strict_pass_count} / {artifact_count} passing**",
+        f"The companion promising-signals split currently includes **{promising_count:,} bounded promising-signal rows**",
+        "data/promising_signals.jsonl",
     ]
     for fragment in expected_fragments:
         if fragment not in readme:
@@ -1081,6 +1112,7 @@ def _run_optional_release_checks(
             hf_export,
             int(manifest["artifact_count"]),
             int(manifest.get("strict_claim_evidence_pass_count") or 0),
+            promising_count,
             failures,
         )
 

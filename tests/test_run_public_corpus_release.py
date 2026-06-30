@@ -128,6 +128,11 @@ def test_release_plan_with_agentic_publish_lanes(tmp_path: Path) -> None:
         if step.name == "render Supabase corpus_imports sync SQL"
     )
     assert "--prune-stale" in sync_step.cmd
+    hf_step = next(
+        step for step in build_steps(args) if step.name == "build Hugging Face export"
+    )
+    assert "--promising" in hf_step.cmd
+    assert str(tmp_path / "enoch-promising-signals") in hf_step.cmd
 
 
 def test_release_plan_passes_ledger_database_url_via_env_not_argv(

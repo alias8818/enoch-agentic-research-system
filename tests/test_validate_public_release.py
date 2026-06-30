@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from scripts import validate_public_release
@@ -246,11 +247,14 @@ def test_system_workflow_is_part_of_public_validation_surface() -> None:
 
 def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
     hf = tmp_path / "hf"
+    data = hf / "data"
     hf.mkdir()
+    data.mkdir()
     (hf / "dataset_summary.json").write_text(
-        '{"artifact_count": 496, "strict_claim_evidence_pass_count": 3, "strict_claim_evidence_total_count": 496}',
+        '{"artifact_count": 496, "promising_signal_count": 4, "promising_signal_data_file": "data/promising_signals.jsonl", "strict_claim_evidence_pass_count": 3, "strict_claim_evidence_total_count": 496}',
         encoding="utf-8",
     )
+    (data / "promising_signals.jsonl").write_text("{}\n{}\n{}\n{}\n", encoding="utf-8")
     (hf / "README.md").write_text(
         "This dataset contains 496 AI-generated research artifacts. "
         "Current strict claim/evidence audit status is **3 / 496 passing**.",
@@ -259,15 +263,66 @@ def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
     failures: list[str] = []
 
     validate_public_release.check_hf_export(
-        hf, artifact_count=385, strict_pass_count=3, failures=failures
+        hf,
+        artifact_count=385,
+        strict_pass_count=3,
+        promising_count=2,
+        failures=failures,
     )
 
     assert any("HF export artifact_count 496 != 385" in failure for failure in failures)
     assert any("HF export strict total 496 != 385" in failure for failure in failures)
     assert any(
+        "HF export promising_signal_count 4 != 2" in failure for failure in failures
+    )
+    assert any(
+        "HF export promising_signals.jsonl row count 4 != 2" in failure
+        for failure in failures
+    )
+    assert any(
         "HF export README missing current count fragment" in failure
         for failure in failures
     )
+
+
+def test_hf_export_check_accepts_promising_signal_split(tmp_path) -> None:
+    hf = tmp_path / "hf"
+    data = hf / "data"
+    data.mkdir(parents=True)
+    (hf / "dataset_summary.json").write_text(
+        json.dumps(
+            {
+                "artifact_count": 393,
+                "promising_signal_count": 6381,
+                "promising_signal_data_file": "data/promising_signals.jsonl",
+                "strict_claim_evidence_pass_count": 393,
+                "strict_claim_evidence_total_count": 393,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (data / "promising_signals.jsonl").write_text(
+        "".join("{}\n" for _ in range(6381)), encoding="utf-8"
+    )
+    (hf / "README.md").write_text(
+        "This dataset contains 393 AI-generated research artifacts. "
+        "The current public corpus indexes **393 AI-generated research artifacts**. "
+        "Current strict claim/evidence audit status is **393 / 393 passing**. "
+        "The companion promising-signals split currently includes **6,381 bounded promising-signal rows**. "
+        "data/promising_signals.jsonl",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_hf_export(
+        hf,
+        artifact_count=393,
+        strict_pass_count=393,
+        promising_count=6381,
+        failures=failures,
+    )
+
+    assert failures == []
 
 
 def test_manifest_strict_claim_evidence_reports_malformed_counts() -> None:
