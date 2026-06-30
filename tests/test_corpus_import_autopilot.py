@@ -653,6 +653,25 @@ def test_refresh_paper_material_graph_uses_control_plane_and_release_roots(
     ]
 
 
+def test_maybe_github_metadata_reports_unavailable_token_without_failing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "1")
+    with patch.object(
+        autopilot,
+        "_update_github_metadata",
+        side_effect=RuntimeError("missing GitHub token for metadata update"),
+    ):
+        payload = autopilot._maybe_github_metadata(
+            {"stats": {"artifact_count": 393, "promising_signal_count": 6379}}
+        )
+
+    assert payload["ok"] is False
+    assert payload["action"] == "skipped"
+    assert payload["reason"] == "github metadata update unavailable"
+    assert "RuntimeError" in payload["error"]
+
+
 def test_live_import_refreshes_paper_material_graph_before_reporting_success(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

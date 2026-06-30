@@ -22,6 +22,7 @@ import sys
 import tempfile
 import time
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from enoch_control_plane.url_safety import secure_default_service_url
@@ -1002,18 +1003,28 @@ def _maybe_github_metadata(count_update: dict[str, Any]) -> dict[str, Any]:
             "could not determine artifact count for GitHub metadata update"
         )
     try:
-        metadata: dict[str, Any] = {
-            "ok": True,
-            "corpus": _update_github_metadata(artifact_count),
+        metadata: dict[str, Any] = {"corpus": _update_github_metadata(artifact_count)}
+    except (HTTPError, URLError, RuntimeError) as exc:
+        return {
+            "ok": False,
+            "action": "skipped",
+            "reason": "github metadata update unavailable",
+            "error": f"{type(exc).__name__}: {exc}",
         }
-        promising_signal_count = int(stats.get("promising_signal_count") or 0)
-        if promising_signal_count > 0:
+    promising_signal_count = int(stats.get("promising_signal_count") or 0)
+    if promising_signal_count > 0:
+        try:
             metadata["promising_signals"] = _update_promising_github_metadata(
                 promising_signal_count
             )
-        return metadata
-    except Exception as exc:  # noqa: BLE001 - metadata is advisory; release artifacts are primary
-        return {"ok": False, "error": _exception_summary(exc)}
+        except (HTTPError, URLError, RuntimeError) as exc:
+            metadata["promising_signals"] = {
+                "ok": False,
+                "action": "skipped",
+                "reason": "github promising signals metadata update unavailable",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    return metadata
 
 
 def _autocommit_and_push(
