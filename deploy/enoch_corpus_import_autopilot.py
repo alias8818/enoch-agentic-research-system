@@ -274,6 +274,41 @@ def _update_github_metadata(artifact_count: int) -> dict[str, Any]:
     }
 
 
+def _update_promising_github_metadata(signal_count: int) -> dict[str, Any]:
+    token = _github_token()
+    if not token:
+        raise RuntimeError("missing GitHub token for promising signals metadata update")
+    payload = json.dumps(
+        {
+            "description": f"{signal_count} bounded Enoch promising signals preserved for larger-compute follow-up; not validated papers, not peer reviewed, and separate from the paper corpus.",
+            "homepage": "https://alias8818.github.io/enoch-agentic-research-system/",
+        }
+    ).encode("utf-8")
+    request = Request(
+        "https://api.github.com/repos/alias8818/enoch-promising-signals",
+        data=payload,
+        method="PATCH",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "enoch-corpus-import-autopilot/1.0",
+        },
+    )
+    with urlopen_validated(
+        request,
+        timeout=30,
+        field_name="deploy/enoch_corpus_import_autopilot.py promising signals url",
+        allow_private=False,
+    ) as response:
+        metadata = json.loads(response.read().decode("utf-8"))
+    return {
+        "repo": "alias8818/enoch-promising-signals",
+        "description": metadata.get("description"),
+        "homepage": metadata.get("homepage"),
+    }
+
+
 def _copy_repo_tree(src: Path, dst: Path) -> None:
     def ignore(_dir: str, names: list[str]) -> set[str]:
         return {
@@ -812,6 +847,7 @@ def _no_import_dry_run_exit(
             ledger_sync = _sync_corpus_ledger(system, corpus)
         promising_signals = _refresh_promising_signals(system, root)
         count_update: dict[str, Any] = {}
+        github_metadata: dict[str, Any] = {}
         release_validation: dict[str, Any] = {}
         paper_material_graph: dict[str, Any] = {}
         changed_repos: list[str] = []
@@ -821,6 +857,7 @@ def _no_import_dry_run_exit(
             ecosystem_manifest = _ecosystem_manifest_path()
             count_update = _update_public_counts(system, root, ecosystem_manifest)
             paper_material_graph = _refresh_paper_material_graph(root)
+            github_metadata = _maybe_github_metadata(count_update)
             release_validation = _validate_release(
                 system,
                 root,
@@ -842,6 +879,7 @@ def _no_import_dry_run_exit(
                     "ledger_sync": ledger_sync,
                     "promising_signals": promising_signals,
                     "count_update": count_update,
+                    "github_metadata": github_metadata,
                     "release_validation": release_validation,
                     "paper_material_graph": paper_material_graph,
                     "changed_repos": changed_repos,
@@ -954,9 +992,8 @@ def _print_preflight_only_result(
 def _maybe_github_metadata(count_update: dict[str, Any]) -> dict[str, Any]:
     if not _truthy("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "0"):
         return {}
-    stats = (
-        count_update.get("stats") if isinstance(count_update.get("stats"), dict) else {}
-    )
+    stats_raw = count_update.get("stats")
+    stats: dict[str, Any] = stats_raw if isinstance(stats_raw, dict) else {}
     artifact_count = int(
         stats.get("artifact_count") or count_update.get("artifact_count") or 0
     )
@@ -964,7 +1001,13 @@ def _maybe_github_metadata(count_update: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(
             "could not determine artifact count for GitHub metadata update"
         )
-    return _update_github_metadata(artifact_count)
+    metadata: dict[str, Any] = {"corpus": _update_github_metadata(artifact_count)}
+    promising_signal_count = int(stats.get("promising_signal_count") or 0)
+    if promising_signal_count > 0:
+        metadata["promising_signals"] = _update_promising_github_metadata(
+            promising_signal_count
+        )
+    return metadata
 
 
 def _autocommit_and_push(
