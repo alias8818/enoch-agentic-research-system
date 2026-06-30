@@ -11832,7 +11832,9 @@ class ControlPlaneRouterTests(unittest.TestCase):
         status = cast(
             Any,
             SimpleNamespace(
-                observations={"worker_dashboard_api": {"payload": {"ok": True, "runs": []}}},
+                observations={
+                    "worker_dashboard_api": {"payload": {"ok": True, "runs": []}}
+                },
                 worker_lanes=[
                     {
                         "machine_target": "cpu-proxmox-1",
@@ -11852,9 +11854,7 @@ class ControlPlaneRouterTests(unittest.TestCase):
         )
 
         self.assertTrue(_has_confirmed_active_worker_lane(status, run_id))
-        self.assertFalse(
-            _has_confirmed_active_worker_lane(status, "different-run")
-        )
+        self.assertFalse(_has_confirmed_active_worker_lane(status, "different-run"))
 
     def test_queue_alert_check_suppresses_dispatch_preflight_race(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
