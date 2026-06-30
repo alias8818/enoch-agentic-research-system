@@ -2270,15 +2270,21 @@ class ControlPlaneRouterTests(unittest.TestCase):
             app.include_router(
                 create_control_plane_router(
                     _live_config(tmp),
-                    lambda auth: (_ for _ in ()).throw(
-                        HTTPException(status_code=401, detail="invalid bearer token")
-                    )
-                    if auth != f"Bearer {TOKEN}"
-                    else None,
+                    lambda auth: (
+                        (_ for _ in ()).throw(
+                            HTTPException(
+                                status_code=401, detail="invalid bearer token"
+                            )
+                        )
+                        if auth != f"Bearer {TOKEN}"
+                        else None
+                    ),
                 )
             )
             client = TestClient(app)
-            created = client.post("/control/dashboard-v2/session", json={"token": TOKEN})
+            created = client.post(
+                "/control/dashboard-v2/session", json={"token": TOKEN}
+            )
             self.assertEqual(created.status_code, 200)
 
             response = client.post(
@@ -2311,15 +2317,21 @@ class ControlPlaneRouterTests(unittest.TestCase):
             app.include_router(
                 create_control_plane_router(
                     _live_config(tmp),
-                    lambda auth: (_ for _ in ()).throw(
-                        HTTPException(status_code=401, detail="invalid bearer token")
-                    )
-                    if auth != f"Bearer {TOKEN}"
-                    else None,
+                    lambda auth: (
+                        (_ for _ in ()).throw(
+                            HTTPException(
+                                status_code=401, detail="invalid bearer token"
+                            )
+                        )
+                        if auth != f"Bearer {TOKEN}"
+                        else None
+                    ),
                 )
             )
             client = TestClient(app)
-            created = client.post("/control/dashboard-v2/session", json={"token": TOKEN})
+            created = client.post(
+                "/control/dashboard-v2/session", json={"token": TOKEN}
+            )
             self.assertEqual(created.status_code, 200)
 
             dispatch_next = client.post(
