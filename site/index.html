@@ -74,7 +74,7 @@
         <div><strong>1. Scout</strong><span>LLM-assisted review of technical signals, public papers, news, and local runtime opportunities.</span></div>
         <div><strong>2. Score</strong><span>A source-of-truth scoring table ranks candidate ideas before execution.</span></div>
         <div><strong>3. Dispatch</strong><span>Control plane gates queue state, maintenance state, worker health, and single-lane safety.</span></div>
-        <div><strong>4. Execute</strong><span>GB10 worker runs the experiment while wake gate watches process and telemetry truth.</span></div>
+        <div><strong>4. Execute</strong><span>A worker runs the experiment while the worker gate watches process and telemetry truth.</span></div>
         <div><strong>5. Preserve</strong><span>Run notes, evidence bundles, claim ledgers, metrics, and manifests are synced.</span></div>
         <div><strong>6. Publish</strong><span>The artifact writer emits evidence-grounded reports with provenance, caveats, and release checks; bounded useful no-paper signals stay in a separate promising-signals lane.</span></div>
       </div>
@@ -167,7 +167,7 @@ scripts/proof-local.sh</code></pre>
         <p>These diagrams are intentionally editable SVGs so the launch story stays crisp: queue safety and provenance are the product, while generated papers are inspectable outputs.</p>
       </div>
       <figure class="diagram-card">
-        <img src="assets/enoch-architecture.svg" alt="Enoch architecture diagram from idea intake through control plane, wake gate, worker, evidence, publication, dashboard, and alerts" />
+        <img src="assets/enoch-architecture.svg" alt="Enoch architecture diagram from idea intake through control plane, worker gate, worker, evidence, publication, dashboard, and alerts" />
         <figcaption>Architecture: idea intake enters a gated control plane before local execution, evidence sync, paper packaging, dashboard visibility, and alerts.</figcaption>
       </figure>
       <figure class="diagram-card">
