@@ -356,6 +356,96 @@ def test_clean_noop_syncs_ledger_when_enabled(tmp_path, capsys):
     assert output["ledger_sync"] == {"ok": True, "publication_ready": 0}
 
 
+def test_clean_noop_refreshes_promising_signals_and_pushes_changed_repos(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for name in autopilot.REPO_NAMES:
+        (tmp_path / name).mkdir()
+
+    dry_payload = {
+        "failed": 0,
+        "imported": 0,
+        "updated": 0,
+        "errors": [],
+        "seen": 385,
+        "skipped": 384,
+        "skipped_existing_slug": 1,
+    }
+
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "ENOCH_ENABLE_CORPUS_IMPORT_AUTOPILOT": "1",
+                "ENOCH_CORPUS_IMPORT_PUSH": "1",
+                "ENOCH_CORPUS_IMPORT_AUTOCOMMIT": "1",
+                "ENOCH_CORPUS_IMPORT_RUN_WHILE_HELD": "1",
+            },
+            clear=False,
+        ),
+        patch.object(autopilot, "_release_root", return_value=tmp_path),
+        patch.object(autopilot, "_git_clean", return_value=True),
+        patch.object(
+            autopilot,
+            "_load_config",
+            return_value={"control_api_bearer_token": "token"},
+        ),
+        patch.object(autopilot, "_base_url", return_value="http://127.0.0.1:8787"),
+        patch.object(
+            autopilot,
+            "_run",
+            return_value=CompletedProcess(
+                ["import"], 0, stdout=json.dumps(dry_payload), stderr=""
+            ),
+        ),
+        patch.object(
+            autopilot,
+            "_refresh_promising_signals",
+            return_value={
+                "ok": True,
+                "action": "promising_signals_refreshed",
+                "manifest_record_count": 6376,
+            },
+        ) as refresh,
+        patch.object(
+            autopilot,
+            "_update_public_counts",
+            return_value={"stats": {"artifact_count": 393}},
+        ) as update_counts,
+        patch.object(
+            autopilot,
+            "_validate_release",
+            return_value={"generate_stdout": "", "validate_stdout": ""},
+        ) as validate,
+        patch.object(
+            autopilot,
+            "_git_changed_repos",
+            return_value=["enoch-promising-signals"],
+        ),
+        patch.object(
+            autopilot,
+            "_autocommit_and_push",
+            return_value=(
+                [{"repo": "enoch-promising-signals", "sha": "abc123"}],
+                [{"repo": "enoch-promising-signals", "sha": "abc123"}],
+            ),
+        ) as commit_push,
+    ):
+        assert autopilot.main() == 0
+
+    refresh.assert_called_once_with(
+        tmp_path / "enoch-agentic-research-system", tmp_path
+    )
+    update_counts.assert_called_once()
+    validate.assert_called_once()
+    commit_push.assert_called_once()
+    output = json.loads(capsys.readouterr().out)
+    assert output["action"] == "skipped"
+    assert output["promising_signals"]["manifest_record_count"] == 6376
+    assert output["changed_repos"] == ["enoch-promising-signals"]
+    assert output["pushed"] == [{"repo": "enoch-promising-signals", "sha": "abc123"}]
+
+
 def test_preflight_none_fails_closed_without_assert(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

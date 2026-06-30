@@ -31,6 +31,7 @@ from enoch_control_plane.url_safety import urlopen_validated
 REPO_NAMES = [
     "enoch-agentic-research-system",
     "enoch-ai-research-corpus",
+    "enoch-promising-signals",
     "enoch-docs",
     "alias8818.github.io",
     "alias8818",
@@ -174,6 +175,12 @@ def _commit_message(
             else f"Import {imported} Enoch corpus artifacts"
         )
         body = f"Import {imported} finalized publication draft(s) from the control plane.\n\nCorpus artifact count after validation: {total}.\n"
+    elif repo_name == "enoch-promising-signals":
+        subject = "Refresh Enoch promising signals"
+        body = (
+            "Refresh bounded useful/promising signal exports from the control plane.\n\n"
+            f"Corpus artifact count after validation: {total}.\n"
+        )
     else:
         subject = "Refresh Enoch corpus release counts"
         body = f"Refresh public release surfaces after importing {imported} finalized publication draft(s).\n\nCorpus artifact count after validation: {total}.\n"
@@ -505,6 +512,70 @@ def _update_public_counts(system: Path, root: Path, manifest: Path) -> dict[str,
     return json.loads(result.stdout)
 
 
+def _refresh_promising_signals(system: Path, root: Path) -> dict[str, Any]:
+    if not _truthy("ENOCH_CORPUS_IMPORT_REFRESH_PROMISING_SIGNALS", "1"):
+        return {"ok": True, "action": "skipped", "reason": "disabled"}
+    database_url = (
+        os.environ.get("ENOCH_PROMISING_SIGNALS_DATABASE_URL")
+        or os.environ.get("ENOCH_CONTROL_DATABASE_URL")
+        or os.environ.get("ENOCH_SUPABASE_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or ""
+    )
+    if not database_url:
+        return {
+            "ok": True,
+            "action": "skipped",
+            "reason": "missing database url",
+        }
+    promising = root / "enoch-promising-signals"
+    if not promising.exists():
+        return {
+            "ok": True,
+            "action": "skipped",
+            "reason": "missing enoch-promising-signals repo",
+        }
+
+    export = _run(
+        [
+            sys.executable,
+            "scripts/export_promising_signals.py",
+            "--output-repo",
+            str(promising),
+            "--clean-only",
+        ],
+        cwd=system,
+        env={
+            "ENOCH_SUPABASE_DATABASE_URL": database_url,
+            "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", "2026-05-19T17:51:00Z"
+            ),
+        },
+    )
+    validation = _run(
+        [
+            sys.executable,
+            "scripts/validate_promising_signals_release.py",
+            "--promising",
+            str(promising),
+        ],
+        cwd=system,
+    )
+    manifest = json.loads(
+        (promising / "data" / "manifest.json").read_text(encoding="utf-8")
+    )
+    export_payload = json.loads(export.stdout or "{}")
+    validation_payload = json.loads(validation.stdout or "{}")
+    return {
+        "ok": True,
+        "action": "promising_signals_refreshed",
+        "export_count": export_payload.get("count"),
+        "validation_count": validation_payload.get("signal_count"),
+        "manifest_record_count": manifest.get("record_count"),
+        "selection_summary": manifest.get("selection_summary"),
+    }
+
+
 def _control_plane_root() -> Path:
     return Path(
         os.environ.get("ENOCH_CONTROL_PLANE_ROOT")
@@ -721,11 +792,13 @@ def _dry_run_bounded_failed_exit(dry_payload: dict[str, Any]) -> int | None:
 
 def _no_import_dry_run_exit(
     *,
+    root: Path,
     dry_payload: dict[str, Any],
     dry_run_attempts: int,
     fast_forwarded: list[str],
     system: Path,
     corpus: Path,
+    skip_github: bool,
 ) -> int | None:
     if dry_payload.get("imported"):
         return None
@@ -733,6 +806,24 @@ def _no_import_dry_run_exit(
         ledger_sync: dict[str, Any] = {}
         if _truthy("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "0"):
             ledger_sync = _sync_corpus_ledger(system, corpus)
+        promising_signals = _refresh_promising_signals(system, root)
+        count_update: dict[str, Any] = {}
+        release_validation: dict[str, Any] = {}
+        changed_repos: list[str] = []
+        commits: list[dict[str, str]] = []
+        pushed: list[dict[str, str]] = []
+        if promising_signals.get("action") == "promising_signals_refreshed":
+            ecosystem_manifest = _ecosystem_manifest_path()
+            count_update = _update_public_counts(system, root, ecosystem_manifest)
+            release_validation = _validate_release(
+                system,
+                root,
+                corpus,
+                ecosystem_manifest,
+                skip_github_metadata=skip_github,
+            )
+            changed_repos = _git_changed_repos(root)
+            commits, pushed = _autocommit_and_push(root, dry_payload, count_update)
         print(
             json.dumps(
                 {
@@ -743,6 +834,12 @@ def _no_import_dry_run_exit(
                     "dry_run_attempts": dry_run_attempts,
                     "fast_forwarded": fast_forwarded,
                     "ledger_sync": ledger_sync,
+                    "promising_signals": promising_signals,
+                    "count_update": count_update,
+                    "release_validation": release_validation,
+                    "changed_repos": changed_repos,
+                    "commits": commits,
+                    "pushed": pushed,
                 },
                 sort_keys=True,
             )
@@ -1004,11 +1101,13 @@ def main() -> int:
             return exit_code
 
         exit_code = _no_import_dry_run_exit(
+            root=root,
             dry_payload=dry_payload,
             dry_run_attempts=dry_run_attempts,
             fast_forwarded=fast_forwarded,
             system=system,
             corpus=corpus,
+            skip_github=skip_github,
         )
         if exit_code is not None:
             return exit_code
