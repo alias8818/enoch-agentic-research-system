@@ -816,9 +816,7 @@ def _no_import_dry_run_exit(
         if promising_signals.get("action") == "promising_signals_refreshed":
             ecosystem_manifest = _ecosystem_manifest_path()
             count_update = _update_public_counts(system, root, ecosystem_manifest)
-            paper_material_graph = _refresh_paper_material_graph(
-                root, control_plane_root=system
-            )
+            paper_material_graph = _refresh_paper_material_graph(root)
             release_validation = _validate_release(
                 system,
                 root,
@@ -903,9 +901,7 @@ def _run_preflight_import(
             tmp_system, tmp_root, tmp_root / "enoch-ecosystem.generated.json"
         )
         checks.extend(_corpus_trust_checks(tmp_corpus))
-        paper_material_graph = _refresh_paper_material_graph(
-            tmp_root, control_plane_root=tmp_system
-        )
+        paper_material_graph = _refresh_paper_material_graph(tmp_root)
         release_validation = _validate_release(
             tmp_system,
             tmp_root,
@@ -1019,9 +1015,7 @@ def _execute_live_corpus_import(
     count_update = _update_public_counts(system, root, ecosystem_manifest)
     checks.extend(_corpus_trust_checks(corpus))
     github_metadata = _maybe_github_metadata(count_update)
-    paper_material_graph = _refresh_paper_material_graph(
-        root, control_plane_root=system
-    )
+    paper_material_graph = _refresh_paper_material_graph(root)
     release_validation = _validate_release(
         system,
         root,
