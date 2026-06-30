@@ -1,22 +1,22 @@
 # Enoch Paper Material Graph
 
-Generated: `2026-06-30T18:39:37.592040+00:00`
+Generated: `2026-06-30T18:44:52.350174+00:00`
 
 Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for live topology referenced by candidate material.
 
 ## Summary
 
 - Papers: 393
-- Signals: 6380
-- Sources: 3609
-- Edges: 35070
-- Similar-topic edges: 27041
+- Signals: 6381
+- Sources: 3610
+- Edges: 35076
+- Similar-topic edges: 27045
 - Connected components: 1
 
 ## Signal statuses
 
 - `compute_scale_blocked`: 72
-- `useful_signal`: 6308
+- `useful_signal`: 6309
 
 ## Top synthesis candidates
 
@@ -283,7 +283,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 
 ## Largest components
 
-### component:1 — 10382 nodes {'paper': 393, 'signal': 6380, 'source': 3609}
+### component:1 — 10384 nodes {'paper': 393, 'signal': 6381, 'source': 3610}
 - Acceptance-Length CUDA Graph Bank: Reducing Launch Overhead in Speculative-Decoding Tails
 - Adapter-Projected GaLore with Decoupled Projection Refresh: Downstream Transfer Evaluation at 192 Steps
 - Adaptive Boundary Colorization Gate: A Deterministic Routing Strategy for Prompt Boundary Colorization

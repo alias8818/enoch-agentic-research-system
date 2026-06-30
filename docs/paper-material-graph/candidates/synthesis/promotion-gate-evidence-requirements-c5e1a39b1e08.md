@@ -1,6 +1,6 @@
 # Promotion-Gate Evidence Requirements
 
-Generated from graph: `2026-06-30T18:39:37.592040+00:00`
+Generated from graph: `2026-06-30T18:44:52.350174+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:promotion-gate-evidence-requirements-c5e1a39b1e08`

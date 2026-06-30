@@ -1,6 +1,6 @@
 # Longer GPT-2-small LoRA persistence test for 8-bit SGDM momentum
 
-Generated from graph: `2026-06-30T18:39:37.592040+00:00`
+Generated from graph: `2026-06-30T18:44:52.350174+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:longer-gpt-2-small-lora-persistence-test-for-8-bit-sgdm-mo-5c80a550a7`

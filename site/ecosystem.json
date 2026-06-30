@@ -4,7 +4,7 @@
   "gate_name": "packaging_provenance_gate",
   "gate_scope": "artifact packaging, provenance, placeholder, and overclaim linting",
   "gate_version": "1.0",
-  "generated_at": "2026-06-30T18:38:43Z",
+  "generated_at": "2026-06-30T18:43:59Z",
   "not_validated": [
     "peer_review",
     "scientific_correctness",
@@ -15,7 +15,7 @@
     "strict_claim_evidence_audit"
   ],
   "packaging_provenance_pass_count": 393,
-  "promising_signal_count": 6380,
+  "promising_signal_count": 6381,
   "repos": {
     "corpus": {
       "name": "alias8818/enoch-ai-research-corpus"

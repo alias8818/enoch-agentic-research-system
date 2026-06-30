@@ -1,6 +1,6 @@
 # Direct agent-harness evaluation of append-only evidence ledger failure recall
 
-Generated from graph: `2026-06-30T18:39:37.592040+00:00`
+Generated from graph: `2026-06-30T18:44:52.350174+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `negative`
 Signal: `signal:direct-agent-harness-evaluation-of-append-only-evidence-le-704935537c`

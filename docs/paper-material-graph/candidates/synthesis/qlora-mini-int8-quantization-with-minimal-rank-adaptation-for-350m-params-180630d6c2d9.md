@@ -1,6 +1,6 @@
 # QLoRA-mini: INT8 Quantization with Minimal Rank Adaptation for 350M Params
 
-Generated from graph: `2026-06-30T18:39:37.592040+00:00`
+Generated from graph: `2026-06-30T18:44:52.350174+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:qlora-mini-int8-quantization-with-minimal-rank-adaptation-for-350m-params-180630d6c2d9`

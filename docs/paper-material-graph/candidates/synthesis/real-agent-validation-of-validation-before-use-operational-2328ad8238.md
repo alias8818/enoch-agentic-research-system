@@ -1,6 +1,6 @@
 # Real-agent validation of validation-before-use operational memory
 
-Generated from graph: `2026-06-30T18:39:37.592040+00:00`
+Generated from graph: `2026-06-30T18:44:52.350174+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:real-agent-validation-of-validation-before-use-operational-2328ad8238`

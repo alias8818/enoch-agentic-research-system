@@ -1,6 +1,6 @@
 # Trace-Based Ledger-Constrained Decoding for 1B Tool Agents
 
-Generated from graph: `2026-06-30T18:39:37.592040+00:00`
+Generated from graph: `2026-06-30T18:44:52.350174+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `negative`
 Signal: `signal:trace-based-ledger-constrained-decoding-for-1b-tool-agents-8d68ea8865`
