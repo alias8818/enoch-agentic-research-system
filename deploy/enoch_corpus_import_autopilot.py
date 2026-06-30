@@ -863,7 +863,7 @@ def _no_import_dry_run_exit(
                 root,
                 corpus,
                 ecosystem_manifest,
-                skip_github_metadata=skip_github,
+                skip_github_metadata=skip_github or github_metadata.get("ok") is False,
             )
             changed_repos = _git_changed_repos(root)
             commits, pushed = _autocommit_and_push(root, dry_payload, count_update)
@@ -1001,13 +1001,19 @@ def _maybe_github_metadata(count_update: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(
             "could not determine artifact count for GitHub metadata update"
         )
-    metadata: dict[str, Any] = {"corpus": _update_github_metadata(artifact_count)}
-    promising_signal_count = int(stats.get("promising_signal_count") or 0)
-    if promising_signal_count > 0:
-        metadata["promising_signals"] = _update_promising_github_metadata(
-            promising_signal_count
-        )
-    return metadata
+    try:
+        metadata: dict[str, Any] = {
+            "ok": True,
+            "corpus": _update_github_metadata(artifact_count),
+        }
+        promising_signal_count = int(stats.get("promising_signal_count") or 0)
+        if promising_signal_count > 0:
+            metadata["promising_signals"] = _update_promising_github_metadata(
+                promising_signal_count
+            )
+        return metadata
+    except Exception as exc:  # noqa: BLE001 - metadata is advisory; release artifacts are primary
+        return {"ok": False, "error": _exception_summary(exc)}
 
 
 def _autocommit_and_push(
@@ -1068,7 +1074,7 @@ def _execute_live_corpus_import(
         root,
         corpus,
         ecosystem_manifest,
-        skip_github_metadata=skip_github,
+        skip_github_metadata=skip_github or github_metadata.get("ok") is False,
     )
     changed_repos = _git_changed_repos(root)
     commits, pushed = _autocommit_and_push(root, live_payload, count_update)
