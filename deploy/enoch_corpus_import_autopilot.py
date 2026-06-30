@@ -809,12 +809,16 @@ def _no_import_dry_run_exit(
         promising_signals = _refresh_promising_signals(system, root)
         count_update: dict[str, Any] = {}
         release_validation: dict[str, Any] = {}
+        paper_material_graph: dict[str, Any] = {}
         changed_repos: list[str] = []
         commits: list[dict[str, str]] = []
         pushed: list[dict[str, str]] = []
         if promising_signals.get("action") == "promising_signals_refreshed":
             ecosystem_manifest = _ecosystem_manifest_path()
             count_update = _update_public_counts(system, root, ecosystem_manifest)
+            paper_material_graph = _refresh_paper_material_graph(
+                root, control_plane_root=system
+            )
             release_validation = _validate_release(
                 system,
                 root,
@@ -837,6 +841,7 @@ def _no_import_dry_run_exit(
                     "promising_signals": promising_signals,
                     "count_update": count_update,
                     "release_validation": release_validation,
+                    "paper_material_graph": paper_material_graph,
                     "changed_repos": changed_repos,
                     "commits": commits,
                     "pushed": pushed,
