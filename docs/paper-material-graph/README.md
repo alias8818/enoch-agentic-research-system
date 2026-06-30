@@ -1,24 +1,59 @@
 # Enoch Paper Material Graph
 
-Generated: `2026-06-07T03:11:44.309404+00:00`
+Generated: `2026-06-30T18:33:55.274215+00:00`
 
 Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for live topology referenced by candidate material.
 
 ## Summary
 
-- Papers: 389
-- Signals: 519
-- Sources: 370
-- Edges: 4140
-- Similar-topic edges: 3616
+- Papers: 393
+- Signals: 6379
+- Sources: 3608
+- Edges: 35088
+- Similar-topic edges: 27060
 - Connected components: 1
 
 ## Signal statuses
 
-- `compute_scale_blocked`: 67
-- `useful_signal`: 452
+- `compute_scale_blocked`: 72
+- `useful_signal`: 6307
 
 ## Top synthesis candidates
+
+### Longer GPT-2-small LoRA persistence test for 8-bit SGDM momentum — score 107 (`useful_signal`)
+- Signal: `signal:longer-gpt-2-small-lora-persistence-test-for-8-bit-sgdm-mo-5c80a550a7`
+- Packet: [candidates/synthesis/longer-gpt-2-small-lora-persistence-test-for-8-bit-sgdm-mo-5c80a550a7.md](candidates/synthesis/longer-gpt-2-small-lora-persistence-test-for-8-bit-sgdm-mo-5c80a550a7.md)
+- Related papers: 1
+- Next action: Longer multi-dataset GPT-2-small LoRA validation for persisted 8-bit SGDM momentum
+  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, every, fine-tuning, fp32, gpt-2-small, lora, loss, momentum, outperformed, per-tensor, persisted, seed
+
+### Cascade Verification for Safer Local Agents — score 105 (`useful_signal`)
+- Signal: `signal:cascade-verification-for-safer-local-agents-de68e13cb8ba`
+- Packet: [candidates/synthesis/cascade-verification-for-safer-local-agents-de68e13cb8ba.md](candidates/synthesis/cascade-verification-for-safer-local-agents-de68e13cb8ba.md)
+- Related papers: 1
+- Next action: Trace-Derived Sandbox Validation for Cascade Verification
+  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: relative, verification
+
+### Promotion-Gate Evidence Requirements — score 105 (`useful_signal`)
+- Signal: `signal:promotion-gate-evidence-requirements-c5e1a39b1e08`
+- Packet: [candidates/synthesis/promotion-gate-evidence-requirements-c5e1a39b1e08.md](candidates/synthesis/promotion-gate-evidence-requirements-c5e1a39b1e08.md)
+- Related papers: 1
+- Next action: Reviewer-labeled calibration of Enoch paper-promotion gate sensitivity
+  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: audit, claim, scope, strict
+
+### QLoRA-mini: INT8 Quantization with Minimal Rank Adaptation for 350M Params — score 105 (`useful_signal`)
+- Signal: `signal:qlora-mini-int8-quantization-with-minimal-rank-adaptation-for-350m-params-180630d6c2d9`
+- Packet: [candidates/synthesis/qlora-mini-int8-quantization-with-minimal-rank-adaptation-for-350m-params-180630d6c2d9.md](candidates/synthesis/qlora-mini-int8-quantization-with-minimal-rank-adaptation-for-350m-params-180630d6c2d9.md)
+- Related papers: 1
+- Next action: Medium OPT-350M INT8 LoRA confirmation with standard backend and downstream task
+  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bounded, lora, loss, matched, steps
+
+### Longer multi-dataset GPT-2-small LoRA validation for persisted 8-bit SGDM momentum — score 102 (`useful_signal`)
+- Signal: `signal:longer-multi-dataset-gpt-2-small-lora-validation-for-persi-53ef4d6e0f`
+- Packet: [candidates/synthesis/longer-multi-dataset-gpt-2-small-lora-validation-for-persi-53ef4d6e0f.md](candidates/synthesis/longer-multi-dataset-gpt-2-small-lora-validation-for-persi-53ef4d6e0f.md)
+- Related papers: 1
+- Next action: Multi-seed AdamW-inclusive GPT-2-small LoRA validation for persisted 8-bit SGDM momentum
+  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, fp32, gpt-2-small, lora, loss, matched, momentum, no-momentum, optimizer, per-tensor, persisted, sgd
 
 ### Entropy-Coded Anchor Preprocessing Against Standard Compressors — score 95 (`useful_signal`)
 - Signal: `signal:entropy-coded-anchor-preprocessing-against-standard-compre-d69ad54fb5`
@@ -27,25 +62,39 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Gated Anchor Preprocessing for Fast Compression Only
   - GB10 Dense Router Retrofit Strict Audit Bundle — shared: claim, corpus
 
-### Cross-Model KV-Cascade Router with Affine Adapter — score 90 (`useful_signal`)
-- Signal: `signal:cross-model-kv-cascade-router-with-affine-adapter-64f380dca440`
-- Packet: [candidates/synthesis/cross-model-kv-cascade-router-with-affine-adapter-64f380dca440.md](candidates/synthesis/cross-model-kv-cascade-router-with-affine-adapter-64f380dca440.md)
+### CPU Memory-Bandwidth Fingerprinting for Hardware Trust — score 90 (`useful_signal`)
+- Signal: `signal:cpu-memory-bandwidth-fingerprinting-for-hardware-trust-cc7f14f87de9`
+- Packet: [candidates/synthesis/cpu-memory-bandwidth-fingerprinting-for-hardware-trust-cc7f14f87de9.md](candidates/synthesis/cpu-memory-bandwidth-fingerprinting-for-hardware-trust-cc7f14f87de9.md)
 - Related papers: 1
-- Next action: Residual-Calibrated KV Adapter with Acceptance Router
-  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: router, source
+- Next action: Controlled CPU affinity and reboot-stability memory-bandwidth fingerprint test
+  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: claim, environment
 
-### Controller-integrated Postgres LangGraph hard-cutover fault injection — score 65 (`useful_signal`)
-- Signal: `signal:controller-integrated-postgres-langgraph-hard-cutover-faul-77a07dc1a4`
-- Packet: [candidates/synthesis/controller-integrated-postgres-langgraph-hard-cutover-faul-77a07dc1a4.md](candidates/synthesis/controller-integrated-postgres-langgraph-hard-cutover-faul-77a07dc1a4.md)
+### CPU-Resident LoRA Adapter Routing for Ultra-Low VRAM Fine-Tuning — score 90 (`useful_signal`)
+- Signal: `signal:cpu-resident-lora-adapter-routing-for-ultra-low-vram-fine-tuning-89b536c5b6ed`
+- Packet: [candidates/synthesis/cpu-resident-lora-adapter-routing-for-ultra-low-vram-fine-tuning-89b536c5b6ed.md](candidates/synthesis/cpu-resident-lora-adapter-routing-for-ultra-low-vram-fine-tuning-89b536c5b6ed.md)
 - Related papers: 1
-  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: harness, steps
+- Next action: GPU VRAM and Transfer Validation for CPU-Resident Routed LoRA Cache
+  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: reduce, routing
 
-### Hessian-Trace Residual Channel Preservation for Sub-2bit Quantization — score 60 (`useful_signal`)
-- Signal: `signal:hessian-trace-residual-channel-preservation-for-sub-2bit-quantization-3664c59792af`
-- Packet: [candidates/synthesis/hessian-trace-residual-channel-preservation-for-sub-2bit-quantization-3664c59792af.md](candidates/synthesis/hessian-trace-residual-channel-preservation-for-sub-2bit-quantization-3664c59792af.md)
+### Real-agent validation of validation-before-use operational memory — score 62 (`useful_signal`)
+- Signal: `signal:real-agent-validation-of-validation-before-use-operational-2328ad8238`
+- Packet: [candidates/synthesis/real-agent-validation-of-validation-before-use-operational-2328ad8238.md](candidates/synthesis/real-agent-validation-of-validation-before-use-operational-2328ad8238.md)
 - Related papers: 1
-- Next action: Activation-Magnitude Residual Channel Preservation for Sub-2bit Transformer Quantization
-  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bounded, fp32, seed
+- Next action: Stronger stale-memory control for validation-before-use agents
+  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: passed, source
+
+### Exact Anchor Embedding for Lossless Long-Context Retrieval Guarantee — score 60 (`useful_signal`)
+- Signal: `signal:exact-anchor-embedding-for-lossless-long-context-retrieval-guarantee-670e4f6656be`
+- Packet: [candidates/synthesis/exact-anchor-embedding-for-lossless-long-context-retrieval-guarantee-670e4f6656be.md](candidates/synthesis/exact-anchor-embedding-for-lossless-long-context-retrieval-guarantee-670e4f6656be.md)
+- Related papers: 1
+- Next action: Bounded Exact Anchor Index With Explicit Storage Scaling
+  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: claim, quality
+
+### EWA Gradients: Exponential Weighted Aggregation for Memory-Efficient Updates — score 45 (`useful_signal`)
+- Signal: `signal:ewa-gradients-exponential-weighted-aggregation-for-memory-efficient-updates-0e0a3913782d`
+- Packet: [candidates/synthesis/ewa-gradients-exponential-weighted-aggregation-for-memory-efficient-updates-0e0a3913782d.md](candidates/synthesis/ewa-gradients-exponential-weighted-aggregation-for-memory-efficient-updates-0e0a3913782d.md)
+- Related papers: 1
+  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bounded, gradient, memory-efficient, momentum, optimizer
 
 
 ## Negative / blocked result candidates
@@ -228,7 +277,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 
 ## Largest components
 
-### component:1 — 1278 nodes {'paper': 389, 'signal': 519, 'source': 370}
+### component:1 — 10380 nodes {'paper': 393, 'signal': 6379, 'source': 3608}
 - Acceptance-Length CUDA Graph Bank: Reducing Launch Overhead in Speculative-Decoding Tails
 - Adapter-Projected GaLore with Decoupled Projection Refresh: Downstream Transfer Evaluation at 192 Steps
 - Adaptive Boundary Colorization Gate: A Deterministic Routing Strategy for Prompt Boundary Colorization
@@ -237,6 +286,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Adaptive Evidence Packing for Budget-Constrained RAG: An End-to-End Integration Study
 - Adaptive Landmark Reweighter: Online KV-Cache Policy for Preserving Answer-Critical State Under Memory Constraints
 - Adaptive Prefix Splitter Inference Integration
+
 
 ## How to use this
 

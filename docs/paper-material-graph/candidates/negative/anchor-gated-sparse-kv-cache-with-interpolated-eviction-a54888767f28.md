@@ -1,6 +1,6 @@
 # Anchor-Gated Sparse KV Cache with Interpolated Eviction
 
-Generated from graph: `2026-06-07T03:11:44.309404+00:00`
+Generated from graph: `2026-06-30T18:33:55.274215+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `negative`
 Signal: `signal:anchor-gated-sparse-kv-cache-with-interpolated-eviction-a54888767f28`

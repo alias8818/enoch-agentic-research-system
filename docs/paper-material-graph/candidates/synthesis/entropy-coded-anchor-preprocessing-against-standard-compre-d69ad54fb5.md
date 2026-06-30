@@ -1,6 +1,6 @@
 # Entropy-Coded Anchor Preprocessing Against Standard Compressors
 
-Generated from graph: `2026-06-07T03:11:44.309404+00:00`
+Generated from graph: `2026-06-30T18:33:55.274215+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:entropy-coded-anchor-preprocessing-against-standard-compre-d69ad54fb5`
