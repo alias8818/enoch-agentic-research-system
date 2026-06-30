@@ -324,16 +324,37 @@ def _similar_topic_edge_candidates(
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     comparable = [node for node in nodes if node.get("kind") in {"paper", "signal"}]
-    for index, left in enumerate(comparable):
-        left_terms = set(left.get("terms") or [])
-        if not left_terms:
+    term_index: dict[str, list[int]] = defaultdict(list)
+    for index, node in enumerate(comparable):
+        for term in sorted(set(node.get("terms") or [])):
+            term_index[term].append(index)
+
+    # The production graph now includes thousands of promising signals.  The
+    # original all-pairs comparison was O(n^2) and could outlive the corpus
+    # autopilot systemd timeout.  Build candidate pairs through the inverted
+    # index instead, and ignore extremely broad terms that cannot produce useful
+    # local-neighborhood edges but can create millions of pair increments.
+    pair_shared_counts: Counter[tuple[int, int]] = Counter()
+    for postings in term_index.values():
+        if len(postings) < 2 or len(postings) > 500:
             continue
-        for right in comparable[index + 1 :]:
-            candidate = _similar_topic_edge_candidate(
-                left, right, left_terms=left_terms, min_shared_terms=min_shared_terms
-            )
-            if candidate is not None:
-                candidates.append(candidate)
+        for left_offset, left_index in enumerate(postings):
+            for right_index in postings[left_offset + 1 :]:
+                pair_shared_counts[(left_index, right_index)] += 1
+
+    for (left_index, right_index), shared_count in pair_shared_counts.items():
+        if shared_count < min_shared_terms:
+            continue
+        left = comparable[left_index]
+        right = comparable[right_index]
+        candidate = _similar_topic_edge_candidate(
+            left,
+            right,
+            left_terms=set(left.get("terms") or []),
+            min_shared_terms=min_shared_terms,
+        )
+        if candidate is not None:
+            candidates.append(candidate)
     return candidates
 
 
@@ -1017,7 +1038,8 @@ def write_outputs(
     json_output.parent.mkdir(parents=True, exist_ok=True)
     _reject_existing_symlink_components(json_output)
     json_output.write_text(
-        json.dumps(graph, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        json.dumps(graph, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
     )
     if markdown_output is not None:
         _reject_existing_symlink_components(markdown_output.parent)

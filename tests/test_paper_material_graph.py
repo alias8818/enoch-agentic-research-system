@@ -163,6 +163,46 @@ def test_build_graph_connects_papers_signals_sources_and_similar_topics(
     assert "Suffix Speculative Decoding" in candidates[0]["related_papers"][0]["title"]
 
 
+def test_similarity_candidates_use_inverted_index_without_all_pairs(
+    tmp_path: Path,
+) -> None:
+    corpus = tmp_path / "corpus"
+    promising = tmp_path / "promising"
+    _write_corpus_paper(
+        corpus,
+        "speculative-decoding-paper",
+        "Speculative Decoding Acceptance Router",
+        "Speculative decoding acceptance router latency verifier.",
+    )
+    for index in range(750):
+        _write_promising_signal(
+            promising,
+            project_id=f"broad-signal-{index}",
+            title=f"Broad common signal {index}",
+            status="useful_signal",
+        )
+    _write_promising_signal(
+        promising,
+        project_id="targeted-speculative-signal",
+        title="Speculative decoding acceptance verifier",
+    )
+
+    graph = builder.build_graph(
+        corpus_repo=corpus,
+        promising_repo=promising,
+        min_shared_terms=2,
+        max_similar_per_node=2,
+    )
+
+    assert graph["summary"]["paper_count"] == 1
+    assert graph["summary"]["signal_count"] == 751
+    assert any(
+        edge["kind"] == "similar_topic"
+        and "targeted-speculative-signal" in f"{edge['source']} {edge['target']}"
+        for edge in graph["edges"]
+    )
+
+
 def test_similarity_edges_are_bounded_to_strongest_local_neighborhood(
     tmp_path: Path,
 ) -> None:
