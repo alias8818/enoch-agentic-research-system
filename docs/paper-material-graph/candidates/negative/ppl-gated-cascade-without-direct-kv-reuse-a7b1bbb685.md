@@ -1,6 +1,6 @@
 # PPL-gated cascade without direct KV reuse
 
-Generated from graph: `2026-06-30T18:33:55.274215+00:00`
+Generated from graph: `2026-06-30T18:39:37.592040+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `negative`
 Signal: `signal:ppl-gated-cascade-without-direct-kv-reuse-a7b1bbb685`

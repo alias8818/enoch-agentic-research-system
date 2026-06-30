@@ -1,6 +1,6 @@
 # Longer multi-dataset GPT-2-small LoRA validation for persisted 8-bit SGDM momentum
 
-Generated from graph: `2026-06-30T18:33:55.274215+00:00`
+Generated from graph: `2026-06-30T18:39:37.592040+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:longer-multi-dataset-gpt-2-small-lora-validation-for-persi-53ef4d6e0f`

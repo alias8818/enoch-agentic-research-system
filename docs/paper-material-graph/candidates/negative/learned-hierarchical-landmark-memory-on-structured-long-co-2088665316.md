@@ -1,6 +1,6 @@
 # Learned Hierarchical Landmark Memory on Structured Long-Context Recall
 
-Generated from graph: `2026-06-30T18:33:55.274215+00:00`
+Generated from graph: `2026-06-30T18:39:37.592040+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `negative`
 Signal: `signal:learned-hierarchical-landmark-memory-on-structured-long-co-2088665316`

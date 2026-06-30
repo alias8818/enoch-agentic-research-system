@@ -1,6 +1,6 @@
 # Behavior-aware learned KV residual prediction for exact-anchor cache substitution
 
-Generated from graph: `2026-06-30T18:33:55.274215+00:00`
+Generated from graph: `2026-06-30T18:39:37.592040+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `negative`
 Signal: `signal:behavior-aware-learned-kv-residual-prediction-for-exact-an-b76f7664e0`

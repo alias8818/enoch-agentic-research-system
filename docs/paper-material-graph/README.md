@@ -1,22 +1,22 @@
 # Enoch Paper Material Graph
 
-Generated: `2026-06-30T18:33:55.274215+00:00`
+Generated: `2026-06-30T18:39:37.592040+00:00`
 
 Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for live topology referenced by candidate material.
 
 ## Summary
 
 - Papers: 393
-- Signals: 6379
-- Sources: 3608
-- Edges: 35088
-- Similar-topic edges: 27060
+- Signals: 6380
+- Sources: 3609
+- Edges: 35070
+- Similar-topic edges: 27041
 - Connected components: 1
 
 ## Signal statuses
 
 - `compute_scale_blocked`: 72
-- `useful_signal`: 6307
+- `useful_signal`: 6308
 
 ## Top synthesis candidates
 
@@ -27,12 +27,19 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Longer multi-dataset GPT-2-small LoRA validation for persisted 8-bit SGDM momentum
   - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, every, fine-tuning, fp32, gpt-2-small, lora, loss, momentum, outperformed, per-tensor, persisted, seed
 
-### Cascade Verification for Safer Local Agents — score 105 (`useful_signal`)
-- Signal: `signal:cascade-verification-for-safer-local-agents-de68e13cb8ba`
-- Packet: [candidates/synthesis/cascade-verification-for-safer-local-agents-de68e13cb8ba.md](candidates/synthesis/cascade-verification-for-safer-local-agents-de68e13cb8ba.md)
+### Real-Trace Evaluation of Trace-Based Local-Agent Safety Routing — score 107 (`useful_signal`)
+- Signal: `signal:real-trace-evaluation-of-trace-based-local-agent-safety-ro-d4b8efdf29`
+- Packet: [candidates/synthesis/real-trace-evaluation-of-trace-based-local-agent-safety-ro-d4b8efdf29.md](candidates/synthesis/real-trace-evaluation-of-trace-based-local-agent-safety-ro-d4b8efdf29.md)
 - Related papers: 1
-- Next action: Trace-Derived Sandbox Validation for Cascade Verification
-  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: relative, verification
+- Next action: Human-Audited Shadow Routing for Trace-Based Local-Agent Safety
+  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: review, router
+
+### Cheat-Resistant Volunteer Training via Seeded Subset Verification — score 105 (`useful_signal`)
+- Signal: `signal:cheat-resistant-volunteer-training-via-seeded-subset-verification-c6072f3387f1`
+- Packet: [candidates/synthesis/cheat-resistant-volunteer-training-via-seeded-subset-verification-c6072f3387f1.md](candidates/synthesis/cheat-resistant-volunteer-training-via-seeded-subset-verification-c6072f3387f1.md)
+- Related papers: 1
+- Next action: Repeated-Attempt Seed Leakage Stress Test for Hidden Subset Verification
+  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: pass, review
 
 ### Promotion-Gate Evidence Requirements — score 105 (`useful_signal`)
 - Signal: `signal:promotion-gate-evidence-requirements-c5e1a39b1e08`
@@ -55,12 +62,12 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Multi-seed AdamW-inclusive GPT-2-small LoRA validation for persisted 8-bit SGDM momentum
   - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, fp32, gpt-2-small, lora, loss, matched, momentum, no-momentum, optimizer, per-tensor, persisted, sgd
 
-### Entropy-Coded Anchor Preprocessing Against Standard Compressors — score 95 (`useful_signal`)
-- Signal: `signal:entropy-coded-anchor-preprocessing-against-standard-compre-d69ad54fb5`
-- Packet: [candidates/synthesis/entropy-coded-anchor-preprocessing-against-standard-compre-d69ad54fb5.md](candidates/synthesis/entropy-coded-anchor-preprocessing-against-standard-compre-d69ad54fb5.md)
+### Pre-commit counterexample mining on real LLM code-action candidates — score 92 (`useful_signal`)
+- Signal: `signal:pre-commit-counterexample-mining-on-real-llm-code-action-c-877c7a891d`
+- Packet: [candidates/synthesis/pre-commit-counterexample-mining-on-real-llm-code-action-c-877c7a891d.md](candidates/synthesis/pre-commit-counterexample-mining-on-real-llm-code-action-c-877c7a891d.md)
 - Related papers: 1
-- Next action: Gated Anchor Preprocessing for Fast Compression Only
-  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: claim, corpus
+- Next action: Multi-submission pre-submit failure taxonomy for LLM code-action counterexample mining
+  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: llm, one
 
 ### CPU Memory-Bandwidth Fingerprinting for Hardware Trust — score 90 (`useful_signal`)
 - Signal: `signal:cpu-memory-bandwidth-fingerprinting-for-hardware-trust-cc7f14f87de9`
@@ -69,13 +76,6 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Controlled CPU affinity and reboot-stability memory-bandwidth fingerprint test
   - GB10 Dense Router Retrofit Strict Audit Bundle — shared: claim, environment
 
-### CPU-Resident LoRA Adapter Routing for Ultra-Low VRAM Fine-Tuning — score 90 (`useful_signal`)
-- Signal: `signal:cpu-resident-lora-adapter-routing-for-ultra-low-vram-fine-tuning-89b536c5b6ed`
-- Packet: [candidates/synthesis/cpu-resident-lora-adapter-routing-for-ultra-low-vram-fine-tuning-89b536c5b6ed.md](candidates/synthesis/cpu-resident-lora-adapter-routing-for-ultra-low-vram-fine-tuning-89b536c5b6ed.md)
-- Related papers: 1
-- Next action: GPU VRAM and Transfer Validation for CPU-Resident Routed LoRA Cache
-  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: reduce, routing
-
 ### Real-agent validation of validation-before-use operational memory — score 62 (`useful_signal`)
 - Signal: `signal:real-agent-validation-of-validation-before-use-operational-2328ad8238`
 - Packet: [candidates/synthesis/real-agent-validation-of-validation-before-use-operational-2328ad8238.md](candidates/synthesis/real-agent-validation-of-validation-before-use-operational-2328ad8238.md)
@@ -83,18 +83,24 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Stronger stale-memory control for validation-before-use agents
   - GB10 Dense Router Retrofit Strict Audit Bundle — shared: passed, source
 
-### Exact Anchor Embedding for Lossless Long-Context Retrieval Guarantee — score 60 (`useful_signal`)
-- Signal: `signal:exact-anchor-embedding-for-lossless-long-context-retrieval-guarantee-670e4f6656be`
-- Packet: [candidates/synthesis/exact-anchor-embedding-for-lossless-long-context-retrieval-guarantee-670e4f6656be.md](candidates/synthesis/exact-anchor-embedding-for-lossless-long-context-retrieval-guarantee-670e4f6656be.md)
+### KV-Cache Aware Cascade Fallback — score 60 (`useful_signal`)
+- Signal: `signal:kv-cache-aware-cascade-fallback-4733bb6f795f`
+- Packet: [candidates/synthesis/kv-cache-aware-cascade-fallback-4733bb6f795f.md](candidates/synthesis/kv-cache-aware-cascade-fallback-4733bb6f795f.md)
 - Related papers: 1
-- Next action: Bounded Exact Anchor Index With Explicit Storage Scaling
-  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: claim, quality
+- Next action: Cross-Model KV Projection for Cascade Fallback
+  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: large-model, latency, preserving, reduce
 
 ### EWA Gradients: Exponential Weighted Aggregation for Memory-Efficient Updates — score 45 (`useful_signal`)
 - Signal: `signal:ewa-gradients-exponential-weighted-aggregation-for-memory-efficient-updates-0e0a3913782d`
 - Packet: [candidates/synthesis/ewa-gradients-exponential-weighted-aggregation-for-memory-efficient-updates-0e0a3913782d.md](candidates/synthesis/ewa-gradients-exponential-weighted-aggregation-for-memory-efficient-updates-0e0a3913782d.md)
 - Related papers: 1
   - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bounded, gradient, memory-efficient, momentum, optimizer
+
+### Calibrated Soft Source Diversity for Cross-Corpus Claim Verification — score 40 (`useful_signal`)
+- Signal: `signal:calibrated-soft-source-diversity-for-cross-corpus-claim-ve-908672b271`
+- Packet: [candidates/synthesis/calibrated-soft-source-diversity-for-cross-corpus-claim-ve-908672b271.md](candidates/synthesis/calibrated-soft-source-diversity-for-cross-corpus-claim-ve-908672b271.md)
+- Related papers: 1
+  - GB10 Dense Router Retrofit Strict Audit Bundle — shared: claim, source
 
 
 ## Negative / blocked result candidates
@@ -277,7 +283,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 
 ## Largest components
 
-### component:1 — 10380 nodes {'paper': 393, 'signal': 6379, 'source': 3608}
+### component:1 — 10382 nodes {'paper': 393, 'signal': 6380, 'source': 3609}
 - Acceptance-Length CUDA Graph Bank: Reducing Launch Overhead in Speculative-Decoding Tails
 - Adapter-Projected GaLore with Decoupled Projection Refresh: Downstream Transfer Evaluation at 192 Steps
 - Adaptive Boundary Colorization Gate: A Deterministic Routing Strategy for Prompt Boundary Colorization
