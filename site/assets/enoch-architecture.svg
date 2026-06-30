@@ -25,7 +25,7 @@
     <rect class="core" x="0" y="0" width="270" height="190" rx="30" filter="url(#glow)"/><text class="label" x="32" y="52">Control plane</text><text class="small" x="32" y="88">FastAPI + LangGraph-era</text><text class="small" x="32" y="116">state boundaries</text><text class="small" x="32" y="144">pause, preflight, dispatch</text><rect class="chip" x="32" y="156" width="95" height="24" rx="12"/><text class="tiny" x="50" y="173">single lane</text>
   </g>
   <g transform="translate(920 190)">
-    <rect class="box" x="0" y="0" width="205" height="130" rx="24"/><text class="label" x="24" y="42">Wake gate</text><text class="small" x="24" y="76">Process truth +</text><text class="small" x="24" y="99">telemetry checks</text>
+    <rect class="box" x="0" y="0" width="205" height="130" rx="24"/><text class="label" x="24" y="42">Worker gate</text><text class="small" x="24" y="76">Process truth +</text><text class="small" x="24" y="99">telemetry checks</text>
   </g>
   <g transform="translate(1165 190)">
     <rect class="box" x="0" y="0" width="170" height="130" rx="24"/><text class="label" x="24" y="42">Worker</text><text class="small" x="24" y="76">GB10 / local</text><text class="small" x="24" y="99">experiment</text>
