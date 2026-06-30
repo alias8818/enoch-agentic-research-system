@@ -357,6 +357,67 @@ Rationale: this bounded toy mechanism is useful signal, but it is not publicatio
     assert "weak_or_missing_evidence_strength" not in problems
 
 
+def test_run_notes_fallback_rejects_project_id_path_escape(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "run_notes.md").write_text(
+        """
+## Final Decision
+
+Decision: `finalize_negative`
+
+Rationale: attacker-controlled rationale outside the project root.
+""",
+        encoding="utf-8",
+    )
+    root = tmp_path / "projects"
+    root.mkdir()
+    monkeypatch.setattr(dspy_research_quality, "DEFAULT_PROJECT_ROOTS", (root,))
+
+    assert (
+        dspy_research_quality._project_decision_from_run_notes_fallback(
+            {"project_id": "../outside"}
+        )
+        == {}
+    )
+    assert (
+        dspy_research_quality._project_decision_from_run_notes_fallback(
+            {"project_id": str(outside)}
+        )
+        == {}
+    )
+
+
+def test_run_notes_fallback_rejects_symlink_escape(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "run_notes.md").write_text(
+        """
+## Final Decision
+
+Decision: `finalize_negative`
+
+Rationale: attacker-controlled rationale outside the project root.
+""",
+        encoding="utf-8",
+    )
+    root = tmp_path / "projects"
+    root.mkdir()
+    (root / "linked-project").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(dspy_research_quality, "DEFAULT_PROJECT_ROOTS", (root,))
+
+    assert (
+        dspy_research_quality._project_decision_from_run_notes_fallback(
+            {"project_id": "linked-project"}
+        )
+        == {}
+    )
+
+
 def test_supported_negative_does_not_pass_on_broad_real_or_direct_words_only() -> None:
     row = DecisionRow(
         project_id="p",

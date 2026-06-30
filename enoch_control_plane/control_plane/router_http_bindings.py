@@ -3129,7 +3129,7 @@ def _register_control_plane_dashboard_shell_routes(
             str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
         ] = None,
     ) -> dict[str, Any]:
-        authorize(authorization, dashboard_session)
+        authorize(authorization)
         _require_writable_store("worker callback recording")
         try:
             event_id, inserted, row = store.record_worker_callback(callback)
@@ -5011,19 +5011,6 @@ def _register_control_plane_publication_routes(ns: MutableMapping[str, Any]) -> 
             entity_id=request_id,
             payload=request_payload,
         )
-        if inserted and hasattr(store, "upsert_dashboard_observation"):
-            store.upsert_dashboard_observation(
-                source="idea_intake",
-                status="ok",
-                ttl_seconds=3600,
-                payload={
-                    "request_id": request_id,
-                    "title": title[:240],
-                    "event_id": event_id,
-                    "queue_admitted": False,
-                    "dispatch_requested": False,
-                },
-            )
         return {
             "ok": True,
             "request_id": request_id,
@@ -6137,7 +6124,7 @@ def _register_control_plane_operator_legacy_routes(
             str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
         ] = None,
     ) -> DispatchNextResponse:
-        authorize(authorization, dashboard_session)
+        authorize(authorization)
         if not payload.dry_run:
             _require_writable_store("live dispatch")
             active = store.active_items()
@@ -6197,7 +6184,7 @@ def _register_control_plane_operator_legacy_routes(
             str | None, Cookie(alias=_DASHBOARD_SESSION_COOKIE_NAME)
         ] = None,
     ) -> DispatchNextResponse:
-        authorize(authorization, dashboard_session)
+        authorize(authorization)
         project_id = str(payload.project_id or "").strip()
         if not project_id:
             raise HTTPException(status_code=400, detail="project_id is required")

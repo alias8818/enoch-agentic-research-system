@@ -2259,6 +2259,85 @@ class ControlPlaneRouterTests(unittest.TestCase):
             self.assertFalse(rows[0]["payload"]["queue_admitted"])
             self.assertFalse(rows[0]["payload"]["dispatch_requested"])
 
+            status = client.get("/control/api/status", headers=headers)
+            self.assertEqual(status.status_code, 200)
+            observations = status.json()["observations"]
+            self.assertIsNone(observations["idea_intake"])
+
+    def test_worker_callback_rejects_dashboard_session_cookie_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = FastAPI()
+            app.include_router(
+                create_control_plane_router(
+                    _live_config(tmp),
+                    lambda auth: (_ for _ in ()).throw(
+                        HTTPException(status_code=401, detail="invalid bearer token")
+                    )
+                    if auth != f"Bearer {TOKEN}"
+                    else None,
+                )
+            )
+            client = TestClient(app)
+            created = client.post("/control/dashboard-v2/session", json={"token": TOKEN})
+            self.assertEqual(created.status_code, 200)
+
+            response = client.post(
+                "/control/api/worker-callback",
+                json={
+                    "event_type": "wake_ready",
+                    "run_id": "run-cookie-callback",
+                    "session_id": "session-cookie-callback",
+                    "project_id": "cookie-callback",
+                    "project_name": "Cookie Callback",
+                    "source_event": "session-idle",
+                    "gate_state": "wake_ready",
+                    "process_tracking": {
+                        "root_pid": None,
+                        "process_group_id": None,
+                        "processes": [],
+                        "live_process_count": 0,
+                    },
+                    "telemetry": {},
+                    "reason": "idle_sustain_met",
+                    "idempotency_key": "run-cookie-callback:wake_ready:test",
+                },
+            )
+
+            self.assertEqual(response.status_code, 401)
+
+    def test_dispatch_routes_reject_dashboard_session_cookie_auth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app = FastAPI()
+            app.include_router(
+                create_control_plane_router(
+                    _live_config(tmp),
+                    lambda auth: (_ for _ in ()).throw(
+                        HTTPException(status_code=401, detail="invalid bearer token")
+                    )
+                    if auth != f"Bearer {TOKEN}"
+                    else None,
+                )
+            )
+            client = TestClient(app)
+            created = client.post("/control/dashboard-v2/session", json={"token": TOKEN})
+            self.assertEqual(created.status_code, 200)
+
+            dispatch_next = client.post(
+                "/control/dispatch-next",
+                json={"dry_run": True, "requested_by": "dashboard-cookie"},
+            )
+            self.assertEqual(dispatch_next.status_code, 401)
+
+            dispatch_one = client.post(
+                "/control/dispatch-one",
+                json={
+                    "project_id": "queued-project",
+                    "dry_run": True,
+                    "requested_by": "dashboard-cookie",
+                },
+            )
+            self.assertEqual(dispatch_one.status_code, 401)
+
     def test_ideas_intake_dashboard_falls_back_when_batched_parts_are_malformed(
         self,
     ) -> None:

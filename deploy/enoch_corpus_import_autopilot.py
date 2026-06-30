@@ -599,6 +599,22 @@ def _refresh_promising_signals(system: Path, root: Path) -> dict[str, Any]:
             ),
         },
     )
+    release_gate = _run(
+        [
+            sys.executable,
+            "scripts/export_promising_signals.py",
+            "--output-repo",
+            str(promising),
+            "--validate-output-repo",
+        ],
+        cwd=system,
+        env={
+            "ENOCH_SUPABASE_DATABASE_URL": database_url,
+            "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF": os.environ.get(
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF", "2026-05-19T17:51:00Z"
+            ),
+        },
+    )
     validation = _run(
         [
             sys.executable,
@@ -612,11 +628,13 @@ def _refresh_promising_signals(system: Path, root: Path) -> dict[str, Any]:
         (promising / "data" / "manifest.json").read_text(encoding="utf-8")
     )
     export_payload = json.loads(export.stdout or "{}")
+    release_gate_payload = json.loads(release_gate.stdout or "{}")
     validation_payload = json.loads(validation.stdout or "{}")
     return {
         "ok": True,
         "action": "promising_signals_refreshed",
         "export_count": export_payload.get("count"),
+        "release_gate_count": release_gate_payload.get("count"),
         "validation_count": validation_payload.get("signal_count"),
         "manifest_record_count": manifest.get("record_count"),
         "selection_summary": manifest.get("selection_summary"),

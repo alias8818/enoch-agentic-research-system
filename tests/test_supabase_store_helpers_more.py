@@ -56,10 +56,10 @@ def test_supabase_source_candidate_lineage_uses_schema_agnostic_idempotency() ->
     )
     normalized = " ".join(source.lower().split())
 
-    assert "where not exists" in normalized
+    assert "where not exists" not in normalized
     assert (
         "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-        not in normalized
+        in normalized
     )
 
 
@@ -70,11 +70,10 @@ def test_supabase_research_lineage_writes_use_atomic_idempotency() -> None:
     atomic_conflict_count = normalized.count(
         "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
     )
-    where_not_exists_count = normalized.count("where not exists")
 
     assert lineage_insert_count == 4
-    assert atomic_conflict_count == 0
-    assert where_not_exists_count == lineage_insert_count
+    assert atomic_conflict_count == lineage_insert_count
+    assert "where not exists" not in normalized
 
 
 def test_supabase_late_terminal_success_missing_queue_row_is_runtime_error(
@@ -1652,10 +1651,10 @@ def test_supabase_followup_launch_records_parent_run_source_and_lineage(
     )
     joined = "\n".join(sql for sql, _params in lineage_inserts)
     assert "source_type, source_id, target_type, target_id, relation_type" in joined
-    assert "where not exists" in joined.lower()
+    assert "where not exists" not in joined.lower()
     assert (
         "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-        not in joined.lower()
+        in joined.lower()
     )
     assert any(followup_id in params for _sql, params in lineage_inserts)
     assert "followup_parent" in joined

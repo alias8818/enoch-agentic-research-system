@@ -37,6 +37,7 @@ DEFAULT_PROJECT_ROOTS = (
     else None,
     Path("/var/lib/enoch-control-plane/projects"),
 )
+SAFE_PROJECT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,139}$")
 
 
 def _json_len(value: Any) -> int:
@@ -130,19 +131,21 @@ def _extract_final_decision_from_run_notes(text: str) -> dict[str, Any]:
 
 def _project_decision_from_run_notes_fallback(row: dict[str, Any]) -> dict[str, Any]:
     project_id = as_text(row.get("project_id"))
-    if not project_id:
+    if not project_id or not SAFE_PROJECT_ID_RE.fullmatch(project_id):
         return {}
     for root in DEFAULT_PROJECT_ROOTS:
         if root is None:
             continue
-        path = root / project_id / "run_notes.md"
         try:
+            root_path = root.expanduser().resolve(strict=True)
+            path = (root_path / project_id / "run_notes.md").resolve(strict=True)
+            path.relative_to(root_path)
             if not path.is_file():
                 continue
             extracted = _extract_final_decision_from_run_notes(
                 path.read_text(encoding="utf-8", errors="ignore")
             )
-        except OSError:
+        except (OSError, ValueError):
             continue
         if extracted:
             return extracted

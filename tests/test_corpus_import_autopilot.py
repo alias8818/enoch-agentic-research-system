@@ -42,6 +42,43 @@ def test_base_url_allows_explicit_environment_override(monkeypatch):
     )
 
 
+def test_refresh_promising_signals_runs_release_provenance_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    system = tmp_path / "enoch-agentic-research-system"
+    promising = tmp_path / "enoch-promising-signals"
+    (promising / "data").mkdir(parents=True)
+    (promising / "data" / "manifest.json").write_text(
+        json.dumps({"record_count": 2, "selection_summary": {"useful_signal": 2}}),
+        encoding="utf-8",
+    )
+    system.mkdir()
+    monkeypatch.setenv("ENOCH_PROMISING_SIGNALS_DATABASE_URL", "postgres://db")
+
+    calls: list[dict[str, Any]] = []
+
+    def fake_run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None):
+        calls.append({"cmd": cmd, "cwd": cwd, "env": env or {}})
+        if "--validate-output-repo" in cmd:
+            return CompletedProcess(cmd, 0, stdout=json.dumps({"ok": True, "count": 2}))
+        if "validate_promising_signals_release.py" in cmd:
+            return CompletedProcess(
+                cmd, 0, stdout=json.dumps({"ok": True, "signal_count": 2})
+            )
+        return CompletedProcess(cmd, 0, stdout=json.dumps({"ok": True, "count": 2}))
+
+    monkeypatch.setattr(autopilot, "_run", fake_run)
+
+    result = autopilot._refresh_promising_signals(system, tmp_path)
+
+    assert result["release_gate_count"] == 2
+    assert [call["cmd"][-1] for call in calls[:2]] == [
+        "--clean-only",
+        "--validate-output-repo",
+    ]
+    assert calls[1]["env"]["ENOCH_SUPABASE_DATABASE_URL"] == "postgres://db"
+
+
 def test_get_json_allows_loopback_control_plane_status_probe(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
