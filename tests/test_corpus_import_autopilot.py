@@ -642,6 +642,12 @@ def test_refresh_paper_material_graph_uses_control_plane_and_release_roots(
                 "ENOCH_ENABLE_PAPER_MATERIAL_GRAPH": "1",
                 "ENOCH_RELEASE_ROOT": str(root),
                 "ENOCH_CONTROL_PLANE_ROOT": str(control_plane.resolve()),
+                "ENOCH_PAPER_MATERIAL_GRAPH_DIR": str(
+                    root
+                    / "enoch-agentic-research-system"
+                    / "docs"
+                    / "paper-material-graph"
+                ),
             },
         }
     ]

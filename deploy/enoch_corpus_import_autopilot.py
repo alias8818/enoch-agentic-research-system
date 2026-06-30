@@ -590,6 +590,9 @@ def _refresh_paper_material_graph(
         return {"ok": True, "action": "skipped", "reason": "disabled"}
     control_plane = (control_plane_root or _control_plane_root()).resolve()
     script = control_plane / "deploy" / "enoch_paper_material_graph.sh"
+    output_dir = (
+        root / "enoch-agentic-research-system" / "docs" / "paper-material-graph"
+    )
     result = _run(
         [str(script)],
         cwd=control_plane,
@@ -597,6 +600,7 @@ def _refresh_paper_material_graph(
             "ENOCH_ENABLE_PAPER_MATERIAL_GRAPH": "1",
             "ENOCH_RELEASE_ROOT": str(root),
             "ENOCH_CONTROL_PLANE_ROOT": str(control_plane),
+            "ENOCH_PAPER_MATERIAL_GRAPH_DIR": str(output_dir),
         },
     )
     try:
