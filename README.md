@@ -1,93 +1,83 @@
 # Enoch Agentic Research System
 
-![Enoch — Agentic Research Control Plane](site/assets/social-card.svg)
+![Enoch — auditable AI research control plane](site/assets/readme-hero.png)
 
-Enoch Control Plane is an agentic research control plane: it queues ideas, gates dispatch, supervises local AI runs, preserves evidence, and packages AI-generated research artifacts with provenance instead of pretending autonomous work is just a script.
+**Enoch is a control plane for bounded autonomous AI research.** It turns idea intake, worker execution, evidence capture, generated reports, and public release gates into explicit state transitions instead of trusting that a model session "probably finished."
 
-## The problem
+<p>
+  <a href="https://solo-09d10f60.mintlify.app/"><strong>Docs</strong></a> ·
+  <a href="https://alias8818.github.io/enoch-agentic-research-system/"><strong>Launch site</strong></a> ·
+  <a href="https://github.com/alias8818/enoch-ai-research-corpus"><strong>Research corpus</strong></a> ·
+  <a href="https://github.com/alias8818/enoch-promising-signals"><strong>Promising signals</strong></a>
+</p>
+
+![Control-plane flow](site/assets/control-plane-flow.svg)
+
+## Current public release posture
+
+| Surface | Current public fact |
+| --- | --- |
+| Runtime | `1.41.94` |
+| Corpus artifacts | `393` AI-generated research artifacts |
+| Packaging/provenance gate | `393/393` pass |
+| Strict claim/evidence audit | `393/393` pass |
+| Promising signals | `6,381` bounded no-paper signals |
+
+Those counts are public-release facts, not scientific-validity claims. Enoch makes the difference visible: operational health, signal preservation, paper-corpus readiness, and public trust posture are separate claims.
+
+## Why this exists
 
 Long-running autonomous AI work fails in ways ordinary scripts do not:
 
-- child processes continue after an agent session appears idle;
-- GPU workers can still be active when queue state says no work is running;
-- queues become stale or disagree across sources;
+- child processes can continue after an agent session appears idle;
+- worker telemetry can disagree with queue state;
+- stale rows and optimistic dashboards can hide blocked work;
 - evidence scatters across machines and run folders;
-- generated reports overstate results when claim boundaries aren't preserved.
+- generated reports can overstate results when claim boundaries are not preserved.
 
-Enoch Control Plane treats those as control-plane problems, not model problems. It uses process tracking, CPU/GPU quiet-window telemetry, idempotent APIs, stale-state reconciliation, a professional operator dashboard, evidence bundles, and claim ledgers to make autonomous work observable and auditable.
+Enoch treats those as **control-plane problems**. The system keeps queue state, worker truth, pause/maintenance controls, evidence sync, artifact generation, and release gates outside the model conversation.
 
-> Agentic AI systems need control planes. A model can propose and execute work, but a separate system should decide what is queued, what is safe to dispatch, whether work is actually done, and what evidence supports the final artifact.
+## What is in this repository
 
-## How it works
+- **FastAPI control plane** for queue state, project state, publication automation, pause/maintenance controls, and dispatch decisions.
+- **Worker gate and preflight checks** for process-tree truth, telemetry quiet windows, and safe dispatch boundaries. Older code/config may still say `wake_gate`; treat that as compatibility naming.
+- **Research Facility ledgers** for source scanning, candidate generation, dedupe/history comparison, novelty/feasibility scoring, and admission decisions.
+- **Dashboard V2** for operator-facing readiness, queues, runs, papers, and evidence-gate state.
+- **Evidence sync and artifact writer** for run notes, metrics, result summaries, evidence bundles, claim ledgers, and generated reports.
+- **Release validators** for packaging/provenance, strict claim/evidence auditability, public counts, and generated public surfaces.
+
+## System shape
 
 ```text
 Research Facility source scan
   -> generated research candidates
   -> dedupe / score / admission ledger
-  -> local Postgres/control-plane ideas workbench
+  -> control-plane ideas workbench
   -> queue candidate
-  -> enoch-core control plane
-  -> worker preflight and dispatch safety checks
-  -> GB10 worker gate
-  -> agent run with process + telemetry supervision
+  -> control-plane dispatch gates
+  -> worker preflight + worker gate
+  -> agent run with process/telemetry supervision
   -> evidence sync
   -> AI-generated research artifact
-  -> corpus packaging/provenance lint
+  -> packaging/provenance + strict claim/evidence gates
+  -> public corpus or promising-signal lane
 ```
 
-The repository contains the execution/control-plane layer and supporting docs. Historical notes describe earlier migration experiments, but this is not a workflow-export repository and does not ship workflow-tool configurations.
+For current runtime, storage, worker, decision-artifact, automation, and compatibility boundaries, see [`docs/current-runtime-snapshot.md`](docs/current-runtime-snapshot.md).
 
-For the canonical current host, storage, worker, decision-artifact, automation,
-and compatibility boundaries, see
-[`docs/current-runtime-snapshot.md`](docs/current-runtime-snapshot.md).
+## Public outputs
 
-## Main components
+- [`alias8818/enoch-ai-research-corpus`](https://github.com/alias8818/enoch-ai-research-corpus) contains generated research artifacts, evidence bundles, claim ledgers, manifests, and audit reports.
+- [`alias8818/enoch-promising-signals`](https://github.com/alias8818/enoch-promising-signals) preserves bounded useful or compute-scale-blocked no-paper results. These are not papers and not peer-reviewed results.
+- [`aliasocracy/enoch-ai-research-corpus`](https://huggingface.co/datasets/aliasocracy/enoch-ai-research-corpus) mirrors the public corpus dataset and promising-signal split.
 
-- **Control plane API** — queue state, project state, publication automation/finalization state, pause/maintenance controls, and dispatch decisions; built with FastAPI and LangGraph-era graph boundaries.
-- **Worker gate** — proves a run is actually done, not just agent-session-closed: process-tree tracking and CPU/GPU quiet-window telemetry sustained over a configurable window. Older code/config names may still say `wake_gate`; treat that as compatibility naming.
-- **Worker preflight** — authenticated health checks against the worker before dispatching new work, so dispatch fails early rather than silently.
-- **Single-lane safety** — prevents overlapping GPU-heavy work on constrained local hardware; the control plane holds the lock, not the dispatch script.
-- **Evidence sync** — copies run notes, metrics, result summaries, evidence bundles, and claim ledgers from worker projects into the control plane before artifact generation begins.
-- **Artifact writer** — generates publication-style Markdown reports from evidence context while preserving uncertainty and provenance; does not free-float against raw model output.
-- **Packaging/provenance checks** — scan generated reports for placeholder citations, missing provenance, and missing evidence artifacts before they enter the corpus; they do not validate scientific correctness or peer review.
-
-## Generated research artifacts
-
-The reports produced by Enoch runs are AI-generated research artifacts, not human-authored or peer-reviewed papers. They are built from run notes, evidence bundles, claim ledgers, and reproducibility traces.
-
-> The maintainer releases the corpus for inspection and critique but does not claim personal authorship of the generated papers, arguments, or prose.
-
-See [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-provenance.md) for the full framing and recommended citation language.
-
-[Enoch Docs](https://solo-09d10f60.mintlify.app/) contains source-grounded operator and reviewer documentation for the system, corpus, deployment path, and release boundaries.
-
-The docs source lives in [`alias8818/enoch-docs`](https://github.com/alias8818/enoch-docs). Bounded useful or scale-blocked no-paper leads live separately in [`alias8818/enoch-promising-signals`](https://github.com/alias8818/enoch-promising-signals); those records are not validated papers and are not part of the paper corpus.
-
-## Runtime and upstream tooling
-
-Enoch Control Plane is the project-specific control plane and release package. It runs agent work through Codex-native automation using the Codex CLI as the worker execution substrate. Generated research artifacts are produced by Enoch runs and the artifact writer.
-
-## Idea intake
-
-Ideas are sourced through the Research Facility, a separate auditable lane for source scanning, candidate generation, dedupe/history comparison, novelty/feasibility/accessibility scoring, and admission decisions. A generated candidate is not queued work until an admission row explains why it was promoted.
-
-The current production runtime stores the intake and queue ledgers in local Postgres behind the Enoch control plane on `enoch-core`. Legacy Notion IDs/URLs, when present, are historical provenance only and are not runtime authority. Older `supabase_*` config names remain compatibility names for the Postgres adapter and historical migration scripts; do not describe Supabase Cloud as the active production database.
-
-See [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) and [`docs/research-facility.md`](docs/research-facility.md).
+The reports produced by Enoch runs are **AI-generated research artifacts**, not human-authored or peer-reviewed papers. The maintainer releases the corpus for inspection and critique but does not claim personal authorship of the generated papers, arguments, or prose.
 
 ## Getting started
 
 For a local developer smoke test, start with [`docs/quickstart.md`](docs/quickstart.md).
 
-For a full deployment (control VM, worker machine, systemd service, dashboard/API smoke tests, optional Pushover alerts, dispatch checks, and paper-writer settings), see [`docs/deployment-guide.md`](docs/deployment-guide.md).
-
-For individual config fields, start from `config.example.json` and see [`docs/configuration-reference.md`](docs/configuration-reference.md). Required values:
-
-- control API bearer token
-- completion callback URL/token
-- project root and dispatch script path
-- worker URL/token
-- optional notification and paper-writer provider settings
+For a full deployment path, see [`docs/deployment-guide.md`](docs/deployment-guide.md). For individual config fields, start from `config.example.json` and [`docs/configuration-reference.md`](docs/configuration-reference.md).
 
 Never commit live config files or credentials.
 
@@ -100,46 +90,17 @@ python3 scripts/validate_runtime_snapshot_links.py
 python3 scripts/validate_runtime_deploy.py --source . --runtime /opt/enoch-control-plane --expected-commit HEAD --summary-only
 ```
 
-## Versioning and release notes
+## Documentation map
 
-The runtime follows semantic versioning. Keep `VERSION`, `pyproject.toml`, and [`CHANGELOG.md`](CHANGELOG.md) in sync for every release. See [`docs/release/release-plan.md`](docs/release/release-plan.md).
-
-## Documentation
-
-- [Enoch Docs](https://solo-09d10f60.mintlify.app/) — hosted source-grounded docs for operators, contributors, and reviewers ([source](https://github.com/alias8818/enoch-docs))
-
-**Using Enoch:**
-- [`docs/current-runtime-snapshot.md`](docs/current-runtime-snapshot.md) — canonical current runtime facts and compatibility boundaries
-- [`docs/quickstart.md`](docs/quickstart.md) — local clone-to-dashboard smoke test
-- [`docs/deployment-guide.md`](docs/deployment-guide.md) — full deployment guide
-- [`docs/configuration-reference.md`](docs/configuration-reference.md) — config field reference
+- [Hosted Enoch Docs](https://solo-09d10f60.mintlify.app/) — operator and reviewer documentation ([source](https://github.com/alias8818/enoch-docs))
 - [`docs/operator-runbook.md`](docs/operator-runbook.md) — long-haul readiness, pause/resume, callbacks, and paper-gate checks
-
-**Operator dashboard (V2):**
-- [`docs/dashboard-v2-deploy.md`](docs/dashboard-v2-deploy.md) — build, rsync to `enoch-core.exe.xyz`, restart, and post-deploy smoke
-- [`docs/dashboard-v2-todo-2026-05-21.md`](docs/dashboard-v2-todo-2026-05-21.md) — P0–P7 checklist and parking lot
-- [`docs/dashboard-redesign-plan.md`](docs/dashboard-redesign-plan.md) — IA contract and operator-question-first rules
-- [`docs/system-workflow.md`](docs/system-workflow.md) — architecture and control-plane boundaries
-- [`docs/state-model.md`](docs/state-model.md) — operator lane vocabulary and raw-state/detail-stage boundaries
-- [`docs/state-transition-map.md`](docs/state-transition-map.md) — Idea -> Queue -> Run -> Decision -> Paper -> Publication -> Corpus lifecycle map
-- [`docs/state-simplification-todo.md`](docs/state-simplification-todo.md) — next-phase state/ledger simplification backlog
-- [`docs/idea-intake-workflow.md`](docs/idea-intake-workflow.md) — Research Facility scouting, control-plane ideas, and queue handoff
-- [`docs/research-facility.md`](docs/research-facility.md) — source/candidate/admission/lineage ledgers and admission guardrails
-- [`docs/promising-signals-export.md`](docs/promising-signals-export.md) — public companion export lane for bounded useful/promising no-paper signals.
-
-**Release context:**
+- [`docs/research-facility.md`](docs/research-facility.md) — source/candidate/admission/lineage ledgers
+- [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-provenance.md) — generated-artifact framing
 - [`CHANGELOG.md`](CHANGELOG.md) — runtime version history and compatibility notes
-- [`docs/release/authorship-and-provenance.md`](docs/release/authorship-and-provenance.md) — how generated reports should be framed
-- [`docs/featured-paper-selection.md`](docs/featured-paper-selection.md) — rationale for the launch highlight set
-- [`docs/outreach/launch-announcement.md`](docs/outreach/launch-announcement.md) — draft launch copy and repo descriptions
-- [`docs/launch-checklist.md`](docs/launch-checklist.md) — public launch checklist
-- [`docs/launch-todo.md`](docs/launch-todo.md) — remaining public-release gates
-- [`docs/historical/`](docs/historical/) — historical migration notes retained for engineering context only
-- [`site/`](site/) — static launch site
 
 ## Security
 
-Before publishing or deploying changes, run secret scans and tests. See [`SECURITY.md`](SECURITY.md).
+Before publishing or deploying changes, run secret scans and tests. See [`SECURITY.md`](SECURITY.md). Public docs and images must not expose private hostnames, internal paths, tokens, live operator state, or stale count anchors.
 
 ## License
 
