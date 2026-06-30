@@ -132,12 +132,20 @@ def _observed_worker_runs(status: DashboardStatusResponse) -> list[dict[str, Any
 def _has_live_worker_run(status: DashboardStatusResponse, run_id: str | None) -> bool:
     if not run_id:
         return False
+    live_states = {"active", "running"}
+    live_activities = {"active", "running", "dispatched", "awaiting_wake"}
     for run in _observed_worker_runs(status):
         if str(run.get("run_id") or "") != str(run_id):
             continue
         if run.get("is_live") is True:
             return True
-        if str(run.get("lifecycle_state") or "").lower() == "active":
+        if str(run.get("lifecycle_state") or "").lower() in live_states:
+            return True
+        if str(run.get("state") or "").lower() in live_states:
+            return True
+        if str(run.get("gate_state") or "").lower() in live_states:
+            return True
+        if str(run.get("current_activity") or "").lower() in live_activities:
             return True
         try:
             if int(run.get("active_process_count") or 0) > 0:

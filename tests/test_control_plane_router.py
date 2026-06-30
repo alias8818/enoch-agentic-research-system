@@ -12,7 +12,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -52,6 +52,7 @@ from enoch_control_plane.control_plane.llm_harness_telemetry import (
 from enoch_control_plane.control_plane.store import ControlPlaneStore
 from enoch_control_plane.control_plane.alerts import (
     DISPATCH_RACE_GRACE_SEC,
+    _has_live_worker_run,
     _suppress_dispatch_race_findings,
 )
 from enoch_control_plane.control_plane.models import (
@@ -11794,6 +11795,34 @@ class ControlPlaneRouterTests(unittest.TestCase):
                 json={"dry_run": False},
             ).json()
             self.assertTrue(second["suppressed_by_cooldown"])
+
+    def test_queue_alert_check_suppresses_hang_when_worker_run_is_running(
+        self,
+    ) -> None:
+        run_id = "run-running-worker"
+        status = cast(
+            Any,
+            SimpleNamespace(
+                observations={
+                    "worker_dashboard_api": {
+                        "payload": {
+                            "ok": True,
+                            "runs": [
+                                {
+                                    "run_id": run_id,
+                                    "state": "running",
+                                    "gate_state": "running",
+                                    "current_activity": "dispatched",
+                                }
+                            ],
+                        }
+                    }
+                }
+            ),
+        )
+
+        self.assertTrue(_has_live_worker_run(status, run_id))
+        self.assertFalse(_has_live_worker_run(status, "different-run"))
 
     def test_queue_alert_check_suppresses_dispatch_preflight_race(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
