@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated public paper-material graph contains natural-language phrases that trip generic API-key entropy heuristics."
+paths = ['''^docs/paper-material-graph/paper-material-graph\.json$''']
+
+[[allowlists]]
+description = "Intentional synthetic secret-token fixtures for the public-release validator tests."
+paths = ['''^tests/test_validate_public_release\.py$''']
