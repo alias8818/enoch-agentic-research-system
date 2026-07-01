@@ -79,4 +79,4 @@ jobs:
           docker run --rm \
             -v "$PWD:/repo" \
             ghcr.io/gitleaks/gitleaks:v8.30.1 \
-            git /repo --verbose --redact --no-banner --no-color
+            dir /repo --config /repo/.gitleaks.toml --verbose --redact --no-banner --no-color

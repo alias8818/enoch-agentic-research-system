@@ -203,7 +203,9 @@ def test_similarity_candidates_use_inverted_index_without_all_pairs(
     )
 
 
-def test_similarity_candidate_generation_caps_moderately_common_pair_explosion() -> None:
+def test_similarity_candidate_generation_caps_moderately_common_pair_explosion() -> (
+    None
+):
     nodes = [
         {"id": f"signal:{index}", "kind": "signal", "terms": ["alpha", "beta"]}
         for index in range(500)

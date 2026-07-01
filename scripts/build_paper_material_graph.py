@@ -27,7 +27,9 @@ PRIVATE_PATH_ROOTS = (
 PRIVATE_IPV4 = re.compile(
     r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b"
 )
-LOCAL_ONLY_PUBLIC_TEXT = "Local-only operational evidence is omitted from the public graph."
+LOCAL_ONLY_PUBLIC_TEXT = (
+    "Local-only operational evidence is omitted from the public graph."
+)
 MAX_SIMILAR_TERM_POSTINGS = 128
 STOPWORDS = {
     "the",
@@ -112,7 +114,10 @@ def _safe_text(value: Any) -> str:
 def _is_local_only_signal(record: dict[str, Any]) -> bool:
     evidence_value = record.get("evidence")
     evidence = evidence_value if isinstance(evidence_value, dict) else {}
-    return evidence.get("local_only") is True and evidence.get("public_evidence_copied") is False
+    return (
+        evidence.get("local_only") is True
+        and evidence.get("public_evidence_copied") is False
+    )
 
 
 def _public_signal_text(record: dict[str, Any], key: str) -> str:

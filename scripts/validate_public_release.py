@@ -856,7 +856,10 @@ def _check_hf_promising_signal_rows(
             )
             continue
         if not isinstance(record, dict):
-            fail(f"HF export promising signal row {line_number} is not an object", failures)
+            fail(
+                f"HF export promising signal row {line_number} is not an object",
+                failures,
+            )
             continue
         project_id = str(record.get("project_id") or "<missing>")
         if record.get("status") not in allowed:

@@ -1083,7 +1083,9 @@ def _maybe_ledger_sync(
         )
     failed_pushes = [item for item in pushed if item.get("ok") != "true"]
     if _truthy("ENOCH_CORPUS_IMPORT_PUSH", "0") and failed_pushes:
-        repos = ", ".join(str(item.get("repo") or "<unknown>") for item in failed_pushes)
+        repos = ", ".join(
+            str(item.get("repo") or "<unknown>") for item in failed_pushes
+        )
         raise RuntimeError(f"ledger sync blocked by failed pushes: {repos}")
     return _sync_corpus_ledger(system, corpus)
 

@@ -736,7 +736,10 @@ def test_maybe_github_metadata_catches_url_safety_and_json_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ENOCH_CORPUS_IMPORT_UPDATE_GITHUB_METADATA", "1")
-    for exc in (ValueError("private resolved address"), json.JSONDecodeError("bad", "{", 0)):
+    for exc in (
+        ValueError("private resolved address"),
+        json.JSONDecodeError("bad", "{", 0),
+    ):
         with patch.object(autopilot, "_update_github_metadata", side_effect=exc):
             payload = autopilot._maybe_github_metadata(
                 {"stats": {"artifact_count": 393, "promising_signal_count": 6379}}
@@ -781,7 +784,9 @@ def test_github_metadata_update_failure_does_not_skip_release_validation(
         patch.object(autopilot, "_git_changed_repos", return_value=[]),
         patch.object(autopilot, "_autocommit_and_push", return_value=([], [])),
         patch.object(autopilot, "_maybe_ledger_sync", return_value={}),
-        patch.object(autopilot, "_validate_release", return_value={"ok": True}) as validate,
+        patch.object(
+            autopilot, "_validate_release", return_value={"ok": True}
+        ) as validate,
     ):
         assert (
             autopilot._execute_live_corpus_import(
