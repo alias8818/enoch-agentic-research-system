@@ -516,6 +516,24 @@ def test_validate_repo_against_rows_catches_control_plane_selection_drift(
     assert "selection_summary.backfilled_exportable:0 != 1" in issues
 
 
+def test_clean_export_validation_does_not_compare_to_racy_live_selection(
+    tmp_path: Path,
+) -> None:
+    exported_rows = [_row(project_id="clean-signal")]
+    later_live_rows = [
+        *exported_rows,
+        _row(project_id="new-clean-signal", run_id="run-new-clean-signal"),
+    ]
+    exporter.write_export(exporter.clean_export_rows(exported_rows), tmp_path)
+
+    assert exporter.validate_repo_against_rows(later_live_rows, tmp_path) == [
+        "manifest.record_count:1 != export_cleanly_now:2",
+        "selection_summary.export_cleanly_now:1 != 2",
+        "selection_summary.total_candidate_rows:1 != 2",
+    ]
+    assert exporter.validate_clean_export_repo(tmp_path) == []
+
+
 def test_new_missing_source_lineage_is_blocked_by_default_cutoff() -> None:
     rows = [
         _row(

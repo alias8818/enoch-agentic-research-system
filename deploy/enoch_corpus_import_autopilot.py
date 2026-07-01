@@ -606,6 +606,7 @@ def _refresh_promising_signals(system: Path, root: Path) -> dict[str, Any]:
             "--output-repo",
             str(promising),
             "--validate-output-repo",
+            "--clean-only",
         ],
         cwd=system,
         env={

@@ -651,6 +651,36 @@ def validate_repo_against_rows(
     return sorted(set(issues))
 
 
+def validate_clean_export_repo(repo_root: Path) -> list[str]:
+    """Validate a materialized clean-only export without re-reading live rows.
+
+    The live control-plane selection can legitimately advance between the export
+    step and the release-gate step. Clean-only validation therefore checks that
+    the generated repository is internally consistent and that its recorded
+    clean-selection count matches the generated records, rather than comparing
+    the just-written manifest to a second, racy database snapshot.
+    """
+    issues = validate_export_repo(repo_root)
+    manifest_path = repo_root / "data" / MANIFEST_JSON
+    if not manifest_path.exists() or "manifest:invalid_json" in issues:
+        return sorted(set(issues))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    selection_summary = (
+        manifest.get("selection_summary")
+        if isinstance(manifest.get("selection_summary"), dict)
+        else {}
+    )
+    export_cleanly_now = selection_summary.get("export_cleanly_now")
+    if (
+        export_cleanly_now is not None
+        and manifest.get("record_count") != export_cleanly_now
+    ):
+        issues.append(
+            f"manifest.record_count:{manifest.get('record_count')} != export_cleanly_now:{export_cleanly_now}"
+        )
+    return sorted(set(issues))
+
+
 def validate_source_backfill_policy(
     rows: Iterable[dict[str, Any]],
     *,
@@ -1655,7 +1685,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
     if args.validate_output_repo:
-        issues = validate_repo_against_rows(rows, args.output_repo)
+        issues = (
+            validate_clean_export_repo(args.output_repo)
+            if args.clean_only
+            else validate_repo_against_rows(rows, args.output_repo)
+        )
         if issues:
             print(
                 json.dumps({"ok": False, "issues": issues}, indent=2, sort_keys=True),

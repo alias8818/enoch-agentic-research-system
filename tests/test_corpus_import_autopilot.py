@@ -72,10 +72,8 @@ def test_refresh_promising_signals_runs_release_provenance_gate(
     result = autopilot._refresh_promising_signals(system, tmp_path)
 
     assert result["release_gate_count"] == 2
-    assert [call["cmd"][-1] for call in calls[:2]] == [
-        "--clean-only",
-        "--validate-output-repo",
-    ]
+    assert calls[0]["cmd"][-1] == "--clean-only"
+    assert calls[1]["cmd"][-2:] == ["--validate-output-repo", "--clean-only"]
     assert calls[1]["env"]["ENOCH_SUPABASE_DATABASE_URL"] == "postgres://db"
 
 
