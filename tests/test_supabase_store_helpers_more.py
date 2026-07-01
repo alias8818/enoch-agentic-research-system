@@ -56,10 +56,11 @@ def test_supabase_source_candidate_lineage_uses_schema_agnostic_idempotency() ->
     )
     normalized = " ".join(source.lower().split())
 
-    assert "where not exists" not in normalized
+    assert "where not exists" in normalized
+    assert "existing.source_type = 'source'" in normalized
     assert (
-        "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-        in normalized
+        "on conflict (source_type, source_id, target_type, target_id, relation_type)"
+        not in normalized
     )
 
 
@@ -67,13 +68,14 @@ def test_supabase_research_lineage_writes_use_atomic_idempotency() -> None:
     source = Path(s.__file__).read_text(encoding="utf-8").lower()
     normalized = " ".join(source.split())
     lineage_insert_count = normalized.count("insert into research_lineage")
-    atomic_conflict_count = normalized.count(
-        "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-    )
+    schema_agnostic_guard_count = normalized.count("where not exists")
 
     assert lineage_insert_count == 4
-    assert atomic_conflict_count == lineage_insert_count
-    assert "where not exists" not in normalized
+    assert schema_agnostic_guard_count >= lineage_insert_count
+    assert (
+        "on conflict (source_type, source_id, target_type, target_id, relation_type)"
+        not in normalized
+    )
 
 
 def test_supabase_late_terminal_success_missing_queue_row_is_runtime_error(
@@ -1651,10 +1653,11 @@ def test_supabase_followup_launch_records_parent_run_source_and_lineage(
     )
     joined = "\n".join(sql for sql, _params in lineage_inserts)
     assert "source_type, source_id, target_type, target_id, relation_type" in joined
-    assert "where not exists" not in joined.lower()
+    assert "where not exists" in joined.lower()
+    assert "existing.source_type = v.source_type" in joined.lower()
     assert (
-        "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-        in joined.lower()
+        "on conflict (source_type, source_id, target_type, target_id, relation_type)"
+        not in joined.lower()
     )
     assert any(followup_id in params for _sql, params in lineage_inserts)
     assert "followup_parent" in joined

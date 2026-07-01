@@ -214,11 +214,10 @@ def test_research_lineage_identity_is_unique_before_conflict_inserts() -> None:
         "enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type)"
         in idempotency_tokens
     )
+    assert "where not exists" in emitted_sql_source
     assert (
-        emitted_sql_source.count(
-            "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
-        )
-        >= 3
+        "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing"
+        not in emitted_sql_source
     )
 
     assert (

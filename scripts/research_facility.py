@@ -1044,16 +1044,28 @@ def _emit_candidate_sql(
 def _emit_lineage_sql(lines: list[str], candidate: dict[str, Any]) -> None:
     for source_id in candidate["source_ids"]:
         lines.append(
-            "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-            f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'source_ids': candidate['source_ids']})}) "
-            "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing;"
+            "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) "
+            "select v.source_type, v.source_id, v.target_type, v.target_id, v.relation_type, v.evidence_json "
+            "from (values "
+            f"('source', {sql_literal(_as_text(source_id))}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'source_ids': candidate['source_ids']})})"
+            ") as v(source_type, source_id, target_type, target_id, relation_type, evidence_json) "
+            "where not exists (select 1 from enoch.research_lineage existing "
+            "where existing.source_type = v.source_type and existing.source_id = v.source_id "
+            "and existing.target_type = v.target_type and existing.target_id = v.target_id "
+            "and existing.relation_type = v.relation_type);"
         )
     for url in candidate["source_urls"]:
         source_id = "url-" + stable_hash(_as_text(url), 24)
         lines.append(
-            "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
-            f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})}) "
-            "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing;"
+            "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) "
+            "select v.source_type, v.source_id, v.target_type, v.target_id, v.relation_type, v.evidence_json "
+            "from (values "
+            f"('source', {sql_literal(source_id)}, 'candidate', {sql_literal(candidate['candidate_id'])}, 'generated_from', {sql_json({'url': _as_text(url)})})"
+            ") as v(source_type, source_id, target_type, target_id, relation_type, evidence_json) "
+            "where not exists (select 1 from enoch.research_lineage existing "
+            "where existing.source_type = v.source_type and existing.source_id = v.source_id "
+            "and existing.target_type = v.target_type and existing.target_id = v.target_id "
+            "and existing.relation_type = v.relation_type);"
         )
 
 
@@ -1131,10 +1143,15 @@ def _emit_admitted_queue_sql(
         "where enoch.queue_items.status not in ('dispatching', 'running', 'awaiting_wake', 'wake_received', 'reconciling');"
     )
     lines.append(
-        "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) values "
+        "insert into enoch.research_lineage(source_type, source_id, target_type, target_id, relation_type, evidence_json) "
+        "select v.source_type, v.source_id, v.target_type, v.target_id, v.relation_type, v.evidence_json from (values "
         f"('candidate', {sql_literal(c['candidate_id'])}, 'idea', {sql_literal(idea_id)}, 'admitted_as', {sql_json({'admission_reason': plan.admission_reason})}), "
         f"('idea', {sql_literal(idea_id)}, 'project', {sql_literal(idea_id)}, 'queued_as', {sql_json({'queued_by': requested_by})}) "
-        "on conflict (source_type, source_id, target_type, target_id, relation_type) do nothing;"
+        ") as v(source_type, source_id, target_type, target_id, relation_type, evidence_json) "
+        "where not exists (select 1 from enoch.research_lineage existing "
+        "where existing.source_type = v.source_type and existing.source_id = v.source_id "
+        "and existing.target_type = v.target_type and existing.target_id = v.target_id "
+        "and existing.relation_type = v.relation_type);"
     )
 
 
