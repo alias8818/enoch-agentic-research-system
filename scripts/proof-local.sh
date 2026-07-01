@@ -105,8 +105,8 @@ printf '%s\n' "$SMOKE_OUTPUT"
 
 grep -q '"dispatch_safe"' <<<"$SMOKE_OUTPUT" || { echo "FAIL control status" >&2; exit 1; }
 echo "PASS control status"
-grep -q 'wake_gate_healthz' <<<"$SMOKE_OUTPUT" || { echo "FAIL wake gate healthz self-check" >&2; exit 1; }
-echo "PASS wake gate healthz self-check"
+grep -q 'wake_gate_healthz' <<<"$SMOKE_OUTPUT" || { echo "FAIL worker gate healthz self-check" >&2; exit 1; }
+echo "PASS worker gate healthz self-check"
 if ! grep -q '"action": "paused"' <<<"$SMOKE_OUTPUT" || ! grep -q '"live": null' <<<"$SMOKE_OUTPUT"; then
   echo "FAIL dispatch dry-run" >&2
   exit 1

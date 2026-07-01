@@ -92,6 +92,28 @@ def test_ci_secret_scan_does_not_trust_pr_controlled_gitleaksignore() -> None:
     assert "--gitleaks-ignore-path" not in workflow
 
 
+def test_ci_secret_scan_scans_git_history_with_trusted_config() -> None:
+    workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
+    secret_scan = workflow.split("  secret-scan:", 1)[1]
+
+    assert "fetch-depth: 0" in secret_scan
+    assert "Prepare trusted gitleaks config" in secret_scan
+    assert 'github.event_name }}" = "pull_request"' in secret_scan
+    assert "github.event.pull_request.base.sha }}:.gitleaks.toml" in secret_scan
+    assert 'cp .gitleaks.toml "$RUNNER_TEMP/gitleaks.toml"' in secret_scan
+    assert "Determine gitleaks commit range" in secret_scan
+    assert "git merge-base" in secret_scan
+    assert "GITLEAKS_LOG_OPTS=${base}..HEAD" in secret_scan
+    assert "github.event.before }}..${{ github.sha" in secret_scan
+    assert '-v "$RUNNER_TEMP/gitleaks.toml:/gitleaks.toml:ro"' in secret_scan
+    assert (
+        'git /repo --log-opts "$GITLEAKS_LOG_OPTS" --config /gitleaks.toml'
+        in secret_scan
+    )
+    assert "dir /repo" not in secret_scan
+    assert "--config /repo/.gitleaks.toml" not in secret_scan
+
+
 def test_ci_main_pushes_use_ephemeral_runners() -> None:
     workflow = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
 

@@ -813,9 +813,13 @@ def test_codex_runner_uses_fixed_system_path_before_resolving_codex_binary() -> 
 
 def test_proof_local_uses_status_endpoint_that_matches_its_grep_assertions() -> None:
     script = (ROOT / "scripts" / "proof-local.sh").read_text(encoding="utf-8")
+    site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
 
     assert 'ENOCH_STATUS_ENDPOINT="/control/api/status"' in script
     assert "grep -q '\"dispatch_safe\"'" in script
+    assert "PASS worker gate healthz self-check" in script
+    assert "PASS wake gate healthz self-check" not in script
+    assert "PASS worker gate healthz self-check" in site
 
 
 def test_enoch_worker_skill_uses_codex_description_frontmatter() -> None:
