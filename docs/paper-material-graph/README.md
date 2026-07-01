@@ -1,6 +1,6 @@
 # Enoch Paper Material Graph
 
-Generated: `2026-06-30T23:41:30.655739+00:00`
+Generated: `2026-07-01T00:23:51.565667+00:00`
 
 Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for live topology referenced by candidate material.
 
@@ -9,9 +9,9 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Papers: 393
 - Signals: 6381
 - Sources: 3610
-- Edges: 17327
-- Similar-topic edges: 9296
-- Connected components: 406
+- Edges: 20048
+- Similar-topic edges: 12017
+- Connected components: 400
 
 ## Signal statuses
 
@@ -19,6 +19,14 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - `useful_signal`: 6309
 
 ## Top synthesis candidates
+
+### Gradient-Gated Sparse Optimizer: Train Top-k% Parameters by Gradient Signal — score 110 (`useful_signal`)
+- Signal: `signal:gradient-gated-sparse-optimizer-train-top-k-parameters-by-gradient-signal-7fb674a3e80b`
+- Packet: [candidates/synthesis/gradient-gated-sparse-optimizer-train-top-k-parameters-by-gradient-signal-7fb674a3e80b.md](candidates/synthesis/gradient-gated-sparse-optimizer-train-top-k-parameters-by-gradient-signal-7fb674a3e80b.md)
+- Related papers: 2
+- Next action: AdamW Gradient-Gated Top-k on a Real Small Model Task
+  - Data Center Airflow Toy Twin: Sparse-Sensor Calibration and Intervention Ranking in a Transparent Rack-Aisle Network Model — shared: parameters, sparse
+  - Field Importance Multi-Task Tuning: Field-Selective Regularization from Calibration Correlations — shared: signal, sparse
 
 ### Mixed-Regime Calibration for Robust TST Branch Proxy Ranking — score 109 (`useful_signal`)
 - Signal: `signal:mixed-regime-calibration-for-robust-tst-branch-proxy-ranki-68ffe6cb36`
@@ -62,12 +70,47 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Live-Agent Evidence Ledger Audit on Small Repository Tasks
   - GB10 Dense Router Retrofit Strict Audit Bundle — shared: audit, strict
 
+### Replay Realistic Agent Tool Traces Through a Provenance Evidence Ledger — score 107 (`useful_signal`)
+- Signal: `signal:replay-realistic-agent-tool-traces-through-a-provenance-ev-fa3579e0d8`
+- Packet: [candidates/synthesis/replay-realistic-agent-tool-traces-through-a-provenance-ev-fa3579e0d8.md](candidates/synthesis/replay-realistic-agent-tool-traces-through-a-provenance-ev-fa3579e0d8.md)
+- Related papers: 1
+- Next action: Heterogeneous Trace Corpus Replay for Provenance Evidence Ledgers
+  - Capable Planner Segment-Firewall Validation — shared: provenance, realistic, through
+
 ### 4-bit Delta Compression for Volunteer LoRA Averaging — score 105 (`useful_signal`)
 - Signal: `signal:4-bit-delta-compression-for-volunteer-lora-averaging-68cc05e7cf8d`
 - Packet: [candidates/synthesis/4-bit-delta-compression-for-volunteer-lora-averaging-68cc05e7cf8d.md](candidates/synthesis/4-bit-delta-compression-for-volunteer-lora-averaging-68cc05e7cf8d.md)
 - Related papers: 1
 - Next action: 4-bit delta FedAvg on real small-model LoRA adapters
   - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, delta, lora
+
+### Bounded Work Stealing via Deterministic Seed Chunks — score 105 (`useful_signal`)
+- Signal: `signal:bounded-work-stealing-via-deterministic-seed-chunks-f62e24b83cb8`
+- Packet: [candidates/synthesis/bounded-work-stealing-via-deterministic-seed-chunks-f62e24b83cb8.md](candidates/synthesis/bounded-work-stealing-via-deterministic-seed-chunks-f62e24b83cb8.md)
+- Related papers: 1
+- Next action: Real-runtime validation of deterministic bounded seed-chunk stealing
+  - Schema-Pinned JSON Cache: Deterministic Cache Identity for Structured-Output LLM Workloads — shared: deterministic, work
+
+### Evidence-Ledger Agents: Forcing Falsifiable Claims Before Actions — score 105 (`useful_signal`)
+- Signal: `signal:evidence-ledger-agents-forcing-falsifiable-claims-before-actions-8fbc17cb8d30`
+- Packet: [candidates/synthesis/evidence-ledger-agents-forcing-falsifiable-claims-before-actions-8fbc17cb8d30.md](candidates/synthesis/evidence-ledger-agents-forcing-falsifiable-claims-before-actions-8fbc17cb8d30.md)
+- Related papers: 1
+- Next action: Evidence-ledger gating in real tool-using LLM tasks
+  - A Falsifiable Claim-Verification Ledger for Small Reasoning Agents: Controlled Mechanism Evidence from a Synthetic Tabular Reasoning Harness — shared: before, claims, falsifiable
+
+### Gradient accumulation with optimizer state eviction between steps — score 105 (`useful_signal`)
+- Signal: `signal:gradient-accumulation-with-optimizer-state-eviction-between-steps-0c7d9d25a649`
+- Packet: [candidates/synthesis/gradient-accumulation-with-optimizer-state-eviction-between-steps-0c7d9d25a649.md](candidates/synthesis/gradient-accumulation-with-optimizer-state-eviction-between-steps-0c7d9d25a649.md)
+- Related papers: 1
+- Next action: Async optimizer-state eviction in a real PyTorch gradient-accumulation loop
+  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: gradient, optimizer, steps
+
+### Hash-Chained Decision Ledger for Agent Reliability Drift Detection — score 105 (`useful_signal`)
+- Signal: `signal:hash-chained-decision-ledger-for-agent-reliability-drift-detection-f425985636ea`
+- Packet: [candidates/synthesis/hash-chained-decision-ledger-for-agent-reliability-drift-detection-f425985636ea.md](candidates/synthesis/hash-chained-decision-ledger-for-agent-reliability-drift-detection-f425985636ea.md)
+- Related papers: 1
+- Next action: Anchored decision ledger replay on real agent incident traces
+  - A Normalized Hash-Chain Replay Ledger for Drift Detection and Localization in Open-Weight LLM HTTP API Replays: A Bounded Tier 3 Validation — shared: decision, detection, drift, ledger
 
 ### Queue-Pressure Backpressure Routing Between GPU and CPU Tiers — score 105 (`useful_signal`)
 - Signal: `signal:queue-pressure-backpressure-routing-between-gpu-and-cpu-tiers-5f22367dd87f`
@@ -83,6 +126,13 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Model-extracted rolling KV audit memory on realistic long-session transcripts
   - GB10 Dense Router Retrofit Strict Audit Bundle — shared: audit, summary
 
+### Suffix-tree draft beats small DNN draft on repeated prompt streams — score 105 (`useful_signal`)
+- Signal: `signal:suffix-tree-draft-beats-small-dnn-draft-on-repeated-prompt-streams-d265a32f5124`
+- Packet: [candidates/synthesis/suffix-tree-draft-beats-small-dnn-draft-on-repeated-prompt-streams-d265a32f5124.md](candidates/synthesis/suffix-tree-draft-beats-small-dnn-draft-on-repeated-prompt-streams-d265a32f5124.md)
+- Related papers: 1
+- Next action: Direct suffix-draft speculative decoding test on repeated traces
+  - Schema-Pinned JSON Cache: Deterministic Cache Identity for Structured-Output LLM Workloads — shared: draft, prompt, repeated
+
 ### Trained Linear Probe from Early Hidden State as Draft — score 105 (`useful_signal`)
 - Signal: `signal:trained-linear-probe-from-early-hidden-state-as-draft-033b200362c2`
 - Packet: [candidates/synthesis/trained-linear-probe-from-early-hidden-state-as-draft-033b200362c2.md](candidates/synthesis/trained-linear-probe-from-early-hidden-state-as-draft-033b200362c2.md)
@@ -97,6 +147,27 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Multi-seed AdamW-inclusive GPT-2-small LoRA validation for persisted 8-bit SGDM momentum
   - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, gpt-2-small, lora, momentum, persisted, sgdm
 
+### 4-bit delta FedAvg on real small-model LoRA adapters — score 92 (`useful_signal`)
+- Signal: `signal:4-bit-delta-fedavg-on-real-small-model-lora-adapters-f9ceefde42`
+- Packet: [candidates/synthesis/4-bit-delta-fedavg-on-real-small-model-lora-adapters-f9ceefde42.md](candidates/synthesis/4-bit-delta-fedavg-on-real-small-model-lora-adapters-f9ceefde42.md)
+- Related papers: 1
+- Next action: Medium non-IID LoRA delta FedAvg confirmation with improved 4-bit quantization
+  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, delta, lora
+
+### Decode-time KV eviction quality and latency check — score 92 (`useful_signal`)
+- Signal: `signal:decode-time-kv-eviction-quality-and-latency-check-95559452c1`
+- Packet: [candidates/synthesis/decode-time-kv-eviction-quality-and-latency-check-95559452c1.md](candidates/synthesis/decode-time-kv-eviction-quality-and-latency-check-95559452c1.md)
+- Related papers: 1
+- Next action: Real-model decode KV eviction quality and latency on GPT-2-small-class workloads
+  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: latency, quality
+
+### Real-logit calibration replay for confidence-thresholded local cascade routing — score 92 (`useful_signal`)
+- Signal: `signal:real-logit-calibration-replay-for-confidence-thresholded-l-6638298e39`
+- Packet: [candidates/synthesis/real-logit-calibration-replay-for-confidence-thresholded-l-6638298e39.md](candidates/synthesis/real-logit-calibration-replay-for-confidence-thresholded-l-6638298e39.md)
+- Related papers: 1
+- Next action: Error-aware calibration replay for fixed-threshold local cascade routing
+  - Value-per-Joule Broker Online Canary on GB10 Endpoints — shared: calibration, replay, routing
+
 ### Tiny transformer fixed-budget quality filtering on real corpus slices — score 92 (`useful_signal`)
 - Signal: `signal:tiny-transformer-fixed-budget-quality-filtering-on-real-co-4665cc1841`
 - Packet: [candidates/synthesis/tiny-transformer-fixed-budget-quality-filtering-on-real-co-4665cc1841.md](candidates/synthesis/tiny-transformer-fixed-budget-quality-filtering-on-real-co-4665cc1841.md)
@@ -104,66 +175,26 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Next action: Bottom-quartile rejection instead of top-only quality selection for fixed-budget tiny Transformer training
   - GB10 Dense Router Retrofit Strict Audit Bundle — shared: corpus, quality
 
-### Evidence Ledger Auditor Agreement Loop on CPU Tasks — score 90 (`useful_signal`)
-- Signal: `signal:evidence-ledger-auditor-agreement-loop-on-cpu-tasks-fcd237aa4847`
-- Packet: [candidates/synthesis/evidence-ledger-auditor-agreement-loop-on-cpu-tasks-fcd237aa4847.md](candidates/synthesis/evidence-ledger-auditor-agreement-loop-on-cpu-tasks-fcd237aa4847.md)
+### Trace Replay of Pressure-Sensitive Work Generation — score 92 (`useful_signal`)
+- Signal: `signal:trace-replay-of-pressure-sensitive-work-generation-689b0c2af9`
+- Packet: [candidates/synthesis/trace-replay-of-pressure-sensitive-work-generation-689b0c2af9.md](candidates/synthesis/trace-replay-of-pressure-sensitive-work-generation-689b0c2af9.md)
 - Related papers: 1
-- Next action: Real-trace auditor agreement benchmark for evidence-ledger claims
-  - Quantization-Spectrum Cross-Model Downstream Validation: A Diagnostic Harness Study — shared: agreement, loop
+- Next action: Deadline-Aware Pressure-Sensitive Work Generation Replay
+  - Schema-Pinned JSON Cache: Deterministic Cache Identity for Structured-Output LLM Workloads — shared: generation, work
 
-### Greedy sequence packing for CPU pretraining throughput — score 90 (`useful_signal`)
-- Signal: `signal:greedy-sequence-packing-for-cpu-pretraining-throughput-a3dfdd368c23`
-- Packet: [candidates/synthesis/greedy-sequence-packing-for-cpu-pretraining-throughput-a3dfdd368c23.md](candidates/synthesis/greedy-sequence-packing-for-cpu-pretraining-throughput-a3dfdd368c23.md)
+### 4-bit quantization preserving evidence-ledger quality — score 90 (`useful_signal`)
+- Signal: `signal:4-bit-quantization-preserving-evidence-ledger-quality-a8db8729f0c4`
+- Packet: [candidates/synthesis/4-bit-quantization-preserving-evidence-ledger-quality-a8db8729f0c4.md](candidates/synthesis/4-bit-quantization-preserving-evidence-ledger-quality-a8db8729f0c4.md)
 - Related papers: 1
-- Next action: Real CPU transformer pretraining loop for streaming greedy sequence packing
-  - Minimum Curriculum Search: Exact and Greedy Discovery of Shortest Training Sequences for Fixed Learners — shared: greedy, sequence
+- Next action: Real-ledger 4-bit quantization test for source localization versus answer quality
+  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: preserving, quality
 
-### Rank-1 stochastic factored optimizer for GPT-2-small — score 90 (`useful_signal`)
-- Signal: `signal:rank-1-stochastic-factored-optimizer-for-gpt-2-small-d41a4bf95159`
-- Packet: [candidates/synthesis/rank-1-stochastic-factored-optimizer-for-gpt-2-small-d41a4bf95159.md](candidates/synthesis/rank-1-stochastic-factored-optimizer-for-gpt-2-small-d41a4bf95159.md)
+### 8-bit AdaFactor with Per-Tensor Quantile Scaling for Optimizer Memory — score 90 (`useful_signal`)
+- Signal: `signal:8-bit-adafactor-with-per-tensor-quantile-scaling-for-optimizer-memory-f1899bbe2504`
+- Packet: [candidates/synthesis/8-bit-adafactor-with-per-tensor-quantile-scaling-for-optimizer-memory-f1899bbe2504.md](candidates/synthesis/8-bit-adafactor-with-per-tensor-quantile-scaling-for-optimizer-memory-f1899bbe2504.md)
 - Related papers: 1
-- Next action: Dense factored RMS optimizer for GPT-2-small-class language modeling
-  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: gpt-2-small, optimizer, stochastic
-
-### Sparse Top-K Gradient Delta Encoding for Simulated Volunteer Training — score 90 (`useful_signal`)
-- Signal: `signal:sparse-top-k-gradient-delta-encoding-for-simulated-volunteer-training-4800197d0305`
-- Packet: [candidates/synthesis/sparse-top-k-gradient-delta-encoding-for-simulated-volunteer-training-4800197d0305.md](candidates/synthesis/sparse-top-k-gradient-delta-encoding-for-simulated-volunteer-training-4800197d0305.md)
-- Related papers: 1
-- Next action: Neural validation of top-k gradient delta encoding under equal byte budgets
-  - Data Center Airflow Toy Twin: Sparse-Sensor Calibration and Intervention Ranking in a Transparent Rack-Aisle Network Model — shared: delta, sparse
-
-### Live LLM billing and quality validation for repeated prompt anchors — score 87 (`useful_signal`)
-- Signal: `signal:live-llm-billing-and-quality-validation-for-repeated-promp-f21aa2302d`
-- Packet: [candidates/synthesis/live-llm-billing-and-quality-validation-for-repeated-promp-f21aa2302d.md](candidates/synthesis/live-llm-billing-and-quality-validation-for-repeated-promp-f21aa2302d.md)
-- Related papers: 1
-- Next action: Authorized live cached-token and quality reconciliation for repeated prompt anchors
-  - Schema-Pinned JSON Cache: Deterministic Cache Identity for Structured-Output LLM Workloads — shared: llm, prompt, repeated
-
-### Production-trace provenance ledger validation against mature tracing baselines — score 65 (`useful_signal`)
-- Signal: `signal:production-trace-provenance-ledger-validation-against-matu-84b6cf9286`
-- Packet: [candidates/synthesis/production-trace-provenance-ledger-validation-against-matu-84b6cf9286.md](candidates/synthesis/production-trace-provenance-ledger-validation-against-matu-84b6cf9286.md)
-- Related papers: 1
-  - Semantic Trace Scenarios Improve Defect Detection in a Synthetic Double-Entry Ledger Mutation Benchmark — shared: against, baselines, ledger, provenance
-
-### Token-Level Ledger-Constrained Decoding vs Post-Hoc Repair on Real LLM Tool-Agent Tasks — score 65 (`useful_signal`)
-- Signal: `signal:token-level-ledger-constrained-decoding-vs-post-hoc-repair-d687163747`
-- Packet: [candidates/synthesis/token-level-ledger-constrained-decoding-vs-post-hoc-repair-d687163747.md](candidates/synthesis/token-level-ledger-constrained-decoding-vs-post-hoc-repair-d687163747.md)
-- Related papers: 1
-  - Uncertainty-Coverage Co-Estimator: Conformalized Local Quantile Thresholding for Conditional Coverage Repair — shared: post-hoc, repair
-
-### Matched GB10 Latency Comparison of Two-Tier Confidence Routing Versus Early-Exit Serving — score 62 (`useful_signal`)
-- Signal: `signal:matched-gb10-latency-comparison-of-two-tier-confidence-rou-5b5210c438`
-- Packet: [candidates/synthesis/matched-gb10-latency-comparison-of-two-tier-confidence-rou-5b5210c438.md](candidates/synthesis/matched-gb10-latency-comparison-of-two-tier-confidence-rou-5b5210c438.md)
-- Related papers: 1
-- Next action: Quality-matched trained confidence comparison for two-tier routing versus early-exit serving
-  - Query Budget Contracts for Local LLM Serving: A Broker-Based Routing Benchmark — shared: latency, routing, serving
-
-### 4-bit Adam with Stochastic Rounding and Per-Tensor Scale — score 60 (`useful_signal`)
-- Signal: `signal:4-bit-adam-with-stochastic-rounding-and-per-tensor-scale-4c13448cfc24`
-- Packet: [candidates/synthesis/4-bit-adam-with-stochastic-rounding-and-per-tensor-scale-4c13448cfc24.md](candidates/synthesis/4-bit-adam-with-stochastic-rounding-and-per-tensor-scale-4c13448cfc24.md)
-- Related papers: 1
-- Next action: Block-wise or logarithmic second-moment scaling for 4-bit AdamW
-  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, per-tensor, stochastic
+- Next action: GPT-2-small-class 8-bit AdaFactor quantile scaling stability sweep
+  - Persisted Per-Tensor 8-bit SGDM Momentum for LoRA Fine-Tuning: A Bounded Multi-Seed Study on GPT-2-small — shared: bit, optimizer, per-tensor
 
 
 ## Negative / blocked result candidates
@@ -346,7 +377,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 
 ## Largest components
 
-### component:1 — 8997 nodes {'paper': 393, 'signal': 5534, 'source': 3070}
+### component:1 — 9027 nodes {'paper': 393, 'signal': 5553, 'source': 3081}
 - Acceptance-Length CUDA Graph Bank: Reducing Launch Overhead in Speculative-Decoding Tails
 - Adapter-Projected GaLore with Decoupled Projection Refresh: Downstream Transfer Evaluation at 192 Steps
 - Adaptive Boundary Colorization Gate: A Deterministic Routing Strategy for Prompt Boundary Colorization
@@ -356,7 +387,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Adaptive Landmark Reweighter: Online KV-Cache Policy for Preserving Answer-Critical State Under Memory Constraints
 - Adaptive Prefix Splitter Inference Integration
 
-### component:61 — 14 nodes {'signal': 8, 'source': 6}
+### component:59 — 14 nodes {'signal': 8, 'source': 6}
 - Anchor-Indexed KV State Compression for CPU Inference
 - Dynamic Anchor Reset on Semi-Real Anchored Retrieval Text
 - Dynamic Anchor State Reset for CPU Long-Context
@@ -366,7 +397,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Real Tiny-Model Evidence Ledger QA Probe
 - Tiny Transformer Dynamic Anchor Reset Confirmation
 
-### component:94 — 13 nodes {'signal': 10, 'source': 3}
+### component:92 — 13 nodes {'signal': 10, 'source': 3}
 - Canary Gradient Injection for Volunteer Validation
 - Commit-Reveal Anti-Plagiarism for Gradients
 - Commit-reveal anti-sybil for volunteer gradients
@@ -376,17 +407,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Neuron-Wise Activation Spot-Checks for Worker Honesty
 - Suffix-array speculative draft for local inference
 
-### component:34 — 11 nodes {'signal': 8, 'source': 3}
-- Adaptive Cascade Router with Latency SLO Enforcement
-- Dynamic KV Quantization for Multi-Model Residency
-- Evidence-Ledger Agents: Forcing Falsifiable Claims Before Actions
-- Evidence-Ledger Gating for Tool-Using Home Agent
-- Evidence-ledger gating in real tool-using LLM tasks
-- Sliding-Window Cascade with Streaming Long-Context Reranking
-- Speculative Cascade with Draft Model Warmed by Router Prefix
-- Speculative Decoding Draft-Size Ladder on GB10
-
-### component:43 — 11 nodes {'signal': 6, 'source': 5}
+### component:42 — 11 nodes {'signal': 6, 'source': 5}
 - Agent Evidence Ledger for Tool-Use Reliability
 - N-Gram Draft Speculative Decoding for Local LLMs
 - Online Independent Replay Verification for Real Multi-Tool Agent Ledgers
@@ -394,7 +415,7 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Replay Verification on Real Agent Framework Trace Formats
 - Trace Replay Validation for Agent Evidence Ledgers
 
-### component:44 — 10 nodes {'signal': 6, 'source': 4}
+### component:43 — 10 nodes {'signal': 6, 'source': 4}
 - Agent Evidence Ledger via Anchors
 - Anchor-KV Eviction for Long Context
 - Implementation replay of multi-anchor trace ledger tamper detection
@@ -402,34 +423,42 @@ Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.m
 - Queue-Depth Aware Dynamic Context
 - Real Trace Evidence Ledger with External Anchor Publication
 
-### component:93 — 10 nodes {'signal': 5, 'source': 5}
+### component:91 — 10 nodes {'signal': 5, 'source': 5}
 - Calibrated top-k QWED interpolation on a second real corpus
 - Depth-4 robustness validation of top-k QWED interpolation on GPT-2-small-class models
 - Recency-Weighted Co-occurrence Draft Table
 - Recency-weighted co-occurrence draft table on chronological real text
 - Replicate recency-weighted draft tables on a second timestamped corpus with BPE tokens
 
-### component:152 — 9 nodes {'signal': 5, 'source': 4}
+### component:150 — 9 nodes {'signal': 5, 'source': 4}
 - Crash-concurrent replay audit for raw-retained sharded evidence ledger
 - Evidence ledger for 100M-agent tool-use cascade
 - KV-cache n-gram speculative decoding for a 300M-class GB10 target
 - N-gram speculative draft for 300M local target on GB10
 - Sharded evidence ledger with raw blob retention and replay audit
 
-### component:169 — 9 nodes {'signal': 5, 'source': 4}
+### component:167 — 9 nodes {'signal': 5, 'source': 4}
 - Direct Local LLM Cascade Confidence Router Benchmark
 - LLM Small-Agent Evidence Ledger on Labeled Retrieval Tasks
 - Local Cascade Router with Tiny Confidence Oracle
 - Real labeled retrieval ledger test with a small instruction model
 - Small-Agent Evidence Ledger
 
-### component:42 — 9 nodes {'signal': 6, 'source': 3}
+### component:41 — 9 nodes {'signal': 6, 'source': 3}
 - Adversarial Ledger Red-Team
 - Capability-Masked Agent Policy
 - Ledger Self-Consistency Vote
 - LLM Agent Evidence Ledger Gate on Hidden-Ground-Truth Tool Tasks
 - Real Agent Evidence Ledger Integration
 - Tool Agent Evidence Ledger
+
+### component:5 — 9 nodes {'signal': 6, 'source': 3}
+- 1-Bit Weight Training From Scratch
+- Cumulative-Attention KV Eviction
+- Evidence-Ledger Agent Loop
+- KV-cache n-gram draft speculative decoding on representative corpora
+- LLM Tool-Agent Evidence Ledger Grounding Test
+- N-Gram Draft Speculative Decoding
 
 
 ## How to use this

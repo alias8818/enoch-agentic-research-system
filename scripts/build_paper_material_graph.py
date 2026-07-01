@@ -23,9 +23,10 @@ PRIVATE_PATH_ROOTS = (
     "/opt/enoch-control-plane",
     "/home/jeremy",
     "/root",
+    "/mnt/usb",
 )
 PRIVATE_IPV4 = re.compile(
-    r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b"
+    r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b"
 )
 LOCAL_ONLY_PUBLIC_TEXT = (
     "Local-only operational evidence is omitted from the public graph."

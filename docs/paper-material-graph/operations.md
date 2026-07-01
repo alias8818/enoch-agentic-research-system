@@ -1,26 +1,26 @@
 # Paper Material Graph Operations
 
-Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for the live topology and host-layout assumptions referenced below.
+Runtime context: see [current-runtime-snapshot.md](../current-runtime-snapshot.md) for the public role-level runtime snapshot referenced below.
 
 
 The paper material graph is a read-only export that turns Enoch's public paper corpus and promising-signal backlog into an inspectable graph for paper synthesis and negative-result mining.
 
-## Live host layout
+## Runtime role layout
 
-On the control-plane host:
+On the control-plane runtime role:
 
-- Script: `/opt/enoch-control-plane/scripts/build_paper_material_graph.py`
-- Wrapper: `/opt/enoch-control-plane/deploy/enoch_paper_material_graph.sh`
+- Script: `scripts/build_paper_material_graph.py`
+- Wrapper: `deploy/enoch_paper_material_graph.sh`
 - Service: `enoch-paper-material-graph.service`
 - Timer: `enoch-paper-material-graph.timer`
-- JSON graph: `/opt/enoch-control-plane/docs/paper-material-graph/paper-material-graph.json`
-- Markdown summary: `/opt/enoch-control-plane/docs/paper-material-graph/README.md`
-- Candidate packets: `/opt/enoch-control-plane/docs/paper-material-graph/candidates/{synthesis,negative}/*.md`
+- JSON graph: `docs/paper-material-graph/paper-material-graph.json`
+- Markdown summary: `docs/paper-material-graph/README.md`
+- Candidate packets: `docs/paper-material-graph/candidates/{synthesis,negative}/*.md`
 
 ## What it reads
 
-- Public corpus checkout: `/opt/enoch-release/enoch-ai-research-corpus`
-- Promising signals checkout: `/opt/enoch-release/enoch-promising-signals`
+- Public corpus checkout: `enoch-ai-research-corpus`
+- Promising signals checkout: `enoch-promising-signals`
 
 The export does not dispatch research jobs, resume queues, mutate control-plane state, or write to the public corpus. It only reads the two checkouts and writes graph artifacts under the control-plane docs directory.
 
@@ -54,7 +54,7 @@ Quick artifact check:
 ```bash
 python3 - <<'PY'
 import json, pathlib
-p = pathlib.Path('/opt/enoch-control-plane/docs/paper-material-graph/paper-material-graph.json')
+p = pathlib.Path('docs/paper-material-graph/paper-material-graph.json')
 g = json.loads(p.read_text())
 s = g['summary']
 print({
@@ -71,10 +71,9 @@ PY
 Queue safety check after running the graph export:
 
 ```bash
-# The graph export should not change these flags or dispatch counts.
-curl -sS -H "Authorization: Bearer $ENOCH_CONTROL_TOKEN" \
-  http://127.0.0.1:8787/control/api/v1/overview \
-  | jq '{flags, counts, top_actions: .top_actions[:2]}'
+# The graph export should not change operator flags or dispatch counts.
+# Query the control-plane overview endpoint through the deployment's configured
+# authenticated API route, then inspect flags/counts/top actions.
 ```
 
 ## Reading the outputs

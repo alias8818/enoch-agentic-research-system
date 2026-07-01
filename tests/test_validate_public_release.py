@@ -254,6 +254,7 @@ def test_hf_export_check_rejects_stale_dataset_summary(tmp_path) -> None:
         '{"artifact_count": 496, "promising_signal_count": 4, "promising_signal_data_file": "data/promising_signals.jsonl", "strict_claim_evidence_pass_count": 3, "strict_claim_evidence_total_count": 496}',
         encoding="utf-8",
     )
+    (data / "artifacts.jsonl").write_text("{}\n", encoding="utf-8")
     (data / "promising_signals.jsonl").write_text("{}\n{}\n{}\n{}\n", encoding="utf-8")
     (hf / "README.md").write_text(
         "This dataset contains 496 AI-generated research artifacts. "
@@ -310,6 +311,7 @@ def test_hf_export_check_accepts_promising_signal_split(tmp_path) -> None:
         }
         for index in range(2)
     ]
+    (data / "artifacts.jsonl").write_text("{}\n", encoding="utf-8")
     (data / "promising_signals.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
     )
@@ -352,6 +354,7 @@ def test_hf_export_check_rejects_malformed_promising_signal_rows(
         ),
         encoding="utf-8",
     )
+    (data / "artifacts.jsonl").write_text("{}\n", encoding="utf-8")
     (data / "promising_signals.jsonl").write_text("{}\n", encoding="utf-8")
     (hf / "README.md").write_text(
         "This dataset contains 1 AI-generated research artifacts. "
@@ -405,6 +408,7 @@ def test_hf_export_check_rejects_private_promising_signal_rows(
         ),
         encoding="utf-8",
     )
+    (data / "artifacts.jsonl").write_text("{}\n", encoding="utf-8")
     (data / "promising_signals.jsonl").write_text(
         json.dumps(row) + "\n", encoding="utf-8"
     )
@@ -752,5 +756,86 @@ def test_paper_material_graph_validation_rejects_private_lan_scan_details(
 
     assert any(
         "private network detail leaked in paper material graph" in item
+        for item in failures
+    )
+
+
+def test_hf_export_check_rejects_private_artifact_rows(tmp_path: Path) -> None:
+    hf = tmp_path / "hf"
+    data = hf / "data"
+    data.mkdir(parents=True)
+    (hf / "dataset_summary.json").write_text(
+        json.dumps(
+            {
+                "artifact_count": 1,
+                "promising_signal_count": 0,
+                "promising_signal_data_file": "data/promising_signals.jsonl",
+                "strict_claim_evidence_pass_count": 1,
+                "strict_claim_evidence_total_count": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (data / "artifacts.jsonl").write_text(
+        '{"paper":"served from http://127.0.0.1:18001/v1 with seed /mnt/usb<local-path-redacted>"}\n',
+        encoding="utf-8",
+    )
+    (data / "promising_signals.jsonl").write_text("", encoding="utf-8")
+    (hf / "README.md").write_text(
+        "This dataset contains 1 AI-generated research artifacts. "
+        "The current public corpus indexes **1 AI-generated research artifacts**. "
+        "Current strict claim/evidence audit status is **1 / 1 passing**. "
+        "The companion promising-signals split currently includes **0 bounded promising-signal rows**. "
+        "data/promising_signals.jsonl",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_hf_export(
+        hf,
+        artifact_count=1,
+        strict_pass_count=1,
+        promising_count=0,
+        failures=failures,
+    )
+
+    assert any("private path leaked in HF artifact export" in item for item in failures)
+    assert any(
+        "private network detail leaked in HF artifact export" in item
+        for item in failures
+    )
+
+
+def test_private_public_surface_check_rejects_corpus_and_signal_leaks(
+    tmp_path: Path,
+) -> None:
+    corpus_page = tmp_path / "paper.md"
+    signal_page = tmp_path / "signal.md"
+    corpus_page.write_text(
+        "Run used http://127.0.0.1:18001/v1 and seed /mnt/usb<local-path-redacted>.",
+        encoding="utf-8",
+    )
+    signal_page.write_text(
+        "56 ping-responsive remote peers and 28 SSH-like ports accepted non-interactive SSH.",
+        encoding="utf-8",
+    )
+    failures: list[str] = []
+
+    validate_public_release.check_private_public_surface(
+        [corpus_page], failures, surface="public corpus artifact"
+    )
+    validate_public_release.check_private_public_surface(
+        [signal_page], failures, surface="public promising-signal surface"
+    )
+
+    assert any(
+        "private path leaked in public corpus artifact" in item for item in failures
+    )
+    assert any(
+        "private network detail leaked in public corpus artifact" in item
+        for item in failures
+    )
+    assert any(
+        "private network detail leaked in public promising-signal surface" in item
         for item in failures
     )

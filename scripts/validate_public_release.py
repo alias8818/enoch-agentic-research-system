@@ -178,14 +178,16 @@ PRIVATE_GRAPH_PATH_ROOTS = (
     "/opt/enoch-control-plane",
     "/home/jeremy",
     "/root",
+    "/mnt/usb",
 )
 PRIVATE_IPV4 = re.compile(
-    r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b"
+    r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})\b"
 )
 PRIVATE_NETWORK_DETAIL = re.compile(
     r"\b(?:ping-responsive|ssh-like|non-interactive\s+ssh|remote\s+peers?)\b",
     re.I,
 )
+PRIVATE_PUBLIC_HOST = re.compile(r"\benoch-core\.exe\.xyz\b", re.I)
 
 
 def load_json(path: Path) -> dict:
@@ -764,6 +766,19 @@ def check_promising_signals_repo(
                 f"promising signal {project_id} public_evidence_copied must be false",
                 failures,
             )
+        row_text = json.dumps(record, sort_keys=True)
+        for private_root in PRIVATE_GRAPH_PATH_ROOTS:
+            if private_root in row_text:
+                fail(
+                    f"private path leaked in promising signal record {signals_path}:{project_id}: {private_root}",
+                    failures,
+                )
+        _check_private_network_details(
+            path=signals_path,
+            text=row_text,
+            surface="promising signal record",
+            failures=failures,
+        )
 
 
 def check_hf_export(
@@ -811,6 +826,14 @@ def check_hf_export(
         fail(
             f"HF export promising_signal_data_file {promising_file!r} != 'data/promising_signals.jsonl'",
             failures,
+        )
+    artifact_path = hf_export / "data" / "artifacts.jsonl"
+    if not artifact_path.exists():
+        fail(f"HF export missing artifact JSONL: {artifact_path}", failures)
+    else:
+        check_public_secret_tokens([artifact_path], failures)
+        check_private_public_surface(
+            [artifact_path], failures, surface="HF artifact export"
         )
     promising_path = hf_export / "data" / "promising_signals.jsonl"
     if not promising_path.exists():
@@ -946,12 +969,32 @@ def _check_graph_for_private_paths(path: Path, text: str, failures: list[str]) -
 def _check_private_network_details(
     *, path: Path, text: str, surface: str, failures: list[str]
 ) -> None:
-    for pattern in (PRIVATE_IPV4, PRIVATE_NETWORK_DETAIL):
+    for pattern in (PRIVATE_IPV4, PRIVATE_NETWORK_DETAIL, PRIVATE_PUBLIC_HOST):
         for match in pattern.finditer(text):
             fail(
                 f"private network detail leaked in {surface} {path}:{line_for(text, match.start())}: {match.group(0)}",
                 failures,
             )
+
+
+def check_private_public_surface(
+    paths: list[Path], failures: list[str], *, surface: str
+) -> None:
+    for path in paths:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for private_root in PRIVATE_GRAPH_PATH_ROOTS:
+            offset = text.find(private_root)
+            if offset != -1:
+                fail(
+                    f"private path leaked in {surface} {path}:{line_for(text, offset)}: {private_root}",
+                    failures,
+                )
+        _check_private_network_details(
+            path=path,
+            text=text,
+            surface=surface,
+            failures=failures,
+        )
 
 
 def _check_graph_markdown_count(
@@ -1137,8 +1180,15 @@ def _run_public_surface_validation(
     execute_corpus_validator: bool,
 ) -> None:
     promising_paths = promising_signal_public_paths(promising) if promising else []
+    corpus_artifact_paths = corpus_artifact_public_paths(corpus)
     check_public_secret_tokens(
-        public_paths + corpus_artifact_public_paths(corpus) + promising_paths, failures
+        public_paths + corpus_artifact_paths + promising_paths, failures
+    )
+    check_private_public_surface(
+        corpus_artifact_paths, failures, surface="public corpus artifact"
+    )
+    check_private_public_surface(
+        promising_paths, failures, surface="public promising-signal surface"
     )
     check_counts(
         public_paths,

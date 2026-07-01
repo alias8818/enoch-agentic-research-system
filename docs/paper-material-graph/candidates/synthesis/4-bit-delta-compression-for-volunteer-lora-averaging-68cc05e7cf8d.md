@@ -1,6 +1,6 @@
 # 4-bit Delta Compression for Volunteer LoRA Averaging
 
-Generated from graph: `2026-06-30T23:41:30.655739+00:00`
+Generated from graph: `2026-07-01T00:23:51.565667+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `synthesis`
 Signal: `signal:4-bit-delta-compression-for-volunteer-lora-averaging-68cc05e7cf8d`

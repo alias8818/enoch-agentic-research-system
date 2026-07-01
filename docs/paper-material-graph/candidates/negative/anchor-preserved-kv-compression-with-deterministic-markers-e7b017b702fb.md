@@ -1,6 +1,6 @@
 # Anchor-Preserved KV Compression with Deterministic Markers
 
-Generated from graph: `2026-06-30T23:41:30.655739+00:00`
+Generated from graph: `2026-07-01T00:23:51.565667+00:00`
 Runtime context: see [current-runtime-snapshot.md](../../current-runtime-snapshot.md) for live topology referenced by this packet.
 Candidate kind: `negative`
 Signal: `signal:anchor-preserved-kv-compression-with-deterministic-markers-e7b017b702fb`
