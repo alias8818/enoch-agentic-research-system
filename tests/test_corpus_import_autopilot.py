@@ -749,7 +749,7 @@ def test_maybe_github_metadata_catches_url_safety_and_json_errors(
         assert payload["reason"] == "github metadata update unavailable"
 
 
-def test_github_metadata_update_failure_does_not_skip_release_validation(
+def test_github_metadata_update_failure_skips_github_release_validation(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = tmp_path
@@ -805,7 +805,73 @@ def test_github_metadata_update_failure_does_not_skip_release_validation(
         )
 
     validate.assert_called_once()
-    assert validate.call_args.kwargs["skip_github_metadata"] is False
+    assert validate.call_args.kwargs["skip_github_metadata"] is True
+    assert json.loads(capsys.readouterr().out)["ok"] is True
+
+
+def test_promising_github_metadata_update_failure_skips_github_release_validation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path
+    system = root / "enoch-agentic-research-system"
+    corpus = root / "enoch-ai-research-corpus"
+    system.mkdir()
+    corpus.mkdir()
+    dry_payload = {"failed": 0, "imported": 1, "updated": 0, "errors": []}
+    import_payload = {"failed": 0, "imported": 1, "updated": 0, "errors": []}
+
+    with (
+        patch.object(
+            autopilot,
+            "_run",
+            return_value=CompletedProcess(
+                ["import"], 0, stdout=json.dumps(import_payload), stderr=""
+            ),
+        ),
+        patch.object(autopilot, "_corpus_rebuild", return_value=[]),
+        patch.object(
+            autopilot,
+            "_update_public_counts",
+            return_value={"stats": {"artifact_count": 393}},
+        ),
+        patch.object(autopilot, "_corpus_trust_checks", return_value=[]),
+        patch.object(
+            autopilot,
+            "_maybe_github_metadata",
+            return_value={
+                "corpus": {"repo": "alias8818/enoch-ai-research-corpus"},
+                "promising_signals": {
+                    "ok": False,
+                    "reason": "github promising signals metadata update unavailable",
+                },
+            },
+        ),
+        patch.object(autopilot, "_refresh_paper_material_graph", return_value={}),
+        patch.object(autopilot, "_git_changed_repos", return_value=[]),
+        patch.object(autopilot, "_autocommit_and_push", return_value=([], [])),
+        patch.object(autopilot, "_maybe_ledger_sync", return_value={}),
+        patch.object(
+            autopilot, "_validate_release", return_value={"ok": True}
+        ) as validate,
+    ):
+        assert (
+            autopilot._execute_live_corpus_import(
+                root=root,
+                system=system,
+                corpus=corpus,
+                base_url="http://127.0.0.1:8787",
+                limit=1,
+                token_file=tmp_path / "token",
+                skip_github=False,
+                dry_payload=dry_payload,
+                dry_run_attempts=1,
+                fast_forwarded=[],
+            )
+            == 0
+        )
+
+    validate.assert_called_once()
+    assert validate.call_args.kwargs["skip_github_metadata"] is True
     assert json.loads(capsys.readouterr().out)["ok"] is True
 
 

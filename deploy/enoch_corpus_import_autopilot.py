@@ -891,7 +891,8 @@ def _no_import_dry_run_exit(
                 root,
                 corpus,
                 ecosystem_manifest,
-                skip_github_metadata=skip_github,
+                skip_github_metadata=skip_github
+                or _github_metadata_update_unavailable(github_metadata),
             )
             changed_repos = _git_changed_repos(root)
             commits, pushed = _autocommit_and_push(root, dry_payload, count_update)
@@ -1056,6 +1057,17 @@ def _maybe_github_metadata(count_update: dict[str, Any]) -> dict[str, Any]:
     return metadata
 
 
+def _github_metadata_update_unavailable(github_metadata: dict[str, Any]) -> bool:
+    if not github_metadata:
+        return False
+    if github_metadata.get("ok") is False:
+        return True
+    for value in github_metadata.values():
+        if isinstance(value, dict) and value.get("ok") is False:
+            return True
+    return False
+
+
 def _autocommit_and_push(
     root: Path,
     live_payload: dict[str, Any],
@@ -1120,7 +1132,8 @@ def _execute_live_corpus_import(
         root,
         corpus,
         ecosystem_manifest,
-        skip_github_metadata=skip_github,
+        skip_github_metadata=skip_github
+        or _github_metadata_update_unavailable(github_metadata),
     )
     changed_repos = _git_changed_repos(root)
     commits, pushed = _autocommit_and_push(root, live_payload, count_update)
