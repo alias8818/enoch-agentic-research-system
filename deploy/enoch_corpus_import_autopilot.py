@@ -1098,7 +1098,12 @@ def _maybe_ledger_sync(
         repos = ", ".join(
             str(item.get("repo") or "<unknown>") for item in failed_pushes
         )
-        raise RuntimeError(f"ledger sync blocked by failed pushes: {repos}")
+        ledger_sync = _sync_corpus_ledger(system, corpus)
+        ledger_sync.setdefault("warnings", []).append(
+            f"push unavailable for {repos}; ledger sync completed but publication push remains advisory"
+        )
+        ledger_sync["push_blocker"] = repos
+        return ledger_sync
     return _sync_corpus_ledger(system, corpus)
 
 
