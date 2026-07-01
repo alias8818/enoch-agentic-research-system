@@ -1777,6 +1777,47 @@ def test_queue_alert_findings_suppresses_old_active_row_when_worker_is_live() ->
     assert findings == []
 
 
+def test_queue_alert_findings_treats_running_worker_state_as_live() -> None:
+    updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
+    status = SimpleNamespace(
+        flags=SimpleNamespace(queue_paused=False, maintenance_mode=False),
+        config=SimpleNamespace(live_dispatch_enabled=True),
+        conflicts=[],
+        active_items=[
+            {"project_id": "p", "current_run_id": "r", "updated_at": updated_at}
+        ],
+        warnings=[],
+        source_freshness={},
+        observations={
+            "worker_preflight": {
+                "payload": {
+                    "checks": [
+                        {
+                            "name": "wake_gate_runs",
+                            "data": {
+                                "body": {
+                                    "runs": [
+                                        {
+                                            "run_id": "r",
+                                            "state": "running",
+                                            "gate_state": "running",
+                                            "current_activity": "dispatched",
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    findings = queue_alert_findings(status, hang_after_sec=1)  # type: ignore[arg-type]
+
+    assert findings == []
+
+
 def test_queue_alert_findings_reads_live_worker_run_from_observation_model() -> None:
     updated_at = datetime(2026, 5, 15, 10, 0, tzinfo=timezone.utc)
     status = SimpleNamespace(
