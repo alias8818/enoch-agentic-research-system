@@ -491,6 +491,45 @@ def test_paper_material_graph_endpoint_requires_auth_and_reads_artifact(
     assert body["candidates"]["negative"][0]["title"] == "Blocked candidate"
 
 
+def test_paper_material_graph_endpoint_accepts_dashboard_session_cookie(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    graph_path = tmp_path / "paper-material-graph.json"
+    graph_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "paper_material_graph_v1",
+                "generated_at": "2026-06-07T02:22:36Z",
+                "summary": {
+                    "paper_count": 1,
+                    "signal_count": 0,
+                    "source_count": 0,
+                    "edge_count": 0,
+                    "similar_topic_edges": 0,
+                    "connected_component_count": 0,
+                    "synthesis_candidates": [],
+                    "negative_result_candidates": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "enoch_control_plane.control_plane.router.PAPER_MATERIAL_GRAPH_PATH",
+        graph_path,
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        client = _client(tmp)
+        created = client.post("/control/dashboard-v2/session", json={"token": TOKEN})
+        assert created.status_code == 200
+
+        response = client.get("/control/api/v1/paper-material-graph")
+
+    assert response.status_code == 200
+    assert response.json()["counts"]["paper_count"] == 1
+
+
 def test_writable_store_routes_openapi_documents_readonly_store_501() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         openapi = _client(tmp).get("/openapi.json").json()

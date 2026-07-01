@@ -1165,6 +1165,7 @@ REPO_ROOT_PATH = Path(__file__).resolve().parents[2]
 PAPER_MATERIAL_GRAPH_PATH = (
     REPO_ROOT_PATH / "docs" / "paper-material-graph" / "paper-material-graph.json"
 )
+DASHBOARD_SESSION_COOKIE_NAME = "enoch_dashboard_session"
 
 # Centralized reason constant for the top remaining S1192 duplication
 # (worker preflight error paths and messages in router.py).
@@ -9065,6 +9066,17 @@ def _exec_route_block(
 def _register_control_plane_paper_material_graph_route(
     router: APIRouter, require_bearer: RequireBearer
 ) -> None:
+    def _authorize_dashboard_read(
+        authorization: str | None, dashboard_session: str | None = None
+    ) -> None:
+        if authorization:
+            require_bearer(authorization)
+            return
+        if dashboard_session:
+            require_bearer(f"Bearer {dashboard_session}")
+            return
+        require_bearer(None)
+
     @router.get(
         "/api/v1/paper-material-graph",
         responses={
@@ -9075,8 +9087,11 @@ def _register_control_plane_paper_material_graph_route(
     )
     def dashboard_paper_material_graph(
         authorization: Annotated[str | None, Header()] = None,
+        dashboard_session: Annotated[
+            str | None, Cookie(alias=DASHBOARD_SESSION_COOKIE_NAME)
+        ] = None,
     ) -> dict[str, Any]:
-        require_bearer(authorization)
+        _authorize_dashboard_read(authorization, dashboard_session)
         return _paper_material_graph_response()
 
 
