@@ -534,6 +534,46 @@ def test_clean_export_validation_does_not_compare_to_racy_live_selection(
     assert exporter.validate_clean_export_repo(tmp_path) == []
 
 
+def test_clean_export_validation_blocks_new_internal_generated_sources(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        _row(
+            project_id="new-unsourced",
+            run_id="run-new-unsourced",
+            source_ids=[],
+            source_urls=[],
+            source_titles=[],
+            updated_at="2026-05-20T00:00:00Z",
+        )
+    ]
+    exporter.write_export(exporter.clean_export_rows(rows), tmp_path)
+
+    issues = exporter.validate_clean_export_repo(tmp_path)
+
+    assert issues == [
+        "source_backfill_policy.new_missing_source_lineage_blocked:new-unsourced:run-new-unsourced"
+    ]
+
+
+def test_clean_export_validation_allows_legacy_internal_generated_sources(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        _row(
+            project_id="legacy-unsourced",
+            run_id="run-legacy-unsourced",
+            source_ids=[],
+            source_urls=[],
+            source_titles=[],
+            updated_at="2026-05-18T00:00:00Z",
+        )
+    ]
+    exporter.write_export(exporter.clean_export_rows(rows), tmp_path)
+
+    assert exporter.validate_clean_export_repo(tmp_path) == []
+
+
 def test_new_missing_source_lineage_is_blocked_by_default_cutoff() -> None:
     rows = [
         _row(
