@@ -873,7 +873,7 @@ def test_promising_github_metadata_update_failure_skips_github_release_validatio
     assert json.loads(capsys.readouterr().out)["ok"] is True
 
 
-def test_ledger_sync_records_advisory_push_failures(
+def test_ledger_sync_blocks_required_push_failures_before_sync(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ENOCH_CORPUS_IMPORT_SYNC_LEDGER", "1")
@@ -886,12 +886,14 @@ def test_ledger_sync_records_advisory_push_failures(
     with patch.object(
         autopilot, "_sync_corpus_ledger", return_value={"ok": True}
     ) as sync:
-        result = autopilot._maybe_ledger_sync(tmp_path, tmp_path, pushed)
+        with pytest.raises(RuntimeError) as excinfo:
+            autopilot._maybe_ledger_sync(tmp_path, tmp_path, pushed)
 
-    sync.assert_called_once_with(tmp_path, tmp_path)
-    assert result["ok"] is True
-    assert result["push_blocker"] == "enoch-docs"
-    assert "push unavailable for enoch-docs" in result["warnings"][0]
+    sync.assert_not_called()
+    assert (
+        "ledger sync blocked because required publication push failed for enoch-docs"
+        in str(excinfo.value)
+    )
 
 
 def test_live_import_refreshes_paper_material_graph_before_reporting_success(
