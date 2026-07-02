@@ -651,15 +651,52 @@ def validate_repo_against_rows(
     return sorted(set(issues))
 
 
+def _source_backfill_policy_issues_from_exported_records(
+    records: Iterable[dict[str, Any]],
+    *,
+    created_after: str = DEFAULT_SOURCE_LINEAGE_CUTOFF,
+) -> list[str]:
+    """Return source-lineage policy issues for already-materialized records.
+
+    Clean-only validation intentionally does not re-read the live control-plane
+    selection, but it must still enforce the provenance boundary for the exact
+    records already written to the export repo. Queue/project metadata backfill
+    materializes as an ``internal_generated:<project_id>`` source, so new clean
+    exports containing that fallback source remain blocked here.
+    """
+    cutoff = _parse_time(created_after)
+    issues: list[str] = []
+    for record in records:
+        sources = (
+            record.get("sources") if isinstance(record.get("sources"), list) else []
+        )
+        if not any(
+            isinstance(source, dict)
+            and _text(source.get("source_id")).startswith("internal_generated:")
+            for source in sources
+        ):
+            continue
+        updated_at = _parse_time(record.get("updated_at"))
+        if cutoff and updated_at and updated_at >= cutoff:
+            issues.append(
+                "source_backfill_policy.new_missing_source_lineage_blocked:"
+                f"{_text(record.get('project_id'))}:{_text(record.get('run_id'))}"
+            )
+    return issues
+
+
 def validate_clean_export_repo(repo_root: Path) -> list[str]:
     """Validate a materialized clean-only export without re-reading live rows.
 
     The live control-plane selection can legitimately advance between the export
     step and the release-gate step. Clean-only validation therefore checks that
-    the generated repository is internally consistent and that its recorded
-    clean-selection count matches the generated records, rather than comparing
-    the just-written manifest to a second, racy database snapshot.
+    the generated repository is internally consistent, that its recorded
+    clean-selection count matches the generated records, and that the exact
+    materialized records still satisfy the source-lineage backfill policy.
+    It does not compare the just-written manifest to a second, racy database
+    snapshot.
     """
+    records = _records_from_repo(repo_root)
     issues = validate_export_repo(repo_root)
     manifest_path = repo_root / "data" / MANIFEST_JSON
     if not manifest_path.exists() or "manifest:invalid_json" in issues:
@@ -678,6 +715,15 @@ def validate_clean_export_repo(repo_root: Path) -> list[str]:
         issues.append(
             f"manifest.record_count:{manifest.get('record_count')} != export_cleanly_now:{export_cleanly_now}"
         )
+    issues.extend(
+        _source_backfill_policy_issues_from_exported_records(
+            records,
+            created_after=os.environ.get(
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF",
+                DEFAULT_SOURCE_LINEAGE_CUTOFF,
+            ),
+        )
+    )
     return sorted(set(issues))
 
 
