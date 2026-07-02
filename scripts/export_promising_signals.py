@@ -678,7 +678,54 @@ def validate_clean_export_repo(repo_root: Path) -> list[str]:
         issues.append(
             f"manifest.record_count:{manifest.get('record_count')} != export_cleanly_now:{export_cleanly_now}"
         )
+    issues.extend(
+        validate_materialized_source_backfill_policy(
+            _records_from_repo(repo_root),
+            created_after=os.environ.get(
+                "ENOCH_PROMISING_SIGNALS_SOURCE_CUTOFF",
+                DEFAULT_SOURCE_LINEAGE_CUTOFF,
+            ),
+        )
+    )
     return sorted(set(issues))
+
+
+def validate_materialized_source_backfill_policy(
+    records: Iterable[dict[str, Any]],
+    *,
+    created_after: str = DEFAULT_SOURCE_LINEAGE_CUTOFF,
+) -> list[str]:
+    """Block clean exports containing new internally generated source lineage.
+
+    Clean-only release validation intentionally avoids a second live database
+    snapshot, but it must still preserve the public provenance boundary. The
+    exporter marks rows repaired from queue/project metadata with an
+    ``internal_generated:<project_id>`` source, so the materialized repository
+    has enough information to reject newly updated records that only have this
+    synthetic lineage.
+    """
+    cutoff = _parse_time(created_after)
+    if cutoff is None:
+        return []
+    issues: list[str] = []
+    for record in records:
+        updated_at = _parse_time(record.get("updated_at"))
+        if updated_at is None or updated_at < cutoff:
+            continue
+        sources = (
+            record.get("sources") if isinstance(record.get("sources"), list) else []
+        )
+        if any(
+            _text(source.get("source_id")).startswith("internal_generated:")
+            for source in sources
+            if isinstance(source, dict)
+        ):
+            issues.append(
+                "source_backfill_policy."
+                "new_missing_source_lineage_blocked:"
+                f"{_text(record.get('project_id'))}:{_text(record.get('run_id'))}"
+            )
+    return issues
 
 
 def validate_source_backfill_policy(
